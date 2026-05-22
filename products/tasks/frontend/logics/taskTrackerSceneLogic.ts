@@ -6,7 +6,6 @@ import { subscriptions } from 'kea-subscriptions'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -29,16 +28,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'tasks', 'frontend', 'taskTrackerSceneLogic']),
 
     connect(() => ({
-        values: [
-            router,
-            ['location'],
-            userLogic,
-            ['user'],
-            tasksLogic,
-            ['tasks', 'repositories'],
-            preflightLogic,
-            ['isDev'],
-        ],
+        values: [router, ['location'], userLogic, ['user'], tasksLogic, ['tasks', 'repositories']],
         actions: [tasksLogic, ['loadTasks', 'loadRepositories', 'deleteTask']],
     })),
 
@@ -132,11 +122,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     }),
 
     selectors({
+        isStaff: [(s) => [s.user], (user): boolean => user?.is_staff ?? false],
         // All filters are pushed down to the backend via `loadTasks(listParams)` so results are
         // not limited by list pagination. The scene renders `tasks` (the loader output) directly.
         listParams: [
-            (s) => [s.searchQuery, s.repository, s.status, s.createdBy, s.showInternal, s.isDev],
-            (searchQuery, repository, status, createdBy, showInternal, isDev): TaskListParams => {
+            (s) => [s.searchQuery, s.repository, s.status, s.createdBy, s.showInternal, s.isStaff],
+            (searchQuery, repository, status, createdBy, showInternal, isStaff): TaskListParams => {
                 const params: TaskListParams = {}
                 if (searchQuery.trim()) {
                     params.search = searchQuery.trim()
@@ -150,7 +141,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (createdBy !== null) {
                     params.created_by = createdBy
                 }
-                if (showInternal && isDev) {
+                if (showInternal && isStaff) {
                     params.internal = true
                 }
                 return params

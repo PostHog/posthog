@@ -12,8 +12,8 @@ import time as _time
 import shutil
 import platform
 import importlib
-import importlib.util
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 import click
@@ -21,8 +21,16 @@ import click
 from hogli import telemetry
 from hogli.command_types import BinScriptCommand, CompositeCommand, DirectCommand, HogliCommand
 from hogli.hooks import post_command_hooks, telemetry_property_hooks
-from hogli.manifest import get_category_for_command, get_manifest, get_services_for_command, load_manifest
-from hogli.validate import auto_update_manifest, find_missing_manifest_entries
+from hogli.lazy_commands import add_commands_dir_to_path, add_repo_root_to_path, resolve_click_command
+from hogli.manifest import (
+    REPO_ROOT,
+    Manifest,
+    get_category_for_command,
+    get_manifest,
+    get_services_for_command,
+    load_manifest,
+)
+from hogli.validate import auto_update_manifest, find_missing_manifest_entries, find_orphan_manifest_entries
 
 _DEFAULT_HELP = "Developer CLI framework with YAML-based command definitions."
 
@@ -34,6 +42,26 @@ class CategorizedGroup(click.Group):
     tracking (timing, exit code) using ``ctx.meta`` for state instead of a
     module-level singleton.
     """
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        command = super().get_command(ctx, cmd_name)
+        if command is not None:
+            return command
+
+        config = get_manifest().get_command_config(cmd_name)
+        if not config or "click" not in config:
+            return None
+
+        return resolve_click_command(cmd_name, config["click"])
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        manifest_obj = get_manifest()
+        commands = {name for name in super().list_commands(ctx) if not manifest_obj.is_command_hidden(name)}
+        for cmd_name in manifest_obj.get_all_commands():
+            config = manifest_obj.get_command_config(cmd_name)
+            if config and "click" in config and not manifest_obj.is_command_hidden(cmd_name):
+                commands.add(cmd_name)
+        return sorted(commands)
 
     def invoke(self, ctx: click.Context) -> Any:
         ctx.meta["hogli.start_time"] = _time.monotonic()
@@ -64,14 +92,18 @@ class CategorizedGroup(click.Group):
         category_key_to_title = {cat.get("key"): cat.get("title") for cat in categories_list}
 
         # Set of commands that extend others (will be rendered under their parent)
-        child_commands = {child for parent in self.commands for child in manifest_obj.get_children_for_command(parent)}
+        child_commands = {
+            child
+            for parent in manifest_obj.get_all_commands()
+            for child in manifest_obj.get_children_for_command(parent)
+        }
 
         # Group commands by category, storing (key, title) tuple
         grouped: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
+        grouped_command_names: set[str] = set()
         for cmd_name, cmd in self.commands.items():
             # Skip hidden commands (they're still callable, just not shown in help)
-            hogli_config = getattr(cmd, "hogli_config", {})
-            if hogli_config.get("hidden", False):
+            if manifest_obj.is_command_hidden(cmd_name):
                 continue
 
             # Skip child commands - they'll be rendered under their parent
@@ -86,6 +118,21 @@ class CategorizedGroup(click.Group):
                 (key for key, title in category_key_to_title.items() if title == category_title), "commands"
             )
             grouped[(category_key, category_title)].append((cmd_name, help_text))
+            grouped_command_names.add(cmd_name)
+
+        for cmd_name in manifest_obj.get_all_commands():
+            config = manifest_obj.get_command_config(cmd_name)
+            if not config or "click" not in config or manifest_obj.is_command_hidden(cmd_name):
+                continue
+            if cmd_name in grouped_command_names or cmd_name in child_commands:
+                continue
+
+            category_title = get_category_for_command(cmd_name)
+            category_key = next(
+                (key for key, title in category_key_to_title.items() if title == category_title), "commands"
+            )
+            grouped[(category_key, category_title)].append((cmd_name, config.get("description", "")))
+            grouped_command_names.add(cmd_name)
 
         # Build category order from the list
         category_order = {idx: cat.get("key") for idx, cat in enumerate(categories_list)}
@@ -132,6 +179,10 @@ def _auto_update_manifest() -> None:
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - YAML-driven developer CLI."""
+    # Skip env loading during shell completion — completion fires this
+    # callback for every Tab press and doesn't need the env populated.
+    if not ctx.resilient_parsing:
+        _apply_env_config(ctx.invoked_subcommand)
     # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
     # Skip during git hooks to prevent manifest modifications during lint-staged execution
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
@@ -150,16 +201,22 @@ def cli(ctx: click.Context) -> None:
 
 @cli.command(name="meta:check", help="Validate manifest against bin scripts (for CI)")
 def meta_check() -> None:
-    """Validate that all bin scripts are in the manifest."""
+    """Validate that bin scripts and manifest entries stay in sync."""
     missing = find_missing_manifest_entries()
+    orphans = find_orphan_manifest_entries()
 
-    if not missing:
-        click.echo("✓ All bin scripts are in the manifest")
+    if not missing and not orphans:
+        click.echo("✓ All bin scripts are in the manifest and all manifest entries resolve")
         return
 
-    click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
-    for script in sorted(missing):
-        click.echo(f"  - {script}")
+    if missing:
+        click.echo(f"✗ Found {len(missing)} bin script(s) not in manifest:")
+        for script in sorted(missing):
+            click.echo(f"  - {script}")
+    if orphans:
+        click.echo(f"✗ Found {len(orphans)} manifest entr(ies) with no matching bin script:")
+        for cmd in sorted(orphans):
+            click.echo(f"  - {cmd}")
 
     raise SystemExit(1)
 
@@ -209,13 +266,186 @@ def concepts() -> None:
         click.echo()
 
 
+# Sentinel that prevents `_apply_env_config` from re-execing into the wrap
+# command in an infinite loop. Set by hogli right before exec'ing the wrap
+# binary; checked at the top of `_apply_env_config` on subsequent invocations.
+_SECRETS_WRAPPED_ENV = "HOGLI_SECRETS_WRAPPED"
+
+# Substituted to the absolute path of the secrets file when building the wrap
+# argv. Kept as a constant so the README, AGENTS.md, and runtime stay in sync.
+_WRAP_FILE_PLACEHOLDER = "{file}"
+
+# Built-in commands whose contract is "forward the resolved env" (e.g.
+# `hogli run`). Manifest commands opt in via `needs_secrets: true`.
+_BUILTIN_COMMANDS_NEEDING_SECRETS = frozenset({"run"})
+
+
+def _load_env_file(
+    path: os.PathLike[str],
+    only_if_unset: bool = True,
+    skip_pattern: str | None = None,
+) -> None:
+    """Load environment variables from a dotenv file (KEY=VALUE, # comments).
+
+    Args:
+        path: Path to the env file. Missing files are silently skipped
+            (matches just/mise/task convention so optional `.env.local` etc.
+            don't error).
+        only_if_unset: If True (default), don't overwrite existing env vars.
+            Lets shell env always win.
+        skip_pattern: If set, any line whose VALUE substring-matches this
+            pattern is skipped entirely. Used to keep secret-reference lines
+            (e.g. `op://...`) from leaking into the environment as literal
+            strings when the resolver isn't available. None disables filtering.
+    """
+    env_file = Path(path)
+    if not env_file.exists():
+        return
+
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if skip_pattern and skip_pattern in value:
+            continue
+        if only_if_unset and name in os.environ:
+            continue
+        os.environ[name] = value
+
+
+def _apply_env_config(invoked_subcommand: str | None = None) -> None:
+    """Apply ``config.env`` from hogli.yaml: load files, optionally re-exec via wrap.
+
+    - No ``config.env``: no-op.
+    - ``config.env.files``: each file loaded with only_if_unset=True; first
+      listed wins for duplicate keys; shell env always wins.
+    - ``config.env.secrets``: secrets file. Wrap re-exec is gated on
+      ``_command_needs_secrets`` — when open, the file exists, the marker
+      matches, and ``wrap[0]`` is on PATH, set the ``HOGLI_SECRETS_WRAPPED``
+      sentinel and ``execvp`` into the wrap (which re-runs hogli with
+      secrets resolved). Otherwise load the file directly with
+      marker-matching lines skipped, so unresolved refs don't leak as
+      literal env values.
+
+    Precedence (highest wins): shell env > secrets file > env files.
+    """
+    manifest = get_manifest()
+    try:
+        secrets = manifest.secrets_config
+        env_files = manifest.env_files
+    except ValueError as e:
+        click.echo(f"⚠️  Invalid config.env in hogli.yaml: {e}", err=True)
+        return
+
+    # Don't pop: subprocesses spawned by composite/steps commands need to
+    # inherit this so they skip a redundant wrap re-exec. In-process callers
+    # that want to retrigger the wrap must clear it themselves.
+    already_wrapped = _SECRETS_WRAPPED_ENV in os.environ
+
+    if secrets is not None and not already_wrapped:
+        if _command_needs_secrets(invoked_subcommand, manifest):
+            _maybe_reexec_via_wrap(secrets, env_files)
+
+        # Load secrets BEFORE env_files so .env.local literals override
+        # .env.development / .env.services — matches the wrap-resolved
+        # path's precedence (where op layers .env.local on top).
+        _load_env_file(secrets["file"], only_if_unset=True, skip_pattern=secrets["marker"])
+
+    for path in env_files:
+        _load_env_file(path, only_if_unset=True)
+
+
+def _command_needs_secrets(invoked_subcommand: str | None, manifest: Manifest) -> bool:
+    """Whether the invoked command opts into the secret wrap.
+
+    Two sources, in order: built-in framework commands
+    (``_BUILTIN_COMMANDS_NEEDING_SECRETS``), then ``needs_secrets: true`` on
+    the manifest entry. Default False — most commands don't need secrets and
+    shouldn't pay the wrap cost.
+    """
+    if not invoked_subcommand:
+        return False
+    if invoked_subcommand in _BUILTIN_COMMANDS_NEEDING_SECRETS:
+        return True
+    cmd_config = manifest.get_command_config(invoked_subcommand) or {}
+    return bool(cmd_config.get("needs_secrets"))
+
+
+def _maybe_reexec_via_wrap(secrets: dict[str, Any], env_files: list[Path]) -> None:
+    """Re-exec hogli under the configured wrap command if the secrets file warrants it.
+
+    Returns normally if no re-exec is needed (caller falls through to direct
+    file loading). Otherwise replaces the current process via ``os.execvp``.
+    """
+    secrets_file: Path = secrets["file"]
+    marker: str = secrets["marker"]
+    wrap: list[str] | None = secrets["wrap"]
+
+    if wrap is None or not secrets_file.exists():
+        return
+
+    # Marker-gated re-exec: only wrap when the file actually references the
+    # external resolver. Saves a process exec on dev workflows that haven't
+    # set up secrets yet.
+    try:
+        if marker not in secrets_file.read_text():
+            return
+    except OSError:
+        return
+
+    wrap_binary = wrap[0]
+    if not shutil.which(wrap_binary):
+        click.echo(
+            f"⚠️  {secrets_file.name} contains '{marker}' refs but the configured wrap binary "
+            f"'{wrap_binary}' is not on PATH.",
+            err=True,
+        )
+        click.echo(
+            f"   Refs will be skipped — services that need them will fail with their own errors. "
+            f"Install '{wrap_binary}' or replace the refs with literal values in {secrets_file.name}.",
+            err=True,
+        )
+        return
+
+    # Pre-load non-secrets files so the wrap binary's child inherits them.
+    # The wrap binary layers secrets on top, overriding these for any key
+    # also defined in the secrets file.
+    for path in env_files:
+        _load_env_file(path, only_if_unset=True)
+
+    resolved_wrap = [arg.replace(_WRAP_FILE_PLACEHOLDER, str(secrets_file)) for arg in wrap]
+    os.environ[_SECRETS_WRAPPED_ENV] = "1"
+    os.execvp(resolved_wrap[0], [*resolved_wrap, sys.executable, "-m", "hogli", *sys.argv[1:]])
+
+
+@cli.command(name="run", help="Run a command with the manifest's resolved environment")
+@click.argument("command", nargs=-1, required=True)
+def run_with_env(command: tuple[str, ...]) -> None:
+    """Run a command with the env loaded from ``config.env`` in hogli.yaml.
+
+    Env loading (files + optional wrap) is applied by the parent ``cli()``
+    group before this command runs, so by the time we get here ``os.environ``
+    already reflects whatever the manifest declared. This command is just a
+    thin ``execvp`` so callers don't need to repeat the wrapper pattern.
+
+    Examples:
+        hogli run ./manage.py shell
+        hogli run pytest posthog/api/
+    """
+    os.execvp(command[0], list(command))
+
+
 def _register_script_commands() -> None:
     """Dynamically register commands from hogli.yaml.
 
-    Supports three types of entries:
-    1. bin_script: Delegate to a shell script (in config.scripts_dir, default: bin/)
-    2. steps: Compose multiple hogli commands in sequence
-    3. cmd: Execute a direct shell command
+    Supports four eagerly registered entry types:
+    1. ``steps:`` — compose multiple hogli commands in sequence.
+    2. ``cmd:`` — execute a direct shell command.
+    3. ``hogli:`` — wrap another hogli command with extra args.
+    4. ``bin_script:`` — delegate to a shell script in ``config.scripts_dir``.
+
+    ``click:`` entries are resolved lazily by ``CategorizedGroup.get_command``.
     """
     manifest = get_manifest()
     scripts_dir = manifest.scripts_dir
@@ -228,105 +458,56 @@ def _register_script_commands() -> None:
             if not isinstance(config, dict):
                 continue
 
-            # Determine command type
-            bin_script = config.get("bin_script")
             steps = config.get("steps")
             cmd = config.get("cmd")
             hogli = config.get("hogli")
+            bin_script = config.get("bin_script")
 
-            if not (bin_script or steps or cmd or hogli):
+            if "click" in config:
                 continue
 
-            # Handle composition (steps field)
             if steps:
-                command = CompositeCommand(cli_name, config)
-                command.register(cli)
+                CompositeCommand(cli_name, config).register(cli)
                 continue
 
-            # Handle direct commands (cmd field)
             if cmd:
-                command = DirectCommand(cli_name, config)
-                command.register(cli)
+                DirectCommand(cli_name, config).register(cli)
                 continue
 
-            # Handle hogli wrapper commands (hogli field)
             if hogli:
-                command = HogliCommand(cli_name, config)
-                command.register(cli)
+                HogliCommand(cli_name, config).register(cli)
                 continue
 
-            # Handle bin_script delegation
             if bin_script:
                 script_path = scripts_dir / bin_script
-                if not script_path.exists():
-                    continue
-
-                command = BinScriptCommand(cli_name, config, script_path)
-                command.register(cli)
+                if script_path.exists():
+                    BinScriptCommand(cli_name, config, script_path).register(cli)
 
 
-# Register all script commands from manifest before app runs
-_register_script_commands()
+def _load_boot_modules() -> None:
+    """Import modules listed in ``config.boot_modules`` once at startup.
 
-
-def _import_custom_commands() -> None:
-    """Import custom commands from configured commands_dir.
-
-    Looks for commands in:
-    1. config.commands_dir in hogli.yaml (e.g., tools/hogli-commands/hogli_commands)
-    2. Default: hogli/ folder next to hogli.yaml
+    Boot modules register precheck handlers, telemetry property hooks, and
+    post-command hooks against ``hogli.hooks``. They run eagerly so the hooks
+    are populated before the first command dispatches. They must be cheap to
+    import — keep heavy work behind lazy imports inside handler bodies. Any
+    import failure aborts hogli, so these are validated implicitly by every
+    test that invokes the CLI.
     """
     manifest = get_manifest()
-    commands_dir = manifest.commands_dir
+    add_repo_root_to_path(REPO_ROOT)
+    add_commands_dir_to_path(manifest.commands_dir)
 
-    if not commands_dir:
-        return
-
-    # Skip if the commands package or any of its submodules is already in sys.modules.
-    # Submodules are what carry `@cli.command` decorators, so re-importing would create
-    # a second module object and duplicate registrations against different module
-    # identities, which breaks test patches that target one path or the other.
-    # NOTE: commands_dir should NOT be named "hogli" to avoid clobbering the hogli package
-    package_name = commands_dir.name
-    for mod_name in sys.modules:
-        if mod_name == package_name or mod_name.startswith(package_name + "."):
-            return
-
-    # Add commands dir to path so imports work
-    parent_dir = str(commands_dir.parent)
-    if parent_dir not in sys.path:
-        sys.path.insert(0, parent_dir)
-
-    try:
-        importlib.import_module(package_name)
-        return
-    except ModuleNotFoundError:
-        # The package itself isn't importable via sys.path - fall back to file-spec load.
-        # Narrower than ImportError so that a broken import *inside* the package
-        # (e.g. a typo in one of its modules) still surfaces instead of being swallowed.
-        pass
-
-    # Fallback: manual load via file spec when the package isn't on sys.path in the normal sense
-    init_file = commands_dir / "__init__.py"
-    commands_file = commands_dir / "commands.py"
-
-    if init_file.exists():
-        spec = importlib.util.spec_from_file_location(
-            package_name, init_file, submodule_search_locations=[str(commands_dir)]
-        )
-        if spec and spec.loader:
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[package_name] = module
-            spec.loader.exec_module(module)
-    elif commands_file.exists():
-        spec = importlib.util.spec_from_file_location(f"{package_name}.commands", commands_file)
-        if spec and spec.loader:
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
+    for module_path in manifest.config.get("boot_modules", []):
+        if module_path not in sys.modules:
+            importlib.import_module(module_path)
 
 
-# Import custom commands from configured location
-_import_custom_commands()
+# Register all script commands from manifest, then trigger boot modules so
+# any framework-extension hooks (prechecks, telemetry props, post-command
+# hints) are registered before the first command runs.
+_register_script_commands()
+_load_boot_modules()
 
 
 def _env_properties(command: str | None = None) -> dict[str, Any]:

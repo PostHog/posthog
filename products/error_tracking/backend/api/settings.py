@@ -23,10 +23,27 @@ class ErrorTrackingSettingsSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Bucket window over which the project-wide rate limit applies, in minutes.",
     )
+    per_issue_rate_limit_value = serializers.IntegerField(
+        min_value=1,
+        allow_null=True,
+        required=False,
+        help_text="Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.",
+    )
+    per_issue_rate_limit_bucket_size_minutes = serializers.IntegerField(
+        min_value=1,
+        allow_null=True,
+        required=False,
+        help_text="Bucket window over which the per-issue rate limit applies, in minutes.",
+    )
 
     class Meta:
         model = ErrorTrackingSettings
-        fields = ["project_rate_limit_value", "project_rate_limit_bucket_size_minutes"]
+        fields = [
+            "project_rate_limit_value",
+            "project_rate_limit_bucket_size_minutes",
+            "per_issue_rate_limit_value",
+            "per_issue_rate_limit_bucket_size_minutes",
+        ]
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])

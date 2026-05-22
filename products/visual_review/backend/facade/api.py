@@ -20,10 +20,29 @@ from uuid import UUID
 from django.contrib.auth import get_user_model
 
 from .. import logic
+from ..diff_metadata import DiffMetadata
 from . import contracts
 from .enums import ReviewDecision
 
 User = get_user_model()
+
+# Server-owned run.metadata keys — never accept these from client input.
+# Allowing clients to set these would let them target arbitrary GitHub
+# comments for PATCH, or spoof baseline commit SHAs in the audit trail.
+_RESERVED_RUN_METADATA_KEYS = frozenset(
+    {
+        "github_comment_id",
+        "baseline_commit_sha",
+        "baseline_healed_from_merge_base",
+    }
+)
+
+
+def _sanitize_run_metadata(metadata: dict | None) -> dict:
+    if not metadata:
+        return {}
+    return {k: v for k, v in metadata.items() if k not in _RESERVED_RUN_METADATA_KEYS}
+
 
 # Re-export exceptions for callers
 RepoNotFoundError = logic.RepoNotFoundError
@@ -55,10 +74,45 @@ def _to_artifact(artifact, repo_id: UUID) -> contracts.Artifact:
     )
 
 
+def _parse_diff_metadata(
+    diff_metadata_raw: dict | None,
+) -> tuple[contracts.ClusterSummary | None, bool]:
+    """Translate the compact storage shape into the verbose wire shape.
+
+    Returns `(cluster_summary, size_mismatch)`. The cluster_summary side
+    is None for legacy rows and identical-pair rows; size_mismatch
+    defaults to False everywhere it isn't explicitly recorded.
+    """
+    if not diff_metadata_raw:
+        return None, False
+    parsed = DiffMetadata.model_validate(diff_metadata_raw)
+    cluster_summary: contracts.ClusterSummary | None = None
+    if parsed.cluster_summary is not None:
+        cs = parsed.cluster_summary
+        cluster_summary = contracts.ClusterSummary(
+            items=[
+                contracts.DiffCluster(
+                    x=c.bbox[0],
+                    y=c.bbox[1],
+                    width=c.bbox[2],
+                    height=c.bbox[3],
+                    pixel_count=c.px,
+                    centroid_x=c.centroid[0],
+                    centroid_y=c.centroid[1],
+                )
+                for c in cs.items
+            ],
+            total=cs.total,
+            truncated=cs.truncated,
+        )
+    return cluster_summary, parsed.size_mismatch
+
+
 def _to_snapshot(
     snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.Snapshot:
     reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
+    cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
         identifier=snapshot.identifier,
@@ -76,6 +130,10 @@ def _to_snapshot(
         is_quarantined=snapshot.is_quarantined,
         reviewed_by=reviewed_by,
         metadata=snapshot.metadata or {},
+        ssim_score=snapshot.ssim_score,
+        change_kind=snapshot.change_kind or "",
+        cluster_summary=cluster_summary,
+        size_mismatch=size_mismatch,
     )
 
 
@@ -176,6 +234,11 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
     """
     raw = logic.get_baselines_overview(repo_id)
 
+    # Hydrate UserBasicInfo for everyone who created an active quarantine so the
+    # overview can show "Quarantined by X" without a per-card fetch.
+    quarantine_user_ids = {q.created_by_id for q in raw.active_quarantines_by_key.values() if q.created_by_id}
+    quarantine_user_infos = _fetch_user_basic_infos(quarantine_user_ids)
+
     entries: list[contracts.BaselineEntry] = []
     for snapshot in raw.entries:
         identifier = snapshot.identifier
@@ -186,6 +249,7 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         # different run types is a different baseline.
         key = (run.run_type, identifier)
         metadata = snapshot.metadata or {}
+        active_quarantine = raw.active_quarantines_by_key.get(key)
         entries.append(
             contracts.BaselineEntry(
                 identifier=identifier,
@@ -196,10 +260,15 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
                 height=artifact.height if artifact is not None else None,
                 tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
                 tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
-                is_quarantined=key in raw.quarantined_ids,
+                is_quarantined=active_quarantine is not None,
                 last_run_at=run.completed_at or run.created_at,
                 baseline_change_count=raw.change_count_by_key.get(key, 0),
                 recent_drift_avg=raw.recent_drift_by_key.get(key),
+                quarantine=(
+                    _to_baseline_quarantine_summary(active_quarantine, quarantine_user_infos)
+                    if active_quarantine is not None
+                    else None
+                ),
             )
         )
 
@@ -269,7 +338,7 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
         unchanged_count=input.unchanged_count,
         removed_identifiers=list(input.removed_identifiers),
         purpose=input.purpose,
-        metadata=dict(input.metadata) if input.metadata else {},
+        metadata=_sanitize_run_metadata(input.metadata),
     )
 
     upload_targets = [
@@ -342,6 +411,13 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
             diff_percentage=e.diff_percentage,
             review_state=e.review_state,
             current_artifact=_to_artifact(e.current_artifact, repo_id) if e.current_artifact else None,
+            ssim_score=e.ssim_score,
+            change_kind=e.change_kind or "",
+            # Read the flag directly instead of round-tripping through the
+            # full Pydantic parse — `cluster_summary` isn't on the history
+            # entry contract and we'd just be allocating cluster dataclasses
+            # to throw away. The default mirrors `DiffMetadata.size_mismatch`.
+            size_mismatch=bool((e.diff_metadata or {}).get("size_mismatch", False)),
         )
         for e in entries
     ]
@@ -444,10 +520,32 @@ def _fetch_user_basic_infos(user_ids: set[int]) -> dict[int, contracts.UserBasic
     return {u.id: _to_user_basic(u) for u in users}
 
 
+def _to_quarantine_source_run(run) -> contracts.QuarantineSourceRun | None:
+    if run is None:
+        return None
+    return contracts.QuarantineSourceRun(
+        id=run.id,
+        branch=run.branch,
+        commit_sha=run.commit_sha,
+        created_at=run.created_at,
+        pr_number=run.pr_number,
+    )
+
+
+def _quarantine_common_fields(
+    q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None
+) -> tuple[contracts.UserBasicInfo | None, contracts.QuarantineSourceRun | None]:
+    """Fields shared by both quarantine DTOs. Callers must ensure `q.source_run`
+    is preloaded — list/overview use `select_related`, and the create path
+    attaches the resolved Run directly — so accessing it never lazy-loads."""
+    created_by = (user_basic_infos or {}).get(q.created_by_id) if q.created_by_id else None
+    return created_by, _to_quarantine_source_run(q.source_run)
+
+
 def _to_quarantined_entry(
     q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.QuarantinedIdentifierEntry:
-    created_by = (user_basic_infos or {}).get(q.created_by_id) if q.created_by_id else None
+    created_by, source_run = _quarantine_common_fields(q, user_basic_infos)
     return contracts.QuarantinedIdentifierEntry(
         id=q.id,
         identifier=q.identifier,
@@ -457,6 +555,21 @@ def _to_quarantined_entry(
         created_at=q.created_at,
         updated_at=q.updated_at,
         created_by=created_by,
+        source_run=source_run,
+    )
+
+
+def _to_baseline_quarantine_summary(
+    q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
+) -> contracts.BaselineQuarantineSummary:
+    created_by, source_run = _quarantine_common_fields(q, user_basic_infos)
+    return contracts.BaselineQuarantineSummary(
+        id=q.id,
+        reason=q.reason,
+        expires_at=q.expires_at,
+        created_at=q.created_at,
+        created_by=created_by,
+        source_run=source_run,
     )
 
 
@@ -478,6 +591,7 @@ def quarantine_identifier(
         run_type=run_type,
         reason=input.reason,
         expires_at=input.expires_at,
+        source_run_id=input.source_run_id,
         user_id=user_id,
         team_id=team_id,
     )

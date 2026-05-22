@@ -9,7 +9,7 @@ import { IconTrending } from '@posthog/icons'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { humanFriendlyLargeNumber } from 'lib/utils'
-import { VariantTag } from 'scenes/experiments/ExperimentView/components'
+import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 
@@ -118,7 +118,7 @@ interface CollapsibleBreakdownSectionProps {
     onRetry: () => void
     query?: Record<string, any>
     handleTooltipMouseEnter: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
-    handleTooltipMouseLeave: () => void
+    handleTooltipMouseLeave: (e: React.MouseEvent) => void
     handleTooltipMouseMove: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
 }
 
@@ -477,6 +477,7 @@ interface MetricRowGroupProps {
     isLastMetric: boolean
     isAlternatingRow: boolean
     onDuplicateMetric?: () => void
+    onDeleteMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
     error?: any
@@ -497,6 +498,7 @@ export function MetricRowGroup({
     isLastMetric,
     isAlternatingRow,
     onDuplicateMetric,
+    onDeleteMetric,
     onBreakdownChange,
     onRemoveBreakdown,
     error,
@@ -534,6 +536,28 @@ export function MetricRowGroup({
         }
     }
 
+    const hideTooltipState = (): void => {
+        setTooltipState((prev) => ({
+            ...prev,
+            isVisible: false,
+            variantResult: null,
+            isPositioned: false,
+        }))
+    }
+
+    const scheduleTooltipClose = (): void => {
+        clearTooltipCloseTimer()
+        tooltipCloseTimerRef.current = setTimeout(() => {
+            tooltipCloseTimerRef.current = null
+            hideTooltipState()
+        }, 150)
+    }
+
+    const closeTooltipNow = (): void => {
+        clearTooltipCloseTimer()
+        hideTooltipState()
+    }
+
     useEffect(() => {
         return () => {
             clearTooltipCloseTimer()
@@ -561,8 +585,6 @@ export function MetricRowGroup({
               experiment_id: experiment.id,
           }
         : undefined
-
-    const timeseriesEnabled = experiment.scheduling_config?.timeseries
 
     // Helper function to calculate tooltip position
     const calculateTooltipPosition = (
@@ -612,18 +634,17 @@ export function MetricRowGroup({
         })
     }
 
-    // Defer closing so the user can move onto the portaled tooltip without it disappearing.
-    const handleTooltipMouseLeave = (): void => {
-        clearTooltipCloseTimer()
-        tooltipCloseTimerRef.current = setTimeout(() => {
-            tooltipCloseTimerRef.current = null
-            setTooltipState((prev) => ({
-                ...prev,
-                isVisible: false,
-                variantResult: null,
-                isPositioned: false,
-            }))
-        }, 150)
+    // The portaled tooltip sits above the row. Defer closing only when the cursor
+    // exits upward (toward the tooltip) so the click affordance is reachable.
+    // Sideways or downward exits — i.e. moving to another variant row — close
+    // immediately so row-to-row transitions stay snappy.
+    const handleTooltipMouseLeave = (e: React.MouseEvent): void => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        if (e.clientY <= rect.top + 1) {
+            scheduleTooltipClose()
+        } else {
+            closeTooltipNow()
+        }
     }
 
     const handleTooltipMouseMove = (e: React.MouseEvent, variantResult: ExperimentVariantResult): void => {
@@ -682,6 +703,7 @@ export function MetricRowGroup({
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                            onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                             onBreakdownChange={onBreakdownChange}
                         />
                     </td>
@@ -748,21 +770,29 @@ export function MetricRowGroup({
                 createPortal(
                     <div
                         ref={tooltipRef}
-                        className={`fixed bg-bg-light border border-border px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[280px] ${timeseriesEnabled ? 'cursor-pointer hover:border-primary' : ''}`}
+                        className="fixed bg-bg-light border border-border px-3 py-2 rounded-md text-[13px] shadow-md z-[100] min-w-[280px] cursor-pointer hover:border-primary"
                         style={{
                             left: tooltipState.position.x,
                             top: tooltipState.position.y,
                             visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
                         }}
                         onMouseEnter={clearTooltipCloseTimer}
-                        onMouseLeave={handleTooltipMouseLeave}
+                        onMouseLeave={(e) => {
+                            // Defer only when leaving downward — toward a row that may pick the tooltip back up.
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            if (e.clientY >= rect.bottom - 1) {
+                                scheduleTooltipClose()
+                            } else {
+                                closeTooltipNow()
+                            }
+                        }}
                         onClick={
-                            timeseriesEnabled && tooltipState.variantResult
+                            tooltipState.variantResult
                                 ? () => handleTimeseriesClick(tooltipState.variantResult!)
                                 : undefined
                         }
                     >
-                        {renderTooltipContent(tooltipState.variantResult, metric, timeseriesEnabled)}
+                        {renderTooltipContent(tooltipState.variantResult, metric)}
                     </div>,
                     document.body
                 )}
@@ -782,6 +812,7 @@ export function MetricRowGroup({
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                        onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                         onBreakdownChange={onBreakdownChange}
                     />
                 </td>
@@ -983,7 +1014,7 @@ export function MetricRowGroup({
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
                             isSecondary={isSecondary}
-                            onTimeseriesClick={timeseriesEnabled ? () => handleTimeseriesClick(variant) : undefined}
+                            onTimeseriesClick={() => handleTimeseriesClick(variant)}
                         />
                     </tr>
                 )

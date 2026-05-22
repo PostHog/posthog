@@ -100,11 +100,11 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         """Test that flags from teams the user cannot access are not returned."""
         from posthog.constants import AvailableFeature
 
-        # Enable advanced permissions for the organization
+        # Enable access control for the organization
         self.organization.available_product_features = [
             {
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ACCESS_CONTROL,
+                "key": AvailableFeature.ACCESS_CONTROL,
             }
         ]
         self.organization.save()
@@ -582,11 +582,11 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         from ee.models.rbac.access_control import AccessControl
 
-        # Enable advanced permissions for the organization
+        # Enable access control for the organization
         self.organization.available_product_features = [
             {
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ACCESS_CONTROL,
+                "key": AvailableFeature.ACCESS_CONTROL,
             }
         ]
         self.organization.save()

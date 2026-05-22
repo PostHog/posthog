@@ -58,12 +58,17 @@ interface UseChartInteractionOptions<Meta> {
     pinnable: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
     resolveValue?: ResolveValueFn
+    /** Value used to *anchor* the tooltip per series. Defaults to `resolveValue`. Stacked
+     *  charts pass the stacked-top resolver so the anchor lands at the visual top of each
+     *  segment while each tooltip row still shows its own value via `resolveValue`. */
+    resolvePositionValue?: ResolveValueFn
     interactionAxis?: 'x' | 'y'
     labelToCoord?: (label: string) => number | undefined
 }
 
 interface UseChartInteractionResult<Meta> {
     hoverIndex: number
+    hoverPosition: { x: number; y: number } | null
     tooltipCtx: TooltipContext<Meta> | null
     handlers: {
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
@@ -83,10 +88,15 @@ export function useChartInteraction<Meta = unknown>({
     pinnable,
     onPointClick,
     resolveValue = defaultResolveValue,
+    resolvePositionValue,
     interactionAxis = 'x',
     labelToCoord,
 }: UseChartInteractionOptions<Meta>): UseChartInteractionResult<Meta> {
+    // Falls back to the value resolver when the chart doesn't distinguish position from
+    // value (i.e. non-stacked charts, where the two are identical).
+    const effectivePositionResolve = resolvePositionValue ?? resolveValue
     const [hoverIndex, setHoverIndex] = useState<number>(-1)
+    const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null)
     const [tooltipCtx, setTooltipCtx] = useState<TooltipContext<Meta> | null>(null)
     // Read by onClick to decide pin/unpin/passthrough. Event handlers fire after the
     // most recent commit, so an effect-deferred ref is correct here.
@@ -94,6 +104,7 @@ export function useChartInteraction<Meta = unknown>({
 
     const clearTooltip = useCallback(() => {
         setHoverIndex(-1)
+        setHoverPosition(null)
         setTooltipCtx(null)
     }, [])
 
@@ -116,6 +127,7 @@ export function useChartInteraction<Meta = unknown>({
     // contract on `ChartProps.resolveValue`: any external toggle that changes the
     // resolver's output must also update series or scales.
     const resolveValueRef = useLatest(resolveValue)
+    const effectivePositionResolveRef = useLatest(effectivePositionResolve)
     useEffect(() => {
         if (!isPinned || !scales || !dimensions) {
             return
@@ -137,7 +149,9 @@ export function useChartInteraction<Meta = unknown>({
                 canvasBounds,
                 resolveValueRef.current,
                 scales.yAxes,
-                interactionAxis
+                interactionAxis,
+                prev.hoverPosition,
+                effectivePositionResolveRef.current
             )
             if (!fresh) {
                 return null
@@ -237,6 +251,7 @@ export function useChartInteraction<Meta = unknown>({
             const probe = interactionAxis === 'y' ? mouseY : mouseX
             const index = findNearestIndexFromPositions(probe, labelPositions)
             setHoverIndex(index)
+            setHoverPosition({ x: mouseX, y: mouseY })
 
             if (index >= 0 && showTooltip) {
                 const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
@@ -251,7 +266,9 @@ export function useChartInteraction<Meta = unknown>({
                         canvasBounds,
                         resolveValue,
                         scales.yAxes,
-                        interactionAxis
+                        interactionAxis,
+                        { x: mouseX, y: mouseY },
+                        effectivePositionResolve
                     )
                 )
             }
@@ -263,6 +280,7 @@ export function useChartInteraction<Meta = unknown>({
             series,
             showTooltip,
             resolveValue,
+            effectivePositionResolve,
             canvasRef,
             isPinned,
             clearTooltip,
@@ -309,5 +327,5 @@ export function useChartInteraction<Meta = unknown>({
 
     const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
 
-    return { hoverIndex, tooltipCtx, handlers }
+    return { hoverIndex, hoverPosition, tooltipCtx, handlers }
 }

@@ -332,8 +332,7 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
         dependency metadata (stages, missing deps, transitive deps), and cohorts contains
         serialized cohort definitions referenced by the flags (including transitive deps).
     """
-    # Exclude encrypted remote config flags at DB level for efficiency
-    flags = get_feature_flags(team=team, exclude_encrypted_remote_config=True)
+    flags = get_feature_flags(team=team, exclude_encrypted_payloads=True)
     flags_data = serialize_feature_flags(flags)
     evaluation_metadata = _compute_flag_dependencies(flags_data)
 
@@ -374,16 +373,15 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     # Load all flags for all teams in one query with evaluation tags pre-loaded.
     # Include disabled flags (active=False) so flag dependencies can reference them
     # and evaluate them as false, rather than raising DependencyNotFound errors.
-    # Exclude encrypted remote config flags - they can only be accessed via the
+    # Exclude encrypted payload flags - they can only be accessed via the
     # dedicated /remote_config endpoint which handles decryption.
     # Note: We intentionally don't select_related("team") here because we only need
     # team_id (already on the model) for grouping, and the Team objects are already
     # loaded by the caller. Avoiding the join saves memory.
     all_flags = list(
-        FeatureFlag.objects.filter(
-            ~Q(is_remote_configuration=True, has_encrypted_payloads=True),
-            team__in=teams,
-        ).annotate(
+        FeatureFlag.objects.filter(team__in=teams)
+        .exclude(has_encrypted_payloads=True)
+        .annotate(
             evaluation_tag_names_agg=ArrayAgg(
                 "flag_evaluation_contexts__evaluation_context__name",
                 filter=Q(flag_evaluation_contexts__isnull=False),
@@ -618,8 +616,8 @@ def verify_team_flags(
         if flag_id in cached_flags_by_id:
             db_flag = db_flags_by_id[flag_id]
             cached_flag = cached_flags_by_id[flag_id]
-            if db_flag != cached_flag:
-                field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            field_diffs = _compare_flag_fields(db_flag, cached_flag)
+            if field_diffs:
                 diff = {
                     "type": "FIELD_MISMATCH",
                     "flag_id": flag_id,
@@ -674,12 +672,18 @@ def verify_team_flags(
 
 
 def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
-    """Compare field values between DB and cached versions of a flag."""
-    field_diffs = []
-    all_keys = set(db_flag.keys()) | set(cached_flag.keys())
+    """Compare field values between DB and cached versions of a flag.
 
-    for key in all_keys:
-        db_val = db_flag.get(key)
+    The DB serialization is treated as the source of truth: only keys present in
+    ``db_flag`` are compared. Extra keys in ``cached_flag`` (e.g. fields that
+    were removed from the serializer but still linger in pre-existing cache
+    entries) are ignored so that benign serializer field removals do not flag
+    every team's cache as mismatched.
+    """
+    field_diffs = []
+
+    for key in db_flag.keys():
+        db_val = db_flag[key]
         cached_val = cached_flag.get(key)
 
         if db_val != cached_val:

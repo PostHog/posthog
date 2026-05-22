@@ -6,8 +6,8 @@ from posthog.test.base import BaseTest, _create_event, flush_persons_and_events
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.web_analytics.bot_definitions import BOT_DEFINITIONS
-from posthog.hogql_queries.web_analytics.bot_ua_fixtures import (
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+from products.web_analytics.backend.hogql_queries.bot_ua_fixtures import (
     BOT_USER_AGENTS,
     CATEGORY_TO_TRAFFIC_CATEGORY,
     CATEGORY_TO_TRAFFIC_TYPE,
@@ -15,9 +15,13 @@ from posthog.hogql_queries.web_analytics.bot_ua_fixtures import (
 
 
 def _find_matching_pattern(ua: str) -> str | None:
-    """Simulate multiMatchAnyIndex: find first BOT_DEFINITIONS pattern that matches."""
+    """Simulate multiMatchAnyIndex: find first BOT_DEFINITIONS pattern that matches.
+
+    Patterns are evaluated as regex by ClickHouse multiMatchAnyIndex at runtime,
+    so we mirror that here (no `re.escape`).
+    """
     for pattern in BOT_DEFINITIONS:
-        if re.search(re.escape(pattern), ua):
+        if re.search(pattern, ua):
             return pattern
     return None
 

@@ -17,7 +17,7 @@ export const groupsCreateBodyGroupKeyMax = 400
 export const GroupsCreateBody = /* @__PURE__ */ zod.object({
     group_type_index: zod.number().min(groupsCreateBodyGroupTypeIndexMin).max(groupsCreateBodyGroupTypeIndexMax),
     group_key: zod.string().max(groupsCreateBodyGroupKeyMax),
-    group_properties: zod.unknown().nullish(),
+    group_properties: zod.unknown().optional(),
 })
 
 export const groupsDeletePropertyCreateBodyGroupTypeIndexMin = -2147483648

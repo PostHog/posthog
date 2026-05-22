@@ -9,7 +9,8 @@ import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
-import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
+import { JobQueue } from './job-queue.interface'
+import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer } from './shared'
 
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
@@ -26,10 +27,11 @@ type SerializedJobState = {
     queueMetadata?: CyclotronJobInvocation['queueMetadata']
 }
 
-export class CyclotronJobQueuePostgresV2 {
+export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
+    private sanitizer: ReturnType<typeof createInvocationSanitizer>
 
     constructor(
         private consumerBatchSize: number,
@@ -40,10 +42,16 @@ export class CyclotronJobQueuePostgresV2 {
             | 'CDP_CYCLOTRON_BATCH_DELAY_MS'
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
+            | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
         >
-    ) {}
+    ) {
+        this.sanitizer = createInvocationSanitizer(config)
+    }
 
     public async startAsProducer(): Promise<void> {
+        if (this.manager) {
+            return
+        }
         if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('Cyclotron V2 database URL not set')
         }
@@ -91,10 +99,12 @@ export class CyclotronJobQueuePostgresV2 {
 
     public async stopConsumer(): Promise<void> {
         await this.worker?.disconnect()
+        this.worker = undefined
     }
 
     public async stopProducer(): Promise<void> {
         await this.manager?.disconnect()
+        this.manager = undefined
     }
 
     public isHealthy(): HealthCheckResult {
@@ -107,7 +117,10 @@ export class CyclotronJobQueuePostgresV2 {
         return new HealthCheckResultError('CyclotronV2Worker is not healthy', {})
     }
 
-    public async queueInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+    public async queueInvocations(
+        invocations: CyclotronJobInvocation[],
+        options: { overwriteExisting?: boolean } = {}
+    ): Promise<void> {
         if (invocations.length === 0) {
             return
         }
@@ -116,7 +129,12 @@ export class CyclotronJobQueuePostgresV2 {
             throw new Error('CyclotronV2Manager not initialized')
         }
 
-        const jobs = invocations.map((inv) => invocationToV2JobInit(inv))
+        invocations = this.sanitizer.sanitizeInvocations(invocations)
+
+        const jobs = invocations.map((inv) => ({
+            ...invocationToV2JobInit(inv),
+            overwriteExisting: options.overwriteExisting,
+        }))
 
         try {
             const chunked = chunk(jobs, this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
@@ -152,8 +170,10 @@ export class CyclotronJobQueuePostgresV2 {
     }
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+        const sanitizedResults = this.sanitizer.sanitizeResults(invocationResults)
+
         await Promise.all(
-            invocationResults.map(async (result) => {
+            sanitizedResults.map(async (result) => {
                 const job = this.pendingJobs.get(result.invocation.id)
                 if (!job) {
                     logger.warn('No pending V2 job found for result, creating new job', {
@@ -176,6 +196,9 @@ export class CyclotronJobQueuePostgresV2 {
                     await job.reschedule({
                         state: stateBuffer,
                         scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
+                        distinctId: extractDistinctId(result.invocation),
+                        personId: extractPersonId(result.invocation),
+                        actionId: extractActionId(result.invocation),
                     })
                 }
             })
@@ -232,6 +255,7 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
     const state = serializeState(invocation)
     cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)
+
     return {
         id: invocation.id,
         teamId: invocation.teamId,
@@ -241,7 +265,32 @@ function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2J
         scheduled: invocation.queueScheduledAt?.toJSDate() ?? new Date(),
         parentRunId: invocation.parentRunId ?? null,
         state,
+        distinctId: extractDistinctId(invocation),
+        personId: extractPersonId(invocation),
+        actionId: extractActionId(invocation),
     }
+}
+
+type LookupColumnSource = {
+    person?: { id?: string }
+    state?: {
+        event?: { distinct_id?: string }
+        personId?: string
+        currentAction?: { id?: string }
+    } | null
+}
+
+export function extractDistinctId(invocation: CyclotronJobInvocation): string | null {
+    return (invocation as LookupColumnSource).state?.event?.distinct_id || null
+}
+
+export function extractPersonId(invocation: CyclotronJobInvocation): string | null {
+    const inv = invocation as LookupColumnSource
+    return inv.person?.id || inv.state?.personId || null
+}
+
+export function extractActionId(invocation: CyclotronJobInvocation): string | null {
+    return (invocation as LookupColumnSource).state?.currentAction?.id || null
 }
 
 function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {

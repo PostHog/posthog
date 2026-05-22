@@ -63,12 +63,12 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['error_tracking'],
             description: 'error tracking tools (underscore)',
-            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
+            expectedTools: ['query-error-tracking-issues-list', 'query-error-tracking-issue'],
         },
         {
             features: ['error-tracking'],
             description: 'error tracking tools (hyphen, normalized)',
-            expectedTools: ['query-error-tracking-issues', 'error-tracking-issues-list'],
+            expectedTools: ['query-error-tracking-issues-list', 'query-error-tracking-issue'],
         },
         {
             features: ['experiments'],
@@ -77,12 +77,12 @@ describe('Tool Filtering - Features', () => {
         },
         {
             features: ['llm_analytics'],
-            description: 'LLM analytics tools (underscore)',
+            description: 'AI observability tools (underscore)',
             expectedTools: ['get-llm-total-costs-for-project'],
         },
         {
             features: ['llm-analytics'],
-            description: 'LLM analytics tools (hyphen, normalized)',
+            description: 'AI observability tools (hyphen, normalized)',
             expectedTools: ['get-llm-total-costs-for-project'],
         },
         {
@@ -639,11 +639,14 @@ describe('Tool Filtering - Feature Flags', () => {
             expect.arrayContaining([
                 'logs-alerting',
                 'replay-video-based-summarization',
+                'tracing',
                 'visual-review',
                 'mcp-feedback-tool',
+                'user-interviews',
+                'customer-analytics-csp',
             ])
         )
-        expect(flags).toHaveLength(4)
+        expect(flags).toHaveLength(7)
     })
 
     // Test the filtering logic with a direct unit test approach using

@@ -39,9 +39,9 @@ from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithE
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
-from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 SEPARATOR = "','"
@@ -49,34 +49,17 @@ SEPARATOR = "','"
 # We need to use a CTE, otherwise we'll get this error because of the sub-query containing some auto-generated conditions:
 # Aggregate function any(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id)) AS person_id is found in WHERE in query.
 templateUniqueUsers = """
-WITH uniqueSessionEvents AS (
+WITH filteredEvents AS (
     SELECT
         person_id,
-        $session_id,
         timestamp
     FROM events
     WHERE and(
         {event_expr},
         {all_properties},
-        {test_account_filters}
+        {test_account_filters},
+        {current_period}
     )
-),
-uniqueSessionEventsGrouped AS (
-    SELECT
-        any(person_id) as person_id,
-        $session_id as session_id,
-        min(timestamp) as timestamp
-    FROM uniqueSessionEvents
-    GROUP BY $session_id
-),
-query AS (
-    SELECT
-        uniqMap(map(concatWithSeparator({separator},toString(toDayOfWeek(uniqueSessionEventsGrouped.timestamp)),toString(toHour(uniqueSessionEventsGrouped.timestamp))), uniqueSessionEventsGrouped.person_id)) as hoursAndDays,
-        uniqMap(map(toHour(uniqueSessionEventsGrouped.timestamp), uniqueSessionEventsGrouped.person_id)) as hours,
-        uniqMap(map(toDayOfWeek(uniqueSessionEventsGrouped.timestamp), uniqueSessionEventsGrouped.person_id)) as days,
-        uniq(person_id) as total
-    FROM uniqueSessionEventsGrouped
-    WHERE {current_period}
 )
 SELECT
     mapKeys(query.hoursAndDays) as hoursAndDaysKeys,
@@ -86,7 +69,14 @@ SELECT
     mapKeys(query.days) as daysKeys,
     mapValues(query.days) as daysValues,
     query.total
-FROM query
+FROM (
+    SELECT
+        uniqMap(map(concatWithSeparator({separator},toString(toDayOfWeek(timestamp)),toString(toHour(timestamp))), person_id)) as hoursAndDays,
+        uniqMap(map(toHour(timestamp), person_id)) as hours,
+        uniqMap(map(toDayOfWeek(timestamp), person_id)) as days,
+        uniq(person_id) as total
+    FROM filteredEvents
+) as query
 """
 
 templateAllUsers = """

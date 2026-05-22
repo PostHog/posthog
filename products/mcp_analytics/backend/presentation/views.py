@@ -1,7 +1,11 @@
 from typing import Any, cast
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from django.db.models import QuerySet
+
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -15,11 +19,15 @@ from posthog.permissions import SingleTenancyOrAdmin
 
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 from .serializers import (
     MCPAnalyticsSubmissionSerializer,
     MCPFeedbackCreateSerializer,
+    MCPIntentClusterSnapshotSerializer,
     MCPMissingCapabilityCreateSerializer,
+    MCPSessionSerializer,
+    MCPToolCallSerializer,
 )
 
 
@@ -101,6 +109,106 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._list_response(request, enums.SubmissionKind.FEEDBACK)
+
+
+@extend_schema(tags=["mcp_analytics"])
+class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    serializer_class = MCPSessionSerializer
+    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
+    scope_object = "INTERNAL"
+    pagination_class = MCPAnalyticsPagination
+
+    def dangerously_get_queryset(self) -> QuerySet:
+        # Sessions are aggregated from ClickHouse events, not from a Django model.
+        # Returning an empty queryset satisfies DRF's GenericViewSet plumbing.
+        return MCPAnalyticsSubmission.objects.none()
+
+    @extend_schema(
+        operation_id="mcp_analytics_sessions_list",
+        description="List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_session_id. Ordered by most recent activity first by default.",
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.",
+            ),
+            OpenApiParameter(
+                name="order_by",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Sort column. Allowed: session_id, session_start, session_end, "
+                    "duration_seconds, tool_call_count, mcp_client_name, distinct_id. "
+                    "Prefix with '-' for descending. Defaults to '-session_end'."
+                ),
+            ),
+        ],
+        responses={200: MCPSessionSerializer(many=True)},
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        paginator = self.pagination_class()
+        limit = paginator.get_limit(request) or paginator.default_limit
+        offset = paginator.get_offset(request)
+        search = request.query_params.get("search", "")
+        order_by = request.query_params.get("order_by", "")
+        sessions = api.list_mcp_sessions(self.team, limit=limit, offset=offset, search=search, order_by=order_by)
+        serializer = self.get_serializer(sessions, many=True)
+        return Response({"results": serializer.data})
+
+    @extend_schema(
+        operation_id="mcp_analytics_sessions_tool_calls",
+        description="List all mcp_tool_call events that belong to a given $session_id, in chronological order.",
+        responses={200: MCPToolCallSerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="tool_calls")
+    def tool_calls(self, request: Request, pk: str | None = None, *args: Any, **kwargs: Any) -> Response:
+        tool_calls = api.list_mcp_tool_calls(self.team, session_id=str(pk or ""))
+        serializer = MCPToolCallSerializer(tool_calls, many=True)
+        return Response({"results": serializer.data})
+
+
+@extend_schema(tags=["mcp_analytics"])
+class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    serializer_class = MCPIntentClusterSnapshotSerializer
+    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
+    scope_object = "INTERNAL"
+    pagination_class = None
+
+    def dangerously_get_queryset(self) -> QuerySet:
+        # Snapshots are read directly via the facade; this satisfies GenericViewSet plumbing.
+        return MCPAnalyticsSubmission.objects.none()
+
+    @extend_schema(
+        operation_id="mcp_analytics_intent_clusters_retrieve",
+        description=(
+            "Return the most recent intent cluster snapshot for the current project. "
+            "Returns an empty IDLE snapshot when no clustering run has happened yet."
+        ),
+        responses={200: MCPIntentClusterSnapshotSerializer},
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        snapshot = api.get_intent_cluster_snapshot(self.team)
+        serializer = self.get_serializer(snapshot)
+        return Response(serializer.data)
+
+    @extend_schema(
+        operation_id="mcp_analytics_intent_clusters_recompute",
+        description=(
+            "Trigger an asynchronous recompute of the intent cluster snapshot. The task runs in the "
+            "background; poll the GET endpoint for progress (status transitions to 'idle' or 'error')."
+        ),
+        request=None,
+        responses={202: MCPIntentClusterSnapshotSerializer},
+    )
+    @action(detail=False, methods=["post"], url_path="recompute")
+    def recompute(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        api.trigger_intent_cluster_recompute(self.team, cast(User, request.user))
+        snapshot = api.get_intent_cluster_snapshot(self.team)
+        serializer = self.get_serializer(snapshot)
+        return Response(serializer.data, status=status.HTTP_202_ACCEPTED)
 
 
 class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):

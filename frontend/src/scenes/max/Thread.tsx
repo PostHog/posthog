@@ -1603,7 +1603,7 @@ function SuccessActions({
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"
-                        tooltip="View trace in LLM analytics"
+                        tooltip="View trace in AI observability"
                     />
                 )}
             </div>

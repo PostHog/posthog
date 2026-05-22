@@ -50,6 +50,7 @@ class UserChangeForm(DjangoUserChangeForm):
         return is_staff
 
 
+@admin.register(User)
 class UserAdmin(DjangoUserAdmin):
     """Define admin model for custom User model with no email field."""
 

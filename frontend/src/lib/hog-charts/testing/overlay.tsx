@@ -14,11 +14,12 @@ export interface OverlayContextOverrides {
     labels?: string[]
     series?: ResolvedSeries[]
     theme?: ChartTheme
-    resolveValue?: ResolveValueFn
+    resolvePositionValue?: ResolveValueFn
     canvasBounds?: () => DOMRect | null
     axisOrientation?: 'vertical' | 'horizontal'
     isPercent?: boolean
     hoverIndex?: number
+    xTickFormatter?: (value: string, index: number) => string | null
 }
 
 /** Build a fully-populated overlay context with sensible defaults. Required:
@@ -30,10 +31,13 @@ export function makeOverlayContext(scales: ChartScales, overrides: OverlayContex
         series: overrides.series ?? [],
         scales,
         theme: overrides.theme ?? DEFAULT_THEME,
-        resolveValue: overrides.resolveValue ?? DEFAULT_RESOLVE,
+        resolvePositionValue: overrides.resolvePositionValue ?? DEFAULT_RESOLVE,
         canvasBounds: overrides.canvasBounds ?? (() => null),
-        axisOrientation: overrides.axisOrientation ?? 'vertical',
-        isPercent: overrides.isPercent ?? false,
+        axis: {
+            orientation: overrides.axisOrientation ?? 'vertical',
+            xTickFormatter: overrides.xTickFormatter,
+            isPercent: overrides.isPercent ?? false,
+        },
         hoverIndex: overrides.hoverIndex ?? -1,
     }
 }

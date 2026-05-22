@@ -30,7 +30,6 @@ import {
     countryCodeToFlag,
     languageCodeToFlag,
 } from 'lib/utils/geography/country'
-import { StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -48,12 +47,18 @@ import {
     faviconUrl,
     webStatsBreakdownToPropertyName,
 } from 'scenes/web-analytics/common'
+import {
+    buildDataTableTileDataNodeLogicProps,
+    buildInsightVizTileDataNodeLogicProps,
+    ChartTileSkeleton,
+    TableTileSkeleton,
+    WebAnalyticsTileSkeletonGate,
+    WorldMapTileSkeleton,
+} from 'scenes/web-analytics/tiles/skeletons'
 import { webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
@@ -628,7 +633,11 @@ export const WebStatsTrendTile = ({
     showIntervalTile,
     insightProps,
     attachTo,
-}: QueryWithInsightProps<InsightVizNode> & { showIntervalTile?: boolean }): JSX.Element => {
+    headerSlot,
+}: QueryWithInsightProps<InsightVizNode> & {
+    showIntervalTile?: boolean
+    headerSlot?: React.ReactNode
+}): JSX.Element => {
     const { togglePropertyFilter, setDateInterval, zoomIntoPeriod, resetZoom } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
@@ -640,6 +649,20 @@ export const WebStatsTrendTile = ({
     const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
     const regionPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Region)?.key
     const showComparisonLabels = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS]
+
+    const isWorldMap =
+        query.source?.kind === NodeKind.TrendsQuery && query.source.trendsFilter?.display === ChartDisplayType.WorldMap
+    const insightPropsForQuery = useMemo(
+        (): InsightLogicProps => ({
+            ...insightProps,
+            query,
+        }),
+        [insightProps, query]
+    )
+    const dataNodeLogicProps = buildInsightVizTileDataNodeLogicProps({
+        query,
+        insightProps: insightPropsForQuery,
+    })
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
@@ -674,8 +697,7 @@ export const WebStatsTrendTile = ({
         const baseContext: QueryContext = {
             ...webAnalyticsDataTableQueryContext,
             insightProps: {
-                ...insightProps,
-                query,
+                ...insightPropsForQuery,
             },
             compareFilter,
             onDateRangeZoom: isDragToZoomEnabled ? zoomIntoPeriod : undefined,
@@ -697,10 +719,6 @@ export const WebStatsTrendTile = ({
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
-        const isWorldMap =
-            query.source?.kind === NodeKind.TrendsQuery &&
-            query.source.trendsFilter?.display === ChartDisplayType.WorldMap
-
         const isRegionMap =
             isWorldMap &&
             query.source?.kind === NodeKind.TrendsQuery &&
@@ -737,14 +755,16 @@ export const WebStatsTrendTile = ({
         onWorldMapClick,
         onRegionMapClick,
         zoomIntoPeriod,
-        insightProps,
+        insightPropsForQuery,
         query,
         showComparisonLabels,
         isDragToZoomEnabled,
+        isWorldMap,
     ])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+            {headerSlot}
             {(showIntervalTile || preZoomDateFilter) && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center gap-2">
@@ -762,7 +782,18 @@ export const WebStatsTrendTile = ({
                     </div>
                 </div>
             )}
-            <Query attachTo={attachTo} query={query} readOnly={true} context={context} />
+            <WebAnalyticsTileSkeletonGate
+                dataNodeLogicProps={dataNodeLogicProps}
+                skeleton={
+                    isWorldMap ? (
+                        <WorldMapTileSkeleton />
+                    ) : (
+                        <ChartTileSkeleton showLegendStrip={!showIntervalTile && !preZoomDateFilter} />
+                    )
+                }
+            >
+                <Query attachTo={attachTo} query={query} readOnly={true} context={context} />
+            </WebAnalyticsTileSkeletonGate>
         </div>
     )
 }
@@ -859,10 +890,12 @@ export const WebStatsTableTile = ({
     insightProps,
     control,
     attachTo,
+    headerSlot,
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
     tileId: TileId
+    headerSlot?: React.ReactNode
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { productTab } = useValues(webAnalyticsLogic)
@@ -1018,16 +1051,30 @@ export const WebStatsTableTile = ({
         }
     }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query])
 
+    const numericColumns = PAGE_LIKE_BREAKDOWNS.has(breakdownBy) ? 3 : 2
+    const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({
+        query,
+        insightProps,
+        context,
+        uniqueKey: 'WebAnalytics.WebStatsTableTile',
+    })
+
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+            {headerSlot}
             {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
-            <Query
-                uniqueKey="WebAnalytics.WebStatsTableTile"
-                attachTo={attachTo}
-                query={query}
-                readOnly={true}
-                context={context}
-            />
+            <WebAnalyticsTileSkeletonGate
+                dataNodeLogicProps={dataNodeLogicProps}
+                skeleton={<TableTileSkeleton numericColumns={numericColumns} />}
+            >
+                <Query
+                    uniqueKey="WebAnalytics.WebStatsTableTile"
+                    attachTo={attachTo}
+                    query={query}
+                    readOnly={true}
+                    context={context}
+                />
+            </WebAnalyticsTileSkeletonGate>
         </div>
     )
 }
@@ -1090,10 +1137,10 @@ export const WebGoalsTile = ({
     query,
     insightProps,
     attachTo,
-}: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
+    headerSlot,
+}: QueryWithInsightProps<DataTableNode> & { headerSlot?: React.ReactNode }): JSX.Element | null => {
     const { actions, actionsLoading } = useValues(actionsModel)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
-    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     if (actionsLoading) {
         return null
@@ -1115,31 +1162,49 @@ export const WebGoalsTile = ({
         )
     }
 
+    return <WebGoalsTileContent query={query} insightProps={insightProps} attachTo={attachTo} headerSlot={headerSlot} />
+}
+
+const WebGoalsTileContent = ({
+    query,
+    insightProps,
+    attachTo,
+    headerSlot,
+}: QueryWithInsightProps<DataTableNode> & { headerSlot?: React.ReactNode }): JSX.Element => {
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
+
+    const context = useMemo((): QueryContext => {
+        return { ...webAnalyticsDataTableQueryContext, insightProps }
+    }, [insightProps])
+    const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({ query, insightProps, context })
+
     return (
         <div className="border rounded bg-surface-primary flex-1">
-            <div className="flex flex-row-reverse p-2">
-                <LemonButton
-                    to={urls.actions()}
-                    onClick={() => {
-                        addProductIntentForCrossSell({
-                            from: ProductKey.WEB_ANALYTICS,
-                            to: ProductKey.ACTIONS,
-                            intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
-                        })
-                    }}
-                    sideIcon={<IconOpenInNew />}
-                    type="secondary"
-                    size="small"
-                >
-                    Manage actions
-                </LemonButton>
-            </div>
-            <Query
-                attachTo={attachTo}
-                query={query}
-                readOnly={true}
-                context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
-            />
+            {headerSlot ?? (
+                <div className="flex flex-row-reverse p-2">
+                    <LemonButton
+                        to={urls.actions()}
+                        onClick={() => {
+                            addProductIntentForCrossSell({
+                                from: ProductKey.WEB_ANALYTICS,
+                                to: ProductKey.ACTIONS,
+                                intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                            })
+                        }}
+                        sideIcon={<IconOpenInNew />}
+                        type="secondary"
+                        size="small"
+                    >
+                        Manage actions
+                    </LemonButton>
+                </div>
+            )}
+            <WebAnalyticsTileSkeletonGate
+                dataNodeLogicProps={dataNodeLogicProps}
+                skeleton={<TableTileSkeleton numericColumns={4} />}
+            >
+                <Query attachTo={attachTo} query={query} readOnly={true} context={context} />
+            </WebAnalyticsTileSkeletonGate>
         </div>
     )
 }
@@ -1148,14 +1213,21 @@ export const WebExternalClicksTile = ({
     query,
     insightProps,
     attachTo,
-}: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
+    headerSlot,
+}: QueryWithInsightProps<DataTableNode> & { headerSlot?: React.ReactNode }): JSX.Element | null => {
     const { productTab, shouldStripQueryParams } = useValues(webAnalyticsLogic)
     const { setShouldStripQueryParams } = useActions(webAnalyticsLogic)
 
     const isPageReportsPage = productTab === ProductTab.PAGE_REPORTS
 
+    const context = useMemo((): QueryContext => {
+        return { ...webAnalyticsDataTableQueryContext, insightProps }
+    }, [insightProps])
+    const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({ query, insightProps, context })
+
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+            {headerSlot}
             {!isPageReportsPage && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center deprecated-space-x-2">
@@ -1168,12 +1240,12 @@ export const WebExternalClicksTile = ({
                     </div>
                 </div>
             )}
-            <Query
-                attachTo={attachTo}
-                query={query}
-                readOnly={true}
-                context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
-            />
+            <WebAnalyticsTileSkeletonGate
+                dataNodeLogicProps={dataNodeLogicProps}
+                skeleton={<TableTileSkeleton numericColumns={2} />}
+            >
+                <Query attachTo={attachTo} query={query} readOnly={true} context={context} />
+            </WebAnalyticsTileSkeletonGate>
         </div>
     )
 }
@@ -1220,6 +1292,7 @@ interface HogQLTableTileProps {
     query: DataTableNode
     insightProps: InsightLogicProps
     tileId: TileId
+    headerSlot?: React.ReactNode
 }
 
 // Bot tiles get their own variant so botAnalyticsLogic only mounts on the Bot Analytics tab —
@@ -1229,18 +1302,6 @@ const BOT_HOGQL_TILES = new Set<TileId>([TileId.BOT_CRAWLERS, TileId.BOT_PATHS])
 const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }: HogQLTableTileProps): JSX.Element => {
     const { setBotAnalyticsFilters } = useActions(botAnalyticsLogic)
     const { rawBotAnalyticsFilters } = useValues(botAnalyticsLogic)
-
-    // Mirror the props DataTable uses internally so we share the same dataNodeLogic instance —
-    // mounting it here lets us drive a richer initial loading state without triggering a duplicate fetch.
-    const dataNodeLogicKey = insightVizDataNodeKey(insightProps)
-    const { response, responseLoading, queryId, pollResponse } = useValues(
-        dataNodeLogic({
-            query: query.source,
-            key: dataNodeLogicKey,
-            dataNodeCollectionId: insightProps.dataNodeCollectionId || dataNodeLogicKey,
-        })
-    )
-    const isInitialLoading = responseLoading && !response
 
     const context = useMemo((): QueryContext => {
         // Single-select toggle: clicking the same value clears it, any other click replaces.
@@ -1285,16 +1346,16 @@ const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }:
             },
         }
     }, [insightProps, tileId, rawBotAnalyticsFilters, setBotAnalyticsFilters])
+    const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({ query, insightProps, context, uniqueKey })
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
-            {isInitialLoading ? (
-                <div className="flex flex-1 p-2 w-full justify-center items-center">
-                    <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
-                </div>
-            ) : (
+            <WebAnalyticsTileSkeletonGate
+                dataNodeLogicProps={dataNodeLogicProps}
+                skeleton={<TableTileSkeleton numericColumns={2} />}
+            >
                 <Query uniqueKey={uniqueKey} attachTo={attachTo} query={query} readOnly={true} context={context} />
-            )}
+            </WebAnalyticsTileSkeletonGate>
         </div>
     )
 }
@@ -1305,6 +1366,7 @@ const HogQLTableTile = (props: HogQLTableTileProps): JSX.Element => {
     }
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+            {props.headerSlot}
             <Query
                 uniqueKey={props.uniqueKey}
                 attachTo={props.attachTo}
@@ -1324,11 +1386,13 @@ export const WebQuery = ({
     tileId,
     attachTo,
     uniqueKey,
+    headerSlot,
 }: QueryWithInsightProps<QuerySchema> & {
     showIntervalSelect?: boolean
     control?: JSX.Element
     tileId: TileId
     uniqueKey: string
+    headerSlot?: React.ReactNode
 }): JSX.Element => {
     const { productTab, shouldStripQueryParams: stripQueryParamsDashboard } = useValues(webAnalyticsLogic)
     const { stripQueryParams: stripQueryParamsPageReports } = useValues(pageReportsLogic)
@@ -1337,21 +1401,13 @@ export const WebQuery = ({
         // Handle Frustrating Pages tile specifically, which uses WebStatsTableQuery but is not wrapped by a WebAnalyticsTabTile
         if (query.source.breakdownBy === WebStatsBreakdown.FrustrationMetrics) {
             return (
-                <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
-                    <Query
-                        attachTo={attachTo}
-                        query={query}
-                        key={uniqueKey}
-                        readOnly={true}
-                        context={{
-                            ...webAnalyticsDataTableQueryContext,
-                            insightProps,
-                            emptyStateHeading: '',
-                            emptyStateDetail: FrustrationMetricsEmptyState,
-                            emptyStateIcon: <></>,
-                        }}
-                    />
-                </div>
+                <FrustrationMetricsTile
+                    attachTo={attachTo}
+                    query={query}
+                    insightProps={insightProps}
+                    uniqueKey={uniqueKey}
+                    headerSlot={headerSlot}
+                />
             )
         }
 
@@ -1363,6 +1419,7 @@ export const WebQuery = ({
                 insightProps={insightProps}
                 control={control}
                 tileId={tileId}
+                headerSlot={headerSlot}
             />
         )
     }
@@ -1378,7 +1435,14 @@ export const WebQuery = ({
                 stripQueryParams: effectiveStripQueryParams,
             },
         }
-        return <WebExternalClicksTile attachTo={attachTo} query={adjustedQuery} insightProps={insightProps} />
+        return (
+            <WebExternalClicksTile
+                attachTo={attachTo}
+                query={adjustedQuery}
+                insightProps={insightProps}
+                headerSlot={headerSlot}
+            />
+        )
     }
 
     if (query.kind === NodeKind.InsightVizNode && tileId === TileId.MARKETING) {
@@ -1397,12 +1461,13 @@ export const WebQuery = ({
                 query={query}
                 showIntervalTile={showIntervalSelect}
                 insightProps={insightProps}
+                headerSlot={headerSlot}
             />
         )
     }
 
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebGoalsQuery) {
-        return <WebGoalsTile attachTo={attachTo} query={query} insightProps={insightProps} />
+        return <WebGoalsTile attachTo={attachTo} query={query} insightProps={insightProps} headerSlot={headerSlot} />
     }
 
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.MarketingAnalyticsTableQuery) {
@@ -1437,18 +1502,59 @@ export const WebQuery = ({
                 query={query}
                 insightProps={insightProps}
                 tileId={tileId}
+                headerSlot={headerSlot}
             />
         )
     }
 
     return (
-        <Query
-            uniqueKey={uniqueKey}
-            attachTo={attachTo}
-            query={query}
-            readOnly={true}
-            context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
-        />
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+            {headerSlot}
+            <Query
+                uniqueKey={uniqueKey}
+                attachTo={attachTo}
+                query={query}
+                readOnly={true}
+                context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+            />
+        </div>
+    )
+}
+
+const FrustrationMetricsTile = ({
+    query,
+    insightProps,
+    attachTo,
+    uniqueKey,
+    headerSlot,
+}: {
+    query: DataTableNode
+    insightProps: InsightLogicProps
+    attachTo?: BuiltLogic | LogicWrapper
+    uniqueKey: string
+    headerSlot?: React.ReactNode
+}): JSX.Element => {
+    const context = useMemo((): QueryContext => {
+        return {
+            ...webAnalyticsDataTableQueryContext,
+            insightProps,
+            emptyStateHeading: '',
+            emptyStateDetail: FrustrationMetricsEmptyState,
+            emptyStateIcon: <></>,
+        }
+    }, [insightProps])
+    const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({ query, insightProps, context })
+
+    return (
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+            {headerSlot}
+            <WebAnalyticsTileSkeletonGate
+                dataNodeLogicProps={dataNodeLogicProps}
+                skeleton={<TableTileSkeleton numericColumns={3} />}
+            >
+                <Query attachTo={attachTo} query={query} key={uniqueKey} readOnly={true} context={context} />
+            </WebAnalyticsTileSkeletonGate>
+        </div>
     )
 }
 

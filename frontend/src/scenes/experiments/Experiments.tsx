@@ -59,7 +59,7 @@ import {
 } from './experimentsLogic'
 import { ExperimentsSettings } from './ExperimentsSettings'
 import { ExperimentVelocityStats } from './ExperimentVelocityStats'
-import { StatusTag } from './ExperimentView/components'
+import { StatusTag } from './ExperimentView/StatusTag'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 import { isLegacyExperiment } from './utils'
@@ -71,7 +71,7 @@ export const scene: SceneExport = {
 }
 
 export const EXPERIMENTS_PRODUCT_DESCRIPTION =
-    'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
+    'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.'
 
 // Component for the survey button using QuickSurveyModal
 const ExperimentSurveyButton = ({
@@ -499,6 +499,7 @@ const ExperimentsTable = ({
                         isEmpty={shouldShowEmptyState}
                         customHog={ExperimentsHog}
                         className="my-0"
+                        mcpSurfaceKey="experiments.create"
                     />
                 </AccessControlAction>
             )}

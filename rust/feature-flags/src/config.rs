@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing::Level;
 
+use crate::billing::AggregatorMode;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlexBool(pub bool);
 
@@ -58,6 +60,42 @@ impl FromStr for ServiceMode {
             _ => Err(format!(
                 "Invalid SERVICE_MODE: '{s}'. Expected 'all', 'flags', or 'definitions'"
             )),
+        }
+    }
+}
+
+/// Tristate selector for the in-process billing aggregator. Encoded as one
+/// enum so `(authoritative=true, enabled=false)` is unrepresentable — the
+/// previous two-boolean form allowed it and `server.rs` had to panic on it.
+/// See `AggregatorMode` for what each non-`Off` variant does at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregatorModeConfig {
+    Off,
+    Shadow,
+    Authoritative,
+}
+
+impl FromStr for AggregatorModeConfig {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "off" => Ok(AggregatorModeConfig::Off),
+            "shadow" => Ok(AggregatorModeConfig::Shadow),
+            "authoritative" => Ok(AggregatorModeConfig::Authoritative),
+            _ => Err(format!(
+                "Invalid FLAGS_BILLING_AGGREGATOR_MODE: '{s}'. Expected 'off', 'shadow', or 'authoritative'"
+            )),
+        }
+    }
+}
+
+impl AggregatorModeConfig {
+    pub fn into_runtime(self) -> Option<AggregatorMode> {
+        match self {
+            AggregatorModeConfig::Off => None,
+            AggregatorModeConfig::Shadow => Some(AggregatorMode::Shadow),
+            AggregatorModeConfig::Authoritative => Some(AggregatorMode::Authoritative),
         }
     }
 }
@@ -617,6 +655,11 @@ pub struct Config {
     #[envconfig(from = "OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS", default = "true")]
     pub optimize_experience_continuity_lookups: FlexBool,
 
+    // Internal request token for non-billable requests
+    // When provided via Authorization header and matches this token, the request is not billed
+    #[envconfig(from = "INTERNAL_REQUEST_TOKEN")]
+    pub internal_request_token: Option<String>,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -686,6 +729,40 @@ pub struct Config {
 
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
+
+    // Selects the in-process billing aggregator mode. See `AggregatorModeConfig`.
+    // Defaults to `shadow` to match what's deployed in dev/prod-eu/prod-us today,
+    // so swapping the old `FLAGS_BILLING_AGGREGATOR_ENABLED=true` env var for
+    // unsetting it leaves runtime behavior unchanged. `default_test_config` keeps
+    // `Off` so tests that don't opt in don't start the aggregator.
+    #[envconfig(from = "FLAGS_BILLING_AGGREGATOR_MODE", default = "shadow")]
+    pub billing_aggregator_mode: AggregatorModeConfig,
+
+    // BillingAggregator tuning knobs. `BillingAggregatorConfig::validate`
+    // rejects zero values at boot — see the module docs on
+    // `src/billing/aggregator.rs` for the durability trade-offs that hang
+    // off these knobs.
+    //
+    // How often the flusher drains the in-memory map (milliseconds). Must
+    // stay well below `CACHE_BUCKET_SIZE` (120s) so bucket rollover doesn't
+    // collapse counts. Also directly bounds the worst-case crash-loss
+    // window: a SIGKILL or OOM-kill past the shutdown grace period loses
+    // up to one interval of records per pod.
+    #[envconfig(from = "FLAGS_BILLING_FLUSH_INTERVAL_MS", default = "10000")]
+    pub billing_flush_interval_ms: u64,
+
+    // Safety cap on pending entries — tripwire, not a working-set estimate.
+    #[envconfig(from = "FLAGS_BILLING_MAX_PENDING_ENTRIES", default = "500000")]
+    pub billing_max_pending_entries: usize,
+
+    // Maximum `HIncrBy` commands per pipeline round-trip during a flush.
+    #[envconfig(from = "FLAGS_BILLING_PER_FLUSH_BATCH_SIZE", default = "200")]
+    pub billing_per_flush_batch_size: usize,
+
+    // Upper bound on the graceful-shutdown flush (milliseconds). Should stay
+    // comfortably within the pod's `terminationGracePeriodSeconds`.
+    #[envconfig(from = "FLAGS_BILLING_SHUTDOWN_FLUSH_TIMEOUT_MS", default = "15000")]
+    pub billing_shutdown_flush_timeout_ms: u64,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -896,6 +973,12 @@ impl Config {
             skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
+            internal_request_token: None,
+            billing_aggregator_mode: AggregatorModeConfig::Off,
+            billing_flush_interval_ms: 10_000,
+            billing_max_pending_entries: 500_000,
+            billing_per_flush_batch_size: 200,
+            billing_shutdown_flush_timeout_ms: 15_000,
         }
     }
 
@@ -996,6 +1079,7 @@ pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_co
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn test_default_config() {
@@ -1033,6 +1117,7 @@ mod tests {
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
         assert_eq!(config.skip_writes, FlexBool(false));
+        assert_eq!(config.billing_aggregator_mode, AggregatorModeConfig::Shadow);
     }
 
     #[test]
@@ -1092,6 +1177,40 @@ mod tests {
         assert_eq!(
             config.element_chain_as_string_excluded_teams,
             TeamIdCollection::None
+        );
+    }
+
+    #[rstest]
+    #[case::off("off", AggregatorModeConfig::Off)]
+    #[case::shadow("shadow", AggregatorModeConfig::Shadow)]
+    #[case::authoritative("authoritative", AggregatorModeConfig::Authoritative)]
+    #[case::trim_and_lowercase("  SHADOW  ", AggregatorModeConfig::Shadow)]
+    fn aggregator_mode_config_parses_valid_values(
+        #[case] input: &str,
+        #[case] expected: AggregatorModeConfig,
+    ) {
+        assert_eq!(input.parse::<AggregatorModeConfig>().unwrap(), expected);
+    }
+
+    #[test]
+    fn aggregator_mode_config_rejects_invalid_value() {
+        let err = "yes".parse::<AggregatorModeConfig>().unwrap_err();
+        assert!(
+            err.contains("Invalid FLAGS_BILLING_AGGREGATOR_MODE"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    #[test]
+    fn aggregator_mode_config_into_runtime_maps_correctly() {
+        assert_eq!(AggregatorModeConfig::Off.into_runtime(), None);
+        assert_eq!(
+            AggregatorModeConfig::Shadow.into_runtime(),
+            Some(AggregatorMode::Shadow)
+        );
+        assert_eq!(
+            AggregatorModeConfig::Authoritative.into_runtime(),
+            Some(AggregatorMode::Authoritative)
         );
     }
 

@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import (
     BooleanField,
     Case,
@@ -48,7 +48,6 @@ from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.signals.backend.api import emit_signal
 from products.signals.backend.models import (
     InvalidStatusTransition,
@@ -62,6 +61,8 @@ from products.signals.backend.models import (
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
     get_org_member_github_logins_by_user_uuid,
+    normalized_github_logins_from_suggested_reviewer_artefacts,
+    resolve_org_github_login_to_users,
 )
 from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
@@ -88,6 +89,7 @@ from products.signals.backend.temporal.types import (
     SignalReportReingestionWorkflowInputs,
 )
 from products.tasks.backend.models import TaskRun
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 
@@ -444,8 +446,9 @@ class SignalReportViewSet(
                 When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
                 When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
                 When(status=SignalReport.Status.FAILED, then=Value(6)),
-                When(status=SignalReport.Status.SUPPRESSED, then=Value(7)),
-                When(status=SignalReport.Status.DELETED, then=Value(8)),
+                When(status=SignalReport.Status.RESOLVED, then=Value(7)),
+                When(status=SignalReport.Status.SUPPRESSED, then=Value(8)),
+                When(status=SignalReport.Status.DELETED, then=Value(9)),
                 default=Value(50),
                 output_field=IntegerField(),
             )
@@ -522,6 +525,7 @@ class SignalReportViewSet(
         # and checking jsonb containment on the artefact content list. This stays fresh
         # even when a user connects their GitHub account after the report was generated.
         # Never true for ready + not_actionable — there is nothing actionable to review.
+        # Failed reports are excluded too — pipelines that errored should not bubble as "needs your review".
         github_login = self._get_github_login(self.request.user)
         if not github_login:
             return queryset.annotate(is_suggested_reviewer=Value(False))
@@ -540,6 +544,7 @@ class SignalReportViewSet(
         return queryset.annotate(
             is_suggested_reviewer=Case(
                 When(self._Q_READY_NOT_ACTIONABLE, then=Value(False)),
+                When(status=SignalReport.Status.FAILED, then=Value(False)),
                 default=suggested_exists,
                 output_field=BooleanField(),
             ),
@@ -771,14 +776,19 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="artefacts", required_scopes=["task:read"])
     def artefacts(self, request, pk=None, **kwargs):
         report = cast(SignalReport, self.get_object())
-        artefacts = report.artefacts.all().order_by("-created_at")
-        serializer = SignalReportArtefactSerializer(artefacts, many=True)
-        return Response(
-            {
-                "results": serializer.data,
-                "count": len(serializer.data),
-            }
+        artefacts = list(report.artefacts.all().order_by("-created_at"))
+        logins_union = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
+        login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
+        serializer = SignalReportArtefactSerializer(
+            artefacts,
+            many=True,
+            context={
+                **self.get_serializer_context(),
+                "signals_github_login_to_user_map": login_map,
+            },
         )
+        results = serializer.data
+        return Response({"results": results, "count": len(results)})
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
@@ -789,13 +799,23 @@ class SignalReportViewSet(
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
         return Response({"report": report_data, "signals": signals_list})
 
+    # The set of allowed reason codes is owned by PostHog Code (the calling UI),
+    # not validated here -- we just persist whatever the client sends.
+    DISMISSAL_NOTE_MAX_LENGTH = 4000
+
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="state", required_scopes=["task:write"])
     def state(self, request, pk=None, **kwargs):
         """
         Transition a report to a new state. The model validates allowed transitions.
 
-        Body: { "state": "suppressed" | "potential", ...kwargs passed to transition_to }
+        Body: {
+            "state": "suppressed" | "potential",
+            # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+            "dismissal_reason": "<any string code, owned by the caller>",
+            "dismissal_note": "free-form text",
+            ...other kwargs passed to transition_to
+        }
         """
         report = cast(SignalReport, self.get_object())
 
@@ -806,7 +826,31 @@ class SignalReportViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        transition_kwargs = {k: v for k, v in request.data.items() if k != "state"}
+        # Pull dismissal fields out before passing the rest to transition_to.
+        dismissal_reason = request.data.get("dismissal_reason")
+        dismissal_note = request.data.get("dismissal_note")
+        transition_kwargs = {
+            k: v for k, v in request.data.items() if k not in ("state", "dismissal_reason", "dismissal_note")
+        }
+
+        if dismissal_reason is not None and not isinstance(dismissal_reason, str):
+            return Response(
+                {"error": "dismissal_reason must be a string."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if dismissal_note is not None:
+            if not isinstance(dismissal_note, str):
+                return Response(
+                    {"error": "dismissal_note must be a string."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if len(dismissal_note) > self.DISMISSAL_NOTE_MAX_LENGTH:
+                return Response(
+                    {"error": f"dismissal_note must be at most {self.DISMISSAL_NOTE_MAX_LENGTH} characters."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         try:
             updated_fields = report.transition_to(SignalReport.Status(target), **transition_kwargs)
         except InvalidStatusTransition as e:
@@ -822,20 +866,35 @@ class SignalReportViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        report.save(update_fields=updated_fields)
+        with transaction.atomic():
+            report.save(update_fields=updated_fields)
+
+            # Persist the dismissal feedback as its own artefact so it survives status changes
+            # and so multiple dismissals (with different rationales) can stack over time.
+            # Captured for both suppress and snooze (transition to potential) flows.
+            if target in ("suppressed", "potential") and (dismissal_reason or dismissal_note):
+                user = request.user
+                artefact_content = {
+                    "reason": dismissal_reason,
+                    "note": dismissal_note,
+                    "user_id": getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
+                    "user_uuid": str(user.uuid)
+                    if getattr(user, "is_authenticated", False) and getattr(user, "uuid", None)
+                    else None,
+                }
+                SignalReportArtefact.objects.create(
+                    team=self.team,
+                    report=report,
+                    type=SignalReportArtefact.ArtefactType.DISMISSAL,
+                    content=json.dumps(artefact_content),
+                )
 
         return Response(SignalReportSerializer(report, context=self.get_serializer_context()).data)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])
     def reingest(self, request, pk=None, **kwargs):
-        """Re-ingest a report's signals. Staff-only."""
-        if not request.user.is_staff:
-            return Response(
-                {"error": "Only staff users can reingest reports."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """Re-ingest a report's signals (same team access as other report actions)."""
         report = cast(SignalReport, self.get_object())
         report_id = str(report.id)
         team_id = self.team.id

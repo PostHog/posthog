@@ -24,6 +24,7 @@ from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_E
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.alerts.schedule import (
+    create_cleanup_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_schedule_due_alert_checks_schedule,
 )
@@ -56,6 +57,8 @@ from posthog.temporal.llm_analytics.trace_summarization.schedule import (
     create_batch_trace_summarization_schedule,
 )
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
+from posthog.temporal.mcp_analytics.backfill_sessions.types import BackfillMCPSessionsInput
+from posthog.temporal.mcp_analytics.summarize_session_intents.types import SummarizeMCPSessionIntentsInput
 from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
@@ -70,6 +73,7 @@ from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
 from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
 )
@@ -484,6 +488,74 @@ async def create_replay_count_metrics_schedule(client: Client):
         )
 
 
+async def create_mcp_sessions_backfill_schedule(client: Client):
+    """Create or update the schedule that backfills the MCPSession Postgres table.
+
+    Runs every 5 minutes; each run aggregates mcp_tool_call events seen in the last
+    24 hours and upserts one row per (team, session_id) into Postgres so the
+    sessions list endpoint can read from Postgres instead of ClickHouse.
+    """
+    mcp_sessions_backfill_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "backfill-mcp-sessions",
+            BackfillMCPSessionsInput(),
+            id="backfill-mcp-sessions-schedule",
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+            ),
+        ),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=5))],
+        ),
+    )
+
+    if await a_schedule_exists(client, "backfill-mcp-sessions-schedule"):
+        await a_update_schedule(client, "backfill-mcp-sessions-schedule", mcp_sessions_backfill_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "backfill-mcp-sessions-schedule",
+            mcp_sessions_backfill_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_mcp_session_intent_summary_schedule(client: Client):
+    """Create or update the schedule that backfills MCPSession.intent with an LLM summary.
+
+    Runs every 5 minutes (matches the backfill cadence so new sessions become
+    'complete' quickly). Each run picks up to 100 MCPSession rows whose intent is
+    unset and whose last event is older than 30 minutes (so we don't summarise
+    sessions that may still be receiving tool calls), then dispatches the LLM
+    calls in parallel inside the activity.
+    """
+    summary_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "summarize-mcp-session-intents",
+            SummarizeMCPSessionIntentsInput(),
+            id="summarize-mcp-session-intents-schedule",
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=2,
+            ),
+        ),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=5))],
+        ),
+    )
+
+    if await a_schedule_exists(client, "summarize-mcp-session-intents-schedule"):
+        await a_update_schedule(client, "summarize-mcp-session-intents-schedule", summary_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "summarize-mcp-session-intents-schedule",
+            summary_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def cleanup_legacy_session_summarization_schedules(client: Client):
     """Delete legacy schedules. Any in-flight runs die on their own execution_timeout."""
     legacy_schedule_ids = [
@@ -493,6 +565,47 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
     for schedule_id in legacy_schedule_ids:
         if await a_schedule_exists(client, schedule_id):
             await a_delete_schedule(client, schedule_id)
+
+
+async def create_run_usage_reports_schedule(client: Client):
+    """Daily Temporal-based usage report run at 04:45 UTC.
+
+    Runs an hour after the existing Celery beat for `send_all_org_usage_reports`
+    (03:45 UTC) so ClickHouse has breathing room while both flows run side by
+    side. The workflow writes per-org usage data to S3 and sends a single SQS
+    pointer to the billing service.
+    """
+    run_usage_reports_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "run-usage-reports",
+            # `RunUsageReportsInputs` is a pydantic model, not a dataclass —
+            # `dataclasses.asdict` would TypeError on registration.
+            RunUsageReportsInputs().model_dump(mode="json"),
+            id="run-usage-reports-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 04:45 UTC",
+                    hour=[ScheduleRange(start=4, end=4)],
+                    minute=[ScheduleRange(start=45, end=45)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "run-usage-reports-schedule"):
+        await a_update_schedule(client, "run-usage-reports-schedule", run_usage_reports_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "run-usage-reports-schedule",
+            run_usage_reports_schedule,
+            trigger_immediately=False,
+        )
 
 
 async def create_count_all_playlists_schedule(client: Client):
@@ -563,12 +676,14 @@ schedules = [
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
+    create_cleanup_alert_checks_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:
     # Sweeper compares the deployment prefix on each Gemini file's display_name against its own
     # CLOUD_DEPLOYMENT, so it can't run unscoped (would risk reaping sibling deployments' files).
     schedules.append(create_gemini_cleanup_sweep_schedule)
+    schedules.append(create_run_usage_reports_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

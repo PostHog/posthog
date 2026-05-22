@@ -1,0 +1,124 @@
+import './HandsFreeSurface.scss'
+
+import { useActions, useValues } from 'kea'
+
+import { IconMicrophone } from '@posthog/icons'
+
+import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
+import { cn } from 'lib/utils/css-classes'
+
+import { HandsFreeStatus, handsFreeLogic } from '../handsFreeLogic'
+
+interface HandsFreeSurfaceProps {
+    tabId: string
+}
+
+const STATUS_LABEL: Record<HandsFreeStatus, string> = {
+    off: '',
+    starting: 'Connecting',
+    listening: 'Listening',
+    thinking: 'Thinking',
+    speaking: 'Speaking',
+}
+
+const STATUS_HINT: Record<HandsFreeStatus, string> = {
+    off: '',
+    starting: 'One moment, getting microphone ready',
+    listening: 'I will send your question when you pause speaking',
+    thinking: 'Working on your answer',
+    speaking: 'Start talking to interrupt',
+}
+
+function HandsFreeTopline({
+    tabId,
+    status,
+    isReconnecting,
+}: {
+    tabId: string
+    status: HandsFreeStatus
+    isReconnecting: boolean
+}): JSX.Element {
+    const { partialTranscript, error } = useValues(handsFreeLogic({ tabId }))
+    const hint = isReconnecting ? 'Reconnecting your microphone' : STATUS_HINT[status]
+    return (
+        <div className="hands-free-surface__top">
+            {partialTranscript ? (
+                <p className="hands-free-surface__partial">{partialTranscript}</p>
+            ) : (
+                <p className="hands-free-surface__hint">{hint}</p>
+            )}
+            {error && <p className="hands-free-surface__error">{error}</p>}
+        </div>
+    )
+}
+
+export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element | null {
+    const { status, connection, error } = useValues(handsFreeLogic({ tabId }))
+    const { toggleHandsFree } = useActions(handsFreeLogic({ tabId }))
+
+    // Register the v-then-m exit shortcut while the surface is mounted.
+    // HandsFreeButton owns the same shortcut for the "enter" path; same-name
+    // re-registration in appShortcutLogic handles the handover cleanly.
+    useAppShortcut({
+        name: 'maxHandsFree',
+        keybind: [keyBinds.maxHandsFree],
+        intent: 'Exit hands-free',
+        interaction: 'function',
+        callback: toggleHandsFree,
+    })
+
+    if (status === 'off') {
+        return null
+    }
+
+    const isListening = status === 'listening'
+    const isReconnecting = connection === 'reconnecting'
+    const hasError = !!error
+    // Reconnecting / error visuals take precedence over the listening pulse so the user
+    // isn't shown a green "listening" mic when the underlying connection is dead.
+    const visualState: HandsFreeStatus | 'reconnecting' | 'error' = hasError
+        ? 'error'
+        : isReconnecting
+          ? 'reconnecting'
+          : status
+    const label = hasError ? 'Error' : isReconnecting ? 'Reconnecting' : STATUS_LABEL[status]
+    const pulseClass = isListening && !isReconnecting && !hasError
+
+    return (
+        <div
+            className="hands-free-surface"
+            data-attr="max-hands-free-surface"
+            data-status={status}
+            data-connection={connection}
+        >
+            <HandsFreeTopline tabId={tabId} status={status} isReconnecting={isReconnecting} />
+
+            <button
+                type="button"
+                onClick={toggleHandsFree}
+                aria-label="Exit hands-free"
+                data-attr="max-hands-free-exit"
+                className={cn(
+                    'hands-free-surface__mic',
+                    `hands-free-surface__mic--${visualState}`,
+                    pulseClass && 'hands-free-surface__mic--pulsing'
+                )}
+            >
+                <IconMicrophone />
+            </button>
+
+            <div className="hands-free-surface__bottom">
+                <span
+                    className={cn(
+                        'hands-free-surface__dot',
+                        `hands-free-surface__dot--${visualState}`,
+                        pulseClass && 'hands-free-surface__dot--pulsing'
+                    )}
+                    aria-hidden
+                />
+                <span className="hands-free-surface__label">{label}</span>
+            </div>
+        </div>
+    )
+}

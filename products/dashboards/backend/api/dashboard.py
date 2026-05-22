@@ -59,8 +59,6 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.alert import AlertConfiguration
-from posthog.models.group_type_mapping import GroupTypeMapping, invalidate_group_types_cache
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -73,6 +71,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.api.dashboard_ai import generate_refresh_analysis
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
@@ -80,6 +79,7 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.llm_analytics.backend.dashboard_templates import get_llm_analytics_default_template
+from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 
 from ee.hogai.utils.aio import async_to_sync
 
@@ -263,6 +263,9 @@ class DashboardTileSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "refresh_attempt",
+            # Denormalization for HogQL printing; combined with depth=1, leaving it
+            # in expands `team` into a full nested Team dict on every tile response.
+            "team",
         ]
         read_only_fields = ["id", "insight"]
         depth = 1
@@ -614,6 +617,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
             DashboardTile.objects.create(
                 dashboard=dashboard,
+                team_id=dashboard.team_id,
                 insight=insight,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
@@ -633,6 +637,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             text = cast(Text, text_serializer.instance)
             DashboardTile.objects.create(
                 dashboard=dashboard,
+                team_id=dashboard.team_id,
                 text=text,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
@@ -652,6 +657,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             button_tile = cast(ButtonTile, button_tile_serializer.instance)
             DashboardTile.objects.create(
                 dashboard=dashboard,
+                team_id=dashboard.team_id,
                 button_tile=button_tile,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
@@ -684,14 +690,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 primary_dashboard=instance,
                 id=instance.team_id,
             ).update(primary_dashboard=None)
-            # Will be migrated with the personhog write path
-            group_type_mapping = GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
-            ).first()
-            if group_type_mapping:
-                group_type_mapping.detail_dashboard_id = None
-                group_type_mapping.save()
-                invalidate_group_types_cache(instance.team.project_id)
+            from posthog.models.group_type_mapping import clear_dashboard_from_group_type_mapping
+
+            clear_dashboard_from_group_type_mapping(
+                team_id=instance.team_id, dashboard_id=instance.id, project_id=instance.team.project_id
+            )
 
         request_filters = initial_data.get("filters")
         if request_filters:
@@ -1041,7 +1044,10 @@ class DashboardsViewSet(
     permission_classes = [CanEditDashboard]
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
-    TEMPLATE_MAP = {"llm-analytics": get_llm_analytics_default_template}
+    TEMPLATE_MAP = {
+        "llm-analytics": get_llm_analytics_default_template,
+        "mcp-analytics": get_mcp_analytics_default_template,
+    }
 
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:

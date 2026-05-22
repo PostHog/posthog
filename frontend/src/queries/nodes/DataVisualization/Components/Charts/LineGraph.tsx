@@ -34,7 +34,6 @@ import { InsightLabel } from 'lib/components/InsightLabel'
 import { createXAxisTickCallback } from 'lib/hog-charts'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { hexToRGBA, uuid } from 'lib/utils'
 import { unpinTooltip, useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
@@ -150,8 +149,6 @@ export const LineGraph = ({
     const { tooltipId, getTooltip, showTooltip, hideTooltip, positionTooltip, pinTooltip } = useInsightTooltip({
         isPinnable: true,
     })
-
-    const { ref: containerRef, height } = useResizeObserver()
 
     const logicKey = useMemo(() => uuid(), [])
     const { hoveredDatasetIndex } = useValues(lineGraphLogic({ key: logicKey }))
@@ -724,21 +721,12 @@ export const LineGraph = ({
 
     return (
         <div
-            className={clsx(className, 'rounded bg-surface-primary relative flex flex-1 flex-col', {
+            className={clsx(className, 'rounded bg-surface-primary w-full grow relative overflow-hidden', {
                 'h-[60vh]': presetChartHeight,
                 'h-full': !presetChartHeight,
             })}
-            ref={containerRef}
         >
-            <div
-                className={clsx('flex flex-1 w-full overflow-hidden', {
-                    'h-full': !presetChartHeight,
-                })}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={height ? { height: `${height}px` } : {}}
-            >
-                <canvas ref={canvasRef} />
-            </div>
+            <canvas ref={canvasRef} />
         </div>
     )
 }

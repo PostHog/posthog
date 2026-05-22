@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '~/plugin-scaffold'
+import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
@@ -41,6 +42,7 @@ import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
 import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
 import { KeyedRateLimiterStepOptions, createKeyedRateLimiterStep } from './keyed-rate-limiter-step'
+import { createLoadErrorTrackingSettingsStep } from './load-error-tracking-settings-step'
 import { createFetchPersonBatchStep } from './person-properties-step'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
 
@@ -70,6 +72,16 @@ export interface ErrorTrackingPipelineConfig {
     groupTypeManager: GroupTypeManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
+    /**
+     * When true, overflow redirects (both restriction-driven force-overflow
+     * and rate-limit-to-overflow) keep the original partition key. When
+     * false, redirects emit with a null key so Kafka spreads load across
+     * overflow-topic partitions. Cymbal cache locality is enforced one layer
+     * down (team_id consistent hashing inside `CymbalClient`), so the
+     * partition key on the overflow lane doesn't affect symbolication cache
+     * hits.
+     */
+    preservePartitionLocality: boolean
     /** Service for rate limiting and redirecting to overflow (main lane only). */
     overflowRedirectService?: OverflowRedirectService
     /** Service for refreshing TTLs on overflow lane events. */
@@ -83,6 +95,11 @@ export interface ErrorTrackingPipelineConfig {
      * a `postCymbalRateLimiters` slot rather than reorder this one.
      */
     preCymbalRateLimiters?: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[]
+    /**
+     * When provided, an error-tracking-settings load step runs before the rate limiter
+     * chain so per-team overrides can be read synchronously from the input.
+     */
+    errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     /** TopHog registry for metrics. */
     topHog: TopHogRegistry
 }
@@ -94,6 +111,7 @@ export interface ErrorTrackingPipelineConfig {
 export interface PreCymbalRateLimiterInput {
     team: { id: number }
     event: PluginEvent
+    errorTrackingSettings?: ErrorTrackingSettings | null
 }
 
 /**
@@ -147,9 +165,11 @@ export function createErrorTrackingPipeline(
         groupTypeManager,
         eventIngestionRestrictionManager,
         overflowEnabled,
+        preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         preCymbalRateLimiters,
+        errorTrackingSettingsManager,
         topHog,
     } = config
 
@@ -171,7 +191,7 @@ export function createErrorTrackingPipeline(
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                 overflowEnabled,
-                                preservePartitionLocality: true,
+                                preservePartitionLocality,
                             })
                         )
                         // Parse Kafka message body [REUSE]
@@ -184,6 +204,9 @@ export function createErrorTrackingPipeline(
                                 })),
                             ])
                         )
+                        // Attach per-team error-tracking settings. No-op when the manager isn't wired
+                        // (rate limiter disabled) — keeps the type chain consistent regardless.
+                        .pipe(createLoadErrorTrackingSettingsStep(errorTrackingSettingsManager))
                 )
                 // Map team to context for handleIngestionWarnings, and carry
                 // the Kafka message byte size through for Cymbal batch chunking.
@@ -210,7 +233,7 @@ export function createErrorTrackingPipeline(
                                     // Rate limit high-volume token:distinct_id pairs to overflow
                                     .pipeBatch(
                                         createRateLimitToOverflowStep(
-                                            true, // preservePartitionLocality
+                                            preservePartitionLocality,
                                             overflowRedirectService
                                         )
                                     )
@@ -221,10 +244,11 @@ export function createErrorTrackingPipeline(
                                         // Process through Cymbal as a batch (before enrichment - Cymbal only
                                         // needs raw exception data, not person/geoip/group data).
                                         // Retry on transient failures (5xx, timeout, network errors).
-                                        // 10 tries with 100ms base sleep and 2x backoff (capped at 10s)
-                                        // gives ~30s total budget to ride out a Cymbal restart.
+                                        // 3 retries keeps the worst-case batch time (3 × 45s timeout =
+                                        // 135s) well within the 180s liveness interval, and reduces
+                                        // amplification pressure on Cymbal during degradation.
                                         .pipeBatchWithRetry(createCymbalProcessingStep(cymbalClient), {
-                                            tries: 10,
+                                            tries: 3,
                                             sleepMs: 100,
                                         })
                                         // Enrich, prepare, create, and emit events

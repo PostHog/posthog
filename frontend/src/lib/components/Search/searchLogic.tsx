@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { IconBell, IconClock, IconDownload, IconNotification } from '@posthog/icons'
+import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -9,6 +9,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
+import { matchesFlagDefinition } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -20,13 +22,14 @@ import { recentItemsModel } from '~/models/recentItemsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
 import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
-import { SettingSectionId } from '~/scenes/settings/types'
+import { Setting, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
 import { filterSearchItems } from './utils'
 
 let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
+let cachedProductDisplayLabelByPath: Map<string, string> | null = null
 
 const getProductIconColorByType = (): Map<string, FileSystemIconColor> => {
     if (cachedProductIconColorByType === null) {
@@ -41,14 +44,29 @@ const getProductIconColorByType = (): Map<string, FileSystemIconColor> => {
     return cachedProductIconColorByType
 }
 
+const getProductDisplayLabelByPath = (): Map<string, string> => {
+    if (cachedProductDisplayLabelByPath === null) {
+        cachedProductDisplayLabelByPath = new Map()
+        for (const product of getTreeItemsProducts()) {
+            if (product.displayLabel) {
+                cachedProductDisplayLabelByPath.set(product.path, product.displayLabel)
+            }
+        }
+    }
+    return cachedProductDisplayLabelByPath
+}
+
 const fileSystemEntryToSearchItem = (
     item: FileSystemEntry,
     overrides: { id: string; category: string; searchKeywords?: string[] }
 ): SearchItem => {
     const name = splitPath(item.path).pop()
+    const itemName = name ? unescapePath(name) : item.path
+    const displayName = getProductDisplayLabelByPath().get(itemName)
     const productIconColor = item.type ? getProductIconColorByType().get(item.type) : undefined
     return {
-        name: name ? unescapePath(name) : item.path,
+        name: itemName,
+        displayName,
         href: item.href || '#',
         lastViewedAt: item.last_viewed_at ?? null,
         itemType: item.type ?? null,
@@ -65,6 +83,9 @@ export interface SearchItem {
     category: string
     productCategory?: string | null
     href?: string
+    /** Action invoked when the item is selected. Use for items that trigger something
+     * other than navigation (e.g. logging out). Consumers should prefer `onSelect` over `href`. */
+    onSelect?: () => void
     icon?: React.ReactNode
     lastViewedAt?: string | null
     groupNoun?: string | null
@@ -113,6 +134,8 @@ export const searchLogic = kea<searchLogicType>([
             ['recents as cachedRecents', 'recentsHasLoaded', 'sceneLogViewsByRef', 'sceneLogViewsHasLoaded'],
             projectTreeDataLogic,
             ['shortcutData as cachedStarred', 'shortcutDataHasLoaded', 'groupItems as treeGroupItems'],
+            organizationIntegrationsLogic,
+            ['organizationIntegrations'],
         ],
     })),
     actions({
@@ -322,7 +345,7 @@ export const searchLogic = kea<searchLogicType>([
                 const items: SearchItem[] = filteredProducts.map((product) => ({
                     id: `app-${product.path}`,
                     name: product.path,
-                    displayName: product.path,
+                    displayName: product.displayLabel ?? product.path,
                     category: 'apps',
                     productCategory: product.category || null,
                     href: product.href || '#',
@@ -624,19 +647,26 @@ export const searchLogic = kea<searchLogicType>([
                     lastViewedAt: sceneLogViewsByRef['Subscriptions'] ?? null,
                     record: { type: 'subscriptions' },
                 },
+                {
+                    id: 'misc-logout',
+                    name: 'Log out',
+                    displayName: 'Log out',
+                    category: 'misc',
+                    icon: <IconLeave />,
+                    itemType: null,
+                    searchKeywords: ['logout', 'log out', 'sign out', 'signout', 'exit'],
+                    onSelect: () => userLogic.actions.logout(),
+                    record: { type: 'logout' },
+                },
             ],
         ],
         settingsItems: [
-            (s) => [s.featureFlags],
-            (featureFlags): SearchItem[] => {
-                const items: SearchItem[] = []
+            (s) => [s.featureFlags, s.organizationIntegrations],
+            (featureFlags, organizationIntegrations): SearchItem[] => {
+                const checkFlag = (flagKey: Pick<Setting, 'flag'>['flag']): boolean =>
+                    matchesFlagDefinition(flagKey, featureFlags)
 
-                const checkFlag = (flag: string): boolean => {
-                    const isNegated = flag.startsWith('!')
-                    const flagName = isNegated ? flag.slice(1) : flag
-                    const flagValue = (featureFlags as Record<string, boolean>)[flagName]
-                    return isNegated ? !flagValue : !!flagValue
-                }
+                const items: SearchItem[] = []
 
                 // Skip project-level sections as they are duplicates of environment sections
                 const seenSectionIds = new Set<string>()
@@ -645,6 +675,14 @@ export const searchLogic = kea<searchLogicType>([
                     // Skip sections hidden from navigation (they are only accessible
                     // from their product's own configuration page)
                     if (section.hideFromNavigation) {
+                        continue
+                    }
+
+                    // Mirror sidebar gating: only surface organization integrations when any exist
+                    if (
+                        section.id === 'organization-integrations' &&
+                        (!organizationIntegrations || organizationIntegrations.length === 0)
+                    ) {
                         continue
                     }
 
@@ -662,15 +700,8 @@ export const searchLogic = kea<searchLogicType>([
 
                     // Filter by feature flag if required
                     if (section.flag) {
-                        if (Array.isArray(section.flag)) {
-                            // All flags in the array must pass
-                            if (!section.flag.every(checkFlag)) {
-                                continue
-                            }
-                        } else {
-                            if (!checkFlag(section.flag)) {
-                                continue
-                            }
+                        if (!checkFlag(section.flag as Pick<Setting, 'flag'>['flag'])) {
+                            continue
                         }
                     }
 
@@ -693,7 +724,7 @@ export const searchLogic = kea<searchLogicType>([
                             : toSentenceCase(section.id.replace(/[-]/g, ' '))
 
                     const displayNameSuffix =
-                        displayName === 'General' || displayName === 'Danger zone'
+                        displayName === 'General' || displayName === 'Danger zone' || displayName === 'Integrations'
                             ? ` (${toSentenceCase(effectiveLevel)})`
                             : ''
 

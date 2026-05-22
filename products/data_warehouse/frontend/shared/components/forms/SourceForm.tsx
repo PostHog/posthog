@@ -779,10 +779,9 @@ export function SourceFormComponent({
                                     : 'Prefix cannot consist of only underscores'
                         }
 
-                        const displayValue = value ? value.trim().replace(/^_+|_+$/g, '') : ''
-                        const tableName = displayValue
-                            ? `${sourceConfig.name.toLowerCase()}.${displayValue}.table_name`
-                            : `${sourceConfig.name.toLowerCase()}.table_name`
+                        const cleanedPrefix = value ? value.trim() : ''
+                        const sourceType = sourceConfig.name.toLowerCase()
+                        const tableName = `${cleanedPrefix}${sourceType}_table_name`.toLowerCase()
                         return (
                             <>
                                 <LemonInput

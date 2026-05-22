@@ -23,6 +23,7 @@ import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip }
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -71,6 +72,8 @@ interface RowDetailsModalProps {
     columns: string[]
     columnKeys: string[]
 }
+
+const ONE_DAY_IN_MILLISECONDS = 24 * 60 * 60 * 1000
 
 const CLICKHOUSE_TYPES = [
     'UUID',
@@ -743,6 +746,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         setProgress,
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
+        isEmbeddedMode,
     }
     const sharedActionsProps = {
         response,
@@ -921,6 +925,10 @@ function InternalDataTableVisualization(
         component = <HogQLBoldNumber />
     }
 
+    if (props.embedded && !props.showSettingsPanel) {
+        return <div className="DataVisualization InsightCard__viz">{component}</div>
+    }
+
     return (
         <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
@@ -983,6 +991,7 @@ const Content = ({
     progress,
     insightLoading,
     showVisualizationSettings,
+    isEmbeddedMode,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -1029,13 +1038,18 @@ const Content = ({
         if (!response && !responseLoading && !insightLoading) {
             return (
                 <div
-                    className="flex flex-1 justify-center items-center border-t"
+                    className="flex flex-1 flex-col justify-center items-center border-t gap-4 p-4"
                     data-attr="sql-editor-output-pane-empty-state"
                 >
-                    <span className="text-secondary mt-3">
+                    <span className="text-secondary">
                         Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
                         query.
                     </span>
+                    <MCPUseCaseCard
+                        surfaceKey="sql.execute"
+                        expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                        className="max-w-140"
+                    />
                 </div>
             )
         }
@@ -1050,6 +1064,7 @@ const Content = ({
                     cachedResults={undefined}
                     exportContext={exportContext}
                     editMode
+                    embedded={isEmbeddedMode}
                     showSettingsPanel={showVisualizationSettings}
                 />
             </div>
@@ -1076,13 +1091,18 @@ const Content = ({
                 : 'Query results will be visualized here.'
         return (
             <div
-                className="flex flex-1 justify-center items-center border-t px-4 text-center"
+                className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-4 text-center"
                 data-attr="sql-editor-output-pane-empty-state"
             >
-                <span className="text-secondary mt-3">
+                <span className="text-secondary max-w-xl">
                     {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
                     statements with <code>;</code> to run them independently.
                 </span>
+                <MCPUseCaseCard
+                    surfaceKey="sql.execute"
+                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                    className="max-w-140"
+                />
             </div>
         )
     }

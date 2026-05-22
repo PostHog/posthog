@@ -1,4 +1,4 @@
-"""Tests for LLM Analytics errors query.
+"""Tests for AI observability errors query.
 
 These tests verify that the errors query correctly aggregates events
 by the pre-normalized $ai_error_normalized property.
