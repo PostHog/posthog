@@ -17,6 +17,7 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
         "name_singular",
         "name_plural",
         "team_link",
+        "organization_link",
         "created_at",
     )
     search_fields = ("group_type", "name_singular", "name_plural")
@@ -52,9 +53,10 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         # `posthog_grouptypemapping` lives in the persons DB while Team/Project/Dashboard
         # live in the main DB, so Django can't JOIN across them. Prefetch the Team rows
-        # for the current page from the main DB to avoid N+1 in team_link's list-view use.
+        # (with organization for organization_link) from the main DB to avoid N+1.
         team_ids = list(qs.values_list("team_id", flat=True).distinct()[:1000])
-        self._request_local.team_cache = Team.objects.in_bulk(team_ids) if team_ids else {}
+        teams = Team.objects.filter(id__in=team_ids).select_related("organization") if team_ids else []
+        self._request_local.team_cache = {team.id: team for team in teams}
         return qs
 
     def get_search_results(self, request, queryset, search_term):
@@ -76,20 +78,38 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
 
         return queryset, may_have_duplicates
 
+    def _cached_team(self, team_id: int) -> Team | None:
+        team = getattr(self._request_local, "team_cache", {}).get(team_id)
+        if team is None:
+            team = Team.objects.filter(pk=team_id).select_related("organization").first()
+        return team
+
     @admin.display(description="Team")
     def team_link(self, group_type_mapping: GroupTypeMapping) -> str:
         team_id = group_type_mapping.team_id
         if not team_id:
             return "-"
-        team = getattr(self._request_local, "team_cache", {}).get(team_id)
-        if team is None:
-            team = Team.objects.filter(pk=team_id).only("id", "name").first()
+        team = self._cached_team(team_id)
         if team is None:
             return f"Team {team_id} (not found)"
         return format_html(
             '<a href="{}">{}</a>',
             reverse("admin:posthog_team_change", args=[team.pk]),
             team.name,
+        )
+
+    @admin.display(description="Organization")
+    def organization_link(self, group_type_mapping: GroupTypeMapping) -> str:
+        team_id = group_type_mapping.team_id
+        if not team_id:
+            return "-"
+        team = self._cached_team(team_id)
+        if team is None or team.organization_id is None:
+            return "-"
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_organization_change", args=[team.organization_id]),
+            team.organization.name,
         )
 
     @admin.display(description="Project")
