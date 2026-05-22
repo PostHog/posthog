@@ -31,8 +31,8 @@ A good run does _not_:
 
 ## Workflow
 
-1. **Read the lay of the land.** Use `project_retrieve`, `external_data_sources_list`,
-   `integration_list`, and `activity_log_list` (last 24h) to understand what this project has and
+1. **Read the lay of the land.** Use `project-get`, `external-data-sources-list`,
+   `integrations-list`, and `activity-log-list` (last 24h) to understand what this project has and
    what's been touched recently.
 
 2. **Read recent agent history.** Call `search_recent_runs(since=last_7_days)` to see what prior
