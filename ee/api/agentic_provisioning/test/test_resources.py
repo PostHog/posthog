@@ -329,6 +329,8 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
 
         project_id = "proj_race_same_org"
+        token = self._get_bearer_token()
+        access_token_app = OAuthAccessToken.objects.get(token=token).application
         original_update_or_create = TeamProvisioningConfig.objects.update_or_create
         raced: list[int] = []
 
@@ -336,11 +338,13 @@ class TestProvisioningResources(ProvisioningTestBase):
             defaults = kwargs.get("defaults", {})
             if "stripe_project_id" in defaults and not raced:
                 raced.append(1)
-                original_update_or_create(team=winner_team, defaults={"stripe_project_id": project_id})
+                original_update_or_create(
+                    team=winner_team,
+                    defaults={"stripe_project_id": project_id, "application": access_token_app},
+                )
                 raise IntegrityError
             return original_update_or_create(*args, **kwargs)
 
-        token = self._get_bearer_token()
         with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=race_then_raise):
             res = self._post_signed_with_bearer(
                 "/api/agentic/provisioning/resources",
@@ -363,12 +367,13 @@ class TestProvisioningResources(ProvisioningTestBase):
             organization=self.organization,
             name="Pre-existing project",
         )
-        TeamProvisioningConfig.objects.update_or_create(
-            team=existing_team, defaults={"stripe_project_id": "proj_existing"}
-        )
 
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
+        TeamProvisioningConfig.objects.update_or_create(
+            team=existing_team,
+            defaults={"stripe_project_id": "proj_existing", "application": access_token.application},
+        )
         assert access_token.scoped_teams == [self.team.id]
 
         res = self._post_signed_with_bearer(
@@ -402,8 +407,12 @@ class TestProvisioningResources(ProvisioningTestBase):
             organization=self.organization,
             name="Restricted project",
         )
+
+        token = self._get_bearer_token()
+        access_token_obj = OAuthAccessToken.objects.get(token=token)
         TeamProvisioningConfig.objects.update_or_create(
-            team=restricted_team, defaults={"stripe_project_id": "proj_restricted"}
+            team=restricted_team,
+            defaults={"stripe_project_id": "proj_restricted", "application": access_token_obj.application},
         )
         AccessControl.objects.create(
             team=restricted_team,
@@ -412,7 +421,6 @@ class TestProvisioningResources(ProvisioningTestBase):
             resource_id=str(restricted_team.id),
         )
 
-        token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
             data={"service_id": "analytics", "project_id": "proj_restricted"},
@@ -423,6 +431,50 @@ class TestProvisioningResources(ProvisioningTestBase):
 
         access_token = OAuthAccessToken.objects.get(token=token)
         assert restricted_team.id not in (access_token.scoped_teams or [])
+
+    def test_create_resource_with_existing_project_id_owned_by_other_partner_does_not_leak(self):
+        # Same project_id but provisioned by a different OAuth application.
+        # The current partner must not be able to resolve into the other partner's
+        # team (which would otherwise hand back that team's api_token/PAT).
+        from posthog.models.oauth import OAuthApplication
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        other_partner = OAuthApplication.objects.create(
+            name="Other Partner",
+            client_id="other_partner_client_id",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            provisioning_partner_type="other_partner",
+        )
+        other_partner_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Other partner project",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=other_partner_team,
+            defaults={"stripe_project_id": "proj_shared_id", "application": other_partner},
+        )
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert access_token.application_id != other_partner.id
+
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics", "project_id": "proj_shared_id"},
+            token=token,
+        )
+        # stripe_project_id is unique across all TPCs, so the create branch hits
+        # IntegrityError and the race_winner lookup (also partner-bound) misses.
+        assert res.status_code == 409
+        assert res.json()["error"]["code"] == "project_id_conflict"
+
+        access_token.refresh_from_db()
+        assert other_partner_team.id not in (access_token.scoped_teams or [])
 
     def test_create_resource_race_winner_rejects_when_user_lacks_team_access(self):
         from unittest.mock import patch
@@ -455,6 +507,8 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
 
         project_id = "proj_race_restricted"
+        token = self._get_bearer_token()
+        access_token_app = OAuthAccessToken.objects.get(token=token).application
         original_update_or_create = TeamProvisioningConfig.objects.update_or_create
         raced: list[int] = []
 
@@ -462,11 +516,13 @@ class TestProvisioningResources(ProvisioningTestBase):
             defaults = kwargs.get("defaults", {})
             if "stripe_project_id" in defaults and not raced:
                 raced.append(1)
-                original_update_or_create(team=restricted_team, defaults={"stripe_project_id": project_id})
+                original_update_or_create(
+                    team=restricted_team,
+                    defaults={"stripe_project_id": project_id, "application": access_token_app},
+                )
                 raise IntegrityError
             return original_update_or_create(*args, **kwargs)
 
-        token = self._get_bearer_token()
         with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=race_then_raise):
             res = self._post_signed_with_bearer(
                 "/api/agentic/provisioning/resources",

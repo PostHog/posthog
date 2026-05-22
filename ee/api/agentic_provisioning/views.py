@@ -1297,6 +1297,7 @@ def _resolve_or_create_project_team(
     existing = (
         TeamProvisioningConfig.objects.filter(
             stripe_project_id=project_id,
+            application=access_token.application,
             team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
         )
         .select_related("team")
@@ -1328,6 +1329,7 @@ def _resolve_or_create_project_team(
         race_winner = (
             TeamProvisioningConfig.objects.filter(
                 stripe_project_id=project_id,
+                application=access_token.application,
                 team__organization_id__in=Team.objects.filter(id__in=scoped_teams).values("organization_id"),
             )
             .select_related("team")
