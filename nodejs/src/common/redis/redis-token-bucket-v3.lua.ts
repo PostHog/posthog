@@ -50,11 +50,20 @@ else
   tokensBefore = currentTokens + (timeDiffSeconds * fillRate)
 end
 
+-- On denial we still return tokensAfter = -1 (preserves the caller-side
+-- tokensAfter < 0 contract) but persist the un-deducted balance so partial
+-- refills accumulate across calls. Without this, sub-2 fractional fillRates
+-- wedge at -1 forever under sustained 1 req/s traffic (e.g. per-issue limits
+-- like 100 per 15 min) because each denied call would overwrite any accrued
+-- refill credit with -1.
 local tokensAfter
+local poolToStore
 if tokensBefore - cost >= 0 then
   tokensAfter = math.min(tokensBefore - cost, poolMax)
+  poolToStore = tokensAfter
 else
   tokensAfter = -1
+  poolToStore = math.min(tokensBefore, poolMax)
 end
 
 -- Don't regress ts when now < before; otherwise advance to now.
@@ -65,7 +74,7 @@ else
   tsToWrite = now
 end
 
-redis.call('hset', key, 'ts', tsToWrite, 'pool', tokensAfter)
+redis.call('hset', key, 'ts', tsToWrite, 'pool', poolToStore)
 
 -- Set TTL ceiling at (expiry * 2) on creation, then refresh when remaining
 -- TTL drops below expiry/2. PTTL returns -1 (no TTL) and -2 (missing key)
