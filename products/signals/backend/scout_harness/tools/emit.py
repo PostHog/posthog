@@ -89,6 +89,7 @@ async def emit_finding(
 
     Same source_id-keyed idempotency contract as `emit_finding_sync`.
     """
+    _assert_team_owns_run(team, run)
     _validate_inputs(description, weight, confidence, evidence)
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
@@ -169,6 +170,7 @@ def emit_finding_sync(
     """
     from asgiref.sync import async_to_sync
 
+    _assert_team_owns_run(team, run)
     _validate_inputs(description, weight, confidence, evidence)
     finding_id = finding_id or _new_finding_id()
     extra = _build_extra(
@@ -223,6 +225,23 @@ def emit_finding_sync(
         extra={**attempt_extra, "source_id": source_id},
     )
     return EmitResult(finding_id=finding_id, emitted=True, skipped_reason=None)
+
+
+def _assert_team_owns_run(team: Team, run: SignalScoutRun) -> None:
+    """Defense-in-depth: confirm `team` actually owns `run`.
+
+    The view path (`SignalScoutRunViewSet.findings`) already filters the run
+    lookup by `team_id`, so a foreign-team `run_id` returns 404 before this
+    function is reached. This guard catches a future direct caller (in-process
+    MCP path, management command, ...) that bypasses that filter, rather than
+    relying on every caller to pre-validate the (team, run) pair.
+
+    Raises `RuntimeError` (not `InvalidEmitError`) because a mismatch here is a
+    server-side wiring bug, not a user-input shape issue — we want a 500, not
+    a 400.
+    """
+    if team.id != run.team_id:
+        raise RuntimeError(f"emit_finding: team {team.id} does not own run {run.id} (team {run.team_id})")
 
 
 def _validate_inputs(

@@ -31,6 +31,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     SOURCE_TYPE,
     _build_extra,
     _validate_inputs,
+    emit_finding_sync,
 )
 from products.signals.backend.scout_harness.tools.runs import MAX_RUN_SEARCH_LIMIT
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_SEARCH_LIMIT
@@ -571,4 +572,64 @@ async def test_emit_finding_returns_skipped_when_source_disabled(arun_emit, atea
 
     assert result.emitted is False
     assert result.skipped_reason == "source_disabled"
+    mock_emit.assert_not_called()
+
+
+# --- emit_finding (team, run) ownership guard tests ---
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_emit_finding_rejects_team_run_mismatch(aorganization_emit, ateam_emit, arun_emit) -> None:
+    """If `team` and `run.team_id` disagree, refuse before reaching `emit_signal`.
+
+    The view filters by `team_id` so this can't happen via the API path today,
+    but the function self-defends for future direct callers (in-process MCP,
+    management commands).
+    """
+    from posthog.models import Team
+
+    other_team = await database_sync_to_async(Team.objects.create)(organization=aorganization_emit, name="other-team")
+
+    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
+        with pytest.raises(RuntimeError, match="does not own run"):
+            await emit_finding(
+                team=other_team,
+                run=arun_emit,  # owned by ateam_emit, not other_team
+                description="should be rejected",
+                weight=0.5,
+                confidence=0.5,
+                evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            )
+    mock_emit.assert_not_called()
+
+
+def test_emit_finding_sync_rejects_team_run_mismatch(db) -> None:
+    """Same guard as the async path, exercised against `emit_finding_sync`."""
+    from posthog.models import Organization, Team
+
+    org = Organization.objects.create(name="sync-mismatch-org", is_ai_data_processing_approved=True)
+    owning_team = Team.objects.create(organization=org, name="owner")
+    other_team = Team.objects.create(organization=org, name="other")
+    with team_scope(owning_team.id, canonical=True):
+        config = SignalScoutConfig.objects.create(team=owning_team)
+        task_run = _make_task_run(owning_team, status=TaskRun.Status.IN_PROGRESS)
+        run = SignalScoutRun.objects.create(
+            task_run=task_run,
+            team=owning_team,
+            scout_config=config,
+            skill_name="signals-scout-errors",
+            skill_version=1,
+        )
+
+    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
+        with pytest.raises(RuntimeError, match="does not own run"):
+            emit_finding_sync(
+                team=other_team,
+                run=run,
+                description="should be rejected",
+                weight=0.5,
+                confidence=0.5,
+                evidence=[EvidenceEntry(source_product="logs", summary="x")],
+            )
     mock_emit.assert_not_called()
