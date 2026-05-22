@@ -13,6 +13,7 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 import numpy as np
+from parameterized import parameterized
 
 from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
@@ -310,14 +311,15 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         assert {r.intent_text for r in records} == {"recent intent"}
         assert intent_by_session == {"recent": "recent intent"}
 
-    @pytest.mark.parametrize(
-        "lookback_days, expected_intents",
+    @parameterized.expand(
         [
-            (7, []),
-            (30, ["old intent"]),
-        ],
+            ("default_7_excludes_old", 7, []),
+            ("override_30_includes_old", 30, ["old intent"]),
+        ]
     )
-    def test_lookback_days_argument_is_respected(self, lookback_days: int, expected_intents: list[str]) -> None:
+    def test_lookback_days_argument_is_respected(
+        self, _name: str, lookback_days: int, expected_intents: list[str]
+    ) -> None:
         # Session ends 10 days ago: excluded at 7 days, included at 30.
         self._seed_session("old", "old intent", session_end_offset=timedelta(days=-10))
 
