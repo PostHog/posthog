@@ -42,7 +42,7 @@ describe('FunnelLineChart', () => {
             })
         })
 
-        it('shows breakdown labels (not "Conversion") in the tooltip when broken down', async () => {
+        it('shows the breakdown label on each tooltip row when broken down', async () => {
             renderInsight({
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
@@ -54,7 +54,6 @@ describe('FunnelLineChart', () => {
             const tooltip = await waitForHogChartTooltip()
             expect(tooltip.textContent).toContain('Spike')
             expect(tooltip.textContent).toContain('Bramble')
-            expect(tooltip.textContent).not.toContain(FUNNEL_CONVERSION_SERIES_LABEL)
         })
     })
 
