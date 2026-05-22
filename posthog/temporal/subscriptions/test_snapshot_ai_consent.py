@@ -139,6 +139,114 @@ async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch):
     assert result.summary_text == "- Pageviews is trending up"
 
 
+async def test_skips_summary_when_org_over_credit_budget(team, user, monkeypatch):
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    delivery = await _create_delivery(
+        subscription,
+        {"insights": [{"id": subscription.insight_id, "name": "Pageviews", "query_results": {"result": []}}]},
+    )
+
+    called = {}
+
+    def fake_generate(*args, **kwargs):
+        called["ran"] = True
+        return "- should not run"
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        fake_generate,
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.is_team_limited",
+        lambda *a, **kw: True,
+    )
+
+    result = await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    assert result.summary_text is None
+    assert called.get("ran") is None
+
+
+async def test_runs_summary_when_org_under_credit_budget(team, user, monkeypatch):
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    delivery = await _create_delivery(
+        subscription,
+        {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": "Pageviews",
+                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                }
+            ]
+        },
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.is_team_limited",
+        lambda *a, **kw: False,
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        lambda *a, **kw: "- Pageviews is trending up",
+    )
+
+    result = await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    assert result.summary_text == "- Pageviews is trending up"
+
+
+async def test_generates_summary_when_credit_check_errors(team, user, monkeypatch):
+    # Fail open: a quota-lookup error must not drop the summary — generate and deliver.
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    delivery = await _create_delivery(
+        subscription,
+        {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": "Pageviews",
+                    "query_results": {"result": [{"label": "Pageviews", "data": [1, 2, 3]}]},
+                }
+            ]
+        },
+    )
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("quota cache unavailable")
+
+    monkeypatch.setattr("posthog.temporal.subscriptions.snapshot_activities.is_team_limited", boom)
+    monkeypatch.setattr(
+        "posthog.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        lambda *a, **kw: "- generated despite quota error",
+    )
+
+    result = await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(delivery.id),
+        )
+    )
+
+    assert result.summary_text == "- generated despite quota error"
+
+
 async def test_skips_summary_when_summary_not_enabled(team, user):
     subscription = await _create_subscription(team, user, summary_enabled=False)
     await _set_ai_consent(subscription, approved=True)

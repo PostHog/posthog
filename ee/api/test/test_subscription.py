@@ -676,6 +676,60 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
+            ("over_budget", True, status.HTTP_402_PAYMENT_REQUIRED),
+            ("under_budget", False, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_summary_enabled_respects_ai_credit_budget(
+        self,
+        _name: str,
+        is_limited: bool,
+        expected_status: int,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.is_team_limited", return_value=is_limited):
+            response = self._create_subscription(summary_enabled=True)
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_402_PAYMENT_REQUIRED:
+            assert "AI credit usage limit" in response.json()["detail"]
+
+    def test_patch_transition_to_summary_enabled_blocked_when_over_credit_budget(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        create_response = self._create_subscription(summary_enabled=False)
+        sub_id = create_response.json()["id"]
+
+        with patch("ee.api.subscription.is_team_limited", return_value=True):
+            patch_response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+                {"summary_enabled": True},
+            )
+
+        assert patch_response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert "AI credit usage limit" in patch_response.json()["detail"]
+
+    def test_patch_unrelated_field_on_already_enabled_summary_when_over_credit_budget(self) -> None:
+        # Going over budget mid-month must not trap an org out of editing existing
+        # summaries — only transitions *into* an active summary are gated.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        existing = self._seed_active_summary_subscriptions(1)
+
+        with patch("ee.api.subscription.is_team_limited", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
+                {"title": "renamed while over budget"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "renamed while over budget"
+        assert response.json()["summary_enabled"] is True
+
+    @parameterized.expand(
+        [
             ("under_limit", 3, 10, False),
             ("at_limit", 5, 5, True),
         ]

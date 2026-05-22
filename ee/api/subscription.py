@@ -43,6 +43,7 @@ from posthog.utils import str_to_bool
 
 from products.product_analytics.backend.models.insight import Insight
 
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
@@ -294,6 +295,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # bypass the cap entirely.
         if self._is_becoming_active_summary(attrs):
             organization = self.context["get_organization"]()
+            self._validate_summary_credit_budget()
             self._validate_summary_enabled_org_limit(organization)
 
         return attrs
@@ -307,6 +309,18 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         pre_active = pre_summary_enabled and not pre_deleted
         post_active = post_summary_enabled and not post_deleted
         return post_active and not pre_active
+
+    def _validate_summary_credit_budget(self) -> None:
+        # Mirror the chat assistant's entry-point gate (ee/api/conversation.py): refuse to
+        # turn a summary on while the org is over its AI credit budget. is_team_limited reads
+        # the billing quota-limiting cache — the same signal Max chat enforces — not the
+        # display-only /usage credit calculation.
+        team = self.context["get_team"]()
+        if is_team_limited(team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+            raise QuotaLimitExceeded(
+                "Your organization reached its AI credit usage limit. "
+                "Increase the limits in Billing settings, or ask an org admin to do so."
+            )
 
     def _validate_summary_enabled_org_limit(self, organization) -> None:
         # Already-on subscriptions stay on for grandfathered orgs already over
