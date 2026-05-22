@@ -76,6 +76,7 @@ ActivityScope = Literal[
     "AlertSubscription",
     "ExternalDataSource",
     "ExternalDataSchema",
+    "Evaluation",
     "LLMTrace",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
@@ -588,6 +589,10 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "sync_type_config",
         "latest_error",
         "last_synced_at",
+    ],
+    "Evaluation": [
+        # Reverse relations — auto-managed by FK creates, not user intent.
+        "reports",
     ],
 }
 

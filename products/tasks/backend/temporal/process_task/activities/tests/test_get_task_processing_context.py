@@ -8,11 +8,13 @@ from asgiref.sync import async_to_sync
 from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
+from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
 from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
+    _is_sandbox_event_ingest_enabled,
     get_task_processing_context,
 )
 
@@ -238,20 +240,104 @@ class TestGetTaskProcessingContextActivity:
         task_run = test_task.create_run()
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
+        def feature_enabled(flag_key, **kwargs):
+            if flag_key == "tasks-pr-loop":
+                return flag_value
+            return False
+
         with patch(
             "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=flag_value,
+            side_effect=feature_enabled,
         ) as feature_enabled_mock:
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.pr_loop_enabled is expected
-        feature_enabled_mock.assert_called_once()
-        args, kwargs = feature_enabled_mock.call_args
+        assert result.sandbox_event_ingest_enabled is False
+        args, kwargs = feature_enabled_mock.call_args_list[0]
         assert args[0] == "tasks-pr-loop"
         assert kwargs["distinct_id"] == (test_task.created_by.distinct_id or "process_task_workflow")
         org_id = str(test_task.team.organization_id)
         assert kwargs["groups"] == {"organization": org_id}
         assert kwargs["group_properties"] == {"organization": {"id": org_id}}
+        sandbox_args, _sandbox_kwargs = feature_enabled_mock.call_args_list[1]
+        assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
+
+    @pytest.mark.parametrize(
+        "flag_value, expected",
+        [
+            (True, True),
+            (False, False),
+            (None, False),
+        ],
+    )
+    def test_sandbox_event_ingest_flag_uses_organization_rollout(self, flag_value, expected):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_value,
+        ) as feature_enabled_mock:
+            assert (
+                _is_sandbox_event_ingest_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is expected
+            )
+
+        feature_enabled_mock.assert_called_once_with(
+            SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+            distinct_id="distinct-id",
+            groups={"organization": "organization-id"},
+            group_properties={"organization": {"id": "organization-id"}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    def test_sandbox_event_ingest_flag_fails_closed(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flag service failed"),
+        ):
+            assert (
+                _is_sandbox_event_ingest_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is False
+            )
+
+    def test_sandbox_event_ingest_state_override_skips_flag_check(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
+        ) as feature_enabled_mock:
+            assert (
+                _is_sandbox_event_ingest_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    state={"sandbox_event_ingest_enabled": True},
+                )
+                is True
+            )
+
+        feature_enabled_mock.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_uses_sandbox_event_ingest_state_override(
+        self, activity_environment, test_task
+    ):
+        task_run = test_task.create_run(extra_state={"sandbox_event_ingest_enabled": True})
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_event_ingest_enabled is True
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_ci_prompt(self, activity_environment, test_task):

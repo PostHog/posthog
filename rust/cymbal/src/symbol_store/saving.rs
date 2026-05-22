@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use chrono::{DateTime, Duration, Utc};
 
 use sha2::{Digest, Sha512};
@@ -61,12 +62,13 @@ pub struct SymbolSetRecord {
     pub last_used: Option<DateTime<Utc>>,
 }
 
-// This is the "intermediate" symbol set data. Rather than a simple `Vec<u8>`, the saving layer
+// This is the "intermediate" symbol set data. Rather than a simple `Bytes`, the saving layer
 // has to return this from calls to `fetch`, and accept it in calls to `parse`, so that it can
 // pass the information necessary to store the underlying data between the fetch and parse stages,
-// (to avoid saving data we can't parse)
+// (to avoid saving data we can't parse). The payload is held as `Bytes` so it can be cheaply
+// cloned (refcount bump) when the parse and save paths both need a reference.
 pub struct Saveable {
-    pub data: Vec<u8>,
+    pub data: Bytes,
     pub storage_ptr: Option<String>, // This is None if we still need to save this data
     pub team_id: i32,
     pub set_ref: String,
@@ -93,7 +95,7 @@ impl<F> Saving<F> {
         &self,
         team_id: i32,
         set_ref: String,
-        data: Vec<u8>,
+        data: Bytes,
     ) -> Result<String, UnhandledError> {
         info!("Saving symbol set data for {}", set_ref);
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "true");
@@ -114,7 +116,20 @@ impl<F> Saving<F> {
         };
 
         self.s3_client.put(&self.bucket, &key, data).await?;
-        record.save(&self.pool).await?;
+        if !record.save_data_if_missing(&self.pool).await? {
+            warn!(
+                "Not overwriting existing symbol set data for {} after dynamic fetch",
+                record.set_ref
+            );
+            if let Err(err) = self.s3_client.delete(&self.bucket, &key).await {
+                warn!(
+                    "Failed to clean up unused symbol set data at {} after skipped DB update: {:?}",
+                    key, err
+                );
+            }
+            start.label("outcome", "skipped_existing_data").fin();
+            return Ok(key);
+        }
         // We just saved new data for this symbol set, which invalidates all our previous stack frame resolution results,
         // so delete them
         let deleted: u64 = sqlx::query_scalar!(
@@ -146,7 +161,7 @@ impl<F> Saving<F> {
     ) -> Result<(), UnhandledError> {
         info!("Saving symbol set error for {}", set_ref);
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "false");
-        SymbolSetRecord {
+        let mut record = SymbolSetRecord {
             id: Uuid::now_v7(),
             team_id,
             set_ref,
@@ -155,9 +170,8 @@ impl<F> Saving<F> {
             created_at: Utc::now(),
             content_hash: None,
             last_used: Some(Utc::now()),
-        }
-        .save(&self.pool)
-        .await?;
+        };
+        record.save_failure(&self.pool).await?;
         start.label("outcome", "success").fin();
         Ok(())
     }
@@ -170,7 +184,7 @@ impl<F> Saving<F> {
 #[async_trait]
 impl<F> Fetcher for Saving<F>
 where
-    F: Fetcher<Fetched = Vec<u8>, Err = ResolveError>,
+    F: Fetcher<Fetched = Bytes, Err = ResolveError>,
     F::Ref: ToString + Send,
 {
     type Ref = F::Ref;
@@ -257,7 +271,7 @@ where
 #[async_trait]
 impl<F> Parser for Saving<F>
 where
-    F: Parser<Source = Vec<u8>, Err = ResolveError>,
+    F: Parser<Source = Bytes, Err = ResolveError>,
     F::Set: Send,
 {
     type Source = Saveable;
@@ -265,23 +279,40 @@ where
     type Err = F::Err;
 
     async fn parse(&self, data: Saveable) -> Result<Self::Set, Self::Err> {
-        match self.inner.parse(data.data.clone()).await {
+        let Saveable {
+            data: bytes,
+            storage_ptr,
+            team_id,
+            set_ref,
+        } = data;
+
+        // On the loaded-from-S3 path we never need to save the bytes back, so we hand them
+        // straight to the parser by move. On the fresh-fetch path we keep a refcounted handle
+        // so we can save after a successful parse — cloning `Bytes` is just a refcount bump.
+        let bytes_to_save = if storage_ptr.is_none() {
+            Some(bytes.clone())
+        } else {
+            None
+        };
+
+        match self.inner.parse(bytes).await {
             Ok(s) => {
-                info!("Parsed symbol set data for {}", data.set_ref);
-                if data.storage_ptr.is_none() {
-                    // We only save the data if we fetched it from the underlying fetcher
-                    self.save_data(data.team_id, data.set_ref, data.data)
-                        .await?;
+                info!("Parsed symbol set data for {}", set_ref);
+                if let Some(bytes_to_save) = bytes_to_save {
+                    self.save_data(team_id, set_ref, bytes_to_save).await?;
                 }
-                return Ok(s);
+                Ok(s)
             }
             Err(ResolveError::ResolutionError(e)) => {
-                info!("Failed to parse symbol set data for {}", data.set_ref);
-                // We save the no-data case here, to prevent us from fetching again for day
-                self.save_no_data(data.team_id, data.set_ref, &e).await?;
-                return Err(ResolveError::ResolutionError(e));
+                info!("Failed to parse symbol set data for {}", set_ref);
+                if storage_ptr.is_none() {
+                    // Save fresh parse failures to prevent refetching for a day, but never
+                    // replace an existing uploaded blob with a parser error.
+                    self.save_no_data(team_id, set_ref, &e).await?;
+                }
+                Err(ResolveError::ResolutionError(e))
             }
-            Err(e) => return Err(e),
+            Err(e) => Err(e),
         }
     }
 }
@@ -373,6 +404,72 @@ impl SymbolSetRecord {
         Ok(())
     }
 
+    pub async fn save_data_if_missing<'c, E>(&mut self, e: E) -> Result<bool, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let truncated_ref = truncate_ref(&self.set_ref);
+        let id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash, last_used)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (team_id, ref) DO UPDATE
+            SET storage_ptr = $4, content_hash = $7, failure_reason = $5, last_used = $8
+            WHERE posthog_errortrackingsymbolset.storage_ptr IS NULL
+            RETURNING id
+            "#,
+        )
+        .bind(self.id)
+        .bind(self.team_id)
+        .bind(truncated_ref)
+        .bind(&self.storage_ptr)
+        .bind(&self.failure_reason)
+        .bind(self.created_at)
+        .bind(&self.content_hash)
+        .bind(self.last_used)
+        .fetch_optional(e)
+        .await?;
+
+        if let Some(id) = id {
+            self.id = id;
+            metrics::counter!(SYMBOL_SET_SAVED).increment(1);
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    pub async fn save_failure<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let truncated_ref = truncate_ref(&self.set_ref);
+        if let Some(id) = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash, last_used)
+            VALUES ($1, $2, $3, NULL, $4, $5, NULL, $6)
+            ON CONFLICT (team_id, ref) DO UPDATE
+            SET failure_reason = $4, last_used = $6
+            WHERE posthog_errortrackingsymbolset.storage_ptr IS NULL
+            RETURNING id
+            "#,
+        )
+        .bind(self.id)
+        .bind(self.team_id)
+        .bind(truncated_ref)
+        .bind(&self.failure_reason)
+        .bind(self.created_at)
+        .bind(self.last_used)
+        .fetch_optional(e)
+        .await?
+        {
+            self.id = id;
+            metrics::counter!(SYMBOL_SET_SAVED).increment(1);
+        }
+
+        Ok(())
+    }
+
     pub async fn delete<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
@@ -396,11 +493,14 @@ impl SymbolSetRecord {
 mod test {
     use std::sync::Arc;
 
+    use bytes::Bytes;
+    use chrono::Utc;
     use httpmock::MockServer;
     use mockall::predicate;
     use posthog_symbol_data::write_symbol_data;
     use reqwest::Url;
     use sqlx::PgPool;
+    use uuid::Uuid;
 
     use crate::{
         config::Config,
@@ -480,7 +580,7 @@ mod test {
             .with(
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
-                predicate::eq(get_symbol_data_bytes()), // We won't assert on the contents written
+                predicate::eq(Bytes::from(get_symbol_data_bytes())), // We won't assert on the contents written
             )
             .returning(|_, _, _| Ok(()))
             .once();
@@ -491,7 +591,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
+            .returning(|_, _| Ok(Some(Bytes::from(get_symbol_data_bytes()))));
 
         let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(
@@ -513,6 +613,75 @@ mod test {
         saving_smp.lookup(0, test_url.clone()).await.unwrap();
         source_mock.assert_hits(1);
         map_mock.assert_hits(1);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_dynamic_fetch_cleanup_when_existing_blob_wins_race(db: PgPool) {
+        let server = MockServer::start();
+
+        let mut config = Config::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+        config.ss_prefix = "test-prefix".to_string();
+
+        let test_url = Url::parse(&server.url(CHUNK_PATH.to_string())).unwrap();
+        let storage_ptr = "symbolsets/existing".to_string();
+
+        let mut record = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id: 0,
+            set_ref: test_url.to_string(),
+            storage_ptr: Some(storage_ptr.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        };
+        record.save(&db).await.unwrap();
+
+        let mut client = MockS3Client::default();
+        client
+            .expect_put()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::str::starts_with(config.ss_prefix.clone()),
+                predicate::eq(Bytes::from(get_symbol_data_bytes())),
+            )
+            .returning(|_, _, _| Ok(()))
+            .once();
+        client
+            .expect_delete()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::str::starts_with(config.ss_prefix.clone()),
+            )
+            .returning(|_, _| Ok(()))
+            .once();
+
+        let smp = SourcemapProvider::new(&config);
+        let saving_smp = Saving::new(
+            smp,
+            db.clone(),
+            Arc::new(client),
+            config.object_storage_bucket.clone(),
+            config.ss_prefix.clone(),
+        );
+
+        saving_smp
+            .save_data(
+                0,
+                test_url.to_string(),
+                Bytes::from(get_symbol_data_bytes()),
+            )
+            .await
+            .unwrap();
+
+        let record = SymbolSetRecord::load(&db, 0, test_url.as_ref())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(record.storage_ptr.as_deref(), Some(storage_ptr.as_str()));
+        assert!(record.failure_reason.is_none());
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -610,5 +779,58 @@ mod test {
             .unwrap();
 
         assert!(record.storage_ptr.is_none());
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_parse_failure_does_not_overwrite_existing_blob(db: PgPool) {
+        let server = MockServer::start();
+
+        let mut config = Config::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+        config.ss_prefix = "test-prefix".to_string();
+        config.allow_internal_ips = true;
+
+        let test_url = Url::parse(&server.url(CHUNK_PATH.to_string())).unwrap();
+        let storage_ptr = "symbolsets/existing".to_string();
+
+        let mut record = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id: 0,
+            set_ref: test_url.to_string(),
+            storage_ptr: Some(storage_ptr.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        };
+        record.save(&db).await.unwrap();
+
+        let mut client = MockS3Client::default();
+        client
+            .expect_get()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::eq(storage_ptr.clone()),
+            )
+            .returning(|_, _| Ok(Some(Bytes::from_static(b"not a sourcemap"))));
+
+        let smp = SourcemapProvider::new(&config);
+        let saving_smp = Saving::new(
+            smp,
+            db.clone(),
+            Arc::new(client),
+            config.object_storage_bucket.clone(),
+            config.ss_prefix.clone(),
+        );
+
+        saving_smp.lookup(0, test_url.clone()).await.unwrap_err();
+
+        let record = SymbolSetRecord::load(&db, 0, test_url.as_ref())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(record.storage_ptr.as_deref(), Some(storage_ptr.as_str()));
+        assert!(record.failure_reason.is_none());
     }
 }

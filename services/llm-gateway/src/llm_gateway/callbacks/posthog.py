@@ -63,7 +63,7 @@ _TRACE_ID_NAMESPACE = UUID("8d4f6b7e-6a3e-4f3a-9f3b-3b6f4d2e8a1a")
 def _normalize_trace_id(raw: Any) -> str:
     """Normalize an incoming trace identifier into a UUID string.
 
-    LLM Analytics renders trace links as `/llm-observability/traces/<id>`, so
+    AI observability renders trace links as `/ai-observability/traces/<id>`, so
     `$ai_trace_id` must be a URL-safe identifier. Anthropic's
     `metadata.user_id` is a free-form string that Claude Code populates with a
     serialized JSON session blob — passing that through verbatim produces
@@ -99,7 +99,7 @@ def _truncate_for_capture(properties: dict[str, Any]) -> dict[str, Any]:
 
 
 class PostHogCallback(InstrumentedCallback):
-    """Custom PostHog callback for LLM analytics."""
+    """Custom PostHog callback for AI observability."""
 
     callback_name = "posthog"
 

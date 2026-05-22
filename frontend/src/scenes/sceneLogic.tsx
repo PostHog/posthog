@@ -310,8 +310,8 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/oauth',
     // /connect/vercel/link (urls.vercelConnect) and other connect round-trips.
     '/connect',
-    // /agentic/authorize.
-    '/agentic/authorize',
+    // /agentic/authorize, /agentic/account-mismatch.
+    '/agentic',
     // /cli/authorize, /cli/live (CLI auth round-trip).
     '/cli',
     '/startups',

@@ -32,8 +32,10 @@ from rest_framework.response import Response
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.models import Team, User
+from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
 from posthog.utils import relative_date_parse
 
@@ -587,7 +589,16 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     EU deploys receive a 302 to the US URL.
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated, APIScopePermission]
+    # Not project- or org-nested; the caller's identity is the only scope. INTERNAL
+    # opts out of team/org scope enforcement in APIScopePermission. The required
+    # scope on the wire is still `llm_analytics:read`, supplied below so the MCP
+    # tool's scope declaration stays accurate.
+    scope_object = "INTERNAL"
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        return ["llm_analytics:read"]
 
     def get_throttles(self):
         return [
@@ -597,6 +608,7 @@ class PersonalSpendViewSet(viewsets.ViewSet):
         ]
 
     @extend_schema(
+        operation_id="llm_analytics_personal_spend_list",
         parameters=[_SpendQueryParamsSerializer],
         responses={
             200: PersonalSpendAnalysisResponseSerializer,

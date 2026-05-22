@@ -32,10 +32,9 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.models import Node, NodeType
-from products.data_warehouse.backend.models import get_s3_client
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.s3 import ensure_bucket_exists
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
 
 LOGGER = get_logger(__name__)

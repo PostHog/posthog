@@ -22,12 +22,19 @@ from temporalio.client import (
     ScheduleRange,
     ScheduleSpec,
     ScheduleState,
+    WorkflowHandle,
 )
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
-from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
+from posthog.batch_exports.models import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -818,6 +825,46 @@ async def start_backfill_batch_export_workflow(
     return workflow_id
 
 
+@async_to_sync
+async def start_batch_export_workflow(
+    temporal: Client, name: str, workflow_id: str, inputs: BaseBatchExportInputs
+) -> WorkflowHandle:
+    """Async call to start a batch export workflow."""
+    handle = await temporal.start_workflow(
+        name,
+        inputs,
+        id=workflow_id,
+        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+    )
+
+    return handle
+
+
+def start_file_download_batch_export(
+    batch_export: BatchExportOnDemand,
+    workflow_id: str,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    batch_export_run_id: UUID | None = None,
+    compression: str | None = None,
+    format: str = "Parquet",
+    max_size_mb: int = 0,
+) -> None:
+    inputs = FileDownloadBatchExportInputs(
+        batch_export_id=batch_export.id,
+        batch_export_run_id=batch_export_run_id,
+        team_id=batch_export.team_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        compression=compression,
+        file_format=format,
+        max_file_size_mb=max_size_mb,
+    )
+    temporal = sync_connect()
+
+    start_batch_export_workflow(temporal, "file-download-export", workflow_id, inputs)
+
+
 def create_batch_export_run(
     batch_export_id: UUID,
     data_interval_start: str | None,
@@ -1193,6 +1240,7 @@ class BatchExportInsertInputs:
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
     stage_folder: str | None = None
+    on_demand: bool = False
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.

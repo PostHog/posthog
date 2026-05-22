@@ -1,7 +1,10 @@
-from drf_spectacular.utils import extend_schema
+import json
+
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import log_activity_from_viewset
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
@@ -60,13 +63,42 @@ class CustomerJourneyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
 
 
 @extend_schema(tags=["customer_analytics"])
-class AccountViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "account"
     queryset = Account.objects.unscoped().order_by("-created_at")
     serializer_class = AccountSerializer
+    bulk_update_tags = None  # Mixin action assumes integer PKs; Account uses UUIDs.
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="tags",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. '
+                    "Returns accounts that have any of the listed tags."
+                ),
+            ),
+        ],
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team.id)
+        queryset = queryset.filter(team_id=self.team.id)
+
+        tags_param = self.request.query_params.get("tags")
+        if tags_param:
+            try:
+                tags_list = json.loads(tags_param)
+            except json.JSONDecodeError:
+                return queryset
+            if isinstance(tags_list, list) and tags_list:
+                queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save()

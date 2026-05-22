@@ -56,7 +56,7 @@ export function TrialUsageMeterDisplay({
                 <p className="text-sm">
                     Trial {noun} exhausted.{' '}
                     {showSettingsLink ? (
-                        <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
+                        <Link to={urls.settings('project-ai-observability', 'ai-observability-byok')}>
                             Add your API key
                         </Link>
                     ) : (
@@ -68,7 +68,7 @@ export function TrialUsageMeterDisplay({
                 <p className="text-sm text-muted">
                     You have {trial_evals_remaining} {noun} to try things out before{' '}
                     {showSettingsLink ? (
-                        <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
+                        <Link to={urls.settings('project-ai-observability', 'ai-observability-byok')}>
                             adding your own key
                         </Link>
                     ) : (
