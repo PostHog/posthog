@@ -278,7 +278,7 @@ export function EditAlertModal({
                             />
                         </div>
 
-                        {!creatingNewAlert && alertId ? (
+                        {alertId ? (
                             alert ? (
                                 <AlertHistorySection alertId={alert.id} />
                             ) : alertLoading ? (

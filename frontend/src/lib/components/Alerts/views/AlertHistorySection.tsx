@@ -131,7 +131,6 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
         alertHistoryChartSeriesName,
         alertHistoryUsesAnomalyScores,
         alertHistoryHasHistory,
-        alertHistoryHasChartableHistory,
         alertHistoryChecksSortedDesc,
         alertHistoryTableEntryCount,
         alertHistoryIsAnomalyDetection,
@@ -213,18 +212,16 @@ export function AlertHistorySection({ alertId }: { alertId: AlertType['id'] }): 
                 </div>
             ) : (
                 <>
-                    {alertHistoryHasChartableHistory ? (
-                        <LemonSegmentedButton
-                            size="small"
-                            value={alertHistoryView}
-                            onChange={(v) => selectAlertHistoryView(v)}
-                            options={[
-                                { value: 'chart', label: 'Chart' },
-                                { value: 'table', label: 'Table' },
-                            ]}
-                        />
-                    ) : null}
-                    {alertHistoryView === 'chart' && alertHistoryHasChartableHistory ? (
+                    <LemonSegmentedButton
+                        size="small"
+                        value={alertHistoryView}
+                        onChange={(v) => selectAlertHistoryView(v)}
+                        options={[
+                            { value: 'chart', label: 'Chart' },
+                            { value: 'table', label: 'Table' },
+                        ]}
+                    />
+                    {alertHistoryView === 'chart' ? (
                         <div className="relative">
                             {alertLoading ? <SpinnerOverlay /> : null}
                             <AlertHistoryChart
