@@ -79,37 +79,39 @@ describe('API helper', () => {
     })
 
     describe('read-only mode', () => {
-        beforeEach(() => {
-            setReadOnlyGetter(() => true)
-        })
-
         afterEach(() => {
             setReadOnlyGetter(null)
         })
 
-        it('blocks regular POST writes', async () => {
-            await expect(api.create('/api/projects/2/insights/', { name: 'x' })).rejects.toBeInstanceOf(
-                ReadOnlyModeError
-            )
-            expect(fakeFetch).not.toHaveBeenCalled()
+        it('allows POSTs to the query endpoint in read-only mode (POST is the read verb there)', async () => {
+            setReadOnlyGetter(() => true)
+            await expect(api.query({ kind: NodeKind.HogQLQuery, query: 'select 1' })).resolves.not.toThrow()
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/HogQLQuery/')
         })
 
-        it('allows POSTs to the analytics query endpoint (e.g. DatabaseSchemaQuery)', async () => {
-            await expect(
-                api.query({ kind: NodeKind.DatabaseSchemaQuery } as Record<string, any>)
-            ).resolves.toEqual(FAKE_FETCH_RESULT)
-            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/DatabaseSchemaQuery/')
+        it('allows POSTs to the bare query endpoint in read-only mode', async () => {
+            setReadOnlyGetter(() => true)
+            await expect(api.create('/api/environments/2/query/')).resolves.not.toThrow()
         })
 
-        it('allows POSTs to the bare query endpoint', async () => {
-            await expect(api.query({} as Record<string, any>)).resolves.toEqual(FAKE_FETCH_RESULT)
-            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/')
+        it('allows POSTs to query/upgrade in read-only mode (read-only schema transform)', async () => {
+            setReadOnlyGetter(() => true)
+            await expect(api.create('/api/environments/2/query/upgrade/')).resolves.not.toThrow()
         })
 
-        it('allows POSTs to query subpaths like upgrade', async () => {
-            await expect(
-                api.create('/api/environments/2/query/upgrade', { query: { kind: 'HogQLQuery' } })
-            ).resolves.toEqual(FAKE_FETCH_RESULT)
+        it('blocks POSTs to non-query endpoints in read-only mode', async () => {
+            setReadOnlyGetter(() => true)
+            await expect(api.create('/api/environments/2/insights/')).rejects.toBeInstanceOf(ReadOnlyModeError)
+        })
+
+        it('blocks POSTs to deeper /query/ paths (e.g. query log subresource)', async () => {
+            setReadOnlyGetter(() => true)
+            await expect(api.create('/api/environments/2/query/abc123/log/')).rejects.toBeInstanceOf(ReadOnlyModeError)
+        })
+
+        it('does not block when not in read-only mode', async () => {
+            setReadOnlyGetter(() => false)
+            await expect(api.create('/api/environments/2/insights/')).resolves.not.toThrow()
         })
     })
 

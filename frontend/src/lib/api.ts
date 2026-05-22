@@ -2101,6 +2101,13 @@ const ensureProjectIdNotInvalid = (url: string): void => {
     }
 }
 
+// The `/query/` endpoint uses POST for reads because request bodies are too large for GET.
+// Match `/query/` and `/query/{kind}/` (e.g. `HogQLQuery`, `upgrade`) — but not deeper paths
+// like `/query/{queryId}/log/`, which are GET-only and unaffected by the read-only guard.
+const READ_ONLY_SAFE_POST_URL_REGEX = /\/api\/(?:project|environment)s\/[^/]+\/query\/(?:[^/?#]+\/)?(?:$|[?#])/
+
+const isReadOnlySafePostUrl = (url: string): boolean => READ_ONLY_SAFE_POST_URL_REGEX.test(url)
+
 function getSessionId(): string | undefined {
     // get_session_id is not always present e.g. in the toolbar
     // but our typing in the SDK doesn't make this clear
@@ -6734,7 +6741,7 @@ const api = {
     ): Promise<T> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly(method, url)
+        assertNotReadOnly(method)
         const isFormData = data instanceof FormData
 
         const response = await handleFetch(url, method, async () => {
@@ -6770,7 +6777,9 @@ const api = {
     async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('POST', url)
+        if (!isReadOnlySafePostUrl(url)) {
+            assertNotReadOnly('POST')
+        }
         const isFormData = data instanceof FormData
 
         return await handleFetch(url, 'POST', () =>
@@ -6791,7 +6800,7 @@ const api = {
     async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
-        assertNotReadOnly('DELETE', url)
+        assertNotReadOnly('DELETE')
         return await handleFetch(url, 'DELETE', () =>
             fetch(url, {
                 method: 'DELETE',
