@@ -6,7 +6,6 @@ import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-u
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
@@ -85,11 +84,14 @@ function FreeTierCreateGate(props: EditSubscriptionProps): JSX.Element {
 
     if (isFreeTierCreateAtLimit(subscriptionCount)) {
         return (
-            <PayGateMini
-                feature={AvailableFeature.SUBSCRIPTIONS}
+            <UsageLimitPaywall
+                title="Subscription limit reached"
+                description="Delete an existing subscription or upgrade your plan to add more."
+                limit={FREE_LIMIT}
+                currentUsage={subscriptionCount ?? undefined}
+                unit="subscriptions allowed on your plan"
                 background={false}
-                className="py-8 flex-1 min-h-0 flex flex-col"
-                docsLink="https://posthog.com/docs/user-guides/subscriptions"
+                className="py-8 flex-1 min-h-0 justify-center"
             />
         )
     }
