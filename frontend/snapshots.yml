@@ -1815,7 +1815,7 @@ snapshots:
     filters-taxonomic-filter-headless--properties--dark:
         hash: v1.k794b7964.4ee695e5751c6f73e9742ab0cfeecf61b5adfe829cf3a0d49ab2877cae8b212f.jPN9l5TDgLRy9NzHenXHCU903UDg8-GdeGpf4PXt7aA
     filters-taxonomic-filter-headless--properties--light:
-        hash: v1.k794b7964.afa422fd784363e602da5668ab488a823260acba8c2b1168dc85bcbf434d3ddf.Wjl32UIE5KhBda_SpJYwXKZ2FGmnlFbtzv4uKDaJRIs
+        hash: v1.k794b7964.7af6b884e5d826df422db99e4a99d2172f3316561a499dbe386ea098b1fc54a9.rti2DMpqC0WEtd_AtG838vQlgQMHfwjBAR4uLN_HnUk
     filters-taxonomic-filter-headless--suggested-filters-with-recents--dark:
         hash: v1.k794b7964.c3a6cd419610bc486261efa753816547f080f00c838bde0b8720cf12067b3b22.nxBtExiDfJ3USkhV9RY1VPU_U2dGyEYCMFbhvtOcuVs
     filters-taxonomic-filter-headless--suggested-filters-with-recents--light:
@@ -4621,7 +4621,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-with-inline-events-edit--dark:
         hash: v1.k794b7964.3b7b5f9590d162bbe6f2e9c980281218985542e069bdaa62881134a0bcd9fe98.Z2CxEngtWWGcwOMrnGVOSX7a8FL1Qh9znhaktn5CAmU
     scenes-app-insights-funnels--funnel-with-inline-events-edit--light:
-        hash: v1.k794b7964.1c7d2d59e5b8bbf66576d32edc0143491917e8727df5208392cfb7afe9d0b5cc.VuGrwvXftddRxmYzQ6Y1rmCIbA0fJQZltACO8j10KkA
+        hash: v1.k794b7964.ef2a683a9034e167ca35da73c09cfc46aca4b4cc7474a65fdbf62ba30c117f0f.cMd53yhvyE1YHaNA9k0Ky4KtCVG09l0YwHylbqYbhgE
     scenes-app-insights-insight-quick-start--default--dark:
         hash: v1.k794b7964.e91e85b0ee937a14ef9bc524a1b98568c55a38eafdff6415d46c0e27f04a0771.LUZPkOS3UjH82ME39wve3LwP9FipEC-HrNVr6Ag8t84
     scenes-app-insights-insight-quick-start--default--light:
