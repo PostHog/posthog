@@ -17,6 +17,7 @@ from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
     DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.settings import DEBUG, TEST
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -49,11 +50,29 @@ SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 # enough daily jobs that the first request burns INSERT slots for minutes.
 MAX_PRECOMPUTE_DAYS = 90
 
+# Hard cap on the post-INSERT "are my writes visible yet?" poll. Empirically the
+# fetch lag on `sharded_web_overview_preaggregated` is sub-second for parts we
+# just wrote; 5s is comfortably above p99. On timeout the caller falls through
+# to the live path (correct but slower) so this only bounds the wait — not
+# correctness.
+DATA_VISIBILITY_TIMEOUT_SECONDS = 5.0
+
+# Initial poll interval. We expand on each iteration up to a small ceiling so
+# we don't hammer ClickHouse if replication is genuinely slow.
+DATA_VISIBILITY_POLL_INITIAL_INTERVAL = 0.05
+DATA_VISIBILITY_POLL_MAX_INTERVAL = 0.5
+
 
 WEB_OVERVIEW_LAZY_FAILED = Counter(
     "web_overview_lazy_precompute_failed_total",
     "Lazy precompute path failures, by error class",
     ["error_type"],
+)
+
+WEB_OVERVIEW_LAZY_VISIBILITY_WAIT = Counter(
+    "web_overview_lazy_precompute_visibility_wait_total",
+    "Post-INSERT visibility polls before the lazy precompute read, by outcome",
+    ["outcome"],
 )
 
 
@@ -377,18 +396,125 @@ WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
 
 
 _READ_SETTINGS = {
-    # Approach E from `products/analytics_platform/backend/lazy_computation/CONSISTENCY.md`:
-    # both INSERT (via `_get_insert_settings`) and SELECT use `in_order` so they
-    # deterministically prefer the same replica. Combined with the global
-    # `distributed_foreground_insert=1`, the SELECT sees data the INSERT just wrote.
+    # `load_balancing="in_order"` matches the INSERT side so a warm-cache read
+    # (no fresh INSERTs in this request) deterministically lands on the same
+    # replica that originally wrote the data — see Approach E in
+    # `products/analytics_platform/backend/lazy_computation/CONSISTENCY.md`.
     #
-    # `select_sequential_consistency=1` was tried here and is documented broken in
-    # CONSISTENCY.md when combined with `insert_quorum_parallel=1` (the default).
+    # For the cold-cache case where this read fires right after fresh INSERTs,
+    # `in_order` alone is not enough: a transient `errors_count` bump on the
+    # preferred replica can reroute either the INSERT coordination or the
+    # SELECT to a different replica, and parts may still be mid-fetch on the
+    # one we land on. `execute_lazy_precomputed_read` polls
+    # `_wait_for_data_visible` (which fires the same shape of SELECT) before
+    # issuing this read whenever any job was inserted in this request, so by
+    # the time we get here every job_id we'll read is confirmed visible on
+    # the same replica.
     "load_balancing": "in_order",
     # Shard pruning: sharding key is `sipHash64(job_id)`; `job_id IN (...)` matches
     # exactly the shards we wrote to.
     "optimize_skip_unused_shards": 1,
 }
+
+
+def _wait_for_data_visible(team_id: int, job_ids: list[str]) -> bool:
+    """Poll the Distributed table until every job_id we're about to read shows
+    at least one bucket — i.e., the part we just INSERTed has propagated to the
+    same replica the downstream SELECT will use (`load_balancing=in_order`).
+
+    Returns True when all job_ids are visible. Returns False on timeout — the
+    caller MUST then fall through to the live path rather than issue the read,
+    since a partial-visibility SELECT silently under-counts (the failure mode
+    this whole flow exists to prevent).
+
+    Verifies through the same `optimize_skip_unused_shards=1` / `load_balancing
+    ="in_order"` path the real read uses, so we test exactly the visibility
+    the read needs — no SYSTEM commands, no cluster-name assumptions.
+
+    Caveat: a job whose INSERT legitimately produced zero rows (e.g. a team
+    with no events in the window, or a `$host` filter that matched nothing)
+    will never show up in `count(DISTINCT job_id)` and this will time out.
+    The fallback returns correct (zero) data through the live path, just
+    slower. Acceptable trade-off vs the alternative — a permission-gated
+    `SYSTEM SYNC REPLICA ON CLUSTER` call that bakes the aux cluster name
+    into the query layer.
+    """
+    if not job_ids:
+        return True
+    # TEST/DEBUG run against a single-node ClickHouse where the race can't
+    # happen — every write is immediately visible. Skip the poll so unit tests
+    # don't spend the timeout budget waiting for a race that doesn't exist.
+    if TEST or DEBUG:
+        return True
+
+    expected = len(set(job_ids))
+    job_ids_tuple = tuple(job_ids)
+    table = DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE()
+    tag_queries(
+        product=Product.WEB_ANALYTICS,
+        feature=Feature.QUERY,
+        query_type="web_overview_lazy_visibility_check",
+    )
+
+    started = time.perf_counter()
+    interval = DATA_VISIBILITY_POLL_INITIAL_INTERVAL
+    polls = 0
+    last_visible = -1
+    while True:
+        elapsed = time.perf_counter() - started
+        if elapsed >= DATA_VISIBILITY_TIMEOUT_SECONDS:
+            break
+        polls += 1
+        try:
+            result = sync_execute(
+                f"SELECT count(DISTINCT job_id) FROM {table} WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s",
+                {"team_id": team_id, "job_ids": job_ids_tuple},
+                settings={
+                    "load_balancing": "in_order",
+                    "optimize_skip_unused_shards": 1,
+                },
+                team_id=team_id,
+            )
+            last_visible = int(result[0][0]) if result else 0
+            if last_visible >= expected:
+                duration_ms = int((time.perf_counter() - started) * 1000)
+                WEB_OVERVIEW_LAZY_VISIBILITY_WAIT.labels(outcome="visible").inc()
+                logger.info(
+                    "web_overview_lazy_precompute_visibility_check",
+                    team_id=team_id,
+                    outcome="visible",
+                    polls=polls,
+                    duration_ms=duration_ms,
+                    expected=expected,
+                    visible=last_visible,
+                )
+                return True
+        except Exception as exc:
+            # Don't unwind on transient CH errors — keep polling within the
+            # budget. If errors persist past the timeout we report below.
+            logger.warning(
+                "web_overview_lazy_precompute_visibility_poll_error",
+                team_id=team_id,
+                error_type=type(exc).__name__,
+                error=str(exc)[:200],
+            )
+
+        # Sleep, then back off (still bounded by the overall timeout above).
+        time.sleep(min(interval, DATA_VISIBILITY_TIMEOUT_SECONDS - elapsed))
+        interval = min(interval * 2, DATA_VISIBILITY_POLL_MAX_INTERVAL)
+
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    WEB_OVERVIEW_LAZY_VISIBILITY_WAIT.labels(outcome="timeout").inc()
+    logger.warning(
+        "web_overview_lazy_precompute_visibility_check",
+        team_id=team_id,
+        outcome="timeout",
+        polls=polls,
+        duration_ms=duration_ms,
+        expected=expected,
+        visible=last_visible,
+    )
+    return False
 
 
 def execute_read_query(
@@ -520,6 +646,7 @@ def execute_lazy_precomputed_read(
             return None
 
         job_ids: list[str] = [str(jid) for jid in result.job_ids]
+        jobs_inserted = result.jobs_inserted
 
         previous_start_utc: Optional[datetime] = None
         previous_end_utc: Optional[datetime] = None
@@ -554,6 +681,19 @@ def execute_lazy_precomputed_read(
                         return None
 
                     job_ids.extend(str(jid) for jid in prev_result.job_ids)
+                    jobs_inserted += prev_result.jobs_inserted
+
+        # If anything was newly INSERTed during this request, poll the
+        # Distributed read path until those parts are visible on the same
+        # replica the SELECT will land on. Without this, the SELECT can hit
+        # a replica that's still fetching the just-INSERTed parts and silently
+        # under-count the period whose data is mid-propagation — observed
+        # empirically on first cold-cache load with compareFilter on, where
+        # previous-period counts collapse to ~1% of actual then settle on
+        # refresh. See `_wait_for_data_visible` for the trade-offs.
+        if jobs_inserted > 0:
+            if not _wait_for_data_visible(team_id, job_ids):
+                return None
 
         read_started = time.perf_counter()
         rows = execute_read_query(
@@ -571,6 +711,7 @@ def execute_lazy_precomputed_read(
             "web_overview_lazy_precompute_completed",
             team_id=team_id,
             job_count=len(result.job_ids),
+            jobs_inserted=jobs_inserted,
             rows_returned=len(rows) if rows else 0,
             ensure_duration_ms=ensure_duration_ms,
             read_duration_ms=read_duration_ms,
