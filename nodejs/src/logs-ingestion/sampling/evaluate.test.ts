@@ -492,7 +492,9 @@ describe('evaluateLogRecord', () => {
                         },
                     },
                 },
-                patchRecord: (rec: LogRecord) => { rec.severity_text = 'info' },
+                patchRecord: (rec: LogRecord) => {
+                    rec.severity_text = 'info'
+                },
                 expected: { kind: 'resolved', decision: SAMPLING_DECISION_DROP, ruleId: 'ss-second' },
             },
         ])('$label', ({ extraRule, patchRecord, expected }) => {
