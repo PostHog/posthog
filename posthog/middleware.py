@@ -50,7 +50,7 @@ from posthog.models.utils import generate_random_token
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
-from posthog.utils import _is_valid_ip_address
+from posthog.utils import _is_valid_ip_address, get_ip_address
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -969,6 +969,8 @@ class ActivityLoggingMiddleware:
         client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
         if client_header:
             activity_storage.set_client(client_header[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+
+        activity_storage.set_ip_address(get_ip_address(request) or None)
 
         try:
             response = self.get_response(request)

@@ -319,6 +319,7 @@ class ActivityLogFlatExportSerializer(serializers.ModelSerializer):
             "item_id",
             "detail",
             "client",
+            "ip_address",
             "created_at",
         ]
 
