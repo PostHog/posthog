@@ -1864,17 +1864,17 @@ def _addon_list(*, noun, title, user_file, catalog_file, configured, catalog, su
     `configured`/`catalog` map name -> entry; `summary(entry)` yields detail lines.
     """
     if configured:
-        print(f"{title} configured in {user_file}:")
+        print(f"{title} configured for sandbox use ({user_file}):")
         print()
         for entry in configured.values():
             for line in summary(entry):
                 print(line)
             print()
     else:
-        print(f"No {title.lower()} configured in {user_file}.")
+        print(f"No {title.lower()} configured for sandbox use ({user_file}).")
         print()
 
-    print(f"Available in {catalog_file.relative_to(REPO_ROOT)}:")
+    print(f"Recipes available to install from the repository ({catalog_file.relative_to(REPO_ROOT)}):")
     print(f"  (use `sandbox {noun} add <name>` to add one)")
     for name in sorted(catalog):
         marker = "  [added]" if name in configured else ""

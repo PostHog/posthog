@@ -48,3 +48,11 @@ tools:
           - ~/.config/posthog/metabase/cookie-us
           - ~/.config/posthog/metabase/cookie-eu
           - ~/.config/posthog/metabase/cookie-dev
+
+    - name: opencode
+      description: 'opencode (opencode.ai): terminal-based AI coding agent'
+      install: |
+          npm install -g opencode-ai
+      copy:
+          - ~/.config/opencode
+          - ~/.local/share/opencode/auth.json
