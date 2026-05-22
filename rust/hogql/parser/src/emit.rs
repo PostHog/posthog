@@ -8,9 +8,6 @@ use std::borrow::Cow;
 /// AST node + value constructor surface. Every construction site in the parser routes through this trait so the same parse logic can produce `serde_json::Value` (kept for WASM and tests) or Python dataclass instances directly via PyO3.
 ///
 /// Inspection methods (`node_kind`, `get_field`, …) cover the parser's post-construction AST-surgery patterns: split-and-hoist for nested BETWEEN, AND/OR chain folding, position propagation, and concat merging. JSON impls read the underlying map directly; the Python impl uses PyO3 `getattr` against the dataclass attrs.
-///
-/// A handful of methods (`window_frame_expr`, `window_expr`, `position_offset`, `extend_list_field`, `clone_value`) are kept as "shoreline" hooks for the cascade migration — they covered AST-surgery patterns rewritten differently in the final shape. Left in place (with `#[allow(dead_code)]`) as part of the documented API surface for future emitter implementations.
-#[allow(dead_code)]
 pub trait Emitter {
     /// AST tree handle. Cheap to clone (Json: refcount via Value::clone; Py: `Bound::clone_ref` on the underlying PyObject).
     type Value: Clone;
@@ -184,15 +181,6 @@ pub trait Emitter {
     fn hogqlx_tag(&self, kind: &str, attributes: Vec<Self::Value>) -> Self::Value;
     /// `HogQLXAttribute(name, value)`.
     fn hogqlx_attribute(&self, name: &str, value: Self::Value) -> Self::Value;
-    /// `WindowFrameExpr(...)`. Various optional fields encoded via the trait method below; here we just take all fields verbatim.
-    fn window_frame_expr(
-        &self,
-        frame_type: &str,
-        start_type: &str,
-        start_expr: Option<Self::Value>,
-        end_type: Option<&str>,
-        end_expr: Option<Self::Value>,
-    ) -> Self::Value;
     /// `SelectSetQuery(initial_select_query, subsequent_select_queries)`.
     fn select_set_query(&self, initial: Self::Value, subsequent: Vec<Self::Value>) -> Self::Value;
     /// Empty `WindowExpr` shell — caller adds fields via `set_field`.
@@ -264,16 +252,6 @@ pub trait Emitter {
         to_value: Option<Self::Value>,
         step_value: Option<Self::Value>,
     ) -> Self::Value;
-    /// `WindowExpr(...)`. Full window-spec slot.
-    #[allow(clippy::too_many_arguments)]
-    fn window_expr(
-        &self,
-        partition_by: Option<Vec<Self::Value>>,
-        order_by: Option<Vec<Self::Value>>,
-        frame_method: Option<&str>,
-        frame_start: Option<Self::Value>,
-        frame_end: Option<Self::Value>,
-    ) -> Self::Value;
 
     // ===== Position machinery =====
     /// `{line, column, offset}` per cpp's visitor — line is 1-based, column is 0-based, offset is the character position.
@@ -298,8 +276,6 @@ pub trait Emitter {
     fn as_str<'a>(&self, v: &'a Self::Value) -> Option<Cow<'a, str>>;
     /// Extract the list elements if `v` is a list/array value.
     fn as_list(&self, v: &Self::Value) -> Option<Vec<Self::Value>>;
-    /// Get the `offset` field of a position object.
-    fn position_offset(&self, v: &Self::Value) -> Option<usize>;
     /// Extract a boolean if `v` is a boolean value.
     fn as_bool(&self, v: &Self::Value) -> Option<bool>;
     /// Extract an `i64` if `v` is an integer value.
@@ -310,12 +286,6 @@ pub trait Emitter {
     fn remove_field(&self, v: &mut Self::Value, name: &str) -> Option<Self::Value>;
     /// Set / overwrite a named field on a node. Used by AST-surgery sites that copy a node and tweak one field — primarily BETWEEN-split recursion, merge-select-decorators, and CTE injection. JSON inserts into the underlying `Map`; Py calls `obj.setattr(name, value)`.
     fn set_field(&self, v: &mut Self::Value, name: &str, value: Self::Value);
-    /// Extend a list-valued field by pushing items at the end. Used by `inject_ctes_into_select` and AND/OR mutators. Falls back to setting the field outright if it isn't present or isn't a list.
-    fn extend_list_field(&self, v: &mut Self::Value, name: &str, items: Vec<Self::Value>);
-    /// Clone a value. Convenience for sites that need an owned copy — `Self::Value: Clone` is in the trait bound, but generic callers without direct access to it sometimes need this method form.
-    fn clone_value(&self, v: &Self::Value) -> Self::Value {
-        v.clone()
-    }
 }
 
 // ============================================================================
@@ -690,29 +660,6 @@ impl Emitter for JsonEmitter {
     fn hogqlx_attribute(&self, name: &str, value: Value) -> Value {
         json!({"node": "HogQLXAttribute", "name": name, "value": value})
     }
-    fn window_frame_expr(
-        &self,
-        frame_type: &str,
-        start_type: &str,
-        start_expr: Option<Value>,
-        end_type: Option<&str>,
-        end_expr: Option<Value>,
-    ) -> Value {
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("WindowFrameExpr".into()));
-        obj.insert("frame_type".into(), Value::String(frame_type.into()));
-        obj.insert("frame_start_type".into(), Value::String(start_type.into()));
-        if let Some(se) = start_expr {
-            obj.insert("frame_start_expr".into(), se);
-        }
-        if let Some(et) = end_type {
-            obj.insert("frame_end_type".into(), Value::String(et.into()));
-        }
-        if let Some(ee) = end_expr {
-            obj.insert("frame_end_expr".into(), ee);
-        }
-        Value::Object(obj)
-    }
     fn window_function(
         &self,
         name: &str,
@@ -750,33 +697,6 @@ impl Emitter for JsonEmitter {
         }
         if let Some(v) = step_value {
             obj.insert("step_value".into(), v);
-        }
-        Value::Object(obj)
-    }
-    fn window_expr(
-        &self,
-        partition_by: Option<Vec<Value>>,
-        order_by: Option<Vec<Value>>,
-        frame_method: Option<&str>,
-        frame_start: Option<Value>,
-        frame_end: Option<Value>,
-    ) -> Value {
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("WindowExpr".into()));
-        if let Some(p) = partition_by {
-            obj.insert("partition_by".into(), Value::Array(p));
-        }
-        if let Some(o) = order_by {
-            obj.insert("order_by".into(), Value::Array(o));
-        }
-        if let Some(fm) = frame_method {
-            obj.insert("frame_method".into(), Value::String(fm.into()));
-        }
-        if let Some(fs) = frame_start {
-            obj.insert("frame_start".into(), fs);
-        }
-        if let Some(fe) = frame_end {
-            obj.insert("frame_end".into(), fe);
         }
         Value::Object(obj)
     }
@@ -945,9 +865,6 @@ impl Emitter for JsonEmitter {
     fn as_list(&self, v: &Value) -> Option<Vec<Value>> {
         v.as_array().cloned()
     }
-    fn position_offset(&self, v: &Value) -> Option<usize> {
-        v.get("offset").and_then(Value::as_u64).map(|n| n as usize)
-    }
     fn as_bool(&self, v: &Value) -> Option<bool> {
         v.as_bool()
     }
@@ -961,195 +878,5 @@ impl Emitter for JsonEmitter {
         if let Some(obj) = v.as_object_mut() {
             obj.insert(name.into(), value);
         }
-    }
-    fn extend_list_field(&self, v: &mut Value, name: &str, items: Vec<Value>) {
-        if let Some(obj) = v.as_object_mut() {
-            match obj.get_mut(name) {
-                Some(Value::Array(arr)) => {
-                    arr.extend(items);
-                }
-                _ => {
-                    obj.insert(name.into(), Value::Array(items));
-                }
-            }
-        }
-    }
-}
-
-// ============================================================================
-// Migration-compat free functions, scoped behind a `compat` submodule with module-level `dead_code` allow. Parser code originally called these directly; Phase 2's generic-emitter refactor moved most to `self.emit.xxx(...)`. These thin wrappers stay for free helper functions (where `self` isn't in scope — `apply_between_hoist`, `wrap_literal_chunk`, `emit_float_constant`, …) and are re-exported at the module root so existing `emit::xxx(...)` call sites keep working.
-// ============================================================================
-
-#[allow(dead_code)]
-mod compat {
-    use super::{Emitter, JsonEmitter};
-    use serde_json::Value;
-
-    #[inline]
-    pub fn constant(value: Value) -> Value {
-        JsonEmitter.constant(value)
-    }
-    #[inline]
-    pub fn constant_special_number(name: &'static str) -> Value {
-        JsonEmitter.constant_special_number(name)
-    }
-    #[inline]
-    pub fn constant_number_string(text: String) -> Value {
-        JsonEmitter.constant_number_string(text)
-    }
-    #[inline]
-    pub fn field(chain: Vec<Value>) -> Value {
-        JsonEmitter.field(chain)
-    }
-    #[inline]
-    pub fn arith(left: Value, op: &str, right: Value) -> Value {
-        JsonEmitter.arith(left, op, right)
-    }
-    #[inline]
-    pub fn compare(left: Value, op: &str, right: Value) -> Value {
-        JsonEmitter.compare(left, op, right)
-    }
-    #[inline]
-    pub fn compare_is_null(left: Value, negated: bool) -> Value {
-        JsonEmitter.compare_is_null(left, negated)
-    }
-    #[inline]
-    pub fn is_distinct_from(left: Value, right: Value, negated: bool) -> Value {
-        JsonEmitter.is_distinct_from(left, right, negated)
-    }
-    #[inline]
-    pub fn between(expr: Value, low: Value, high: Value, negated: bool) -> Value {
-        JsonEmitter.between(expr, low, high, negated)
-    }
-    #[inline]
-    pub fn not_(expr: Value) -> Value {
-        JsonEmitter.not_(expr)
-    }
-    #[inline]
-    pub fn and_(exprs: Vec<Value>) -> Value {
-        JsonEmitter.and_(exprs)
-    }
-    #[inline]
-    pub fn or_(exprs: Vec<Value>) -> Value {
-        JsonEmitter.or_(exprs)
-    }
-    #[inline]
-    pub fn tuple_(exprs: Vec<Value>) -> Value {
-        JsonEmitter.tuple_(exprs)
-    }
-    #[inline]
-    pub fn array_(exprs: Vec<Value>) -> Value {
-        JsonEmitter.array_(exprs)
-    }
-    #[inline]
-    pub fn array_access(array: Value, property: Value, nullish: bool) -> Value {
-        JsonEmitter.array_access(array, property, nullish)
-    }
-    #[inline]
-    pub fn tuple_access(tuple_: Value, index: i64, nullish: bool) -> Value {
-        JsonEmitter.tuple_access(tuple_, index, nullish)
-    }
-    #[inline]
-    pub fn alias(expr: Value, name: &str) -> Value {
-        JsonEmitter.alias(expr, name)
-    }
-    #[inline]
-    pub fn call(name: &str, args: Vec<Value>) -> Value {
-        JsonEmitter.call(name, args)
-    }
-    #[allow(clippy::too_many_arguments)]
-    #[inline]
-    pub fn call_full(
-        name: &str,
-        params: Option<Vec<Value>>,
-        args: Vec<Value>,
-        distinct: bool,
-        order_by: Option<Vec<Value>>,
-        filter_expr: Option<Value>,
-        within_group: Option<Vec<Value>>,
-    ) -> Value {
-        JsonEmitter.call_full(
-            name,
-            params,
-            args,
-            distinct,
-            order_by,
-            filter_expr,
-            within_group,
-        )
-    }
-    #[inline]
-    pub fn lambda(args: Vec<String>, expr: Value) -> Value {
-        JsonEmitter.lambda(args, expr)
-    }
-    #[inline]
-    pub fn expr_call(expr: Value, args: Vec<Value>) -> Value {
-        JsonEmitter.expr_call(expr, args)
-    }
-    #[inline]
-    pub fn type_cast(expr: Value, type_name: &str) -> Value {
-        JsonEmitter.type_cast(expr, type_name)
-    }
-    #[inline]
-    pub fn try_cast(expr: Value, type_name: &str) -> Value {
-        JsonEmitter.try_cast(expr, type_name)
-    }
-    #[inline]
-    pub fn array_slice(array: Value, start: Option<Value>, end: Option<Value>) -> Value {
-        JsonEmitter.array_slice(array, start, end)
-    }
-    #[inline]
-    pub fn dict_(items: Vec<(Value, Value)>) -> Value {
-        JsonEmitter.dict_(items)
-    }
-    #[inline]
-    pub fn placeholder(expr: Value) -> Value {
-        JsonEmitter.placeholder(expr)
-    }
-    #[inline]
-    pub fn named_argument(name: &str, value: Value) -> Value {
-        JsonEmitter.named_argument(name, value)
-    }
-    #[inline]
-    pub fn ignore_nulls(expr: Value) -> Value {
-        JsonEmitter.ignore_nulls(expr)
-    }
-    #[inline]
-    pub fn order_expr(expr: Value, order: &str, with_fill: Option<Value>) -> Value {
-        JsonEmitter.order_expr(expr, order, with_fill)
-    }
-    #[inline]
-    pub fn columns_expr(
-        regex: Option<String>,
-        columns: Option<Vec<Value>>,
-        all_columns: bool,
-        exclude: Option<Vec<String>>,
-        replace: Option<Vec<(String, Value)>>,
-    ) -> Value {
-        JsonEmitter.columns_expr(regex, columns, all_columns, exclude, replace)
-    }
-    #[inline]
-    pub fn spread_expr(expr: Value) -> Value {
-        JsonEmitter.spread_expr(expr)
-    }
-    #[inline]
-    pub fn positional_ref(index: i64) -> Value {
-        JsonEmitter.positional_ref(index)
-    }
-    #[inline]
-    pub fn position(line: u32, column: u32, offset: usize) -> Value {
-        JsonEmitter.position(line, column, offset)
-    }
-    #[inline]
-    pub fn with_pos(value: Value, start: Value, end: Value) -> Value {
-        JsonEmitter.with_pos(value, start, end)
-    }
-    #[inline]
-    pub fn no_pos(value: Value) -> Value {
-        JsonEmitter.no_pos(value)
-    }
-    #[inline]
-    pub fn replace_pos(value: Value, start: Value, end: Value) -> Value {
-        JsonEmitter.replace_pos(value, start, end)
     }
 }

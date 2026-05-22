@@ -862,29 +862,6 @@ impl<'py> Emitter for PyEmitter<'py> {
         kw.set_item("value", value.obj.bind(self.py)).unwrap();
         self.build(&self.cls_hogqlx_attribute, &kw)
     }
-    fn window_frame_expr(
-        &self,
-        frame_type: &str,
-        start_type: &str,
-        start_expr: Option<PyAst>,
-        end_type: Option<&str>,
-        end_expr: Option<PyAst>,
-    ) -> PyAst {
-        let kw = PyDict::new_bound(self.py);
-        kw.set_item("frame_type", frame_type).unwrap();
-        kw.set_item("frame_start_type", start_type).unwrap();
-        if let Some(se) = start_expr {
-            kw.set_item("frame_start_expr", se.obj.bind(self.py))
-                .unwrap();
-        }
-        if let Some(et) = end_type {
-            kw.set_item("frame_end_type", et).unwrap();
-        }
-        if let Some(ee) = end_expr {
-            kw.set_item("frame_end_expr", ee.obj.bind(self.py)).unwrap();
-        }
-        self.build(&self.cls_window_frame_expr, &kw)
-    }
     fn select_set_query(&self, initial: PyAst, subsequent: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("initial_select_query", initial.obj.bind(self.py))
@@ -1049,32 +1026,6 @@ impl<'py> Emitter for PyEmitter<'py> {
         }
         self.build(&self.cls_with_fill_expr, &kw)
     }
-    fn window_expr(
-        &self,
-        partition_by: Option<Vec<PyAst>>,
-        order_by: Option<Vec<PyAst>>,
-        frame_method: Option<&str>,
-        frame_start: Option<PyAst>,
-        frame_end: Option<PyAst>,
-    ) -> PyAst {
-        let kw = PyDict::new_bound(self.py);
-        if let Some(p) = partition_by {
-            kw.set_item("partition_by", build_list(self.py, p)).unwrap();
-        }
-        if let Some(o) = order_by {
-            kw.set_item("order_by", build_list(self.py, o)).unwrap();
-        }
-        if let Some(fm) = frame_method {
-            kw.set_item("frame_method", fm).unwrap();
-        }
-        if let Some(fs) = frame_start {
-            kw.set_item("frame_start", fs.obj.bind(self.py)).unwrap();
-        }
-        if let Some(fe) = frame_end {
-            kw.set_item("frame_end", fe.obj.bind(self.py)).unwrap();
-        }
-        self.build(&self.cls_window_expr, &kw)
-    }
 
     // ===== Position machinery =====
     fn position(&self, _line: u32, _column: u32, offset: usize) -> PyAst {
@@ -1175,10 +1126,6 @@ impl<'py> Emitter for PyEmitter<'py> {
         }
         Some(out)
     }
-    fn position_offset(&self, v: &PyAst) -> Option<usize> {
-        let bound = v.obj.bind(self.py);
-        bound.extract::<usize>().ok()
-    }
     fn as_bool(&self, v: &PyAst) -> Option<bool> {
         let bound = v.obj.bind(self.py);
         bound.extract::<bool>().ok()
@@ -1235,25 +1182,6 @@ impl<'py> Emitter for PyEmitter<'py> {
             }
         }
         bound.setattr(name, value.obj.bind(self.py)).unwrap();
-    }
-    fn extend_list_field(&self, v: &mut PyAst, name: &str, items: Vec<PyAst>) {
-        let bound = v.obj.bind(self.py);
-        // Read the existing list; fall back to a fresh list if absent or non-list.
-        match bound.getattr(name) {
-            Ok(existing) if existing.is_instance_of::<PyList>() => {
-                let list = existing.downcast::<PyList>().unwrap();
-                for item in items {
-                    list.append(item.obj).unwrap();
-                }
-            }
-            _ => {
-                let list = PyList::empty_bound(self.py);
-                for item in items {
-                    list.append(item.obj).unwrap();
-                }
-                bound.setattr(name, list).unwrap();
-            }
-        }
     }
 }
 
