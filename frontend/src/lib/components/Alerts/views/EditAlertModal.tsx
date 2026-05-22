@@ -169,14 +169,7 @@ export function EditAlertModal({
     ])
 
     return (
-        <LemonModal
-            onClose={handleClose}
-            isOpen={isOpen}
-            width={900}
-            simple
-            title=""
-            overlayClassName="!z-[calc(var(--z-modal)-10)]"
-        >
+        <LemonModal onClose={handleClose} isOpen={isOpen} width={900} simple title="">
             {alertLoading && !alert ? (
                 <SpinnerOverlay />
             ) : (
