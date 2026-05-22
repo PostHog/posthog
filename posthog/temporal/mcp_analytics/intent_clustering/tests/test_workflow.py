@@ -83,24 +83,27 @@ class TestDailyIntentClusteringWorkflow:
 
 
 class TestParseInputs:
-    def test_empty_input_returns_default(self) -> None:
-        inputs = DailyIntentClusteringWorkflow.parse_inputs([])
-        assert inputs.team_id == 0
-        assert inputs.lookback_days == 7
-        assert inputs.top_n == 500
-
-    def test_parses_json_string(self) -> None:
-        payload = '{"team_id": 99, "lookback_days": 3, "top_n": 50, "user_id": 5}'
-        inputs = DailyIntentClusteringWorkflow.parse_inputs([payload])
-        assert inputs.team_id == 99
-        assert inputs.lookback_days == 3
-        assert inputs.top_n == 50
-        assert inputs.user_id == 5
-
-    def test_parses_with_partial_payload(self) -> None:
-        payload = '{"team_id": 99}'
-        inputs = DailyIntentClusteringWorkflow.parse_inputs([payload])
-        assert inputs.team_id == 99
-        # Defaults preserved
-        assert inputs.lookback_days == 7
-        assert inputs.user_id is None
+    @pytest.mark.parametrize(
+        "raw_payload, expected_team_id, expected_lookback_days, expected_top_n, expected_user_id",
+        [
+            # Empty input falls back to dataclass defaults.
+            ([], 0, 7, 500, None),
+            # Full JSON payload overrides every field.
+            (['{"team_id": 99, "lookback_days": 3, "top_n": 50, "user_id": 5}'], 99, 3, 50, 5),
+            # Partial payload preserves dataclass defaults for omitted fields.
+            (['{"team_id": 99}'], 99, 7, 500, None),
+        ],
+    )
+    def test_parse_inputs_cases(
+        self,
+        raw_payload: list[str],
+        expected_team_id: int,
+        expected_lookback_days: int,
+        expected_top_n: int,
+        expected_user_id: int | None,
+    ) -> None:
+        inputs = DailyIntentClusteringWorkflow.parse_inputs(raw_payload)
+        assert inputs.team_id == expected_team_id
+        assert inputs.lookback_days == expected_lookback_days
+        assert inputs.top_n == expected_top_n
+        assert inputs.user_id == expected_user_id

@@ -21,6 +21,8 @@ If clustering grows (HDBSCAN/UMAP at higher cardinality, LLM labelling),
 the activity boundary can be split later. Today it's single-activity.
 """
 
+import asyncio
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -130,7 +132,10 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 activity.heartbeat("embedded")
 
                 aligned_records = [records[i] for i in valid_indices]
-                labels = intent_clustering.cluster_embeddings(embeddings)
+                # sklearn AgglomerativeClustering builds an O(n²) distance matrix
+                # in pure-Python/numpy — offload so the asyncio loop stays
+                # responsive to heartbeats and other activities on this worker.
+                labels = await asyncio.to_thread(intent_clustering.cluster_embeddings, embeddings)
                 activity.heartbeat("clustered")
 
                 session_journeys = await database_sync_to_async(intent_clustering.fetch_session_journeys)(
@@ -144,8 +149,14 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 )
                 activity.heartbeat("journeys")
 
-                clusters_blob = intent_clustering.build_snapshot(
-                    aligned_records, labels, embeddings, journeys_by_cluster=journeys_by_cluster
+                # Same blocking-loop concern as cluster_embeddings — pure-numpy
+                # aggregation over the labelled corpus.
+                clusters_blob = await asyncio.to_thread(
+                    intent_clustering.build_snapshot,
+                    aligned_records,
+                    labels,
+                    embeddings,
+                    journeys_by_cluster=journeys_by_cluster,
                 )
                 await _persist_clusters(snapshot, clusters_blob)
 
