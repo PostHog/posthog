@@ -209,6 +209,8 @@ _PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBac
     ParserMode.RUST_ONLY: ("rust-json", None),
     ParserMode.CPP_WITH_RUST_SHADOW: ("cpp-json", "rust-json"),
     ParserMode.RUST_WITH_CPP_SHADOW: ("rust-json", "cpp-json"),
+    ParserMode.RUST_PY_ONLY: ("rust-py", None),
+    ParserMode.RUST_PY_WITH_CPP_SHADOW: ("rust-py", "cpp-json"),
 }
 
 # Fraction of `*_shadow` parses that also run the secondary backend. Kept

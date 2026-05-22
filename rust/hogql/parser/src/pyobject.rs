@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use serde_json::Value;
 
-/// Cached references to the AST module, the two error classes, and the two enum types we coerce per `_ENUM_FIELDS` in `json_ast.py`. Built once per call; reused across the recursive walk — cheaper than `import` + `getattr` per node.
+/// Cached references to the AST module, the two error classes, the two enum types we coerce per `_ENUM_FIELDS` in `json_ast.py`, and the `int` builtin used for lossless big-int parsing. Built once per call; reused across the recursive walk — cheaper than `import` + `getattr` per node.
 pub struct Converter<'py> {
     py: Python<'py>,
     ast_module: Bound<'py, PyModule>,
@@ -17,6 +17,8 @@ pub struct Converter<'py> {
     syntax_error: Bound<'py, PyAny>,
     arith_op_enum: Bound<'py, PyAny>,
     compare_op_enum: Bound<'py, PyAny>,
+    /// Python builtin `int` class — mirrors `PyEmitter::cls_int`. Cached once instead of `py.eval_bound("int", ...)` per big-int literal.
+    cls_int: Bound<'py, PyAny>,
 }
 
 impl<'py> Converter<'py> {
@@ -27,6 +29,7 @@ impl<'py> Converter<'py> {
         let syntax_error = errors_module.getattr("SyntaxError")?;
         let arith_op_enum = ast_module.getattr("ArithmeticOperationOp")?;
         let compare_op_enum = ast_module.getattr("CompareOperationOp")?;
+        let cls_int = py.import_bound("builtins")?.getattr("int")?;
         Ok(Self {
             py,
             ast_module,
@@ -34,6 +37,7 @@ impl<'py> Converter<'py> {
             syntax_error,
             arith_op_enum,
             compare_op_enum,
+            cls_int,
         })
     }
 
@@ -117,7 +121,7 @@ impl<'py> Converter<'py> {
                                 kwargs.set_item(key, f)?;
                                 continue;
                             }
-                            if let Some(py_int) = parse_large_int_literal(self.py, s)? {
+                            if let Some(py_int) = self.parse_large_int_literal(s)? {
                                 kwargs.set_item(key, py_int)?;
                                 continue;
                             }
@@ -223,6 +227,23 @@ impl<'py> Converter<'py> {
             Err(e) => e,
         }
     }
+
+    /// Build a Python `int` from an integer literal in the lossless-string envelope (decimal or `0x…` hex, optional leading `-`). Rust can't natively represent arbitrary-precision ints, so we hand the raw digits to Python's `int(text, base)` constructor via the cached `cls_int`.
+    fn parse_large_int_literal(&self, value: &str) -> PyResult<Option<PyObject>> {
+        let body = value.strip_prefix('-').unwrap_or(value);
+        let is_hex = body.starts_with("0x") || body.starts_with("0X");
+        let base = if is_hex { 16 } else { 10 };
+        // Validate by trying as Rust i128 first for the common in-range case; fall through to Python `int(...)` for true bignums.
+        let body_no_prefix = if is_hex { &body[2..] } else { body };
+        if !body_no_prefix.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return Ok(None);
+        }
+        let args = PyTuple::new_bound(self.py, [value.into_py(self.py), base.into_py(self.py)]);
+        match self.cls_int.call(&args, None) {
+            Ok(obj) => Ok(Some(obj.unbind())),
+            Err(_) => Ok(None),
+        }
+    }
 }
 
 fn parse_special_float(s: &str) -> Option<f64> {
@@ -231,23 +252,5 @@ fn parse_special_float(s: &str) -> Option<f64> {
         "-Infinity" => Some(f64::NEG_INFINITY),
         "NaN" => Some(f64::NAN),
         _ => None,
-    }
-}
-
-/// Build a Python `int` from an integer literal in the lossless-string envelope (decimal or `0x…` hex, optional leading `-`). Rust can't natively represent arbitrary-precision ints, so we hand the raw digits to Python's `int(text, base)` constructor.
-fn parse_large_int_literal(py: Python<'_>, value: &str) -> PyResult<Option<PyObject>> {
-    let body = value.strip_prefix('-').unwrap_or(value);
-    let is_hex = body.starts_with("0x") || body.starts_with("0X");
-    let base = if is_hex { 16 } else { 10 };
-    // Validate by trying as Rust i128 first for the common in-range case; fall through to Python `int(...)` for true bignums.
-    let body_no_prefix = if is_hex { &body[2..] } else { body };
-    if !body_no_prefix.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return Ok(None);
-    }
-    let int_cls = py.eval_bound("int", None, None)?;
-    let args = PyTuple::new_bound(py, [value.into_py(py), base.into_py(py)]);
-    match int_cls.call(&args, None) {
-        Ok(obj) => Ok(Some(obj.unbind())),
-        Err(_) => Ok(None),
     }
 }

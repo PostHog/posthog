@@ -7,7 +7,7 @@
 //!  - Each emitter method builds a `PyDict` of kwargs and calls `class.call((), Some(&kwargs))`. The constructed object is wrapped in [`PyAst`] (which also tracks `positions_locked` for idempotent `with_pos` / `no_pos` semantics).
 //!
 //! Position handling:
-//!  - `position()` returns a plain `PyInt` (the offset). Lines/columns aren't used by the Python side — `AST.start` / `AST.end` are `Optional[int]`. Mirrors the post-walk extraction done by `pyobject::Converter` for the Phase 1 path.
+//!  - `position()` returns a plain `PyInt` (the offset). Lines/columns aren't used by the Python side — `AST.start` / `AST.end` are `Optional[int]`. Mirrors the post-walk extraction done by `pyobject::Converter` on the `*_json` path.
 //!  - `with_pos` / `no_pos` / `replace_pos` mirror cpp's idempotent semantics:
 //!    * `with_pos(v, start, end)`: set `v.start = start, v.end = end` only if `v.start` is currently `None` AND `positions_locked` isn't set.
 //!    * `no_pos(v)`: marks the wrapper with `positions_locked = true`. The underlying object's `start` / `end` stay at dataclass defaults (`None`).
@@ -1046,6 +1046,11 @@ impl<'py> Emitter for PyEmitter<'py> {
         value
     }
     fn no_pos(&self, mut value: PyAst) -> PyAst {
+        // `positions_locked` only suppresses `with_pos` / `replace_pos` for the node's own start / end attrs; if the value isn't an AST dataclass (e.g. a primitive) the suppression is a no-op since `with_pos` already skips non-AST objects. Asserted in debug to catch a future caller that passes a wrapper-less primitive expecting position suppression on it.
+        debug_assert!(
+            self.node_kind(&value).is_some(),
+            "no_pos called on a non-AST primitive — position suppression would be a no-op"
+        );
         value.positions_locked = true;
         value
     }
@@ -1081,14 +1086,31 @@ impl<'py> Emitter for PyEmitter<'py> {
             });
         }
         let bound = v.obj.bind(self.py);
-        match bound.getattr(name) {
-            Ok(got) => Some(PyAst {
-                obj: got.unbind(),
-                positions_locked: false,
-                rust_sentinels: None,
-            }),
-            Err(_) => None,
+        let got = bound.getattr(name).ok()?;
+        // `ctes` is eagerly folded list->dict on write (see `set_field`). The
+        // inject_ctes_into_select read-modify-write pattern in `parse.rs`
+        // expects to round-trip through `as_list`; un-fold dict->list of
+        // values here so the second `set_field` re-folds with all members.
+        // Mirrors JsonEmitter's invariant that ctes is list-shaped during
+        // parsing (the JSON path defers the fold to `json_ast.py`).
+        if name == "ctes" {
+            if let Ok(dict) = got.downcast::<PyDict>() {
+                let list = PyList::empty_bound(self.py);
+                for (_, val) in dict.iter() {
+                    list.append(val).unwrap();
+                }
+                return Some(PyAst {
+                    obj: list.into_any().unbind(),
+                    positions_locked: false,
+                    rust_sentinels: None,
+                });
+            }
         }
+        Some(PyAst {
+            obj: got.unbind(),
+            positions_locked: false,
+            rust_sentinels: None,
+        })
     }
     fn has_field(&self, v: &PyAst, name: &str) -> bool {
         // JsonEmitter returns true iff the JSON Map has the key — only set when the parser emitted a non-default value.
@@ -1126,11 +1148,20 @@ impl<'py> Emitter for PyEmitter<'py> {
         Some(out)
     }
     fn as_bool(&self, v: &PyAst) -> Option<bool> {
+        // PyO3's `extract::<bool>` accepts ints (0 / 1) too; JsonEmitter's `Value::Bool` is strict. Gate on the exact `bool` type so the two backends agree on what counts as a boolean value.
         let bound = v.obj.bind(self.py);
-        bound.extract::<bool>().ok()
+        if bound.is_instance_of::<pyo3::types::PyBool>() {
+            bound.extract::<bool>().ok()
+        } else {
+            None
+        }
     }
     fn as_i64(&self, v: &PyAst) -> Option<i64> {
+        // PyO3's `extract::<i64>` accepts `bool` too (`True` -> 1); JsonEmitter's `Value::Number` rejects booleans. Reject the bool case here so the contract matches.
         let bound = v.obj.bind(self.py);
+        if bound.is_instance_of::<pyo3::types::PyBool>() {
+            return None;
+        }
         bound.extract::<i64>().ok()
     }
 

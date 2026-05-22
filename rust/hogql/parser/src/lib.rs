@@ -17,6 +17,7 @@
 #![allow(clippy::useless_conversion)]
 
 use pyo3::prelude::*;
+use std::panic::AssertUnwindSafe;
 
 mod emit;
 mod emit_py;
@@ -38,7 +39,7 @@ where
     }
 }
 
-/// Counterpart to [`run`] for `parse_*_py` entry points: drive a `PyEmitter` so the parser constructs `posthog.hogql.ast` instances directly, returning the unbound `Py<PyAny>`. Skips both the JSON-string serialise step AND the post-walk `Value`→`PyObject` converter from Phase 1 — no `serde_json::Value` intermediate on the success path.
+/// Counterpart to [`run`] for `parse_*_py` entry points: drive a `PyEmitter` so the parser constructs `posthog.hogql.ast` instances directly, returning the unbound `Py<PyAny>`. Skips both the JSON-string serialise step AND the post-walk `Value`→`PyObject` converter used by the `*_json` entry points — no `serde_json::Value` intermediate on the success path.
 ///
 /// Error path still routes through the JSON-envelope `Converter` so Python exception construction stays in one place.
 fn run_py<'py, F>(py: Python<'py>, f: F) -> PyResult<PyObject>
@@ -46,7 +47,21 @@ where
     F: FnOnce(emit_py::PyEmitter<'py>) -> Result<emit_py::PyAst, error::ParseError>,
 {
     let emitter = emit_py::PyEmitter::new(py)?;
-    match f(emitter) {
+    // PyEmitter's `build` calls `class(**kwargs)` and panics on failure — dataclass `__post_init__` validation (e.g. `JoinExpr.join_type` against `VALID_JOIN_TYPES`) can fire if a future grammar change produces a token combination the dataclass rejects. PyO3 would convert the panic to a `PanicException` (no worker crash), but that's the wrong shape for production handlers expecting an `ExposedHogQLError` family error. Catch here and re-emit as a clean `NotImplementedError` envelope.
+    let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| f(emitter)));
+    let result = match outcome {
+        Ok(r) => r,
+        Err(panic) => {
+            let msg = panic
+                .downcast_ref::<&'static str>()
+                .copied()
+                .map(str::to_string)
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "ast construction panicked".to_string());
+            Err(error::ParseError::not_implemented(msg, 0, 0))
+        }
+    };
+    match result {
         Ok(v) => Ok(v.obj),
         Err(err) => {
             // Build the JSON error envelope so the converter raises the matching Python exception with start/end positions — one code path for both error sources.

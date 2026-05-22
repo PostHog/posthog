@@ -32,10 +32,22 @@ type FunctionArgs<V> = (bool, Vec<V>, Option<Vec<V>>);
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_expr_bp(&mut self, min_bp: u8) -> Result<E::Value, ParseError> {
-        let lhs_start = self.peek0.start;
-        let lhs = self.parse_prefix()?;
-        let lhs = self.wrap_pos(lhs, lhs_start);
-        self.pratt_continue_with_lhs(lhs, min_bp, lhs_start)
+        // Cap the central recursive entry so pathological depth (e.g. `((…))` with thousands of nests) surfaces a clean syntax error instead of stack OOM. See `MAX_EXPR_RECURSION_DEPTH` for the bound's rationale.
+        self.expr_recursion_depth += 1;
+        let result = if self.expr_recursion_depth > crate::parse::MAX_EXPR_RECURSION_DEPTH {
+            Err(ParseError::syntax(
+                "expression too deeply nested",
+                self.peek0.start,
+                self.peek0.end,
+            ))
+        } else {
+            let lhs_start = self.peek0.start;
+            self.parse_prefix()
+                .map(|lhs| self.wrap_pos(lhs, lhs_start))
+                .and_then(|lhs| self.pratt_continue_with_lhs(lhs, min_bp, lhs_start))
+        };
+        self.expr_recursion_depth -= 1;
+        result
     }
 
     /// Run the Pratt infix/postfix loop with an externally-provided
