@@ -25,6 +25,7 @@ import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { type RecommendedVariantToKeep } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
+import { getVariantColor } from '../utils'
 import { VariantTag } from './VariantTag'
 
 function ConclusionForm(): JSX.Element {
@@ -230,6 +231,9 @@ export function RecommendationPanel({
     aggregationTargetName,
 }: RecommendationPanelProps): JSX.Element {
     const conclusionConfig = CONCLUSION_DISPLAY_CONFIG[conclusion]
+    const { experiment } = useValues(experimentLogic)
+    const variants = experiment.feature_flag?.filters.multivariate?.variants
+    const variantColor = variants ? getVariantColor(recommendation.variantKey, variants) : 'var(--text-muted)'
 
     if (state === 'accepted') {
         return (
@@ -266,39 +270,46 @@ export function RecommendationPanel({
     }
 
     return (
-        <LemonBanner type="info" className="mb-0" data-attr="recommendation-panel-pending">
-            <div className="flex flex-col gap-3">
-                <div className="flex items-start gap-2">
-                    <div className={clsx('w-2 h-2 rounded-full mt-2 shrink-0', conclusionConfig.color)} />
-                    <div className="text-sm">
-                        <span className="font-semibold">{conclusionConfig.title}.</span>{' '}
-                        <span>
-                            We suggest shipping <VariantTag variantKey={recommendation.variantKey} /> to 100% of{' '}
-                            {aggregationTargetName}. {recommendation.reason}.
-                        </span>
+        <div className="flex flex-col gap-2" data-attr="recommendation-panel-pending">
+            <LemonLabel>Variant to keep</LemonLabel>
+            <LemonBanner type="ai" className="mb-0">
+                <div className="flex flex-col gap-3">
+                    <div>
+                        <div className="flex items-center gap-2 mb-1.5">
+                            <div
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ backgroundColor: variantColor }}
+                            />
+                            <span className="text-lg font-semibold">{recommendation.variantKey}</span>
+                        </div>
+                        <div className="text-xs text-muted">
+                            We suggest shipping this variant to 100% of {aggregationTargetName} —{' '}
+                            {recommendation.reason}.
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={onChooseAnother}
+                            data-attr="recommendation-panel-choose-another"
+                        >
+                            Choose another variant
+                        </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconCheckCircle />}
+                            onClick={onAccept}
+                            data-attr="recommendation-panel-accept"
+                        >
+                            Accept
+                        </LemonButton>
                     </div>
                 </div>
-                <div className="flex justify-end gap-2">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={onChooseAnother}
-                        data-attr="recommendation-panel-choose-another"
-                    >
-                        Choose another variant
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconCheckCircle />}
-                        onClick={onAccept}
-                        data-attr="recommendation-panel-accept"
-                    >
-                        Accept
-                    </LemonButton>
-                </div>
-            </div>
-        </LemonBanner>
+            </LemonBanner>
+        </div>
     )
 }
 
