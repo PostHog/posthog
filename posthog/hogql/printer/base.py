@@ -113,7 +113,7 @@ class BasePrinter(Visitor[str]):
 
     def _assert_set_operator_supported(self, set_operator: str) -> None:
         """Raise if this dialect does not support the given set operator. Postgres overrides to permit all."""
-        # Defense-in-depth allowlist check — `SelectSetNode.__post_init__` validates this at construction, but the dataclass field can be re-written via `setattr` after the fact (the printer interpolates `set_operator` verbatim into the emitted SQL).
+        # Allowlist gate against `setattr`-bypass — the printer interpolates `set_operator` verbatim into emitted SQL.
         if set_operator not in get_args(ast.SetOperator):
             raise QueryError(f"Invalid set operator: {set_operator!r}")
         if set_operator in ("INTERSECT ALL", "EXCEPT ALL"):
@@ -546,7 +546,7 @@ class BasePrinter(Visitor[str]):
 
         join_strings = []
         if node.join_type is not None:
-            # Defense-in-depth allowlist check — `JoinExpr.__post_init__` validates this at construction, but `join_type` is sometimes written via `set_field` (e.g. by `chain_join` in the rust parser) and the field could be re-written via `setattr` from Python after the fact (the printer interpolates `join_type` verbatim into the emitted SQL).
+            # Allowlist gate against `setattr`-bypass — the printer interpolates `join_type` verbatim into emitted SQL.
             jt = node.join_type
             if not (
                 jt in ast.VALID_JOIN_TYPES
@@ -667,7 +667,7 @@ class BasePrinter(Visitor[str]):
                 join_strings.append(sample_clause)
 
         if node.constraint is not None:
-            # Defense-in-depth allowlist check — `JoinConstraint.__post_init__` validates this at construction; re-check here because the printer interpolates `constraint_type` verbatim.
+            # Allowlist gate against `setattr`-bypass — the printer interpolates `constraint_type` verbatim.
             if node.constraint.constraint_type not in ast.VALID_JOIN_CONSTRAINT_TYPES:
                 raise QueryError(f"Invalid join constraint type: {node.constraint.constraint_type!r}")
             if team_id_for_on_clause is not None:
@@ -809,7 +809,7 @@ class BasePrinter(Visitor[str]):
         return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
 
     def visit_order_expr(self, node: ast.OrderExpr):
-        # Defense-in-depth allowlist check — `OrderExpr.__post_init__` validates this at construction; re-check here because `node.order` could be re-written via `setattr` after construction (the printer interpolates it verbatim).
+        # Allowlist gate against `setattr`-bypass — the printer interpolates `order` verbatim.
         if node.order not in ast.VALID_ORDER_DIRECTIONS:
             raise QueryError(f"Invalid order direction: {node.order!r}")
         result = f"{self.visit(node.expr)} {node.order}"
@@ -911,7 +911,7 @@ class BasePrinter(Visitor[str]):
         return self._print_escaped_string(node.value)
 
     def visit_keyword(self, node: ast.Keyword):
-        # `Keyword.__post_init__` already enforces the allowlist; re-check here as defense-in-depth (the dataclass field could be set via `setattr` after construction).
+        # Allowlist gate against `setattr`-bypass — the printer returns `name` verbatim.
         if node.name not in ast.VALID_KEYWORD_NAMES:
             raise QueryError(f"Invalid keyword name: {node.name}")
         return node.name

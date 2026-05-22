@@ -32,7 +32,7 @@ type FunctionArgs<V> = (bool, Vec<V>, Option<Vec<V>>);
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
     pub(crate) fn parse_expr_bp(&mut self, min_bp: u8) -> Result<E::Value, ParseError> {
-        // Cap the central recursive entry so pathological depth (e.g. `((…))` with thousands of nests) surfaces a clean syntax error instead of stack OOM. See `MAX_EXPR_RECURSION_DEPTH` for the bound's rationale.
+        // Cap the central recursive entry so deeply-nested input (`((…))` with thousands of nests) surfaces as a syntax error rather than stack OOM. Bound rationale on `MAX_EXPR_RECURSION_DEPTH`.
         self.expr_recursion_depth += 1;
         let result = if self.expr_recursion_depth > crate::parse::MAX_EXPR_RECURSION_DEPTH {
             Err(ParseError::syntax(

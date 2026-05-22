@@ -2717,27 +2717,14 @@ def parser_test_factory(backend: HogQLParserBackend):
             )
 
         def test_grammar_quirk_invalid_join_type_rejected_on_all_backends(self):
-            # Defense-in-depth: `LEFT OUTER SEMI JOIN` slips through the rust
-            # parser's grammar checks (no rule forbids LEFT+OUTER+SEMI together)
-            # but isn't in `VALID_JOIN_TYPES`. cpp / rust-json reach the dataclass
-            # via `cls(**kwargs)`, so `JoinExpr.__post_init__` rejects it. rust-py
-            # used to set `join_type` via `setattr` post-construction, which
-            # bypassed the check; `PyEmitter::set_field` now re-runs
-            # `__post_init__` for `join_type` / `order` / `constraint_type` /
-            # `set_operator` so the printer's verbatim interpolation of these
-            # fields is backed by validation on every path.
+            # `LEFT OUTER SEMI JOIN` passes the rust grammar's per-keyword checks (no rule forbids the combination) but isn't in `VALID_JOIN_TYPES`. Every backend must reject via `JoinExpr.__post_init__`; the rust-py path covers this via `PyEmitter::set_field` re-firing `__post_init__` because `join_type` is written post-construction by `chain_join`.
             q = "SELECT 1 FROM a LEFT OUTER SEMI JOIN b ON a.x = b.x"
             with self.assertRaises((ValueError, ExposedHogQLError)) as cm:
                 self._select(q)
             self.assertIn("Invalid join type", str(cm.exception))
 
         def test_deeply_nested_expression_does_not_stack_overflow(self):
-            # Regression: ~4800-paren expressions used to SIGSEGV the worker
-            # via stack OOM in the recursive-descent expression parser. Now
-            # capped at `MAX_EXPR_RECURSION_DEPTH = 1000` (mirrors ClickHouse's
-            # `max_parser_depth` default), surfaced as a clean SyntaxError.
-            # cpp / python paths have their own stack characteristics; this
-            # test guards the rust-side cap.
+            # Deep paren input must surface a clean `SyntaxError`, not stack-OOM in the recursive-descent loop. Cap lives at `MAX_EXPR_RECURSION_DEPTH = 1000`, mirrors ClickHouse's `max_parser_depth`. cpp / python paths have their own stack characteristics so the assertion is rust-specific.
             if backend not in ("rust-json", "rust-py"):
                 self.skipTest("rust-specific recursion cap")
             deep = "(" * 1500 + "1" + ")" * 1500
@@ -2746,12 +2733,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             self.assertIn("too deeply nested", str(cm.exception).lower())
 
         def test_ctes_inject_into_paren_wrapped_inner_with(self):
-            # Regression: outer WITH on a paren-wrapped inner that already has
-            # its own WITH must merge both CTEs, with the outer's appended
-            # after the inner's (mirrors cpp's VISIT(SelectStmtWithParens)).
-            # PyEmitter eagerly folds ctes list->dict on first write; the
-            # inject path then re-read the field expecting a list and silently
-            # dropped the inner's CTEs.
+            # An outer WITH attached to a paren-wrapped inner that already has its own WITH must surface both CTEs, with the outer's appended after the inner's (matches cpp's `VISIT(SelectStmtWithParens)` ordering).
             node = cast(
                 ast.SelectQuery,
                 self._select("WITH a AS (SELECT 1) (WITH b AS (SELECT 2) SELECT * FROM b)"),

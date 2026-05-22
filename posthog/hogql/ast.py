@@ -29,9 +29,7 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
 
-# `OrderExpr.order` is interpolated verbatim by the SQL printer; keep the
-# allowlist as an importable constant so `__post_init__` and the printer
-# defense-in-depth check stay locked to one source.
+# Allowlist for `OrderExpr.order`; the SQL printer interpolates it verbatim. Shared between `__post_init__` and the printer's defense-in-depth check.
 VALID_ORDER_DIRECTIONS = ("ASC", "DESC")
 VALID_JOIN_CONSTRAINT_TYPES = get_args(Literal["ON", "USING"])
 VALID_JOIN_TYPES = frozenset(
@@ -952,13 +950,7 @@ class Constant(Expr):
     value: Any
 
 
-# `Keyword.name` is interpolated verbatim into the emitted SQL (the ClickHouse
-# printer returns `node.name` directly, the Postgres printer uppercases it).
-# Restrict to the exact set the resolver actually emits — the Postgres-family
-# time pseudo-functions from `POSTGRES_KEYWORD_TYPES`. A broader check (e.g.
-# `str.isidentifier()`) blocks injection-shaped strings but still admits any
-# Python-valid identifier, which would let a malicious AST construction emit
-# arbitrary ClickHouse keywords unquoted.
+# Allowlist for `Keyword.name`; the SQL printer interpolates it verbatim (CH returns `name` directly, Postgres uppercases). Restricted to the Postgres-family time pseudo-functions from `resolver.POSTGRES_KEYWORD_TYPES` — a broader `str.isidentifier()` check would still admit arbitrary Python identifiers and let them emit as unquoted ClickHouse tokens.
 VALID_KEYWORD_NAMES = frozenset(
     {
         "current_date",

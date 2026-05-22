@@ -160,7 +160,7 @@ pub fn parse_full_template_string_with_emit<E: Emitter + Clone>(
 // Parser core
 // ============================================================================
 
-/// Recursion depth cap for `parse_expr_bp` — mirrors ClickHouse's `max_parser_depth` default (1000). Without it a pathological input like `((((…))))` SIGSEGVs the worker before producing a parse error (~4800 parens on rust-py, ~8000 on rust-json — both well below typical worker stack budgets). Surfaces a clean `ParseError::syntax` at the threshold instead.
+/// Recursion-depth cap for `parse_expr_bp`. Mirrors ClickHouse's `max_parser_depth` default (1000) so deeply-nested input (e.g. `((((…))))`) surfaces a clean `ParseError::syntax` instead of stack-OOMing the worker before any parse error can fire.
 pub(crate) const MAX_EXPR_RECURSION_DEPTH: u32 = 1000;
 
 pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
@@ -279,7 +279,7 @@ pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     /// once at construction so the hot wrap_pos path stays O(log n) via the
     /// line-starts binary search.
     pub(crate) is_ascii_src: bool,
-    /// Current `parse_expr_bp` recursion depth — see `MAX_EXPR_RECURSION_DEPTH`. Incremented at entry, decremented at exit (regardless of result), so the cap fires before stack-OOM on adversarially-nested expression input.
+    /// Live `parse_expr_bp` recursion depth; bumped on entry, decremented on exit. Enforces `MAX_EXPR_RECURSION_DEPTH`.
     pub(crate) expr_recursion_depth: u32,
     /// AST node builder. Routes every node/position construction through the `Emitter` trait so we can swap `JsonEmitter` (current default, kept for WASM) for `PyEmitter` (constructs Python ast.* objects directly, avoiding the `serde_json::Value` intermediate). See `crate::emit`.
     pub(crate) emit: E,

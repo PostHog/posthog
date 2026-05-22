@@ -47,7 +47,7 @@ where
     F: FnOnce(emit_py::PyEmitter<'py>) -> Result<emit_py::PyAst, error::ParseError>,
 {
     let emitter = emit_py::PyEmitter::new(py)?;
-    // PyEmitter's `build` calls `class(**kwargs)` and panics on failure — dataclass `__post_init__` validation (e.g. `JoinExpr.join_type` against `VALID_JOIN_TYPES`) can fire if a future grammar change produces a token combination the dataclass rejects. PyO3 would convert the panic to a `PanicException` (no worker crash), but that's the wrong shape for production handlers expecting an `ExposedHogQLError` family error. Catch here and re-emit as a clean `NotImplementedError` envelope.
+    // Convert any panic from the emitter drive (e.g. `class(**kwargs)` tripping dataclass `__post_init__`) into a `NotImplementedError` envelope. PyO3 would surface it as `PanicException`, which production callers catching the `ExposedHogQLError` family won't intercept.
     let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| f(emitter)));
     let result = match outcome {
         Ok(r) => r,

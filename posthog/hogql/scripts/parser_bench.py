@@ -419,9 +419,7 @@ def bench(
 
 
 def _significant(a: RowStat, b: RowStat) -> bool:
-    """Two stats are 'significantly' different when (1) their [min..max] ranges don't overlap (change is bigger than the noise observed in either run), AND (2) relative delta is at least 5% (matches single-sample fallback and sits at the upper edge of the 5–7% same-binary noise floor we observed across repeat runs of this script).
-
-    Single-sample stats can't test non-overlap, so they fall back to pure relative threshold (≥5%, compensating for the missing variance signal)."""
+    """Significance gate: non-overlapping [min..max] ranges AND ≥5% relative delta. The 5% threshold sits at the upper edge of the 5–7% same-binary noise floor observed across repeat runs. Single-sample stats fall back to the relative-threshold-only check since they can't drive the non-overlap test."""
     if len(a.samples_us) <= 1 or len(b.samples_us) <= 1:
         return abs(a.median - b.median) / max(a.median, b.median, 1e-9) > 0.05
     non_overlap = a.max < b.min or b.max < a.min

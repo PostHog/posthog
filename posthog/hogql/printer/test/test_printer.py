@@ -1452,16 +1452,13 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            # Anything obviously injection-shaped is rejected at construction now (used to slip past
-            # `str.isidentifier()` only when stripped of whitespace / punctuation).
+            # Injection-shaped strings — whitespace / punctuation makes them obviously not identifiers.
             ("sql_injection", "; DROP TABLE events --"),
             ("union_injection", "current_date UNION SELECT 1"),
             ("whitespace", "current date"),
             ("special_chars", "now()"),
             ("empty_string", ""),
-            # Python-valid identifiers that aren't in `VALID_KEYWORD_NAMES` used to be accepted
-            # by the `isidentifier()` gate and would have been emitted unquoted as arbitrary
-            # ClickHouse keywords. The tighter allowlist closes that path.
+            # Python-valid identifiers outside `VALID_KEYWORD_NAMES` — would emit unquoted as arbitrary ClickHouse tokens if the gate only checked `isidentifier()`.
             ("python_identifier_but_not_keyword", "hello"),
             ("looks_like_keyword_uppercase", "CURRENT_DATE"),
             ("dunder_attr", "__class__"),
@@ -1469,8 +1466,7 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_keyword_rejects_invalid_names(self, _name: str, keyword_name: str):
-        # `ast.Keyword.__post_init__` rejects at construction; the printer's `visit_keyword` re-checks
-        # as defense-in-depth (catches the `setattr` bypass path).
+        # `Keyword.__post_init__` rejects at construction; `visit_keyword` re-checks at print time (defense-in-depth catches the `setattr` bypass path).
         with self.assertRaises((ValueError, QueryError)):
             node = ast.Keyword(name=keyword_name)
             context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
@@ -1487,12 +1483,11 @@ class TestPrinter(BaseTest):
         ]
     )
     def test_keyword_accepts_valid_names(self, keyword_name: str):
-        # The five names in `ast.VALID_KEYWORD_NAMES` (kept in sync with `resolver.POSTGRES_KEYWORD_TYPES`).
+        # The five names in `ast.VALID_KEYWORD_NAMES`, kept in sync with `resolver.POSTGRES_KEYWORD_TYPES` via import-time assert.
         ast.Keyword(name=keyword_name)
 
     def test_keyword_printer_rejects_setattr_bypass(self):
-        # Defense-in-depth check: even if a caller constructs a valid Keyword and then
-        # mutates `.name` via `setattr` to bypass `__post_init__`, the printer still rejects.
+        # `setattr`-after-construction skips `__post_init__`; the printer's allowlist re-check stops the bypass.
         node = ast.Keyword(name="current_date")
         node.name = "; DROP TABLE events --"
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)

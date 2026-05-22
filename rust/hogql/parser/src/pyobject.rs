@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use serde_json::Value;
 
-/// Cached references to the AST module, the two error classes, the two enum types we coerce per `_ENUM_FIELDS` in `json_ast.py`, and the `int` builtin used for lossless big-int parsing. Built once per call; reused across the recursive walk — cheaper than `import` + `getattr` per node.
+/// Cached refs: AST module, two error classes, two StrEnum types from `_ENUM_FIELDS` in `json_ast.py`, and the `int` builtin for big-int parsing. Built once per call and reused across the walk; cheaper than `import` + `getattr` per node.
 pub struct Converter<'py> {
     py: Python<'py>,
     ast_module: Bound<'py, PyModule>,
@@ -17,7 +17,7 @@ pub struct Converter<'py> {
     syntax_error: Bound<'py, PyAny>,
     arith_op_enum: Bound<'py, PyAny>,
     compare_op_enum: Bound<'py, PyAny>,
-    /// Python builtin `int` class — mirrors `PyEmitter::cls_int`. Cached once instead of `py.eval_bound("int", ...)` per big-int literal.
+    /// Python builtin `int` class. Mirrors `PyEmitter::cls_int`; cached so big-int literals don't pay `py.eval_bound("int", ...)` per call.
     cls_int: Bound<'py, PyAny>,
 }
 

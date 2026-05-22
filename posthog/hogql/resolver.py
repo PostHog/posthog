@@ -67,7 +67,7 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "localtimestamp": ast.DateTimeType,
 }
 
-# Locked at import time: any divergence between the resolver's keyword catalog and `ast.Keyword.__post_init__`'s allowlist would either let the resolver emit `Keyword` nodes the dataclass rejects (raising at construction) or admit `Keyword` names the dataclass would refuse to surface through the printer. Either drift is a silent vector; the assertion forces the two sets to be edited together.
+# Lock the resolver's keyword catalog to `ast.Keyword.__post_init__`'s allowlist; drift in either direction is a silent injection vector or a construction-time crash, so the two sets must move together.
 assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
     "POSTGRES_KEYWORD_TYPES and ast.VALID_KEYWORD_NAMES are out of sync — update both."
 )

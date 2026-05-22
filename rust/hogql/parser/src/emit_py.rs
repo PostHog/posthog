@@ -1046,7 +1046,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         value
     }
     fn no_pos(&self, mut value: PyAst) -> PyAst {
-        // `positions_locked` only suppresses `with_pos` / `replace_pos` for the node's own start / end attrs; if the value isn't an AST dataclass (e.g. a primitive) the suppression is a no-op since `with_pos` already skips non-AST objects. Asserted in debug to catch a future caller that passes a wrapper-less primitive expecting position suppression on it.
+        // `positions_locked` only blocks `with_pos` / `replace_pos` on AST dataclasses; primitives skip those paths already, so calling `no_pos` on one is a silent no-op. Debug-assert the precondition so a wrapper-less caller fails loud.
         debug_assert!(
             self.node_kind(&value).is_some(),
             "no_pos called on a non-AST primitive — position suppression would be a no-op"
@@ -1087,12 +1087,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         }
         let bound = v.obj.bind(self.py);
         let got = bound.getattr(name).ok()?;
-        // `ctes` is eagerly folded list->dict on write (see `set_field`). The
-        // inject_ctes_into_select read-modify-write pattern in `parse.rs`
-        // expects to round-trip through `as_list`; un-fold dict->list of
-        // values here so the second `set_field` re-folds with all members.
-        // Mirrors JsonEmitter's invariant that ctes is list-shaped during
-        // parsing (the JSON path defers the fold to `json_ast.py`).
+        // `ctes` is eagerly folded list->dict on write (see `set_field`); un-fold dict->list of values here so `inject_ctes_into_select`'s read-modify-write through `as_list` round-trips and the second `set_field` re-folds with all members. Mirrors JsonEmitter where ctes stays list-shaped during parsing.
         if name == "ctes" {
             if let Ok(dict) = got.downcast::<PyDict>() {
                 let list = PyList::empty_bound(self.py);
@@ -1148,7 +1143,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         Some(out)
     }
     fn as_bool(&self, v: &PyAst) -> Option<bool> {
-        // PyO3's `extract::<bool>` accepts ints (0 / 1) too; JsonEmitter's `Value::Bool` is strict. Gate on the exact `bool` type so the two backends agree on what counts as a boolean value.
+        // Match JsonEmitter's `Value::Bool` strictness; PyO3's `extract::<bool>` would accept ints (0 / 1) without the type gate.
         let bound = v.obj.bind(self.py);
         if bound.is_instance_of::<pyo3::types::PyBool>() {
             bound.extract::<bool>().ok()
@@ -1157,7 +1152,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         }
     }
     fn as_i64(&self, v: &PyAst) -> Option<i64> {
-        // PyO3's `extract::<i64>` accepts `bool` too (`True` -> 1); JsonEmitter's `Value::Number` rejects booleans. Reject the bool case here so the contract matches.
+        // Match JsonEmitter's `Value::Number` (booleans excluded); PyO3's `extract::<i64>` would coerce `True` to 1.
         let bound = v.obj.bind(self.py);
         if bound.is_instance_of::<pyo3::types::PyBool>() {
             return None;
@@ -1212,14 +1207,14 @@ impl<'py> Emitter for PyEmitter<'py> {
             }
         }
         bound.setattr(name, value.obj.bind(self.py)).unwrap();
-        // Re-run `__post_init__` when setting a field that the dataclass validates there. JoinExpr.join_type / OrderExpr.order / JoinConstraint.constraint_type / SelectSetNode.set_operator each gate on a fixed allow-list in `__post_init__`, and the printer trusts that gate (it interpolates these fields verbatim into the emitted SQL). The JSON path always runs the check because it constructs via `cls(**kwargs)` with the field already populated; rust-py builds the node first and writes some of these fields post-construction via `set_field` (notably `join_type` via `chain_join`), so `__post_init__` only saw the unset default. Re-firing the validation here keeps the rust-py path defense-equivalent to the JSON path — any future grammar regression that produces a non-canonical token combination (e.g. `LEFT OUTER SEMI JOIN`) surfaces as a clean parser error instead of silently flowing to the printer.
+        // Re-fire `__post_init__` when writing a field whose validation lives there. The printer interpolates `join_type` / `order` / `constraint_type` / `set_operator` verbatim into emitted SQL and trusts the dataclass allow-list; the JSON path runs the check via `cls(**kwargs)`, but rust-py builds the node first and writes some of these fields post-construction (notably `join_type` via `chain_join`), so the check has to be re-driven here.
         if matches!(
             name,
             "join_type" | "order" | "constraint_type" | "set_operator"
         ) {
             if let Ok(post_init) = bound.getattr("__post_init__") {
                 if let Err(py_err) = post_init.call0() {
-                    // Surface only the Python exception's string so the user-facing message reads as a clean parser error (e.g. `Invalid join type: LEFT OUTER SEMI JOIN`) rather than a Rust PyErr debug repr. `run_py`'s `catch_unwind` converts this panic into a `ParseError::not_implemented` envelope.
+                    // Panic with the inner Python message only (not the `PyErr` Debug repr); `run_py`'s `catch_unwind` converts the panic to a `ParseError::not_implemented` envelope.
                     let msg = py_err
                         .value_bound(self.py)
                         .str()
