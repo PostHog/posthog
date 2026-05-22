@@ -16,6 +16,7 @@ import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -131,6 +132,7 @@ import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OAuthApps } from './organization/OAuthApps'
 import { OrganizationAI } from './organization/OrgAI'
+import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
@@ -139,6 +141,7 @@ import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefa
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
+import { ProjectSecretAPIKeys } from './project/ProjectSecretAPIKeys'
 import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
@@ -577,6 +580,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['confidence', 'significance', 'p-value', 'false positive'],
             },
             {
+                id: 'environment-experiment-mde',
+                title: 'Default minimum detectable effect',
+                description:
+                    'The smallest effect size you want to detect with statistical significance. Lower values require more data and longer run times. Can be overridden per experiment.',
+                component: <DefaultMinimumDetectableEffect />,
+                keywords: ['mde', 'effect size', 'sensitivity', 'power', 'sample size'],
+            },
+            {
                 id: 'environment-experiment-recalculation-time',
                 title: 'Daily recalculation time',
                 description:
@@ -686,18 +697,17 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-llm-analytics',
-        title: 'LLM analytics',
+        id: 'environment-ai-observability',
+        title: 'AI observability',
         group: 'Products',
-        flag: 'LLM_ANALYTICS_EVALUATIONS',
         settings: [
             {
-                id: 'llm-analytics-byok',
-                title: 'Bring Your Own Key (BYOK)',
+                id: 'ai-observability-byok',
+                title: 'Bring your own key (BYOK)',
                 description:
-                    'Add and manage provider API keys for LLM analytics features, including evaluations and playground.',
+                    'Add and manage provider API keys for AI observability features, including evaluations and playground.',
                 component: <LLMProviderKeysSettings />,
-                docsUrl: 'https://posthog.com/docs/llm-analytics/evaluations',
+                docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
                 keywords: ['llm', 'provider', 'api key', 'openai', 'anthropic', 'gemini', 'playground'],
             },
         ],
@@ -1384,6 +1394,23 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-secret-api-keys',
+        title: 'Project secret API keys',
+        flag: 'PROJECT_SECRET_API_KEYS',
+        settings: [
+            {
+                id: 'environment-secret-api-keys',
+                title: 'Project secret API keys',
+                description:
+                    'These keys allow access to a select set of API endpoints, intended to be accessed exclusively by your systems. Only give keys the permissions they need, and delete unused keys promptly.',
+                docsUrl: 'https://posthog.com/docs/api',
+                component: <ProjectSecretAPIKeys />,
+                keywords: ['token', 'api key', 'authentication', 'secret'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -1457,7 +1484,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'organization-ai-consent',
-                title: 'PostHog AI data analysis',
+                title: 'AI service providers',
                 description: (
                     <>
                         PostHog AI features, such as the PostHog AI chat, use{' '}
@@ -1469,7 +1496,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                         This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
                         below.
                         <br />
-                        <strong>Your data will not be used for training models.</strong>
+                        <strong>Your data will not be used for training third-party models.</strong>
                         <br />
                         <br />
                         <AIHipaaDisclaimer />
@@ -1479,6 +1506,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['llm', 'consent', 'opt-in', 'data sharing'],
                 searchDescription:
                     'PostHog AI features use external AI services for data analysis. This can involve transfer of identifying user data.',
+            },
+            {
+                id: 'organization-ai-training-opt-out',
+                title: 'Internal AI training',
+                component: <OrganizationAITrainingOptOut />,
+                flag: 'AI_TRAINING',
+                keywords: ['ai', 'training', 'opt-out', 'opt-in', 'model', 'max'],
+                searchDescription:
+                    'Control whether PostHog can use your data to train AI models. Turning this off disables AI features for your organization.',
             },
             {
                 id: 'organization-ip-anonymization-default',

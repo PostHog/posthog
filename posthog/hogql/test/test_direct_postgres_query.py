@@ -25,9 +25,9 @@ from posthog.hogql.query import (
 
 from posthog.temporal.data_imports.sources.postgres.postgres import SSL_REQUIRED_AFTER_DATE
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestDirectPostgresQuery(APIBaseTest):
@@ -1394,7 +1394,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         ]
     )
     @override_settings(DEBUG=False, TEST=False)
-    @patch("products.data_warehouse.backend.models.ssh_tunnel.SSHTunnelForwarder")
+    @patch("products.warehouse_sources.backend.models.ssh_tunnel.SSHTunnelForwarder")
     @patch("posthog.hogql.query.psycopg.connect")
     def test_direct_postgres_ssl(self, _name, job_inputs, expected_sslmode, mock_connect, mock_tunnel_cls):
         mock_tunnel = MagicMock()

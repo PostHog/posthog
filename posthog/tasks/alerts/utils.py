@@ -138,16 +138,26 @@ def validate_alert_config(
 
 def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> int:
     match interval:
-        case AlertCalculationInterval.HOURLY:
+        case AlertCalculationInterval.EVERY_15_MINUTES:
             return 0
-        case AlertCalculationInterval.DAILY:
+        case AlertCalculationInterval.HOURLY:
             return 1
-        case _:
+        case AlertCalculationInterval.DAILY:
             return 2
+        case AlertCalculationInterval.WEEKLY:
+            return 3
+        case AlertCalculationInterval.MONTHLY:
+            return 3
+        case None:
+            raise ValueError("Invalid alert calculation interval: None")
+        case _ as unreachable:
+            raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
 
 
 def alert_calculation_interval_to_relativedelta(alert_calculation_interval: AlertCalculationInterval) -> relativedelta:
     match alert_calculation_interval:
+        case AlertCalculationInterval.EVERY_15_MINUTES:
+            return relativedelta(minutes=15)
         case AlertCalculationInterval.HOURLY:
             return relativedelta(hours=1)
         case AlertCalculationInterval.DAILY:
@@ -156,8 +166,8 @@ def alert_calculation_interval_to_relativedelta(alert_calculation_interval: Aler
             return relativedelta(weeks=1)
         case AlertCalculationInterval.MONTHLY:
             return relativedelta(months=1)
-        case _:
-            raise ValueError(f"Invalid alert calculation interval: {alert_calculation_interval}")
+        case _ as unreachable:
+            raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
 
 
 def skip_because_of_weekend(alert: AlertConfiguration) -> bool:
@@ -177,6 +187,8 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
     team_timezone = pytz.timezone(alert.team.timezone)
 
     match alert.calculation_interval:
+        case AlertCalculationInterval.EVERY_15_MINUTES:
+            return (alert.next_check_at or now) + relativedelta(minutes=15)
         case AlertCalculationInterval.HOURLY:
             return (alert.next_check_at or now) + relativedelta(hours=1)
         case AlertCalculationInterval.DAILY:
@@ -199,8 +211,8 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
             next_month_1am_local = next_month_local.replace(day=1, hour=4)
             # Convert to UTC
             return next_month_1am_local.astimezone(pytz.utc)
-        case _:
-            raise ValueError(f"Invalid alert calculation interval: {alert.calculation_interval}")
+        case _ as unreachable:
+            raise ValueError(f"Unhandled alert calculation interval: {unreachable!r}")
 
 
 def next_check_time(alert: AlertConfiguration) -> datetime:

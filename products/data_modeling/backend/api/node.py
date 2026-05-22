@@ -23,7 +23,7 @@ from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInput
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
-from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
+from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
 
 
 class NodeSerializer(serializers.ModelSerializer):
@@ -164,7 +164,7 @@ def _node_queryset_with_latest_job() -> models.QuerySet:
     - _latest_job_status: status of the most recent job (any status)
     - _latest_job_run_at: last_run_at of the most recent *successful* job
     """
-    from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 
     latest_job = DataModelingJob.objects.filter(saved_query_id=OuterRef("saved_query_id")).order_by("-last_run_at")
     latest_completed_job = latest_job.filter(status=DataModelingJob.Status.COMPLETED)

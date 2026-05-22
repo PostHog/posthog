@@ -618,7 +618,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     @tracer.start_as_current_span("team_serializer.managed_viewsets")
     def get_managed_viewsets(self, obj):
-        from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+        from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
         from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
@@ -1343,7 +1343,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
 
         if "events" in validated_data:
-            from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+            from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
             from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
@@ -1702,7 +1702,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["GET", "PATCH"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="experiments_config",
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
@@ -1721,6 +1721,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "experiment_precomputation_enabled",
                     "default_only_count_matured_users",
                     "default_cuped_enabled",
+                    "default_minimum_detectable_effect",
                 ]
 
         team = self.get_object()

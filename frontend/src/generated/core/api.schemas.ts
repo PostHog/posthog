@@ -2374,8 +2374,7 @@ export interface ProjectSecretAPIKeyApi {
     /** @nullable */
     readonly mask_value: string | null
     readonly created_at: string
-    /** @nullable */
-    readonly created_by: number | null
+    readonly created_by: UserBasicApi
     /** @nullable */
     readonly last_used_at: string | null
     /** @nullable */
@@ -2400,8 +2399,7 @@ export interface PatchedProjectSecretAPIKeyApi {
     /** @nullable */
     readonly mask_value?: string | null
     readonly created_at?: string
-    /** @nullable */
-    readonly created_by?: number | null
+    readonly created_by?: UserBasicApi
     /** @nullable */
     readonly last_used_at?: string | null
     /** @nullable */
@@ -2903,6 +2901,23 @@ export interface OrganizationApi {
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, this organization allows its data to be used to train PostHog AI models.
+     * @nullable
+     */
+    is_ai_training_opted_in?: boolean | null
+    /**
+     * When True, the AI training opt-out setting cannot be modified through the UI or API.
+     * @nullable
+     */
+    readonly is_ai_training_locked: boolean | null
+    /**
+     * When True, in-app callouts inviting members to enable AI training are shown.
+     * @nullable
+     */
+    readonly is_ai_training_cta_shown: boolean | null
+    /** @nullable */
+    readonly is_hipaa: boolean | null
     /** Default statistical method for new experiments in this organization.
 
   * `bayesian` - Bayesian
@@ -3114,6 +3129,8 @@ export interface UserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types: readonly string[]
     readonly pending_invites: readonly PendingInviteApi[]
+    /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    readonly requires_credential_review: boolean
 }
 
 export interface PaginatedUserListApi {
@@ -3214,6 +3231,8 @@ export interface PatchedUserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types?: readonly string[]
     readonly pending_invites?: readonly PendingInviteApi[]
+    /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    readonly requires_credential_review?: boolean
 }
 
 /**
