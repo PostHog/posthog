@@ -1,0 +1,455 @@
+import json
+import time
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Optional
+
+import structlog
+from prometheus_client import Counter
+
+from posthog.schema import WebStatsBreakdown
+
+from posthog.hogql import ast
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.preaggregation.web_stats_preaggregated_sql import DISTRIBUTED_WEB_STATS_PREAGGREGATED_TABLE
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    LazyComputationTable,
+    ensure_precomputed,
+)
+from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
+    LAZY_TTL_SECONDS,
+    SESSION_FORWARD_PAD_MINUTES,
+    LazyPrecomputeIneligible,
+    can_use_lazy_precompute as _can_use_lazy_precompute_shared,
+    ceil_utc_day,
+    events_session_id_expr,
+    floor_utc_day,
+    test_account_filter_expr,
+    user_filter_expr,
+)
+
+if TYPE_CHECKING:
+    from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+
+logger = structlog.get_logger(__name__)
+
+
+WEB_STATS_LAZY_FAILED = Counter(
+    "web_stats_lazy_precompute_failed_total",
+    "Web stats lazy precompute path failures, by error class",
+    ["error_type"],
+)
+
+# Low-cardinality breakdowns served by `SimpleBreakdownStrategy` /
+# `ChannelTypeStrategy`. Restricted to bounded-cardinality dimensions on purpose:
+# the precompute read returns every breakdown row and paginates in Python, so a
+# high-cardinality breakdown (every distinct URL/path) would be a memory/latency
+# risk. The page/path/referring-URL breakdowns, FRUSTRATION_METRICS and LANGUAGE
+# all fall through to the raw path.
+#
+# Tuple/float breakdowns (REGION, CITY, VIEWPORT, TIMEZONE) are supported: the
+# breakdown value is JSON-encoded into the `breakdown_value` String column and
+# decoded back to its native shape on read.
+SUPPORTED_BREAKDOWNS: set[WebStatsBreakdown] = {
+    WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+    WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
+    WebStatsBreakdown.INITIAL_UTM_SOURCE,
+    WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
+    WebStatsBreakdown.INITIAL_UTM_MEDIUM,
+    WebStatsBreakdown.INITIAL_UTM_TERM,
+    WebStatsBreakdown.INITIAL_UTM_CONTENT,
+    WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN,
+    WebStatsBreakdown.BROWSER,
+    WebStatsBreakdown.OS,
+    WebStatsBreakdown.VIEWPORT,
+    WebStatsBreakdown.DEVICE_TYPE,
+    WebStatsBreakdown.COUNTRY,
+    WebStatsBreakdown.REGION,
+    WebStatsBreakdown.CITY,
+    WebStatsBreakdown.TIMEZONE,
+}
+
+# Breakdowns whose value is a tuple — JSON-decoded as a list and converted back
+# to a tuple so the response matches the raw query exactly.
+TUPLE_BREAKDOWNS: set[WebStatsBreakdown] = {
+    WebStatsBreakdown.REGION,
+    WebStatsBreakdown.CITY,
+    WebStatsBreakdown.VIEWPORT,
+}
+
+
+class BounceRateUnsupported(LazyPrecomputeIneligible):
+    pass
+
+
+class AvgTimeOnPageUnsupported(LazyPrecomputeIneligible):
+    pass
+
+
+class ScrollDepthUnsupported(LazyPrecomputeIneligible):
+    pass
+
+
+class UnsupportedBreakdown(LazyPrecomputeIneligible):
+    def __init__(self, breakdown: object):
+        self.breakdown = breakdown
+        super().__init__(f"breakdown={breakdown!r}")
+
+
+def _check_stats_eligible(runner: "WebStatsTableQueryRunner") -> None:
+    """Raise a `LazyPrecomputeIneligible` subclass for stats-table-specific
+    reasons the lazy path can't serve the query."""
+    query = runner.query
+
+    # Bounce rate / avg time / scroll depth are extra metrics the precompute
+    # table does not store. `includeScrollDepth` implicitly turns on bounce rate.
+    if query.includeBounceRate:
+        raise BounceRateUnsupported()
+    if query.includeAvgTimeOnPage:
+        raise AvgTimeOnPageUnsupported()
+    if query.includeScrollDepth:
+        raise ScrollDepthUnsupported()
+
+    if query.breakdownBy not in SUPPORTED_BREAKDOWNS:
+        raise UnsupportedBreakdown(query.breakdownBy)
+
+
+def can_use_lazy_precompute(runner: "WebStatsTableQueryRunner") -> bool:
+    """Return True iff the lazy precompute path is eligible for this web stats
+    table query — the shared web analytics gate plus stats-specific checks."""
+    return _can_use_lazy_precompute_shared(runner, log_prefix="web_stats", extra_check=_check_stats_eligible)
+
+
+# HogQL template for the precompute INSERT. The lazy_computation framework
+# substitutes the listed placeholders (including `time_window_min`/`time_window_max`),
+# parses the result, and INSERTs into `web_stats_preaggregated`. The framework
+# automatically prepends `team_id`, `job_id` and appends `expires_at` to the SELECT.
+#
+# Mirrors the web overview precompute: events are grouped into sessions, each
+# session is attributed to the hour of `min(session.$start_timestamp)`, and the
+# `HAVING` keeps only sessions whose start hour falls in the job window. This
+# matches the raw stats query's compare path, which attributes a session's
+# metrics by session start. The forward pad (`SESSION_FORWARD_PAD_MINUTES`) lets
+# a session starting near the trailing edge of a daily job still see the events
+# that spill past midnight, so its pageview count is complete.
+INSERT_QUERY_TEMPLATE = """
+SELECT
+    toStartOfHour(start_timestamp) AS time_window_start,
+    {breakdown_by} AS breakdown_by,
+    breakdown_value AS breakdown_value,
+    uniqState(session_person_id) AS uniq_users_state,
+    sumState(assumeNotNull(toInt(filtered_pageview_count))) AS sum_pageviews_state
+FROM (
+    SELECT
+        any(events.person_id) AS session_person_id,
+        {events_session_id} AS session_id,
+        {breakdown_value} AS breakdown_value,
+        min(session.$start_timestamp) AS start_timestamp,
+        countIf(or(equals(event, '$pageview'), equals(event, '$screen'))) AS filtered_pageview_count
+    FROM events
+    WHERE and(
+        {events_session_id} IS NOT NULL,
+        {event_type_filter},
+        timestamp >= {time_window_min},
+        timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
+        {user_filter},
+        {test_account_filter}
+    )
+    GROUP BY session_id, breakdown_value
+    HAVING and(
+        toStartOfHour(min(session.$start_timestamp)) >= {time_window_min},
+        toStartOfHour(min(session.$start_timestamp)) < {time_window_max}
+    )
+)
+GROUP BY time_window_start, breakdown_by, breakdown_value
+"""
+
+
+def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
+    """JSON-encode the breakdown value so tuple/float/null breakdowns round-trip
+    through the `breakdown_value String` column. The wrapped expression is what
+    `ensure_precomputed` hashes into the cache key, so different breakdowns
+    (including path-cleaning / host-prepend variants) get distinct jobs.
+
+    `toJSONString` of a NULL scalar returns NULL, which the non-nullable column
+    would coerce to an unparseable empty string — `coalesce(..., 'null')` keeps
+    a genuine NULL breakdown as the JSON literal `null` instead."""
+    return ast.Call(
+        name="coalesce",
+        args=[
+            ast.Call(name="toJSONString", args=[runner._counts_breakdown_value()]),
+            ast.Constant(value="null"),
+        ],
+    )
+
+
+def ensure_web_stats_precomputed(
+    runner: "WebStatsTableQueryRunner",
+    time_range_start: datetime,
+    time_range_end: datetime,
+) -> LazyComputationResult:
+    placeholders: dict[str, ast.Expr] = {
+        "breakdown_by": ast.Constant(value=runner.query.breakdownBy.value),
+        "breakdown_value": _breakdown_value_expr(runner),
+        "events_session_id": events_session_id_expr(runner),
+        "event_type_filter": runner.event_type_expr,
+        "user_filter": user_filter_expr(runner),
+        "test_account_filter": test_account_filter_expr(runner),
+        "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+    }
+
+    return ensure_precomputed(
+        team=runner.team,
+        insert_query=INSERT_QUERY_TEMPLATE,
+        time_range_start=time_range_start,
+        time_range_end=time_range_end,
+        ttl_seconds=LAZY_TTL_SECONDS,
+        table=LazyComputationTable.WEB_STATS_PREAGGREGATED,
+        placeholders=placeholders,
+        query_type=f"web_stats_{runner.query.breakdownBy.value}_lazy_insert",
+    )
+
+
+_READ_SQL = f"""
+SELECT
+    breakdown_value,
+    uniqMergeIf(uniq_users_state, time_window_start >= %(cur_start)s AND time_window_start < %(cur_end)s) AS visitors,
+    uniqMergeIf(uniq_users_state, time_window_start >= %(prev_start)s AND time_window_start < %(prev_end)s) AS previous_visitors,
+    sumMergeIf(sum_pageviews_state, time_window_start >= %(cur_start)s AND time_window_start < %(cur_end)s) AS views,
+    sumMergeIf(sum_pageviews_state, time_window_start >= %(prev_start)s AND time_window_start < %(prev_end)s) AS previous_views
+FROM {DISTRIBUTED_WEB_STATS_PREAGGREGATED_TABLE()}
+WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s AND breakdown_by = %(breakdown_by)s
+GROUP BY breakdown_value
+"""
+
+
+_READ_SETTINGS = {
+    # Mirrors web overview: `in_order` load balancing makes the INSERT and SELECT
+    # deterministically prefer the same replica (read-your-writes), and shard
+    # pruning matches the `sipHash64(job_id)` sharding key against `job_id IN`.
+    "load_balancing": "in_order",
+    "optimize_skip_unused_shards": 1,
+}
+
+
+@dataclass
+class LazyStatsRow:
+    """One breakdown value with its decoded value and current/previous metrics.
+
+    `breakdown_value` is decoded back to its native shape (str, tuple, float or
+    None). `*_previous` are read from the precompute table unconditionally; the
+    response builder discards them when the query has no compare period.
+    """
+
+    breakdown_value: object
+    visitors_current: int
+    visitors_previous: int
+    views_current: int
+    views_previous: int
+
+
+@dataclass
+class LazyStatsResult:
+    rows: list[LazyStatsRow]
+
+
+def _decode_breakdown_value(breakdown_by: WebStatsBreakdown, raw: str) -> object:
+    """Reverse the INSERT's `toJSONString` wrapping. Tuple breakdowns come back
+    as lists and are converted to tuples; timezone comes back as a number and is
+    coerced to float to match the raw query's `toFloat` output."""
+    if not raw:
+        # A non-nullable String column can surface a genuine NULL breakdown as
+        # an empty string; treat it as the null breakdown value.
+        return None
+    value = json.loads(raw)
+    if breakdown_by in TUPLE_BREAKDOWNS and isinstance(value, list):
+        return tuple(value)
+    if breakdown_by == WebStatsBreakdown.TIMEZONE and value is not None:
+        return float(value)
+    return value
+
+
+def execute_read_query(
+    *,
+    runner: "WebStatsTableQueryRunner",
+    job_ids: list[str],
+    current_start_utc: datetime,
+    current_end_utc: datetime,
+    previous_start_utc: Optional[datetime],
+    previous_end_utc: Optional[datetime],
+) -> list[LazyStatsRow]:
+    """Run the precompute-read SQL via `sync_execute` and decode each row.
+
+    Bypasses HogQL so the read-your-writes load-balancing settings can be set —
+    the read query shape is stable enough that string parameterization is fine.
+    """
+    # Sentinel for the no-compare case: an unsatisfiable window so the *MergeIf
+    # aggregates return 0 for the "previous" columns without changing shape.
+    prev_start = previous_start_utc if previous_start_utc is not None else datetime(1970, 1, 1, tzinfo=UTC)
+    prev_end = previous_end_utc if previous_end_utc is not None else datetime(1970, 1, 1, tzinfo=UTC)
+
+    tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY, query_type="web_stats_lazy_query")
+    rows = sync_execute(
+        _READ_SQL,
+        {
+            "team_id": runner.team.pk,
+            "job_ids": tuple(str(jid) for jid in job_ids),
+            "breakdown_by": runner.query.breakdownBy.value,
+            "cur_start": current_start_utc,
+            "cur_end": current_end_utc,
+            "prev_start": prev_start,
+            "prev_end": prev_end,
+        },
+        settings=_READ_SETTINGS,
+        team_id=runner.team.pk,
+    )
+    return [
+        LazyStatsRow(
+            breakdown_value=_decode_breakdown_value(runner.query.breakdownBy, row[0]),
+            visitors_current=row[1],
+            visitors_previous=row[2],
+            views_current=row[3],
+            views_previous=row[4],
+        )
+        for row in rows
+    ]
+
+
+def execute_lazy_precomputed_read(
+    runner: "WebStatsTableQueryRunner",
+) -> Optional[LazyStatsResult]:
+    """Orchestrate the lazy precompute + read. Returns the decoded rows, or None
+    on any failure (caller falls through to the raw path)."""
+    # Tag the whole lazy path (INSERT + read) with product/feature so the INSERT
+    # `sync_execute` inside `ensure_web_stats_precomputed` doesn't trip
+    # DEBUG-mode `UntaggedQueryError`. The read query overrides `query_type`
+    # later via `tag_queries(...)` inside `execute_read_query`.
+    tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY)
+    team_id = runner.team.pk
+    overall_started = time.perf_counter()
+    try:
+        date_from = runner.query_date_range.date_from()
+        date_to = runner.query_date_range.date_to()
+        assert date_from is not None and date_to is not None
+
+        # Convert team-tz bounds to tz-aware UTC. We keep `tzinfo` so the HogQL
+        # printer doesn't fall back to host-local timezone interpretation.
+        current_start_utc = date_from.astimezone(UTC)
+        current_end_utc = date_to.astimezone(UTC)
+
+        # Expand the precompute span to UTC day boundaries so the framework's
+        # daily-window jobs fully cover the team-tz request.
+        time_range_start = floor_utc_day(current_start_utc)
+        time_range_end = ceil_utc_day(current_end_utc)
+
+        if time_range_start >= time_range_end:
+            logger.info(
+                "web_stats_lazy_precompute_empty_range",
+                team_id=team_id,
+                time_range_start=time_range_start.isoformat(),
+                time_range_end=time_range_end.isoformat(),
+            )
+            return None
+
+        logger.info(
+            "web_stats_lazy_precompute_started",
+            team_id=team_id,
+            breakdown_by=runner.query.breakdownBy.value,
+            time_range_start=time_range_start.isoformat(),
+            time_range_end=time_range_end.isoformat(),
+            time_range_days=(time_range_end - time_range_start).days,
+        )
+
+        result = ensure_web_stats_precomputed(
+            runner=runner,
+            time_range_start=time_range_start,
+            time_range_end=time_range_end,
+        )
+
+        if not result.job_ids:
+            logger.info(
+                "web_stats_lazy_precompute_no_job_ids",
+                team_id=team_id,
+                breakdown_by=runner.query.breakdownBy.value,
+            )
+            return None
+
+        if not result.ready:
+            logger.info(
+                "web_stats_lazy_precompute_current_not_ready",
+                team_id=team_id,
+                job_count=len(result.job_ids),
+            )
+            return None
+
+        job_ids: list[str] = [str(jid) for jid in result.job_ids]
+
+        previous_start_utc: Optional[datetime] = None
+        previous_end_utc: Optional[datetime] = None
+        if runner.query_compare_to_date_range is not None:
+            prev_from = runner.query_compare_to_date_range.date_from()
+            prev_to = runner.query_compare_to_date_range.date_to()
+            if prev_from is not None and prev_to is not None:
+                previous_start_utc = prev_from.astimezone(UTC)
+                previous_end_utc = prev_to.astimezone(UTC)
+
+                # Precompute the previous period too — without this the read's
+                # `job_id IN` filter has no rows covering the previous window and
+                # every `*MergeIf(..., prev_*)` returns 0.
+                prev_range_start = floor_utc_day(previous_start_utc)
+                prev_range_end = ceil_utc_day(previous_end_utc)
+
+                # Cap the previous period's UTC range at the start of the current
+                # period's so a non-UTC-timezone boundary day does not produce a
+                # job_id shared by both ensure calls (see web overview for the
+                # full rationale).
+                prev_range_end = min(prev_range_end, time_range_start)
+
+                if prev_range_start < prev_range_end:
+                    prev_result = ensure_web_stats_precomputed(
+                        runner=runner,
+                        time_range_start=prev_range_start,
+                        time_range_end=prev_range_end,
+                    )
+
+                    if not prev_result.ready:
+                        logger.info(
+                            "web_stats_lazy_precompute_previous_not_ready",
+                            team_id=team_id,
+                            prev_job_count=len(prev_result.job_ids),
+                        )
+                        return None
+
+                    job_ids.extend(str(jid) for jid in prev_result.job_ids)
+
+        rows = execute_read_query(
+            runner=runner,
+            job_ids=job_ids,
+            current_start_utc=current_start_utc,
+            current_end_utc=current_end_utc,
+            previous_start_utc=previous_start_utc,
+            previous_end_utc=previous_end_utc,
+        )
+
+        logger.info(
+            "web_stats_lazy_precompute_completed",
+            team_id=team_id,
+            breakdown_by=runner.query.breakdownBy.value,
+            job_count=len(result.job_ids),
+            rows_returned=len(rows),
+            total_duration_ms=int((time.perf_counter() - overall_started) * 1000),
+        )
+        return LazyStatsResult(rows=rows)
+    except Exception as exc:
+        WEB_STATS_LAZY_FAILED.labels(error_type=type(exc).__name__).inc()
+        logger.exception(
+            "web_stats_lazy_precompute_failed",
+            team_id=team_id,
+            error_type=type(exc).__name__,
+            total_duration_ms=int((time.perf_counter() - overall_started) * 1000),
+        )
+        return None
