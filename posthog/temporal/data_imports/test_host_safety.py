@@ -173,3 +173,33 @@ class TestIsHostSafe(SimpleTestCase):
             valid, error = _is_host_safe("nonexistent.invalid", team_id=999)
             assert not valid
             assert error == "Host could not be resolved"
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_blocked_host_logs_warning(self):
+        with patch("posthog.temporal.data_imports.host_safety.logger") as mock_logger:
+            valid, _ = _is_host_safe("10.0.0.1", team_id=999)
+            assert not valid
+            mock_logger.warning.assert_called_once()
+            _args, kwargs = mock_logger.warning.call_args
+            assert kwargs["decision"] == "block"
+            assert kwargs["stage"] == "literal_ip"
+            assert kwargs["host"] == "10.0.0.1"
+            mock_logger.info.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_allowed_resolved_host_logs_info_with_resolved_ips(self):
+        with (
+            patch(
+                "posthog.temporal.data_imports.host_safety.socket.getaddrinfo",
+                return_value=[(None, None, None, None, ("52.1.2.3", 0))],
+            ),
+            patch("posthog.temporal.data_imports.host_safety.logger") as mock_logger,
+        ):
+            valid, _ = _is_host_safe("good.example.com", team_id=999)
+            assert valid
+            mock_logger.info.assert_called_once()
+            _args, kwargs = mock_logger.info.call_args
+            assert kwargs["decision"] == "allow"
+            assert kwargs["stage"] == "resolved_ip"
+            assert kwargs["resolved_ips"] == ["52.1.2.3"]
+            mock_logger.warning.assert_not_called()

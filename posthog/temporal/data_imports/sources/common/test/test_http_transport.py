@@ -3,6 +3,8 @@ import socket
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import requests
 from requests import Response
 from requests.adapters import HTTPAdapter
@@ -34,6 +36,28 @@ def mock_record():
 def mock_blocked():
     with patch("posthog.temporal.data_imports.sources.common.http.transport.record_blocked_request") as m:
         yield m
+
+
+@pytest.fixture
+def ssrf_enforced():
+    """Run the SSRF guard in enforce mode — a blocked host raises, not just logs.
+
+    Pinned explicitly so the test is correct regardless of the
+    `DATA_IMPORTS_SSRF_GUARD_ENFORCED` default (which changes across the stack).
+    """
+    with override_settings(DATA_IMPORTS_SSRF_GUARD_ENFORCED=True):
+        yield
+
+
+@pytest.fixture
+def ssrf_monitor():
+    """Run the SSRF guard in monitor mode — a blocked host is logged, not raised.
+
+    Pinned explicitly so the test is correct regardless of the
+    `DATA_IMPORTS_SSRF_GUARD_ENFORCED` default (which changes across the stack).
+    """
+    with override_settings(DATA_IMPORTS_SSRF_GUARD_ENFORCED=False):
+        yield
 
 
 def _fake_response(status_code: int = 200, body: bytes = b"ok") -> Response:
@@ -212,7 +236,7 @@ def test_make_tracked_session_disables_proxy_env(factory_kwargs):
     assert make_tracked_session(**factory_kwargs).trust_env is False
 
 
-def test_ssrf_guard_blocks_unsafe_host(mock_record, mock_blocked):
+def test_ssrf_guard_blocks_unsafe_host(mock_record, mock_blocked, ssrf_enforced):
     """When `_is_host_safe` rejects the host, `send()` raises before the
     request goes out. Per-host classification — private ranges, the IMDS
     address, etc. — is `_is_host_safe`'s job and is covered for real in
@@ -233,9 +257,10 @@ def test_ssrf_guard_blocks_unsafe_host(mock_record, mock_blocked):
     mock_blocked.assert_called_once()
     assert mock_blocked.call_args.kwargs["layer"] == "preflight"
     assert mock_blocked.call_args.kwargs["team_id"] == 42
+    assert mock_blocked.call_args.kwargs["enforced"] is True
 
 
-def test_ssrf_guard_blocks_url_without_hostname(mock_record, mock_blocked):
+def test_ssrf_guard_blocks_url_without_hostname(mock_record, mock_blocked, ssrf_enforced):
     adapter = SSRFGuardedHTTPAdapter(team_id=42)
     prepared = requests.Request("GET", "https://api.example.com/").prepare()
     prepared.url = "/relative/path"  # a URL with no host must not slip past the guard
@@ -265,7 +290,30 @@ def test_ssrf_guard_allows_safe_host(mock_record, fake_http_send):
     mock_record.assert_called_once()
 
 
-def test_redirect_to_internal_host_is_blocked(mock_record):
+def test_ssrf_guard_monitor_mode_logs_but_allows(mock_record, mock_blocked, fake_http_send, ssrf_monitor):
+    """Monitor mode (the default): an unsafe host is logged as a would-be block
+    with `enforced=False`, but the request is allowed through — not raised."""
+    adapter = SSRFGuardedHTTPAdapter(team_id=42)
+    prepared = requests.Request("GET", "https://internal.example.com/data").prepare()
+
+    with (
+        patch(
+            "posthog.temporal.data_imports.sources.common.http.transport._is_host_safe",
+            return_value=(False, "Hosts with internal IP addresses are not allowed"),
+        ),
+        fake_http_send(_fake_response(status_code=200, body=b"ok")),
+    ):
+        response = adapter.send(prepared)  # must NOT raise in monitor mode
+
+    assert response.status_code == 200
+    # The request went out, so the observer recorded it...
+    mock_record.assert_called_once()
+    # ...and the would-be block was logged, flagged as not enforced.
+    mock_blocked.assert_called_once()
+    assert mock_blocked.call_args.kwargs["enforced"] is False
+
+
+def test_redirect_to_internal_host_is_blocked(mock_record, ssrf_enforced):
     """A 3xx Location pointing at an internal host is re-vetted: the guard runs
     on the redirect target, not just the original request URL. `requests`
     drives redirects itself (urllib3 gets redirect=False), so each hop is a
@@ -294,19 +342,19 @@ def test_redirect_to_internal_host_is_blocked(mock_record):
 # --- Post-connect peer-IP check (DNS-rebinding defense) ---
 
 
-def test_enforce_peer_ip_safe_rejects_missing_socket():
+def test_enforce_peer_ip_safe_rejects_missing_socket(ssrf_enforced):
     with pytest.raises(BlockedHostError, match="no socket"):
         _enforce_peer_ip_safe("example.com", None, team_id=42)
 
 
-def test_enforce_peer_ip_safe_rejects_unconnected_socket():
+def test_enforce_peer_ip_safe_rejects_unconnected_socket(ssrf_enforced):
     """An unconnected socket has no peer — fail closed rather than skip the check."""
     with socket.socket() as sock:
         with pytest.raises(BlockedHostError, match="Could not determine"):
             _enforce_peer_ip_safe("example.com", sock, team_id=42)
 
 
-def test_guarded_connection_blocks_internal_peer(mock_blocked):
+def test_guarded_connection_blocks_internal_peer(mock_blocked, ssrf_enforced):
     """connect() re-checks the live socket — an internal peer is blocked post-connect,
     even though the hostname that was dialed may have looked safe."""
 
@@ -332,6 +380,7 @@ def test_guarded_connection_blocks_internal_peer(mock_blocked):
     mock_blocked.assert_called_once()
     assert mock_blocked.call_args.kwargs["layer"] == "postconnect"
     assert mock_blocked.call_args.kwargs["team_id"] == 42
+    assert mock_blocked.call_args.kwargs["enforced"] is True
 
 
 def test_guarded_connection_allows_public_peer():
@@ -350,6 +399,29 @@ def test_guarded_connection_allows_public_peer():
         conn.connect()  # must not raise
 
 
+def test_guarded_connection_monitor_mode_allows_internal_peer(mock_blocked, ssrf_monitor):
+    """Monitor mode: an internal peer is logged with `enforced=False`, but
+    connect() does not raise — the connection is allowed to proceed."""
+
+    def _fake_base_connect(self):
+        self.sock = MagicMock()
+        self.sock.getpeername.return_value = ("10.0.0.7", 443)
+
+    conn = _SSRFGuardedHTTPSConnection("example.com", ssrf_team_id=42)
+    with (
+        patch.object(HTTPSConnection, "connect", _fake_base_connect),
+        patch(
+            "posthog.temporal.data_imports.sources.common.http.transport._is_host_safe",
+            return_value=(False, "Hosts with internal IP addresses are not allowed"),
+        ),
+    ):
+        conn.connect()  # must NOT raise in monitor mode
+
+    mock_blocked.assert_called_once()
+    assert mock_blocked.call_args.kwargs["layer"] == "postconnect"
+    assert mock_blocked.call_args.kwargs["enforced"] is False
+
+
 def test_record_blocked_request_never_raises():
     """Block telemetry must never turn a block into a different failure — if it
     raised, the BlockedHostError after it would never be reached."""
@@ -357,7 +429,7 @@ def test_record_blocked_request_never_raises():
         "posthog.temporal.data_imports.sources.common.http.observer.current_job_context",
         side_effect=RuntimeError("context broke"),
     ):
-        record_blocked_request(host="example.com", team_id=1, reason="reason", layer="preflight")
+        record_blocked_request(host="example.com", team_id=1, reason="reason", layer="preflight", enforced=True)
 
 
 @pytest.mark.parametrize("team_id", [None, 77])

@@ -112,7 +112,7 @@ def record_request(
     _maybe_capture_sample(request, response, record=record, ctx=ctx, exception=exception)
 
 
-def record_blocked_request(*, host: str, team_id: int | None, reason: str, layer: str) -> None:
+def record_blocked_request(*, host: str, team_id: int | None, reason: str, layer: str, enforced: bool) -> None:
     """Log an SSRF-guard block at warning level. Never raises.
 
     The host check is not infallible — a transient DNS failure surfaces as
@@ -122,9 +122,14 @@ def record_blocked_request(*, host: str, team_id: int | None, reason: str, layer
     on what host, for which team, how often" answerable in Grafana/Loki
     before a support ticket is. `layer` separates the cheap pre-flight check
     (`preflight`) from the post-connect peer check (`postconnect`).
+
+    `enforced` is `False` when the guard is in monitor mode — the request was
+    logged as a would-be block but allowed through — and `True` when the block
+    actually failed the request. Counting `enforced=false` lines is how a
+    rollout sizes the blast radius before turning enforcement on.
     """
     try:
-        fields: dict[str, int | str | None] = {}
+        fields: dict[str, int | str | bool | None] = {}
         ctx = current_job_context()
         if ctx is not None:
             fields.update(ctx.as_log_fields())
@@ -132,6 +137,7 @@ def record_blocked_request(*, host: str, team_id: int | None, reason: str, layer
         fields["team_id"] = team_id
         fields["reason"] = reason
         fields["layer"] = layer
+        fields["enforced"] = enforced
         logger.warning(f"data_imports.http.blocked {host}", **fields)
     except Exception:
         _fallback_logger.debug("Failed to log blocked HTTP request", exc_info=True)
