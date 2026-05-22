@@ -64,9 +64,15 @@ export type ProcessBufferWithSamplingResult = {
     recordsDropped: number
     /** Counts dropped lines (drop / sample_dropped) attributed to the first matching rule UUID. */
     recordsDroppedByRuleId: Map<string, number>
+    /** Sum of per-row `bytes_uncompressed` for dropped lines. Rows from old producers contribute 0. */
+    bytesDropped: number
+    /** Sum of per-row `bytes_uncompressed` for dropped lines, attributed to the first matching rule UUID. */
+    bytesDroppedByRuleId: Map<string, number>
     /** When true, the caller must not produce this message to downstream Kafka (all lines sampled out). */
     allDropped: boolean
 }
+
+const recordBytes = (r: LogRecord): number => r.bytes_uncompressed ?? 0
 
 export class LogsSamplingService {
     private rateLimiter: KeyedRateLimiterService
@@ -94,6 +100,8 @@ export class LogsSamplingService {
         const kept: LogRecord[] = []
         let recordsDropped = 0
         const recordsDroppedByRuleId = new Map<string, number>()
+        let bytesDropped = 0
+        const bytesDroppedByRuleId = new Map<string, number>()
 
         const useRate = Boolean(ruleSet.hasRateLimitRules && teamId != null)
 
@@ -108,24 +116,30 @@ export class LogsSamplingService {
                     pendingByRule.set(c.ruleId, list)
                 }
             }
-            const rateKeep = await this.applyRateLimits(teamId, ruleSet, pendingByRule)
+            const rateKeep = await this.applyRateLimits(teamId, ruleSet, pendingByRule, records)
 
             for (let i = 0; i < records.length; i++) {
                 const record = records[i]!
                 const c = classifications[i]!
                 if (c.kind === 'rate_limit') {
                     if (rateKeep.get(i) === false) {
+                        const rb = recordBytes(record)
                         recordsDropped++
+                        bytesDropped += rb
                         recordsDroppedByRuleId.set(c.ruleId, (recordsDroppedByRuleId.get(c.ruleId) ?? 0) + 1)
+                        bytesDroppedByRuleId.set(c.ruleId, (bytesDroppedByRuleId.get(c.ruleId) ?? 0) + rb)
                         continue
                     }
                     kept.push(record)
                     continue
                 }
                 if (c.decision === SAMPLING_DECISION_DROP || c.decision === SAMPLING_DECISION_SAMPLE_DROPPED) {
+                    const rb = recordBytes(record)
                     recordsDropped++
+                    bytesDropped += rb
                     if (c.ruleId != null) {
                         recordsDroppedByRuleId.set(c.ruleId, (recordsDroppedByRuleId.get(c.ruleId) ?? 0) + 1)
+                        bytesDroppedByRuleId.set(c.ruleId, (bytesDroppedByRuleId.get(c.ruleId) ?? 0) + rb)
                     }
                     continue
                 }
@@ -135,9 +149,12 @@ export class LogsSamplingService {
             for (const record of records) {
                 const { decision, ruleId } = safeEvaluateLogRecord(ruleSet, record, teamId ?? 0)
                 if (decision === SAMPLING_DECISION_DROP || decision === SAMPLING_DECISION_SAMPLE_DROPPED) {
+                    const rb = recordBytes(record)
                     recordsDropped++
+                    bytesDropped += rb
                     if (ruleId != null) {
                         recordsDroppedByRuleId.set(ruleId, (recordsDroppedByRuleId.get(ruleId) ?? 0) + 1)
+                        bytesDroppedByRuleId.set(ruleId, (bytesDroppedByRuleId.get(ruleId) ?? 0) + rb)
                     }
                     continue
                 }
@@ -155,21 +172,40 @@ export class LogsSamplingService {
         })
 
         if (kept.length === 0) {
-            return { value: Buffer.alloc(0), pii, recordsDropped, recordsDroppedByRuleId, allDropped: true }
+            return {
+                value: Buffer.alloc(0),
+                pii,
+                recordsDropped,
+                recordsDroppedByRuleId,
+                bytesDropped,
+                bytesDroppedByRuleId,
+                allDropped: true,
+            }
         }
         const value = await encodeLogRecords(logRecordType, compressionCodec, kept)
-        return { value, pii, recordsDropped, recordsDroppedByRuleId, allDropped: false }
+        return {
+            value,
+            pii,
+            recordsDropped,
+            recordsDroppedByRuleId,
+            bytesDropped,
+            bytesDroppedByRuleId,
+            allDropped: false,
+        }
     }
 
     /**
      * Maps a recordIndex -> keep (true) or drop (false) decision per rate_limit rule.
-     * Each rule's pending lines share one Lua call; lines are admitted up to the
-     * pre-batch token budget.
+     * Each rule's pending lines share one Lua call; lines are admitted while their
+     * accumulated cost stays within the pre-batch token budget. Cost is one token
+     * per record (`costUnit: 'records'`) or each record's `bytes_uncompressed`
+     * (`costUnit: 'bytes'`); rows missing the field contribute 0.
      */
     private async applyRateLimits(
         teamId: number,
         ruleSet: CompiledRuleSet,
-        pendingByRule: RateLimitPendingByRule
+        pendingByRule: RateLimitPendingByRule,
+        records: LogRecord[]
     ): Promise<Map<number, boolean>> {
         const keepByIndex = new Map<number, boolean>()
         if (pendingByRule.size === 0) {
@@ -177,7 +213,7 @@ export class LogsSamplingService {
         }
 
         const ruleById = new Map(ruleSet.rules.map((r) => [r.id, r]))
-        type Entry = { indices: number[]; req: KeyedRateLimitRequest }
+        type Entry = { indices: number[]; costs: number[]; req: KeyedRateLimitRequest }
         const entries: Entry[] = []
 
         for (const [ruleId, indices] of pendingByRule) {
@@ -185,11 +221,15 @@ export class LogsSamplingService {
             if (!rl || indices.length === 0) {
                 continue
             }
+            const costs =
+                rl.costUnit === 'bytes' ? indices.map((idx) => recordBytes(records[idx]!)) : indices.map(() => 1)
+            const totalCost = costs.reduce((a, b) => a + b, 0)
             entries.push({
                 indices,
+                costs,
                 req: {
                     id: `${teamId}/${ruleId}`,
-                    cost: indices.length,
+                    cost: totalCost,
                     bucketSize: rl.poolMax,
                     refillRate: rl.refillPerSecond,
                 },
@@ -208,12 +248,17 @@ export class LogsSamplingService {
         const results = await this.rateLimiter.rateLimitMany(entries.map((e) => e.req))
 
         for (let i = 0; i < entries.length; i++) {
-            const { indices } = entries[i]!
+            const { indices, costs } = entries[i]!
             const tokensBefore = results[i]?.[1].tokensBefore ?? 0
             const budget = Math.max(0, Math.floor(tokensBefore))
-            const toAdmit = Math.min(indices.length, budget)
+            let spent = 0
             for (let j = 0; j < indices.length; j++) {
-                keepByIndex.set(indices[j]!, j < toAdmit)
+                const next = spent + costs[j]!
+                const admit = next <= budget
+                keepByIndex.set(indices[j]!, admit)
+                if (admit) {
+                    spent = next
+                }
             }
         }
 

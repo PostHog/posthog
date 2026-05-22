@@ -116,11 +116,11 @@ and `posthog:alert-create`.
 
 ## Constructing UI links
 
-- **Dashboard**: `https://app.posthog.com/llm-analytics/dashboard`
-- **Traces list** (sort by cost): `https://app.posthog.com/llm-analytics/traces`
-- **Generations list**: `https://app.posthog.com/llm-analytics/generations`
-- **Users list** (per-user cost): `https://app.posthog.com/llm-analytics/users`
-- **Single trace**: `https://app.posthog.com/llm-analytics/traces/<trace_id>?timestamp=<url_encoded_iso>`
+- **Dashboard**: `https://app.posthog.com/ai-observability/dashboard`
+- **Traces list** (sort by cost): `https://app.posthog.com/ai-observability/traces`
+- **Generations list**: `https://app.posthog.com/ai-observability/generations`
+- **Users list** (per-user cost): `https://app.posthog.com/ai-observability/users`
+- **Single trace**: `https://app.posthog.com/ai-observability/traces/<trace_id>?timestamp=<url_encoded_iso>`
 
 Always surface a UI link so the user can verify visually.
 
@@ -139,7 +139,7 @@ versions for the same provider. To avoid rot:
   added.
 - For anything not covered here (new cost categories, changes to
   pricing lookup, provider additions), run `posthog:docs-search` for
-  "calculating costs" or "llm analytics" first rather than trusting a
+  "calculating costs" or "AI observability" first rather than trusting a
   hardcoded rule in this file.
 - If you find this skill contradicting the UI, trust the UI and flag
   the skill for an update.
@@ -148,14 +148,14 @@ versions for the same provider. To avoid rot:
 
 - Always set a time range — cost queries without one scan the full events table
 - Always include `$ai_embedding` alongside `$ai_generation` when summing cost; embeddings are cheap per-call but add up at scale
-- Costs are written at ingestion (see [Calculating LLM costs](https://posthog.com/docs/llm-analytics/calculating-costs)) — if `$ai_total_cost_usd` is missing or zero, read `$ai_cost_model_source` first: `passthrough` means the SDK supplied costs; `custom` means custom token prices; `openrouter` / `manual` mean automatic lookup; missing means the model wasn't matched (unusual custom model, fine-tune). Grep: `countIf(properties.$ai_total_cost_usd IS NULL)` per `(model, source)`
+- Costs are written at ingestion (see [Calculating LLM costs](https://posthog.com/docs/ai-observability/calculating-costs)) — if `$ai_total_cost_usd` is missing or zero, read `$ai_cost_model_source` first: `passthrough` means the SDK supplied costs; `custom` means custom token prices; `openrouter` / `manual` mean automatic lookup; missing means the model wasn't matched (unusual custom model, fine-tune). Grep: `countIf(properties.$ai_total_cost_usd IS NULL)` per `(model, source)`
 - Custom pricing uses **per-token** prices, not per-million — if a custom-priced model looks ~1M× too expensive or too cheap, that's almost always the bug
 - Exclude errored calls from cost totals only when explicitly asked — providers still charge for many error modes, and including them gives the truthful bill
 - For per-user totals, exclude rows where `distinct_id = properties.$ai_trace_id` — some SDKs default distinct_id to the trace ID when no user is set
 - Cost is additive across `$ai_generation` + `$ai_embedding` events within a trace; summing on `$ai_span` gives zero. `$ai_trace` may carry `$ai_total_cost_usd` from some SDK wrappers — don't include it in rollups or you'll double-count. `$ai_evaluation` events also carry cost but are not part of the stock UI rollups; include them only when the user explicitly wants evaluation spend in the total
 - Cache-hit rate depends on `$ai_cache_reporting_exclusive` — branch on the event-level flag rather than on provider or model name. Provider behavior and SDK versions drift; the flag is ingestion's resolved answer for that specific event
 - When answering "why is X expensive?", show the cost **and** the token split — the user almost always wants to know whether to shrink prompts, shrink outputs, or switch models
-- Before building a custom dashboard, check whether the stock `/llm-analytics/dashboard` tiles already answer the question — re-creating them is churn
+- Before building a custom dashboard, check whether the stock `/ai-observability/dashboard` tiles already answer the question — re-creating them is churn
 - For large tenants, materialize common cost queries as insights and reuse via `insight-query`; ad-hoc SQL is fine for one-offs but re-running it on every dashboard load is expensive
 
 ## References

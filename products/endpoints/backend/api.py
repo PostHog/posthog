@@ -79,10 +79,9 @@ from posthog.models.insight_variable import InsightVariable
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag, sync_saved_query_to_dag
 from products.data_warehouse.backend.data_load.saved_query_service import trigger_saved_query_schedule
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
 from products.endpoints.backend.insight_transformers import (
     MaterializedSeriesMismatchError,
     transform_materialized_insight_response,
@@ -126,6 +125,7 @@ from products.endpoints.backend.serializers import (
     EndpointRunResponseSerializer,
     EndpointVersionResponseSerializer,
 )
+from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
 
 from common.hogvm.python.utils import HogVMException
 
@@ -898,7 +898,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
             # Step 1: Handle deactivation (disables materialization, prevents any materialization operations)
             if not final_is_active and was_materialized:
-                self._disable_materialization(endpoint, current_version)
+                self._disable_materialization(endpoint, request, current_version)
 
             # Step 2: Handle query changes and versioning (independent of active/materialization state)
             old_bucket_overrides: dict[str, str] | None = None
@@ -997,7 +997,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                         else:
                             raise
                 elif should_disable:
-                    self._disable_materialization(endpoint, target_version)
+                    self._disable_materialization(endpoint, request, target_version)
 
             endpoint_changes = changes_between("Endpoint", previous=endpoint_before_update, current=endpoint)
             if endpoint_changes:
@@ -1100,6 +1100,21 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         try:
             self._enable_materialization_inner(endpoint, data_freshness_seconds, request, version, bucket_overrides)
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="success").inc()
+            target_version = version or endpoint.get_version()
+            if target_version and target_version.saved_query:
+                log_activity(
+                    organization_id=self.organization.id,
+                    team_id=self.team.id,
+                    user=cast(User, request.user),
+                    was_impersonated=is_impersonated_session(request),
+                    item_id=str(target_version.saved_query.id),
+                    scope="DataWarehouseSavedQuery",
+                    activity="materialization_enabled",
+                    detail=Detail(
+                        name=target_version.saved_query.name,
+                        context=EndpointContext(version=target_version.version),
+                    ),
+                )
         except ValidationError:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
             raise
@@ -1167,7 +1182,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         version.bucket_overrides = bucket_overrides
         version.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
-    def _disable_materialization(self, endpoint: Endpoint, version: EndpointVersion | None = None) -> None:
+    def _disable_materialization(
+        self, endpoint: Endpoint, request: Request, version: EndpointVersion | None = None
+    ) -> None:
         """Disable materialization for an endpoint version.
 
         If version is not specified, uses the current version.
@@ -1175,6 +1192,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         version = version or endpoint.get_version()
         if version:
             if version.saved_query:
+                saved_query_id = str(version.saved_query.id)
+                saved_query_name = version.saved_query.name
                 try:
                     delete_node_from_dag(version.saved_query)
                 except Exception as e:
@@ -1198,6 +1217,19 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="disable", status="error").inc()
                     raise
                 ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="disable", status="success").inc()
+                log_activity(
+                    organization_id=self.organization.id,
+                    team_id=self.team.id,
+                    user=cast(User, request.user),
+                    was_impersonated=is_impersonated_session(request),
+                    item_id=saved_query_id,
+                    scope="DataWarehouseSavedQuery",
+                    activity="materialization_disabled",
+                    detail=Detail(
+                        name=saved_query_name,
+                        context=EndpointContext(version=version.version),
+                    ),
+                )
         clear_endpoint_materialization_cache(self.team_id, endpoint.name)
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
@@ -2620,6 +2652,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         )
 
     @extend_schema(
+        # url_path="openapi.json" would otherwise produce `..._openapi.json_retrieve` —
+        # the `.` is rejected by lint_spec_consistency_hook + the MCP YAML scaffolder.
+        operation_id="endpoints_openapi_spec_retrieve",
         description="Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.",
         parameters=[
             OpenApiParameter(

@@ -18,10 +18,10 @@ from posthog.settings import EE_AVAILABLE
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 
-from products.data_warehouse.backend.models import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 def _get_hash_key(team_id: int) -> str:

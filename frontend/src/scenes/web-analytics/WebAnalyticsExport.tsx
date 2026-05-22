@@ -1,19 +1,11 @@
-import { useValues } from 'kea'
-
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { QuerySchema, TrendsQueryResponse, WebStatsTableQueryResponse } from '~/queries/schema/schema-general'
+import { QuerySchema } from '~/queries/schema/schema-general'
 import { ExporterFormat, InsightLogicProps } from '~/types'
 
-import { insightDataLogic } from '../insights/insightDataLogic'
-import {
-    CalendarHeatmapAdapter,
-    TrendsAdapter,
-    WebAnalyticsTableAdapter,
-    WorldMapAdapter,
-    exportTableData,
-} from './webAnalyticsExportUtils'
+import { exportTableData } from './webAnalyticsExportUtils'
+import { useWebTileExportAdapter } from './webTileHeaderHooks'
 
 interface WebAnalyticsExportProps {
     query: QuerySchema
@@ -21,21 +13,7 @@ interface WebAnalyticsExportProps {
 }
 
 export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportProps): JSX.Element | null {
-    const builtInsightDataLogic = insightDataLogic(insightProps)
-    const { insightDataRaw } = useValues(builtInsightDataLogic)
-
-    if (!insightDataRaw) {
-        return null
-    }
-
-    // Try to find an appropriate adapter for this query and response
-    const adapters = [
-        new CalendarHeatmapAdapter(insightDataRaw as TrendsQueryResponse, query),
-        new WorldMapAdapter(insightDataRaw as TrendsQueryResponse, query),
-        new WebAnalyticsTableAdapter(insightDataRaw as WebStatsTableQueryResponse, query),
-        new TrendsAdapter(insightDataRaw as TrendsQueryResponse, query),
-    ]
-    const adapter = adapters.find((a) => a.canHandle())
+    const adapter = useWebTileExportAdapter(query, insightProps)
 
     if (!adapter) {
         return null

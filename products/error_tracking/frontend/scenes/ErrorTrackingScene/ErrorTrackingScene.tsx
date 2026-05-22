@@ -49,7 +49,6 @@ export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
-    const hasInsights = useFeatureFlag('ERROR_TRACKING_INSIGHTS')
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
 
     useOnMountEffect(() => {
@@ -83,15 +82,11 @@ export function ErrorTrackingScene(): JSX.Element {
                 </>
             ),
         },
-        ...(hasInsights
-            ? [
-                  {
-                      key: 'insights' as const,
-                      label: 'Insights',
-                      content: <ErrorTrackingInsights />,
-                  },
-              ]
-            : []),
+        {
+            key: 'insights',
+            label: 'Insights',
+            content: <ErrorTrackingInsights />,
+        },
         ...(hasRecommendations
             ? [
                   {

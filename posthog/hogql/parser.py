@@ -1,10 +1,13 @@
 import sys
 import copy
+import random
 import threading
 from collections.abc import Callable
 from enum import StrEnum
 from types import FrameType
 from typing import Any, Literal, cast
+
+from django.conf import settings
 
 from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
@@ -20,17 +23,73 @@ from opentelemetry import trace
 from prometheus_client import Counter, Gauge, Histogram
 from structlog import getLogger
 
+from posthog.schema import ParserMode
+
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST
 from posthog.hogql.constants import RESERVED_KEYWORDS, HogQLParserBackend
-from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, NotImplementedError, SyntaxError
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.json_ast import deserialize_ast
 from posthog.hogql.parse_string import parse_string_literal_ctx, parse_string_literal_text, parse_string_text_ctx
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.visitor import clear_locations
+
+from posthog.exceptions_capture import capture_exception
+
+logger = getLogger(__name__)
+
+# Defensive import of the rust parser wheel. A packaging error (bad ABI,
+# missing symbol, broken maturin build) shouldn't take the whole module
+# down — `hogql_parser` (cpp) is still available as the production
+# default, and the `*_shadow` parser modes can degrade to a no-op shadow
+# leg until the wheel is repaired. Modes that explicitly select rust as
+# the PRIMARY backend (`rust-json` / `RUST_ONLY` / `RUST_WITH_CPP_SHADOW`)
+# will surface the RuntimeError below at parse time.
+_RUST_PARSER_AVAILABLE = True
+try:
+    from hogql_parser_rs import (
+        parse_expr_json as _parse_expr_json_rs,
+        parse_expr_py as _parse_expr_py_rs,
+        parse_full_template_string_json as _parse_full_template_string_json_rs,
+        parse_full_template_string_py as _parse_full_template_string_py_rs,
+        parse_order_expr_json as _parse_order_expr_json_rs,
+        parse_order_expr_py as _parse_order_expr_py_rs,
+        parse_program_json as _parse_program_json_rs,
+        parse_program_py as _parse_program_py_rs,
+        parse_select_json as _parse_select_json_rs,
+        parse_select_py as _parse_select_py_rs,
+    )
+except ImportError as _import_err:
+    _RUST_PARSER_AVAILABLE = False
+    # Bind to a module-level name — `except as` bindings are deleted at
+    # the end of the except block, so the closure below would otherwise
+    # see an unbound `NameError` when called.
+    _RUST_IMPORT_ERROR_REPR = repr(_import_err)
+    logger.exception("hogql_parser_rs import failed; rust-json and rust-py backends disabled")
+    capture_exception(
+        _import_err,
+        additional_properties={"hogql_parser_rs_import_error": _RUST_IMPORT_ERROR_REPR},
+    )
+
+    def _rust_parser_unavailable(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError(
+            f"hogql_parser_rs is not importable (packaging error); original ImportError: {_RUST_IMPORT_ERROR_REPR}"
+        )
+
+    _parse_expr_json_rs = _rust_parser_unavailable
+    _parse_full_template_string_json_rs = _rust_parser_unavailable
+    _parse_order_expr_json_rs = _rust_parser_unavailable
+    _parse_program_json_rs = _rust_parser_unavailable
+    _parse_select_json_rs = _rust_parser_unavailable
+    _parse_expr_py_rs = _rust_parser_unavailable
+    _parse_full_template_string_py_rs = _rust_parser_unavailable
+    _parse_order_expr_py_rs = _rust_parser_unavailable
+    _parse_program_py_rs = _rust_parser_unavailable
+    _parse_select_py_rs = _rust_parser_unavailable
 
 
 class CacheOrigin(StrEnum):
@@ -48,8 +107,6 @@ class ParseRule(StrEnum):
 
 
 tracer = trace.get_tracer(__name__)
-
-logger = getLogger(__name__)
 
 
 def _unquote_identifier(text: str) -> str:
@@ -75,6 +132,12 @@ def safe_lambda(f):
     def wrapped(*args, **kwargs):
         try:
             return f(*args, **kwargs)
+        except NotImplementedError as e:
+            # Mirror cpp's JSON wrapper: `NotImplementedError` is `InternalHogQLError`
+            # and shouldn't leak past the parser boundary. `posthog/hogql/json_ast.py`
+            # rewrites cpp's JSON-encoded NotImplementedError into `ExposedHogQLError`;
+            # do the same for the python visitor so callers see the same class.
+            raise ExposedHogQLError(str(e), start=e.start, end=e.end) from e
         except Exception as e:
             if str(e) == "Empty Stack":  # Antlr throws `Exception("Empty Stack")` ¯\_(ツ)_/¯
                 raise SyntaxError("Unmatched curly bracket") from e
@@ -104,6 +167,25 @@ RULE_TO_PARSE_FUNCTION: dict[HogQLParserBackend, dict[ParseRule, Callable]] = {
         ParseRule.FULL_TEMPLATE_STRING: lambda string: deserialize_ast(_parse_full_template_string_json_cpp(string)),
         ParseRule.PROGRAM: lambda string: deserialize_ast(_parse_program_json_cpp(string)),
     },
+    "rust-json": {
+        ParseRule.EXPR: lambda string, start: deserialize_ast(_parse_expr_json_rs(string, is_internal=start is None)),
+        ParseRule.ORDER_EXPR: lambda string: deserialize_ast(_parse_order_expr_json_rs(string)),
+        ParseRule.SELECT: lambda string: deserialize_ast(_parse_select_json_rs(string)),
+        ParseRule.FULL_TEMPLATE_STRING: lambda string: deserialize_ast(_parse_full_template_string_json_rs(string)),
+        ParseRule.PROGRAM: lambda string: deserialize_ast(_parse_program_json_rs(string)),
+    },
+    # `rust-py` skips JSON serialise/deserialise on both sides: the parser
+    # builds a `serde_json::Value` (intermediate) and a Rust-side converter
+    # constructs the Python ast dataclass instances directly via PyO3. The
+    # `rust-json` path stays alongside for the future WASM build that can't
+    # link to CPython, and for tests that need to compare on the JSON shape.
+    "rust-py": {
+        ParseRule.EXPR: lambda string, start: _parse_expr_py_rs(string, is_internal=start is None),
+        ParseRule.ORDER_EXPR: _parse_order_expr_py_rs,
+        ParseRule.SELECT: _parse_select_py_rs,
+        ParseRule.FULL_TEMPLATE_STRING: _parse_full_template_string_py_rs,
+        ParseRule.PROGRAM: _parse_program_py_rs,
+    },
 }
 
 RULE_TO_HISTOGRAM: dict[ParseRule, Histogram] = {
@@ -116,6 +198,143 @@ RULE_TO_HISTOGRAM: dict[ParseRule, Histogram] = {
 }
 
 DEFAULT_BACKEND: HogQLParserBackend = "cpp-json"
+
+
+# `parserMode` (a HogQLQueryModifier) selects the parser backend per query.
+# Each mode maps to a `(primary, shadow)` backend pair: the primary parses
+# the query and its result is always what's returned; a non-None shadow is
+# run on a small sample of parses purely to detect divergence.
+_PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBackend | None]] = {
+    ParserMode.CPP_ONLY: ("cpp-json", None),
+    ParserMode.RUST_ONLY: ("rust-json", None),
+    ParserMode.CPP_WITH_RUST_SHADOW: ("cpp-json", "rust-json"),
+    ParserMode.RUST_WITH_CPP_SHADOW: ("rust-json", "cpp-json"),
+    ParserMode.RUST_PY_ONLY: ("rust-py", None),
+    ParserMode.RUST_PY_WITH_CPP_SHADOW: ("rust-py", "cpp-json"),
+}
+
+# Fraction of `*_shadow` parses that also run the secondary backend. Kept
+# low in production — the shadow parse is pure overhead on the request's
+# hot path. Tests run every parse through the shadow (see
+# `_shadow_sample_rate`).
+_SHADOW_SAMPLE_RATE = 0.01
+
+
+def _shadow_sample_rate() -> float:
+    """Tests force 100% shadow sampling to catch any divergence; production
+    keeps the 1% sample to bound per-request overhead."""
+    return 1.0 if settings.TEST else _SHADOW_SAMPLE_RATE
+
+
+def _resolve_parser_mode(
+    parser_mode: ParserMode | None, backend: HogQLParserBackend
+) -> tuple[HogQLParserBackend, HogQLParserBackend | None]:
+    """Resolve a `parserMode` modifier to `(primary, shadow)` backends.
+
+    In TEST: an absent modifier defaults to `CPP_WITH_RUST_SHADOW` so the
+    test suite exercises both backends on every parse and raises on AST
+    divergence (see `_run_shadow_comparison`). Honour an explicit
+    `backend=` override (test factories / parity scripts) untouched.
+
+    In prod: an absent modifier is treated as `cpp_only` — resolved here at
+    the call site, never written back onto the modifier, so the query
+    hash is unaffected. The explicitly-passed `backend` is honoured
+    (default `cpp-json`).
+    """
+    if parser_mode is None:
+        if settings.TEST and backend == DEFAULT_BACKEND:
+            return _PARSER_MODE_BACKENDS[ParserMode.CPP_WITH_RUST_SHADOW]
+        return backend, None
+    return _PARSER_MODE_BACKENDS[parser_mode]
+
+
+class HogQLParserShadowMismatch(Exception):
+    """A `*_shadow` parser mode found the primary and shadow backends
+    produced different ASTs. Reported to error tracking and never raised
+    into a request — the primary backend's result is always returned."""
+
+
+_SHADOW_BACKEND_FAILURES = Counter(
+    "hogql_parser_shadow_backend_failures",
+    "Shadow-backend parses that threw an exception (packaging error, panic, etc.). "
+    "Captured but never propagated — primary backend's result is always returned.",
+    labelnames=["rule", "shadow"],
+)
+
+
+def _run_shadow_comparison(
+    rule: ParseRule,
+    statement: str,
+    primary_backend: HogQLParserBackend,
+    shadow_backend: HogQLParserBackend,
+    primary_node: Any,
+    start: int | None,
+) -> None:
+    """Sample-rate-gated cross-backend parity check.
+
+    In prod: a `_SHADOW_SAMPLE_RATE` (1%) sample of parses also runs the
+    shadow backend; a divergence or shadow-backend crash is captured to
+    error tracking and the primary result is returned untouched.
+
+    In TEST: every parse runs through the shadow. Two failure classes
+    are distinguished:
+      - parser-class: shadow rejects (`BaseHogQLError`) input the primary
+        accepted, OR the two backends agree to parse but produce
+        different ASTs. Both raise in TEST so a regression fails loud.
+      - packaging-class: any other exception (`ImportError`,
+        `RuntimeError` from the stub, a PyO3 panic). NEVER propagates;
+        captured + counted only. A broken shadow wheel must not block
+        the primary parser's hot path or fail the test suite.
+    """
+    if random.random() >= _shadow_sample_rate():
+        return
+    test_mode = settings.TEST
+    try:
+        shadow_node = _invoke_parser(shadow_backend, rule, statement, start)
+    except BaseHogQLError as err:
+        # Parser-class failure: shadow rejects input that primary accepted.
+        # In TEST that's a regression we want to see.
+        _SHADOW_BACKEND_FAILURES.labels(rule=str(rule), shadow=shadow_backend).inc()
+        capture_exception(
+            err,
+            additional_properties={
+                "hogql_parser_rule": str(rule),
+                "hogql_parser_shadow": shadow_backend,
+                "hogql_parser_statement": statement,
+                "hogql_parser_shadow_throw": "true",
+            },
+        )
+        if test_mode:
+            raise
+        return
+    except Exception as err:
+        # Packaging-class failure (ImportError, stub RuntimeError, panic).
+        # Capture + count, never propagate, even in TEST.
+        _SHADOW_BACKEND_FAILURES.labels(rule=str(rule), shadow=shadow_backend).inc()
+        capture_exception(
+            err,
+            additional_properties={
+                "hogql_parser_rule": str(rule),
+                "hogql_parser_shadow": shadow_backend,
+                "hogql_parser_statement": statement,
+                "hogql_parser_shadow_throw": "true",
+            },
+        )
+        return
+    if clear_locations(primary_node) == clear_locations(shadow_node):
+        return
+    mismatch = HogQLParserShadowMismatch(f"{rule} parser AST mismatch: {primary_backend} vs {shadow_backend}")
+    if test_mode:
+        raise mismatch
+    capture_exception(
+        mismatch,
+        additional_properties={
+            "hogql_parser_rule": str(rule),
+            "hogql_parser_primary": primary_backend,
+            "hogql_parser_shadow": shadow_backend,
+            "hogql_parser_statement": statement,
+        },
+    )
 
 
 # Two caches so a flood of unique user-generated queries can't displace the
@@ -304,22 +523,26 @@ def parse_string_template(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
+    parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Call:
     """Parse a full template string without start/end quotes"""
     if timings is None:
         timings = HogQLTimings()
+    primary, shadow = _resolve_parser_mode(parser_mode, backend)
     # The cache is keyed on `"F'" + string` (a runtime concat that never
     # matches a frame literal), so pass the raw `string` as the classify
     # target — that keeps the frame walk on the cold path here too.
-    with timings.measure(f"parse_full_template_string_{backend}"):
+    with timings.measure(f"parse_full_template_string_{primary}"):
         node = _parse_cached(
             ParseRule.FULL_TEMPLATE_STRING,
             "F'" + string,
-            backend,
+            primary,
             cache_origin,
             classify_input=string,
         )
+        if shadow is not None:
+            _run_shadow_comparison(ParseRule.FULL_TEMPLATE_STRING, "F'" + string, primary, shadow, node, None)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -333,14 +556,18 @@ def parse_expr(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
+    parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Expr:
     if expr == "":
         raise SyntaxError("Empty query")
     if timings is None:
         timings = HogQLTimings()
-    with timings.measure(f"parse_expr_{backend}"):
-        node = _parse_cached(ParseRule.EXPR, expr, backend, cache_origin, start=start)
+    primary, shadow = _resolve_parser_mode(parser_mode, backend)
+    with timings.measure(f"parse_expr_{primary}"):
+        node = _parse_cached(ParseRule.EXPR, expr, primary, cache_origin, start=start)
+        if shadow is not None:
+            _run_shadow_comparison(ParseRule.EXPR, expr, primary, shadow, node, start)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -353,12 +580,16 @@ def parse_order_expr(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
+    parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.OrderExpr:
     if timings is None:
         timings = HogQLTimings()
-    with timings.measure(f"parse_order_expr_{backend}"):
-        node = _parse_cached(ParseRule.ORDER_EXPR, order_expr, backend, cache_origin)
+    primary, shadow = _resolve_parser_mode(parser_mode, backend)
+    with timings.measure(f"parse_order_expr_{primary}"):
+        node = _parse_cached(ParseRule.ORDER_EXPR, order_expr, primary, cache_origin)
+        if shadow is not None:
+            _run_shadow_comparison(ParseRule.ORDER_EXPR, order_expr, primary, shadow, node, None)
         if placeholders:
             with timings.measure("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -371,13 +602,17 @@ def parse_select(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
+    parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     if timings is None:
         timings = HogQLTimings()
-    with timings.measure(f"parse_select_{backend}"):
+    primary, shadow = _resolve_parser_mode(parser_mode, backend)
+    with timings.measure(f"parse_select_{primary}"):
         with tracer.start_as_current_span("parse_statement_to_node"):
-            node = _parse_cached(ParseRule.SELECT, statement, backend, cache_origin)
+            node = _parse_cached(ParseRule.SELECT, statement, primary, cache_origin)
+        if shadow is not None:
+            _run_shadow_comparison(ParseRule.SELECT, statement, primary, shadow, node, None)
         if placeholders:
             with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
@@ -389,12 +624,16 @@ def parse_program(
     timings: HogQLTimings | None = None,
     *,
     backend: HogQLParserBackend = DEFAULT_BACKEND,
+    parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Program:
     if timings is None:
         timings = HogQLTimings()
-    with timings.measure(f"parse_expr_{backend}"):
-        node = _parse_cached(ParseRule.PROGRAM, source, backend, cache_origin)
+    primary, shadow = _resolve_parser_mode(parser_mode, backend)
+    with timings.measure(f"parse_program_{primary}"):
+        node = _parse_cached(ParseRule.PROGRAM, source, primary, cache_origin)
+        if shadow is not None:
+            _run_shadow_comparison(ParseRule.PROGRAM, source, primary, shadow, node, None)
     return cast("ast.Program", node)
 
 
@@ -1115,16 +1354,17 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return (self.visit(ctx.winFrameBound(0)), self.visit(ctx.winFrameBound(1)))
 
     def visitWinFrameBound(self, ctx: HogQLParser.WinFrameBoundContext):
-        if ctx.PRECEDING():
+        # Mirror cpp's `VISIT(WinFrameBound)`: unwrap a Constant int frame_value to a bare number; floats / strings / other Constants stay wrapped.
+        if ctx.PRECEDING() or ctx.FOLLOWING():
+            frame_type: Literal["PRECEDING", "FOLLOWING"] = "PRECEDING" if ctx.PRECEDING() else "FOLLOWING"
             frame_value = self.visit(ctx.columnExpr()) if ctx.columnExpr() else None
-            if isinstance(frame_value, ast.Constant) and isinstance(frame_value.value, (int, float)):
-                frame_value = int(frame_value.value)
-            return ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=frame_value)
-        if ctx.FOLLOWING():
-            frame_value = self.visit(ctx.columnExpr()) if ctx.columnExpr() else None
-            if isinstance(frame_value, ast.Constant) and isinstance(frame_value.value, (int, float)):
-                frame_value = int(frame_value.value)
-            return ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=frame_value)
+            if (
+                isinstance(frame_value, ast.Constant)
+                and isinstance(frame_value.value, int)
+                and not isinstance(frame_value.value, bool)
+            ):
+                frame_value = frame_value.value
+            return ast.WindowFrameExpr(frame_type=frame_type, frame_value=frame_value)
         return ast.WindowFrameExpr(frame_type="CURRENT ROW")
 
     def visitExpr(self, ctx: HogQLParser.ExprContext):
@@ -1162,9 +1402,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return " ".join(self.visit(ident) for ident in ctx.identifier()).lower()
 
     def visitColumnTypeExprParam(self, ctx: HogQLParser.ColumnTypeExprParamContext):
-        name = self.visit(ctx.identifier())
+        # cpp's `ColumnTypeExprParam` visitor lowercases the head identifier
+        # but emits each top-level `columnExpr` via raw `ctx->getText()` —
+        # case-preserved, quotes preserved, spaceless. The outer cast
+        # visitor must NOT lowercase the result again, or `DateTime64(3,
+        # 'UTC')` collapses to `datetime64(3, 'utc')`.
+        name = self.visit(ctx.identifier()).lower()
         params = ", ".join(c.getText() for c in ctx.columnExprList().columnExpr()) if ctx.columnExprList() else ""
-        return f"{name}({params})".lower()
+        return f"{name}({params})"
 
     def visitColumnExprList(self, ctx: HogQLParser.ColumnExprListContext):
         return [self.visit(c) for c in ctx.columnExpr()]
@@ -1246,8 +1491,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprSubstring")
 
     def visitColumnExprCast(self, ctx: HogQLParser.ColumnExprCastContext):
+        # Each `columnTypeExpr` visitor handles its own case rules (Simple/
+        # Complex/Nested/Compound lowercase; Param keeps the inner getText
+        # case-preserved). A blanket `.lower()` here would erase the
+        # Param-mode case preservation, e.g. `DateTime64(3, 'UTC')` →
+        # `datetime64(3, 'utc')`.
         type_name = self.visit(ctx.columnTypeExpr())
-        return ast.TypeCast(expr=self.visit(ctx.columnExpr()), type_name=type_name.lower())
+        return ast.TypeCast(expr=self.visit(ctx.columnExpr()), type_name=type_name)
 
     def visitColumnExprTryCast(self, ctx: HogQLParser.ColumnExprTryCastContext):
         type_name = self.visit(ctx.columnTypeExpr())
@@ -1893,6 +2143,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             abs_text = abs_text[1:]
         # Hex before the float guard: hex digits include 'e', so "0xfe" would route through float().
         if abs_text.startswith("0x"):
+            # Hex-float? FLOATING_LITERAL uses strict C99 `p`/`P` only
+            # as the exponent marker — `e`/`E` is always a hex digit
+            # in this context, so the presence of `p` is the entire
+            # detection. `float.fromhex` accepts the same syntax.
+            if "p" in abs_text:
+                return ast.Constant(value=sign * float.fromhex(abs_text))
             return ast.Constant(value=sign * int(abs_text, 16))
         # `0b…` (BINARY_LITERAL): ClickHouse caps binary literals at 64 bits — magnitude
         # must fit UInt64 (positive) or Int64 (negative); wider literals are rejected.

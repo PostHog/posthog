@@ -44,7 +44,7 @@ from posthog.temporal.data_modeling.metrics import (
 )
 from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobEngine
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJobEngine
 
 # these indicate problems with the query or data, not transient issues
 NON_RETRYABLE_ERRORS = [

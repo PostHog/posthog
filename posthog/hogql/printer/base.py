@@ -2,7 +2,7 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Any, ClassVar, Literal, Optional, Union, cast
+from typing import Any, ClassVar, Literal, Optional, Union, cast, get_args
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -113,6 +113,9 @@ class BasePrinter(Visitor[str]):
 
     def _assert_set_operator_supported(self, set_operator: str) -> None:
         """Raise if this dialect does not support the given set operator. Postgres overrides to permit all."""
+        # Allowlist gate against `setattr`-bypass — the printer interpolates `set_operator` verbatim into emitted SQL.
+        if set_operator not in get_args(ast.SetOperator):
+            raise QueryError(f"Invalid set operator: {set_operator!r}")
         if set_operator in ("INTERSECT ALL", "EXCEPT ALL"):
             raise ImpossibleASTError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
 
@@ -543,7 +546,14 @@ class BasePrinter(Visitor[str]):
 
         join_strings = []
         if node.join_type is not None:
-            join_strings.append(node.join_type)
+            # Allowlist gate against `setattr`-bypass — the printer interpolates `join_type` verbatim into emitted SQL.
+            jt = node.join_type
+            if not (
+                jt in ast.VALID_JOIN_TYPES
+                or (jt.startswith("GLOBAL ") and jt.removeprefix("GLOBAL ") in ast.VALID_JOIN_TYPES)
+            ):
+                raise QueryError(f"Invalid join type: {jt!r}")
+            join_strings.append(jt)
 
         if isinstance(node.type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.TableType)):
             table_type: ast.TableType | ast.LazyTableType | ast.TableAliasType | ast.ColumnAliasedTableType = node.type
@@ -657,6 +667,9 @@ class BasePrinter(Visitor[str]):
                 join_strings.append(sample_clause)
 
         if node.constraint is not None:
+            # Allowlist gate against `setattr`-bypass — the printer interpolates `constraint_type` verbatim.
+            if node.constraint.constraint_type not in ast.VALID_JOIN_CONSTRAINT_TYPES:
+                raise QueryError(f"Invalid join constraint type: {node.constraint.constraint_type!r}")
             if team_id_for_on_clause is not None:
                 combined_constraint = ast.And(exprs=[team_id_for_on_clause, node.constraint.expr])
                 join_strings.append(f"{node.constraint.constraint_type} {self.visit(combined_constraint)}")
@@ -796,6 +809,9 @@ class BasePrinter(Visitor[str]):
         return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
 
     def visit_order_expr(self, node: ast.OrderExpr):
+        # Allowlist gate against `setattr`-bypass — the printer interpolates `order` verbatim.
+        if node.order not in ast.VALID_ORDER_DIRECTIONS:
+            raise QueryError(f"Invalid order direction: {node.order!r}")
         result = f"{self.visit(node.expr)} {node.order}"
         if node.with_fill is not None:
             result += f" {self.visit(node.with_fill)}"
@@ -895,7 +911,8 @@ class BasePrinter(Visitor[str]):
         return self._print_escaped_string(node.value)
 
     def visit_keyword(self, node: ast.Keyword):
-        if not node.name.isidentifier():
+        # Allowlist gate against `setattr`-bypass — the printer returns `name` verbatim.
+        if node.name not in ast.VALID_KEYWORD_NAMES:
             raise QueryError(f"Invalid keyword name: {node.name}")
         return node.name
 

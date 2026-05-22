@@ -120,7 +120,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
                 renameDebounceMs={0}
-                saveOnBlur
+                saveOnBlur={insightMode !== ItemMode.Edit}
                 descriptionMaxLength={400}
                 maxToolProps={readDataMaxToolProps}
                 actions={

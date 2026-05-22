@@ -30,6 +30,7 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "posthog_code": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
+    "signals": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
@@ -46,6 +47,12 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_window_seconds=2592000,
     ),
     "background_agents": UserCostLimit(
+        burst_limit_usd=500.0,
+        burst_window_seconds=604800,
+        sustained_limit_usd=1000.0,
+        sustained_window_seconds=2592000,
+    ),
+    "signals": UserCostLimit(
         burst_limit_usd=500.0,
         burst_window_seconds=604800,
         sustained_limit_usd=1000.0,
@@ -125,10 +132,13 @@ class Settings(BaseSettings):
     bedrock_region_name: str | None = None
     openai_api_key: str | None = None
     openai_api_base_url: str | None = None  # Used for regional endpoints
+    # OpenAI organization ID. When set, forwarded to OpenAI on every request so
+    # traffic is attributed to the HIPAA-covered organization. Omitted when unset.
+    openai_organization: str | None = None
     openrouter_api_key: str | None = None
     fireworks_api_key: str | None = None
 
-    # Project token for LLM analytics events
+    # Project token for AI observability events
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
 
@@ -151,6 +161,17 @@ class Settings(BaseSettings):
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 900  # 15 minutes
     billing_period_days: int = 30
+
+    # Anthropic -> Bedrock circuit breaker. When the trailing failure rate of the Anthropic
+    # path crosses `failure_threshold` (with at least `min_requests` observations in the
+    # window), the breaker is "open": each request that has opted in to Bedrock fallback
+    # gets routed straight to Bedrock with probability `bypass_probability`, leaving the
+    # remainder as probe traffic to detect recovery.
+    anthropic_circuit_breaker_enabled: bool = True
+    anthropic_circuit_breaker_failure_threshold: float = 0.25
+    anthropic_circuit_breaker_window_seconds: int = 300
+    anthropic_circuit_breaker_bypass_probability: float = 0.9
+    anthropic_circuit_breaker_min_requests: int = 20
 
     @field_validator("product_cost_limits", mode="before")
     @classmethod

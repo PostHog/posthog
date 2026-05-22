@@ -70,7 +70,7 @@ The assistant used run_hog_eval_test because:
 3. The assistant can iterate on the fix by running the tool again
 """.strip()
 
-LLM_ANALYTICS_MODE_DESCRIPTION = "Specialized mode for LLM analytics. Search and analyze LLM traces for usage, costs, latency, and errors. Write and test Hog evaluation code against real events."
+LLM_ANALYTICS_MODE_DESCRIPTION = "Specialized mode for AI observability. Search and analyze LLM traces for usage, costs, latency, and errors. Write and test Hog evaluation code against real events."
 
 
 class LLMAnalyticsAgentToolkit(AgentToolkit):

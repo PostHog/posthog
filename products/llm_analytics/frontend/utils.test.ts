@@ -20,7 +20,7 @@ import {
     sanitizeTraceUrlSearchParams,
 } from './utils'
 
-describe('LLM Analytics utils', () => {
+describe('AI observability utils', () => {
     beforeEach(() => {
         console.warn = jest.fn()
     })

@@ -170,12 +170,17 @@ describe('LegacyWebhookService', () => {
         it('should enrich events with group properties when available', async () => {
             service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-            hub.groupTypeManager.fetchGroupTypes = jest.fn().mockResolvedValue({
-                project: 0,
+            hub.groupTypeManager.fetchGroupTypesForProjects = jest.fn().mockResolvedValue({
+                [team.id]: { project: 0 },
             })
-            hub.groupRepository.fetchGroup = jest.fn().mockResolvedValue({
-                group_properties: { name: 'Test Project' },
-            })
+            hub.groupRepository.fetchGroupsByKeys = jest.fn().mockResolvedValue([
+                {
+                    team_id: team.id,
+                    group_type_index: 0,
+                    group_key: 'test-project-id',
+                    group_properties: { name: 'Test Project' },
+                },
+            ])
 
             const processEventSpy = jest.spyOn(service, 'processEvent')
 
@@ -200,6 +205,63 @@ describe('LegacyWebhookService', () => {
                 type: 'project',
                 properties: { name: 'Test Project' },
             })
+        })
+
+        it('should process events without group properties when batch enrichment fails', async () => {
+            service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
+            hub.groupTypeManager.fetchGroupTypesForProjects = jest.fn().mockRejectedValue(new Error('gRPC unavailable'))
+
+            const processEventSpy = jest.spyOn(service, 'processEvent').mockResolvedValue(undefined)
+
+            const messages: Message[] = [
+                createKafkaMessage(
+                    createIncomingEvent(team.id, {
+                        event: '$pageview',
+                        properties: JSON.stringify({ $groups: { project: 'test-project-id' } }),
+                    })
+                ),
+            ]
+
+            const result = await service.processBatch(messages)
+            await result.backgroundTask
+
+            expect(processEventSpy).toHaveBeenCalledTimes(1)
+            const processedEvent = processEventSpy.mock.calls[0][0]
+            expect(processedEvent.groups).toBeUndefined()
+        })
+
+        it('should process all events when fetchGroupsByKeys throws', async () => {
+            service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
+            hub.groupTypeManager.fetchGroupTypesForProjects = jest.fn().mockResolvedValue({
+                [team.id]: { project: 0 },
+            })
+            hub.groupRepository.fetchGroupsByKeys = jest.fn().mockRejectedValue(new Error('connection reset'))
+
+            const processEventSpy = jest.spyOn(service, 'processEvent').mockResolvedValue(undefined)
+
+            const messages: Message[] = [
+                createKafkaMessage(
+                    createIncomingEvent(team.id, {
+                        event: '$pageview',
+                        properties: JSON.stringify({ $groups: { project: 'p1' } }),
+                    })
+                ),
+                createKafkaMessage(
+                    createIncomingEvent(team.id, {
+                        event: '$autocapture',
+                        properties: JSON.stringify({ $groups: { project: 'p2' } }),
+                    })
+                ),
+            ]
+
+            const result = await service.processBatch(messages)
+            await result.backgroundTask
+
+            expect(processEventSpy).toHaveBeenCalledTimes(2)
+            expect(processEventSpy.mock.calls[0][0].groups).toBeUndefined()
+            expect(processEventSpy.mock.calls[1][0].groups).toBeUndefined()
         })
     })
 
@@ -394,14 +456,17 @@ describe('LegacyWebhookService', () => {
 
     describe('PersonHogGroupRepository compatibility', () => {
         it('should enrich events with group properties when groupRepository is wrapped with PersonHogGroupRepository', async () => {
-            // Wrap the real postgres groupRepository with PersonHogGroupRepository at 100% gRPC rollout
-            // with a mock gRPC client that returns the same data as the existing mock
             const mockGrpcClient: MockPersonHogClient = {
                 groups: {
-                    fetchGroup: jest.fn().mockResolvedValue({
-                        group_properties: { name: 'Test Project' },
-                    } as any),
-                    fetchGroupsByKeys: jest.fn(),
+                    fetchGroup: jest.fn(),
+                    fetchGroupsByKeys: jest.fn().mockResolvedValue([
+                        {
+                            team_id: team.id,
+                            group_type_index: 0,
+                            group_key: 'test-project-id',
+                            group_properties: { name: 'Test Project' },
+                        },
+                    ]),
                     fetchGroupTypesByTeamIds: jest.fn(),
                     fetchGroupTypesByProjectIds: jest.fn(),
                 },
@@ -430,8 +495,8 @@ describe('LegacyWebhookService', () => {
 
             personhogService['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-            hub.groupTypeManager.fetchGroupTypes = jest.fn().mockResolvedValue({
-                project: 0,
+            hub.groupTypeManager.fetchGroupTypesForProjects = jest.fn().mockResolvedValue({
+                [team.id]: { project: 0 },
             })
 
             const processEventSpy = jest.spyOn(personhogService, 'processEvent')
@@ -458,8 +523,7 @@ describe('LegacyWebhookService', () => {
                 properties: { name: 'Test Project' },
             })
 
-            // fetchGroup with useReadReplica: true should route to gRPC at 100%
-            expect(mockGrpcClient.groups.fetchGroup).toHaveBeenCalled()
+            expect(mockGrpcClient.groups.fetchGroupsByKeys).toHaveBeenCalled()
 
             await personhogService.stop()
         })
