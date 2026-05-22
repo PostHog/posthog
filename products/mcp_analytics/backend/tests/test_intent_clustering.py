@@ -310,12 +310,19 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
         assert {r.intent_text for r in records} == {"recent intent"}
         assert intent_by_session == {"recent": "recent intent"}
 
-    def test_lookback_days_argument_is_respected(self) -> None:
+    @pytest.mark.parametrize(
+        "lookback_days, expected_intents",
+        [
+            (7, []),
+            (30, ["old intent"]),
+        ],
+    )
+    def test_lookback_days_argument_is_respected(
+        self, lookback_days: int, expected_intents: list[str]
+    ) -> None:
         # Session ends 10 days ago: excluded at 7 days, included at 30.
         self._seed_session("old", "old intent", session_end_offset=timedelta(days=-10))
 
-        records_default, _ = fetch_intent_corpus(self.team)
-        records_wide, _ = fetch_intent_corpus(self.team, lookback_days=30)
+        records, _ = fetch_intent_corpus(self.team, lookback_days=lookback_days)
 
-        assert records_default == []
-        assert [r.intent_text for r in records_wide] == ["old intent"]
+        assert [r.intent_text for r in records] == expected_intents
