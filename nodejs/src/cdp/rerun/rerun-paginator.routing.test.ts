@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
-import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -49,7 +48,6 @@ describe('RerunPaginatorService queue routing', () => {
             {} as any,
             {} as unknown as HogFunctionManagerService,
             {} as unknown as HogFlowManagerService,
-            {} as unknown as HogInputsService,
             invocationResultsRowsService,
             { hog_function: hogQueue, hog_flow: hogflowQueue },
             monitoringService,

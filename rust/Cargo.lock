@@ -4142,7 +4142,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.69"
+version = "1.3.71"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -7336,17 +7336,22 @@ dependencies = [
 name = "property-vals-rs"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum 0.7.9",
  "common-alloc",
  "common-continuous-profiling",
  "common-kafka",
+ "common-liveness",
  "envconfig",
  "lifecycle",
+ "metrics",
  "proptest",
+ "rdkafka",
  "serde",
  "serde_json",
  "serve-metrics",
  "siphasher 1.0.2",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",
