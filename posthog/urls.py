@@ -31,7 +31,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.github_team_integration_complete import github_team_integration_complete
+from posthog.api.github_callback.router import handle_setup_url
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
@@ -403,7 +403,7 @@ urlpatterns = [
     path("complete/github-link/", github_link_complete, name="github_link_complete"),
     opt_slash_path(
         "integrations/github/callback",
-        github_team_integration_complete,
+        handle_setup_url,
         name="github_team_integration_setup_callback",
     ),
     path("", include("social_django.urls", namespace="social")),

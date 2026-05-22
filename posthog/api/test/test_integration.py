@@ -16,7 +16,6 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.response import Response
 
 from posthog.api.integration import IntegrationViewSet
 from posthog.api.oauth.test_dcr import generate_rsa_key
@@ -28,6 +27,7 @@ from posthog.models.integration import (
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
+    GitHubUserAuthorization,
     Integration,
     SlackIntegration,
     StripeIntegration,
@@ -1725,7 +1725,12 @@ class TestGitHubTeamIntegrationComplete:
         assert "github_setup_error=invalid_state" not in response["Location"]
         assert "integration_id=" in response["Location"]
 
-    def test_personal_github_setup_redirects_to_github_link(self, client: HttpClient):
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    def test_personal_github_setup_finishes_inline(
+        self, mock_user_from_code, mock_client_request, mock_verify, client: HttpClient
+    ):
         client.force_login(self.user)
         state_token = "personal-install-token"
         state = urlencode({"token": state_token, "source": "user_integration"})
@@ -1734,6 +1739,26 @@ class TestGitHubTeamIntegrationComplete:
             {"user_id": self.user.id},
             timeout=300,
         )
+
+        mock_user_from_code.return_value = GitHubUserAuthorization(
+            gh_id=99,
+            gh_login="octocat",
+            access_token="gho_access",
+            refresh_token="ghr_refresh",
+            access_token_expires_in=28800,
+            refresh_token_expires_in=15897600,
+        )
+        mock_install_info = MagicMock()
+        mock_install_info.json.return_value = {
+            "account": {"type": "User", "login": "octocat"},
+        }
+        mock_access_token = MagicMock()
+        mock_access_token.json.return_value = {
+            "token": "ghs_install_token",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "repository_selection": "selected",
+        }
+        mock_client_request.side_effect = [mock_install_info, mock_access_token]
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1746,13 +1771,76 @@ class TestGitHubTeamIntegrationComplete:
         )
 
         assert response.status_code == status.HTTP_302_FOUND
-        location = response["Location"]
-        assert location.startswith("/complete/github-link/?")
-        assert "installation_id=12345" in location
-        assert "code=oauth-code-abc" in location
-        assert f"state={state_token}" in location or "state=" in location
+        assert "github_link_success=1" in response["Location"]
+        assert "/complete/github-link" not in response["Location"]
+        mock_user_from_code.assert_called_once_with("oauth-code-abc")
 
-    def test_personal_github_setup_unauthenticated_redirects_to_login_with_github_link(self, client: HttpClient):
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    def test_personal_github_setup_update_redirects_to_personal_settings(self, mock_client_request, client: HttpClient):
+        from posthog.models.user_integration import UserIntegration
+
+        client.force_login(self.user)
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345", "repository_selection": "selected"},
+            sensitive_config={"access_token": "ghs_old", "user_access_token": "gho_user"},
+        )
+        mock_install_info = MagicMock()
+        mock_install_info.json.return_value = {
+            "account": {"type": "User", "login": "octocat"},
+        }
+        mock_access_token = MagicMock()
+        mock_access_token.json.return_value = {
+            "token": "ghs_install_token",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "repository_selection": "all",
+        }
+        mock_client_request.side_effect = [mock_install_info, mock_access_token]
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"installation_id": "12345", "setup_action": "update"},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_link_success=1" in response["Location"]
+        assert "user-personal-integrations" in response["Location"]
+        assert "github_setup_error" not in response["Location"]
+        assert "project-integrations" not in response["Location"]
+
+        integration = UserIntegration.objects.get(user=self.user, integration_id="12345")
+        assert integration.config["repository_selection"] == "all"
+        assert integration.sensitive_config["access_token"] == "ghs_install_token"
+        assert integration.sensitive_config["user_access_token"] == "gho_user"
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_team_github_setup_update_without_state_redirects_to_project_integrations(
+        self, mock_refresh, client: HttpClient
+    ):
+        client.force_login(self.user)
+        existing = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_test"},
+        )
+        mock_refresh.return_value = existing
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"installation_id": "12345", "setup_action": "update"},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert f"project/{self.team.pk}/settings/project-integrations" in response["Location"]
+        assert "integration_id=" in response["Location"]
+        assert "github_setup_error" not in response["Location"]
+        mock_refresh.assert_called_once_with("12345", self.team.pk, self.user)
+
+    def test_personal_github_setup_unauthenticated_redirects_to_login_with_setup_url(self, client: HttpClient):
         state = urlencode({"token": "personal-token", "source": "user_integration"})
 
         response = client.get(
@@ -1763,7 +1851,8 @@ class TestGitHubTeamIntegrationComplete:
         assert response.status_code == status.HTTP_302_FOUND
         location = response["Location"]
         assert location.startswith("/login?next=")
-        assert "/complete/github-link" in location
+        assert "integrations%2Fgithub%2Fcallback" in location
+        assert "/complete/github-link" not in location
 
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
     def test_update_setup_action_via_callback_redirects_successfully(self, mock_refresh, client: HttpClient):
@@ -1848,11 +1937,9 @@ class TestGitHubTeamIntegrationComplete:
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_setup_error=invalid_state" in response["Location"]
 
-    @patch.object(IntegrationViewSet, "github_oauth_authorize")
-    def test_orphan_installation_update_redirects_to_oauth(self, mock_oauth_authorize, client: HttpClient):
-        mock_oauth_authorize.return_value = Response(
-            {"oauth_url": "https://github.com/login/oauth/authorize?client_id=test"}
-        )
+    @patch("posthog.api.github_callback.team_services.build_team_github_oauth_authorize_url")
+    def test_orphan_installation_update_redirects_to_oauth(self, mock_build_oauth_url, client: HttpClient):
+        mock_build_oauth_url.return_value = "https://github.com/login/oauth/authorize?client_id=test"
         client.force_login(self.user)
         next_path = f"/project/{self.team.pk}/settings/project-integrations"
         state_token = "orphan-token"
@@ -1873,7 +1960,7 @@ class TestGitHubTeamIntegrationComplete:
 
         assert response.status_code == status.HTTP_302_FOUND
         assert response["Location"].startswith("https://github.com/login/oauth/authorize")
-        mock_oauth_authorize.assert_called_once()
+        mock_build_oauth_url.assert_called_once()
 
     def test_non_admin_member_redirects_invalid_team(self, client: HttpClient):
         member = User.objects.create_and_join(

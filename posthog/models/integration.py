@@ -2333,6 +2333,14 @@ class GitHubInstallationAccess:
     repository_selection: str
 
 
+class GitHubInstallationAccessFetchError(Exception):
+    """Failed to fetch GitHub App installation metadata or access token."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
 def invalidate_github_repository_caches_for_installation(installation_id: str | int) -> None:
     """Mark repository list caches stale for every team/personal row sharing an installation."""
     from posthog.models.user_integration import UserIntegration
@@ -2351,24 +2359,53 @@ class GitHubIntegration(GitHubIntegrationBase):
     integration: Integration
 
     @classmethod
+    def fetch_installation_access(cls, installation_id: str) -> GitHubInstallationAccess:
+        try:
+            installation_info = cls.client_request(f"installations/{installation_id}").json()
+            access_token_response = cls.client_request(
+                f"installations/{installation_id}/access_tokens", method="POST"
+            ).json()
+        except Exception as exc:
+            raise GitHubInstallationAccessFetchError("installation_fetch_failed") from exc
+
+        installation_access_token = access_token_response.get("token")
+        token_expires_at = access_token_response.get("expires_at")
+        if not installation_access_token or not token_expires_at:
+            raise GitHubInstallationAccessFetchError("installation_token_failed")
+
+        return GitHubInstallationAccess(
+            installation_id=installation_id,
+            installation_info=installation_info,
+            access_token=installation_access_token,
+            token_expires_at=token_expires_at,
+            repository_selection=access_token_response.get("repository_selection", "selected"),
+        )
+
+    @classmethod
     def integration_from_installation_id(
         cls, installation_id: str, team_id: int, created_by: User | None = None
     ) -> Integration:
-        installation_info = cls.client_request(f"installations/{installation_id}").json()
-        access_token = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST").json()
+        installation_access = cls.fetch_installation_access(installation_id)
+        now = int(time.time())
+        try:
+            expires_in = int(
+                datetime.fromisoformat(installation_access.token_expires_at.replace("Z", "+00:00")).timestamp() - now
+            )
+        except (ValueError, AttributeError):
+            expires_in = int(datetime.fromisoformat(installation_access.token_expires_at).timestamp() - now)
 
         config = {
             "installation_id": installation_id,
-            "expires_in": datetime.fromisoformat(access_token["expires_at"]).timestamp() - int(time.time()),
-            "refreshed_at": int(time.time()),
-            "repository_selection": access_token["repository_selection"],
+            "expires_in": expires_in,
+            "refreshed_at": now,
+            "repository_selection": installation_access.repository_selection,
             "account": {
-                "type": dot_get(installation_info, "account.type", None),
-                "name": dot_get(installation_info, "account.login", installation_id),
+                "type": dot_get(installation_access.installation_info, "account.type", None),
+                "name": dot_get(installation_access.installation_info, "account.login", installation_id),
             },
         }
 
-        sensitive_config = {"access_token": access_token["token"]}
+        sensitive_config = {"access_token": installation_access.access_token}
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
