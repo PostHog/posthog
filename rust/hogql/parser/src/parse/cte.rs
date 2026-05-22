@@ -9,7 +9,6 @@
 //! token is an identifier-or-keyword-acting-as-identifier and the
 //! follow-up sequence ends with `AS (`, we commit to subquery form.
 
-use serde_json::{json, Value};
 
 use super::{identifier_text, kw_valid_as_identifier, Parser, BP_ALIAS};
 use crate::emit::Emitter;

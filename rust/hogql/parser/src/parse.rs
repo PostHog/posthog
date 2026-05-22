@@ -13,7 +13,7 @@
 
 use serde_json::Value;
 
-use crate::emit::{self, Emitter, JsonEmitter};
+use crate::emit::{Emitter, JsonEmitter};
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, Token, TokenKind};
 
@@ -321,6 +321,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     }
 }
 
+/// Convenience constructors for the JsonEmitter-bound `Parser<'_,
+/// JsonEmitter>` path. The public `parse_<rule>` entry points route
+/// through `parse_<rule>_with_emit` directly (the `_with_emit` variant
+/// constructs via `Parser::new_with_emit`), so these only have callers
+/// inside the test module — `#[cfg(test)]` keeps them out of the
+/// non-test build to silence dead-code warnings.
+#[cfg(test)]
 impl<'a> Parser<'a, JsonEmitter> {
     pub(crate) fn new(src: &'a str) -> Result<Self, ParseError> {
         Self::new_with_emit(src, JsonEmitter)
@@ -329,6 +336,7 @@ impl<'a> Parser<'a, JsonEmitter> {
     /// Construct a Parser whose lexer starts at the given byte offset.
     /// Used by the template-body splitter to parse a `{ … }` expression
     /// block without lexing the literal text on either side.
+    #[allow(dead_code)]
     pub(crate) fn with_pos(src: &'a str, pos: usize) -> Result<Self, ParseError> {
         Self::with_pos_emit(src, pos, JsonEmitter)
     }

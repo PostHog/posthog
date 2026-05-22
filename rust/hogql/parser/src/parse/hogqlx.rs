@@ -24,7 +24,6 @@
 //! Parser API is identical across the two backends so no rewrites are
 //! needed here.
 
-use serde_json::{json, Value};
 
 use super::{identifier_text, unquote_single_string, Parser};
 use crate::emit::Emitter;

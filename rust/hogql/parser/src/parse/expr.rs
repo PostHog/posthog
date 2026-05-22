@@ -8,7 +8,6 @@
 //! `parse.rs` because both the SELECT/JOIN/CTE modules and the
 //! expression parser reach them.
 
-use serde_json::{json, Value};
 
 use super::template::parse_template_body;
 use super::{
@@ -18,7 +17,7 @@ use super::{
     unquote_single_string, Parser, BP_ADDITIVE, BP_ALIAS, BP_BETWEEN, BP_COMPARE, BP_IGNORE_NULLS,
     BP_IS_DISTINCT_FROM, BP_IS_NULL, BP_NOT, BP_OR, BP_POSTFIX, BP_TERNARY, BP_UNARY_MINUS,
 };
-use crate::emit::{self, Emitter};
+use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, Token, TokenKind};
 
@@ -5007,7 +5006,7 @@ fn apply_between_hoist<E: Emitter>(emit: &E, expr: E::Value, hoist: BetweenHoist
 /// expressions that the pratt loop wraps). Derive the span from the
 /// first child's `start` and the last child's `end` so the inner
 /// synthetic node carries a non-null span.
-fn stamp_span_from_children<E: Emitter>(emit: &E, mut node: E::Value, children: &[E::Value]) -> E::Value {
+fn stamp_span_from_children<E: Emitter>(emit: &E, node: E::Value, children: &[E::Value]) -> E::Value {
     if children.is_empty() {
         return node;
     }

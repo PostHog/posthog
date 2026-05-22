@@ -167,7 +167,11 @@ pub struct PyEmitter<'py> {
     // ===== Op enums (StrEnum lookup via cls[name]) =====
     arith_op_enum: Bound<'py, PyAny>,
     compare_op_enum: Bound<'py, PyAny>,
-    // ===== Module handle as escape hatch for any class not cached above.
+    // ===== Module handle as escape hatch for any class not cached
+    // above. Currently unused — every node the parser emits has a
+    // typed entry, but kept in case a future trait extension needs
+    // to fall back to `getattr` for less-common classes.
+    #[allow(dead_code)]
     pub ast_module: Bound<'py, PyModule>,
 }
 

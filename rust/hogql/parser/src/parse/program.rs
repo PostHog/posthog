@@ -26,7 +26,6 @@
 //!   - Block { declarations: [decl, ...] }
 //!   - Program { declarations: [decl, ...] }
 
-use serde_json::{json, Value};
 
 use super::{identifier_text, kw_valid_as_identifier, Parser};
 use crate::emit::Emitter;

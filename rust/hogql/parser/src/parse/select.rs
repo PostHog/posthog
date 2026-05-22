@@ -8,7 +8,6 @@
 //! ARRAY JOIN is handled here (not in `join.rs`) because the grammar
 //! attaches it to the SELECT, not to the join chain.
 
-use serde_json::{json, Value};
 
 use super::expr::is_bare_field;
 use super::{
@@ -725,7 +724,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         } else {
                             None
                         };
-                        let mut interp = self.emit.interpolate_expr(expr, value);
+                        let interp = self.emit.interpolate_expr(expr, value);
                         items.push(interp);
                         if !self.eat(TokenKind::Comma)? {
                             break;

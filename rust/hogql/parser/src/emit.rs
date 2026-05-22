@@ -22,6 +22,15 @@ use std::borrow::Cow;
 /// BETWEEN, AND/OR chain folding, position propagation, and concat
 /// merging. JSON impls read the underlying map directly; the Python
 /// impl uses PyO3 `getattr` against the dataclass attrs.
+///
+/// A handful of methods (`window_frame_expr`, `window_expr`,
+/// `position_offset`, `extend_list_field`, `clone_value`) are kept
+/// alongside the trait surface as "shoreline" hooks for the cascade
+/// migration — they covered AST-surgery patterns that ended up
+/// being rewritten differently in the final shape. Left in place
+/// (with `#[allow(dead_code)]`) since they're part of the documented
+/// API surface for future emitter implementations.
+#[allow(dead_code)]
 pub trait Emitter {
     /// AST tree handle. Cheap to clone (Json: refcount via Value::clone;
     /// Py: `Bound::clone_ref` on the underlying PyObject).
@@ -1214,4 +1223,3 @@ mod compat {
     }
 }
 
-pub use compat::*;

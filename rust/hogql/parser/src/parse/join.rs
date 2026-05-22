@@ -6,7 +6,6 @@
 //! qualifier. ARRAY JOIN is *not* here — it belongs to the SELECT
 //! statement (see `parse_select_stmt_body` in `select.rs`).
 
-use serde_json::{json, Value};
 
 use super::{
     chain_join, check_alias_not_reserved, identifier_text, kw_valid_as_identifier, Parser,
@@ -539,7 +538,7 @@ let pivot_input = if joined_any {
 
     fn parse_table_atom(&mut self) -> Result<E::Value, ParseError> {
         let atom_start = self.peek0.start;
-        let mut table_expr = self.parse_table_expr()?;
+        let table_expr = self.parse_table_expr()?;
         // Snapshot the end of `tableExpr` before alias / FINAL / SAMPLE
         // are consumed. For the table-function case (cpp's
         // `TableFunctionExpr`), cpp's emitted JoinExpr's ctx covers
