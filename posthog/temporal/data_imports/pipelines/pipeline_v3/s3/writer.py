@@ -57,7 +57,7 @@ class S3BatchWriter:
         else:
             self._run_uuid = f"generated-{str(uuid.uuid4())}"
             self._logger.warning("S3BatchWriter: No run_uuid provided, using generated UUID", run_uuid=self._run_uuid)
-        self._date_partition = get_date_partition()
+        self._date_partition = get_date_partition(self._job.created_at)
         self._base_folder = get_base_folder(self._job.team_id, self._schema_id, self._run_uuid, self._date_partition)
         self._data_folder = get_data_folder(self._base_folder)
         self._schema = None

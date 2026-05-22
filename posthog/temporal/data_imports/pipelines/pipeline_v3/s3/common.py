@@ -27,15 +27,16 @@ def strip_s3_protocol(s3_path: str) -> str:
     return s3_path.replace("s3://", "")
 
 
-def get_date_partition() -> str:
-    """Return today's UTC date as a Hive-style partition segment (dt=YYYY-MM-DD)."""
-    return f"dt={datetime.now(UTC).strftime('%Y-%m-%d')}"
+def get_date_partition(dt: datetime) -> str:
+    """Return the given datetime's UTC date as a Hive-style partition segment (dt=YYYY-MM-DD)."""
+    return f"dt={dt.astimezone(UTC).strftime('%Y-%m-%d')}"
 
 
-def get_base_folder(team_id: int, schema_id: str, run_uuid: str, date_partition: str | None = None) -> str:
+def get_base_folder(team_id: int, schema_id: str, run_uuid: str, date_partition: str) -> str:
     """Get the base S3 folder path for a pipeline run."""
-    dt = date_partition or get_date_partition()
-    return f"s3://{settings.DATAWAREHOUSE_BUCKET}/data_pipelines_extract/{dt}/{team_id}/{schema_id}/{run_uuid}"
+    return (
+        f"s3://{settings.DATAWAREHOUSE_BUCKET}/data_pipelines_extract/{date_partition}/{team_id}/{schema_id}/{run_uuid}"
+    )
 
 
 def get_data_folder(base_folder: str) -> str:
