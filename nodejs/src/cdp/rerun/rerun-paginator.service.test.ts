@@ -16,7 +16,6 @@ import { closeHub, createHub } from '../../utils/db/hub'
 import { UUIDT } from '../../utils/utils'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
 import { createCdpOutputsRegistry } from '../outputs/registry'
-import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -60,7 +59,6 @@ describe('RerunPaginatorService integration', () => {
     let paginatorMonitoringService: jest.Mocked<HogFunctionMonitoringService>
     let hogFunctionManager: HogFunctionManagerService
     let hogFlowManager: jest.Mocked<HogFlowManagerService>
-    let hogInputsService: jest.Mocked<HogInputsService>
 
     beforeAll(() => {
         clickhouse = Clickhouse.create()
@@ -166,18 +164,12 @@ describe('RerunPaginatorService integration', () => {
         hogFunctionManager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
         hogFunctionManager['onHogFunctionsReloaded'](team.id, [hogFunction.id])
 
-        // Hog flow manager and inputs service stay mocked — this suite focuses on the
-        // hog-function path and the CH query/rehydrate logic. Hog flow rehydration is
+        // Hog flow manager stays mocked — this suite focuses on the hog-function
+        // path and the CH query/rehydrate logic. Hog flow rehydration is
         // exercised structurally (rest of the same code path) but not end-to-end here.
         hogFlowManager = {
             getHogFlow: jest.fn().mockResolvedValue(null),
         } as unknown as jest.Mocked<HogFlowManagerService>
-
-        hogInputsService = {
-            buildInputsWithGlobals: jest
-                .fn()
-                .mockImplementation((_fn, globals) => Promise.resolve({ ...globals, inputs: { resolved: true } })),
-        } as unknown as jest.Mocked<HogInputsService>
 
         hogQueue = {
             queueInvocations: jest.fn().mockResolvedValue(undefined),
@@ -206,7 +198,6 @@ describe('RerunPaginatorService integration', () => {
             chClient,
             hogFunctionManager,
             hogFlowManager,
-            hogInputsService,
             paginatorLifecycleService,
             { hog_function: hogQueue, hog_flow: hogflowQueue },
             paginatorMonitoringService,
@@ -299,7 +290,7 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.done).toBe(true)
         })
 
-        it('rebuilds inputs via HogInputsService rather than trusting the stored payload', async () => {
+        it('re-enqueues bare globals — inputs are not stored or pre-resolved by the paginator', async () => {
             await seedRows([{ invocation_id: 'inv-rebuild', status: 'failed', error: new Error('boom') }])
 
             const state = buildState({
@@ -314,14 +305,12 @@ describe('RerunPaginatorService integration', () => {
 
             await paginator.processPage(team.id, state, { jobId: 'test-rerun-job', createdAt: DateTime.now() })
 
-            expect(hogInputsService.buildInputsWithGlobals).toHaveBeenCalledTimes(1)
-            const [fn, persistedGlobals] = hogInputsService.buildInputsWithGlobals.mock.calls[0]
-            expect(fn.id).toBe(hogFunction.id)
-            // The persisted globals were stripped of `inputs` before storage.
-            expect(persistedGlobals).not.toHaveProperty('inputs')
-
+            // The re-enqueued invocation carries no resolved `inputs` — the
+            // executor rebuilds them from the current hog function config at
+            // run time, so the rerun never trusts a stored snapshot.
             const enqueued = hogQueue.queueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFunction[]
-            expect((enqueued[0].state.globals as any).inputs).toEqual({ resolved: true })
+            expect(enqueued).toHaveLength(1)
+            expect(enqueued[0].state.globals).not.toHaveProperty('inputs')
         })
     })
 
@@ -480,7 +469,6 @@ describe('RerunPaginatorService integration', () => {
                 brokenChClient,
                 hogFunctionManager,
                 hogFlowManager,
-                hogInputsService,
                 paginatorLifecycleService,
                 { hog_function: hogQueue, hog_flow: hogflowQueue },
                 paginatorMonitoringService,
