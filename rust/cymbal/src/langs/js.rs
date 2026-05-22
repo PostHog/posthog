@@ -107,8 +107,7 @@ impl RawJSFrame {
     }
 
     pub fn symbol_set_ref(&self) -> Option<String> {
-        // If we have a chunk ID for a frame, no matter where the data we save comes from, we save it with that
-        // chunk id as the ref.
+        // Prefer the chunk id in frame metadata when present; persistence derives its keys separately.
         self.get_ref().ok().map(|r| r.to_string())
     }
 

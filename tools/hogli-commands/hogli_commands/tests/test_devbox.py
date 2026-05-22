@@ -2607,6 +2607,22 @@ class TestEncodeSshOption:
         assert next(csv.reader([encoded]))[0] == "ProxyCommand a,b"
 
 
+class TestSshReplace:
+    """Verify devbox:ssh routes through the OpenSSH alias, not ``coder ssh``."""
+
+    def test_host_alias_matches_coder_config_ssh_default(self) -> None:
+        # `coder config-ssh` writes `Host coder.*` by default; the alias must match.
+        assert coder._ssh_host_alias("devbox-foo") == "coder.devbox-foo"
+
+    def test_execs_ssh_with_coder_host_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: list[tuple[str, list[str]]] = []
+        monkeypatch.setattr(coder.os, "execvp", lambda file, args: captured.append((file, args)))
+
+        coder.ssh_replace("devbox-foo")
+
+        assert captured == [("ssh", ["ssh", coder._ssh_host_alias("devbox-foo")])]
+
+
 class TestSetupGitSigning:
     """Test the Git commit signing step in devbox:setup.
 

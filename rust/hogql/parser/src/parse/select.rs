@@ -8,29 +8,23 @@
 //! ARRAY JOIN is handled here (not in `join.rs`) because the grammar
 //! attaches it to the SELECT, not to the join chain.
 
-use serde_json::{json, Value};
-
 use super::expr::is_bare_field;
 use super::{
     check_alias_not_reserved, format_set_op, identifier_text, inject_ctes_into_select,
     kw_allowed_as_implicit_alias, merge_select_decorators, Parser, BP_MULT,
 };
-use crate::emit;
+use crate::emit::Emitter;
 use crate::error::ParseError;
 use crate::lex::{Kw, Lexer, TokenKind};
 
-impl<'a> Parser<'a> {
-    pub(crate) fn parse_select_set_stmt(&mut self) -> Result<Value, ParseError> {
+impl<'a, E: Emitter + Clone> Parser<'a, E> {
+    pub(crate) fn parse_select_set_stmt(&mut self) -> Result<E::Value, ParseError> {
         let stmt_start = self.peek0.start;
         let first = self.parse_select_stmt_with_parens()?;
-        let mut subsequent: Vec<Value> = Vec::new();
+        let mut subsequent: Vec<E::Value> = Vec::new();
         while let Some(op) = self.try_consume_set_op()? {
             let next = self.parse_select_stmt_with_parens()?;
-            subsequent.push(json!({
-                "node": "SelectSetNode",
-                "select_query": next,
-                "set_operator": op,
-            }));
+            subsequent.push(self.emit.select_set_node(next, Some(op.as_str())));
         }
 
         // Optional trailing ORDER BY / LIMIT / OFFSET at the
@@ -59,16 +53,14 @@ impl<'a> Parser<'a> {
             // (lines 633-651) writes only `limit` and `offset`. Mirror
             // that: drop those two fields when collapsing to a single
             // SelectQuery.
-            let filtered: Vec<(String, Value)> = trailing
+            let filtered: Vec<(String, E::Value)> = trailing
                 .into_iter()
                 .filter(|(k, _)| k != "limit_percent" && k != "limit_with_ties")
                 .collect();
             // Clear the lift sentinel on the inner — it's only meaningful
             // when wrapping in a SelectSetQuery.
             let mut first = first;
-            if let Some(obj) = first.as_object_mut() {
-                obj.remove("__rust_offset_liftable");
-            }
+            self.emit.remove_field(&mut first, "__rust_offset_liftable");
             // A set-level LIMIT / OFFSET clause has nowhere to attach on a
             // bare `{placeholder}` select body — only `SelectQuery` /
             // `SelectSetQuery` carry those fields — so it is dropped, the
@@ -76,7 +68,7 @@ impl<'a> Parser<'a> {
             // be written onto the `Placeholder` node and crash AST
             // deserialization.
             let body_takes_decorators = matches!(
-                first.get("node").and_then(Value::as_str),
+                self.emit.node_kind(&first).as_deref(),
                 Some("SelectQuery") | Some("SelectSetQuery")
             );
             if !body_takes_decorators {
@@ -90,7 +82,7 @@ impl<'a> Parser<'a> {
             // limit / offset / limit_with_ties / limit_percent fields
             // without re-stamping positions — so the end stays at the
             // last body-level clause cpp consumed. Mirror that exactly.
-            let merged = merge_select_decorators(first, filtered);
+            let merged = merge_select_decorators(&self.emit, first, filtered);
             // `has_set_level_trailing` is unused here (we keep it
             // declared above for parity with the set-stmt branch's
             // OFFSET-lift heuristic, which it still feeds).
@@ -117,9 +109,7 @@ impl<'a> Parser<'a> {
         let mut first = first;
         // Clean the lift sentinel off the initial SELECT — cpp's lift
         // only ever applies to the LAST inner SELECT, never the first.
-        if let Some(obj) = first.as_object_mut() {
-            obj.remove("__rust_offset_liftable");
-        }
+        self.emit.remove_field(&mut first, "__rust_offset_liftable");
         // …and off every non-last subsequent SELECT (the lift only
         // applies to the trailing inner).
         let last_idx = subsequent.len().saturating_sub(1);
@@ -127,12 +117,9 @@ impl<'a> Parser<'a> {
             if i == last_idx {
                 continue;
             }
-            if let Some(sq) = node
-                .as_object_mut()
-                .and_then(|n| n.get_mut("select_query"))
-                .and_then(Value::as_object_mut)
-            {
-                sq.remove("__rust_offset_liftable");
+            if let Some(mut sq) = self.emit.get_field(node, "select_query") {
+                self.emit.remove_field(&mut sq, "__rust_offset_liftable");
+                self.emit.set_field(node, "select_query", sq);
             }
         }
         // Lift the inner's verbose OFFSET to the outer SelectSetQuery
@@ -154,35 +141,36 @@ impl<'a> Parser<'a> {
         // `has_set_level_trailing` captures the ORDER-BY case (the
         // trailing decorator is consumed-and-dropped, so an
         // after-the-fact `trailing.iter()` check misses it).
-        let inner_offset = subsequent
-            .last_mut()
-            .and_then(Value::as_object_mut)
-            .and_then(|n| n.get_mut("select_query"))
-            .and_then(Value::as_object_mut)
-            .and_then(|sq| {
-                let liftable = sq
-                    .remove("__rust_offset_liftable")
-                    .and_then(|v| v.as_bool())
+        let inner_offset = if let Some(last) = subsequent.last_mut() {
+            if let Some(mut sq) = self.emit.get_field(last, "select_query") {
+                let liftable = self
+                    .emit
+                    .remove_field(&mut sq, "__rust_offset_liftable")
+                    .and_then(|v| self.emit.as_bool(&v))
                     == Some(true);
-                if liftable && !has_set_level_trailing {
-                    sq.remove("offset")
+                let off = if liftable && !has_set_level_trailing {
+                    self.emit.remove_field(&mut sq, "offset")
                 } else {
                     None
-                }
-            });
-        let mut wrap = serde_json::Map::new();
-        wrap.insert("node".into(), Value::String("SelectSetQuery".into()));
-        wrap.insert("initial_select_query".into(), first);
-        wrap.insert("subsequent_select_queries".into(), Value::Array(subsequent));
+                };
+                self.emit.set_field(last, "select_query", sq);
+                off
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let mut wrap = self.emit.select_set_query(first, subsequent);
         if let Some(off) = inner_offset {
-            wrap.insert("offset".into(), off);
+            self.emit.set_field(&mut wrap, "offset", off);
         }
         // Trailing decorators are applied last so they can override
         // the lifted inner offset when present.
         for (k, v) in trailing {
-            wrap.insert(k, v);
+            self.emit.set_field(&mut wrap, &k, v);
         }
-        Ok(self.wrap_pos(Value::Object(wrap), stmt_start))
+        Ok(self.wrap_pos(wrap, stmt_start))
     }
 
     fn try_consume_set_op(&mut self) -> Result<Option<String>, ParseError> {
@@ -214,8 +202,8 @@ impl<'a> Parser<'a> {
         Ok(Some(op))
     }
 
-    fn parse_trailing_set_decorators(&mut self) -> Result<Vec<(String, Value)>, ParseError> {
-        let mut out: Vec<(String, Value)> = Vec::new();
+    fn parse_trailing_set_decorators(&mut self) -> Result<Vec<(String, E::Value)>, ParseError> {
+        let mut out: Vec<(String, E::Value)> = Vec::new();
         // `selectSetStmt`'s `orderByClause?` slot at this level is
         // parsed by ANTLR but cpp's `VISIT(SelectSetStmt)` never emits
         // it — `(SELECT 1) ORDER BY 2` drops the ORDER BY entirely.
@@ -304,10 +292,10 @@ impl<'a> Parser<'a> {
                 out.push(("offset".into(), off));
             }
             if percent {
-                out.push(("limit_percent".into(), Value::Bool(true)));
+                out.push(("limit_percent".into(), self.emit.bool(true)));
             }
             if with_ties {
-                out.push(("limit_with_ties".into(), Value::Bool(true)));
+                out.push(("limit_with_ties".into(), self.emit.bool(true)));
             }
         } else if self.eat_kw(Kw::Offset)? {
             // `offsetOnlyClause: OFFSET columnExpr` — a full
@@ -320,7 +308,7 @@ impl<'a> Parser<'a> {
         Ok(out)
     }
 
-    fn parse_select_stmt_with_parens(&mut self) -> Result<Value, ParseError> {
+    fn parse_select_stmt_with_parens(&mut self) -> Result<E::Value, ParseError> {
         // `WITH … (selectSet)` — paren'd set wrapper form with CTEs.
         // Consume the WITH clause and its CTEs, then peek the next token
         // to decide between the two valid continuations:
@@ -337,16 +325,14 @@ impl<'a> Parser<'a> {
             let mut ctes = self.parse_with_expr_list()?;
             if recursive {
                 for cte in ctes.iter_mut() {
-                    if let Some(o) = cte.as_object_mut() {
-                        o.insert("recursive".into(), Value::Bool(true));
-                    }
+                    self.emit.set_field(cte, "recursive", self.emit.bool(true));
                 }
             }
             if matches!(self.peek(), TokenKind::LParen) {
                 self.bump()?;
                 let mut inner = self.parse_select_set_stmt()?;
                 self.expect(TokenKind::RParen, ")")?;
-                inject_ctes_into_select(&mut inner, ctes);
+                inject_ctes_into_select(&self.emit, &mut inner, ctes);
                 // cpp's `WITH ctes (selectSet)` ctx for the outer
                 // SelectSetQuery starts at the `(`, NOT at WITH. The
                 // CTEs are injected into the inner set's SelectQuery,
@@ -376,7 +362,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Single `SELECT` statement with all its clauses.
-    fn parse_select_stmt(&mut self) -> Result<Value, ParseError> {
+    fn parse_select_stmt(&mut self) -> Result<E::Value, ParseError> {
         // WITH at the start; consume CTEs here then delegate to the body
         // helper. This lets parse_select_stmt_with_parens hand us
         // already-parsed CTEs when it disambiguated WITH+`(`.
@@ -388,15 +374,13 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        let mut ctes: Option<Vec<Value>> = None;
+        let mut ctes: Option<Vec<E::Value>> = None;
         if self.eat_kw(Kw::With)? {
             let recursive = self.eat_kw(Kw::Recursive)?;
             let mut parsed = self.parse_with_expr_list()?;
             if recursive {
                 for cte in parsed.iter_mut() {
-                    if let Some(o) = cte.as_object_mut() {
-                        o.insert("recursive".into(), Value::Bool(true));
-                    }
+                    self.emit.set_field(cte, "recursive", self.emit.bool(true));
                 }
             }
             ctes = Some(parsed);
@@ -413,14 +397,14 @@ impl<'a> Parser<'a> {
     /// WITH-led statement.
     fn parse_select_stmt_body(
         &mut self,
-        pre_parsed_ctes: Option<Vec<Value>>,
+        pre_parsed_ctes: Option<Vec<E::Value>>,
         override_start: Option<usize>,
-    ) -> Result<Value, ParseError> {
+    ) -> Result<E::Value, ParseError> {
         let stmt_start = override_start.unwrap_or(self.peek0.start);
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("SelectQuery".into()));
+        let mut obj = self.emit.select_query_empty();
         if let Some(ctes) = pre_parsed_ctes {
-            obj.insert("ctes".into(), Value::Array(ctes));
+            self.emit
+                .set_field(&mut obj, "ctes", self.emit.list_value(ctes));
         }
 
         // Catch typo'd SELECT keyword (e.g. `SELEC`) with a message close
@@ -442,7 +426,8 @@ impl<'a> Parser<'a> {
         self.bump()?;
         let distinct = self.eat_kw(Kw::Distinct)?;
         if distinct {
-            obj.insert("distinct".into(), Value::Bool(true));
+            self.emit
+                .set_field(&mut obj, "distinct", self.emit.bool(true));
         }
         // `topClause: TOP DECIMAL_LITERAL (WITH TIES)?` — accepted by
         // the grammar, rejected by the cpp visitor as unsupported. A
@@ -468,11 +453,12 @@ impl<'a> Parser<'a> {
                 self.peek0.start, self.peek0.end,
             ));
         }
-        obj.insert("select".into(), Value::Array(columns));
+        self.emit
+            .set_field(&mut obj, "select", self.emit.list_value(columns));
 
         if self.eat_kw(Kw::From)? {
             let join = self.parse_join_expr()?;
-            obj.insert("select_from".into(), join);
+            self.emit.set_field(&mut obj, "select_from", join);
         }
         // ARRAY JOIN: `(LEFT|INNER)? ARRAY JOIN <expr_list>`.
         let array_join_op_kw = if matches!(self.peek(), TokenKind::Keyword(Kw::Left))
@@ -498,7 +484,7 @@ impl<'a> Parser<'a> {
             // `suppress_array_join_checks` skips them when this SELECT
             // is a subquery inside a discarded `FILTER (WHERE …)` body
             // (see `parse_optional_filter`).
-            if !self.suppress_array_join_checks && !obj.contains_key("select_from") {
+            if !self.suppress_array_join_checks && !self.emit.has_field(&obj, "select_from") {
                 return Err(ParseError::syntax(
                     "Using ARRAY JOIN without a FROM clause is not permitted",
                     0,
@@ -512,10 +498,11 @@ impl<'a> Parser<'a> {
                 Some("INNER") => "INNER ARRAY JOIN",
                 _ => "ARRAY JOIN",
             };
-            obj.insert("array_join_op".into(), Value::String(op.into()));
+            self.emit
+                .set_field(&mut obj, "array_join_op", self.emit.string(op));
             // Inline expr-list parsing so we can capture each item's span
             // for the alias-required error.
-            let mut exprs: Vec<Value> = Vec::new();
+            let mut exprs: Vec<E::Value> = Vec::new();
             loop {
                 let item_start = self.peek0.start;
                 let expr = self.parse_expr_bp(0)?;
@@ -525,12 +512,12 @@ impl<'a> Parser<'a> {
                 let item_end = self.last_consumed_end;
                 // Implicit alias: `[…] alias` without AS.
                 let aliased = if let Some(name) = self.try_consume_implicit_alias()? {
-                    emit::alias(expr, &name)
+                    self.emit.alias(expr, &name)
                 } else {
                     expr
                 };
                 if !self.suppress_array_join_checks
-                    && aliased.get("node").and_then(|v| v.as_str()) != Some("Alias")
+                    && self.emit.node_kind(&aliased).as_deref() != Some("Alias")
                 {
                     return Err(ParseError::syntax(
                         "ARRAY JOIN arrays must have an alias",
@@ -551,13 +538,16 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            obj.insert("array_join_list".into(), Value::Array(exprs));
+            self.emit
+                .set_field(&mut obj, "array_join_list", self.emit.list_value(exprs));
         }
         if self.eat_kw(Kw::Prewhere)? {
-            obj.insert("prewhere".into(), self.parse_expr_bp(0)?);
+            let _v = self.parse_expr_bp(0)?;
+            self.emit.set_field(&mut obj, "prewhere", _v);
         }
         if self.eat_kw(Kw::Where)? {
-            obj.insert("where".into(), self.parse_expr_bp(0)?);
+            let _v = self.parse_expr_bp(0)?;
+            self.emit.set_field(&mut obj, "where", _v);
         }
         // `(USING? SAMPLE …)?` — the grammar allows a SAMPLE clause at
         // SELECT level (before GROUP BY *and* after QUALIFY). Both
@@ -579,7 +569,8 @@ impl<'a> Parser<'a> {
                 // ALL(*) falls back to `columnExprList` with ALL as a
                 // plain Field.
                 self.bump()?;
-                obj.insert("group_by_mode".into(), Value::String("all".into()));
+                self.emit
+                    .set_field(&mut obj, "group_by_mode", self.emit.string("all"));
             } else if matches!(self.peek(), TokenKind::Keyword(Kw::Cube | Kw::Rollup))
                 && self.peek_next() == TokenKind::LParen
                 && !self.peek_lparen_is_empty()
@@ -594,8 +585,10 @@ impl<'a> Parser<'a> {
                 self.expect(TokenKind::LParen, "(")?;
                 let exprs = self.parse_expr_list_until_paren()?;
                 self.expect(TokenKind::RParen, ")")?;
-                obj.insert("group_by".into(), Value::Array(exprs));
-                obj.insert("group_by_mode".into(), Value::String(kw.into()));
+                self.emit
+                    .set_field(&mut obj, "group_by", self.emit.list_value(exprs));
+                self.emit
+                    .set_field(&mut obj, "group_by_mode", self.emit.string(kw));
             } else if matches!(self.peek(), TokenKind::Keyword(Kw::Grouping))
                 && self.peek_next() == TokenKind::Keyword(Kw::Sets)
             {
@@ -607,7 +600,7 @@ impl<'a> Parser<'a> {
                 // the Python AST can hold them in `group_by: list[Expr]`.
                 // The cpp ctx for `groupingSet` is `LPAREN columnExprList? RPAREN`
                 // so the position spans the parens themselves.
-                let mut sets: Vec<Value> = Vec::new();
+                let mut sets: Vec<E::Value> = Vec::new();
                 loop {
                     let set_start = self.peek0.start;
                     self.expect(TokenKind::LParen, "(")?;
@@ -619,26 +612,20 @@ impl<'a> Parser<'a> {
                         self.expect(TokenKind::RParen, ")")?;
                         exprs
                     };
-                    sets.push(self.wrap_pos(
-                        serde_json::json!({
-                            "node": "GroupingSet",
-                            "exprs": exprs,
-                        }),
-                        set_start,
-                    ));
+                    sets.push(self.wrap_pos(self.emit.grouping_set(exprs), set_start));
                     if !self.eat(TokenKind::Comma)? {
                         break;
                     }
                 }
                 self.expect(TokenKind::RParen, ")")?;
-                obj.insert("group_by".into(), Value::Array(sets));
-                obj.insert(
-                    "group_by_mode".into(),
-                    Value::String("grouping_sets".into()),
-                );
+                self.emit
+                    .set_field(&mut obj, "group_by", self.emit.list_value(sets));
+                self.emit
+                    .set_field(&mut obj, "group_by_mode", self.emit.string("grouping_sets"));
             } else {
                 let exprs = self.parse_expr_list_until_terminators()?;
-                obj.insert("group_by".into(), Value::Array(exprs));
+                self.emit
+                    .set_field(&mut obj, "group_by", self.emit.list_value(exprs));
             }
         }
         // `WITH (CUBE | ROLLUP | TOTALS)` after the GROUP BY position —
@@ -679,17 +666,20 @@ impl<'a> Parser<'a> {
             }
         }
         if self.eat_kw(Kw::Having)? {
-            obj.insert("having".into(), self.parse_expr_bp(0)?);
+            let _v = self.parse_expr_bp(0)?;
+            self.emit.set_field(&mut obj, "having", _v);
         }
         if self.eat_kw(Kw::Qualify)? {
-            obj.insert("qualify".into(), self.parse_expr_bp(0)?);
+            let _v = self.parse_expr_bp(0)?;
+            self.emit.set_field(&mut obj, "qualify", _v);
         }
         // Second `USING SAMPLE` opportunity per the grammar (after
         // QUALIFY, before WINDOW). Same attach-to-FROM-table logic.
         self.try_attach_select_level_sample(&mut obj)?;
         // WINDOW clause — minimal: WINDOW name AS (...) [, ...].
         if self.eat_kw(Kw::Window)? {
-            let mut windows = serde_json::Map::new();
+            let mut windows: std::collections::BTreeMap<String, E::Value> =
+                std::collections::BTreeMap::new();
             loop {
                 let name_tok = self.bump()?;
                 let name = match name_tok.kind {
@@ -711,21 +701,25 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            obj.insert("window_exprs".into(), Value::Object(windows));
+            let windows_pairs: Vec<(String, E::Value)> = windows.into_iter().collect();
+            self.emit.set_field(
+                &mut obj,
+                "window_exprs",
+                self.emit.string_keyed_map(windows_pairs),
+            );
         }
         if matches!(self.peek(), TokenKind::Keyword(Kw::Order))
             && self.peek_next() == TokenKind::Keyword(Kw::By)
         {
             self.bump()?;
             self.bump()?;
-            obj.insert(
-                "order_by".into(),
-                Value::Array(self.parse_order_expr_list()?),
-            );
+            let ob = self.parse_order_expr_list()?;
+            self.emit
+                .set_field(&mut obj, "order_by", self.emit.list_value(ob));
             // Optional `INTERPOLATE [(expr [AS expr], …)]` after ORDER BY.
             if self.eat_kw(Kw::Interpolate)? {
                 let items = if self.eat(TokenKind::LParen)? {
-                    let mut items: Vec<Value> = Vec::new();
+                    let mut items: Vec<E::Value> = Vec::new();
                     // `interpolateClause: INTERPOLATE (LPAREN interpolateExpr
                     // (COMMA interpolateExpr)* RPAREN)?` — when parens are
                     // present, at least one interpolateExpr is required.
@@ -747,13 +741,8 @@ impl<'a> Parser<'a> {
                         } else {
                             None
                         };
-                        let mut interp = serde_json::Map::new();
-                        interp.insert("node".into(), Value::String("InterpolateExpr".into()));
-                        interp.insert("expr".into(), expr);
-                        if let Some(v) = value {
-                            interp.insert("value".into(), v);
-                        }
-                        items.push(Value::Object(interp));
+                        let interp = self.emit.interpolate_expr(expr, value);
+                        items.push(interp);
                         if !self.eat(TokenKind::Comma)? {
                             break;
                         }
@@ -770,7 +759,8 @@ impl<'a> Parser<'a> {
                 } else {
                     Vec::new()
                 };
-                obj.insert("interpolate".into(), Value::Array(items));
+                self.emit
+                    .set_field(&mut obj, "interpolate", self.emit.list_value(items));
             }
         }
         // LIMIT / LIMIT BY / OFFSET handling. The grammar allows both
@@ -791,7 +781,7 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        Ok(self.wrap_pos(Value::Object(obj), stmt_start))
+        Ok(self.wrap_pos(obj, stmt_start))
     }
 
     /// Probe: at the GROUP BY position, peek is `ALL`. The peek_next
@@ -851,7 +841,7 @@ impl<'a> Parser<'a> {
     /// `(body, percent)`. Callers raise `limit_body_depth` around this
     /// so the Pratt `%` handler can resolve modulo vs the PERCENT
     /// marker at any depth.
-    fn parse_limit_body(&mut self) -> Result<(Value, bool), ParseError> {
+    fn parse_limit_body(&mut self) -> Result<(E::Value, bool), ParseError> {
         // BP_MULT+1 stops the initial parse before a top-level `%` so
         // `limit_resolve_percent` sees it undigested; a compound body
         // (additive / comparison / AND / OR) is then extended at BP=0.
@@ -883,10 +873,7 @@ impl<'a> Parser<'a> {
     /// anything else means regular limit-and-offset. `%` (PERCENT) and
     /// `WITH TIES` rule out limit-by mid-parse — they are only valid in the
     /// limit-and-offset form.
-    fn parse_limit_clauses(
-        &mut self,
-        obj: &mut serde_json::Map<String, Value>,
-    ) -> Result<(), ParseError> {
+    fn parse_limit_clauses(&mut self, obj: &mut E::Value) -> Result<(), ParseError> {
         // Capture the LIMIT keyword's start so the eventual LimitByExpr
         // (cpp's `limitByClause` ctx, `LIMIT limitExpr BY columnExprList`)
         // gets a span starting at LIMIT, not at the first BY-expr.
@@ -894,7 +881,8 @@ impl<'a> Parser<'a> {
         if !self.eat_kw(Kw::Limit)? {
             // No LIMIT — accept a standalone OFFSET clause (offsetOnlyClause).
             if self.eat_kw(Kw::Offset)? {
-                obj.insert("offset".into(), self.parse_expr_bp(0)?);
+                let _v = self.parse_expr_bp(0)?;
+                self.emit.set_field(obj, "offset", _v);
             }
             return Ok(());
         }
@@ -927,10 +915,10 @@ impl<'a> Parser<'a> {
         // limit-and-offset; we capture which separator was used and decide
         // later. Both operands parse at full bp (no `%` ambiguity here —
         // PERCENT only attaches to the first LIMIT operand).
-        enum Tail {
+        enum Tail<V> {
             None,
-            Comma(Value),
-            Offset(Value),
+            Comma(V),
+            Offset(V),
         }
         let tail = if self.eat(TokenKind::Comma)? {
             Tail::Comma(self.parse_expr_bp(0)?)
@@ -987,17 +975,9 @@ impl<'a> Parser<'a> {
                 // `LIMIT a OFFSET b BY ...` → n=a, offset_value=b
                 Tail::Offset(s) => (first, Some(s)),
             };
-            let mut lb = serde_json::Map::new();
-            lb.insert("node".into(), Value::String("LimitByExpr".into()));
-            lb.insert("n".into(), n);
-            lb.insert("exprs".into(), Value::Array(cols));
-            if let Some(o) = offset_value {
-                lb.insert("offset_value".into(), o);
-            }
-            obj.insert(
-                "limit_by".into(),
-                self.wrap_pos(Value::Object(lb), limit_start),
-            );
+            let lb = self.emit.limit_by_expr(n, cols, offset_value);
+            self.emit
+                .set_field(obj, "limit_by", self.wrap_pos(lb, limit_start));
 
             // After the limit-by clause, an optional outer
             // limit-and-offset (or bare OFFSET) may follow.
@@ -1009,22 +989,25 @@ impl<'a> Parser<'a> {
         // form (Tail::Offset) is liftable to the outer SelectSetQuery
         // when wrapped in a set-stmt; the compact `, m` form is not.
         // See `parse_select_set_stmt` for the lift logic.
-        obj.insert("limit".into(), first);
+        self.emit.set_field(obj, "limit", first);
         if percent {
-            obj.insert("limit_percent".into(), Value::Bool(true));
+            self.emit
+                .set_field(obj, "limit_percent", self.emit.bool(true));
         }
         match tail {
             Tail::Comma(s) => {
-                obj.insert("offset".into(), s);
+                self.emit.set_field(obj, "offset", s);
             }
             Tail::Offset(s) => {
-                obj.insert("offset".into(), s);
-                obj.insert("__rust_offset_liftable".into(), Value::Bool(true));
+                self.emit.set_field(obj, "offset", s);
+                self.emit
+                    .set_field(obj, "__rust_offset_liftable", self.emit.bool(true));
             }
             Tail::None => {}
         }
         if with_ties {
-            obj.insert("limit_with_ties".into(), Value::Bool(true));
+            self.emit
+                .set_field(obj, "limit_with_ties", self.emit.bool(true));
         }
         Ok(())
     }
@@ -1032,10 +1015,7 @@ impl<'a> Parser<'a> {
     /// Outer limit/offset that may follow a `LIMIT BY` clause. Same
     /// grammar as `limitAndOffsetClause | offsetOnlyClause`, but `BY` is
     /// not legal here.
-    fn parse_trailing_limit_and_offset(
-        &mut self,
-        obj: &mut serde_json::Map<String, Value>,
-    ) -> Result<(), ParseError> {
+    fn parse_trailing_limit_and_offset(&mut self, obj: &mut E::Value) -> Result<(), ParseError> {
         if self.eat_kw(Kw::Limit)? {
             // Full `columnExpr` body — `parse_limit_body` covers the
             // compound case (`limit (x) ?? y`) and the `%`/PERCENT
@@ -1045,9 +1025,10 @@ impl<'a> Parser<'a> {
             let body = self.parse_limit_body();
             self.limit_body_depth -= 1;
             let (limit, percent) = body?;
-            obj.insert("limit".into(), limit);
+            self.emit.set_field(obj, "limit", limit);
             if percent {
-                obj.insert("limit_percent".into(), Value::Bool(true));
+                self.emit
+                    .set_field(obj, "limit_percent", self.emit.bool(true));
             }
             // Grammar (line 107–110): limitAndOffsetClause has two
             // alternatives that differ in where WITH TIES sits relative
@@ -1066,31 +1047,37 @@ impl<'a> Parser<'a> {
             // OFFSET branch.
             if self.eat(TokenKind::Comma)? {
                 // Compact form.
-                obj.insert("offset".into(), self.parse_expr_bp(0)?);
+                let _v = self.parse_expr_bp(0)?;
+                self.emit.set_field(obj, "offset", _v);
                 if self.peek_kw2(Kw::With, Kw::Ties) {
                     self.bump()?;
                     self.bump()?;
-                    obj.insert("limit_with_ties".into(), Value::Bool(true));
+                    self.emit
+                        .set_field(obj, "limit_with_ties", self.emit.bool(true));
                 }
             } else {
                 // Verbose form (or no second operand).
                 if self.peek_kw2(Kw::With, Kw::Ties) {
                     self.bump()?;
                     self.bump()?;
-                    obj.insert("limit_with_ties".into(), Value::Bool(true));
+                    self.emit
+                        .set_field(obj, "limit_with_ties", self.emit.bool(true));
                 }
                 if self.eat_kw(Kw::Offset)? {
-                    obj.insert("offset".into(), self.parse_expr_bp(0)?);
+                    let _v = self.parse_expr_bp(0)?;
+                    self.emit.set_field(obj, "offset", _v);
                     // Sentinel for the SelectSetStmt wrapper's
                     // conditional lift logic — only the verbose form
                     // is liftable.
-                    obj.insert("__rust_offset_liftable".into(), Value::Bool(true));
+                    self.emit
+                        .set_field(obj, "__rust_offset_liftable", self.emit.bool(true));
                 }
             }
         } else if self.eat_kw(Kw::Offset)? {
             // Bare `OFFSET m` (no preceding LIMIT). cpp keeps this on
             // the inner SELECT — don't mark liftable.
-            obj.insert("offset".into(), self.parse_expr_bp(0)?);
+            let _v = self.parse_expr_bp(0)?;
+            self.emit.set_field(obj, "offset", _v);
         }
         Ok(())
     }
@@ -1111,9 +1098,9 @@ impl<'a> Parser<'a> {
     /// continuation), otherwise `%` is the PERCENT marker.
     fn limit_resolve_percent(
         &mut self,
-        expr: Value,
+        expr: E::Value,
         expr_start: usize,
-    ) -> Result<(Value, bool), ParseError> {
+    ) -> Result<(E::Value, bool), ParseError> {
         if self.peek0.kind != TokenKind::Percent {
             return Ok((expr, false));
         }
@@ -1144,14 +1131,14 @@ impl<'a> Parser<'a> {
     /// LIMIT body (`limit_body_depth > 0`).
     pub(crate) fn try_limit_modulo_extension(
         &mut self,
-        lhs: Value,
+        lhs: E::Value,
         lhs_start: usize,
-    ) -> Result<Option<Value>, ParseError> {
+    ) -> Result<Option<E::Value>, ParseError> {
         let cp = self.checkpoint();
-        let trial = (|p: &mut Self| -> Result<Option<Value>, ParseError> {
+        let trial = (|p: &mut Self| -> Result<Option<E::Value>, ParseError> {
             p.bump()?; // %
             let rhs = p.parse_expr_bp(BP_MULT + 1)?;
-            let combined = emit::arith(lhs.clone(), "%", rhs);
+            let combined = p.emit.arith(lhs.clone(), "%", rhs);
             // Extend the whole columnExpr (BP=0) — cpp parses the
             // LIMIT body greedily, so a lower-precedence tail
             // (`% 2 + 3`, `% 2 AND 3`) stays part of the modulo body.
@@ -1289,10 +1276,7 @@ impl<'a> Parser<'a> {
     /// building the JoinExpr) ends up on `JoinExpr.sample`. We mirror
     /// the silent-drop behaviour here so the parser accepts the syntax
     /// without diverging from cpp.
-    fn try_attach_select_level_sample(
-        &mut self,
-        _obj: &mut serde_json::Map<String, Value>,
-    ) -> Result<(), ParseError> {
+    fn try_attach_select_level_sample(&mut self, _obj: &mut E::Value) -> Result<(), ParseError> {
         let saw_sample = if self.peek_kw2(Kw::Using, Kw::Sample) {
             self.bump()?; // USING
             true
@@ -1334,7 +1318,7 @@ impl<'a> Parser<'a> {
     /// continues the list, but the probe returns false (treating
     /// COLUMNS-with-paren as the body of `OFFSET *`). Override OFFSET
     /// specifically with a more permissive infix-or-postfix check.
-    fn parse_limit_by_exprs(&mut self) -> Result<Vec<Value>, ParseError> {
+    fn parse_limit_by_exprs(&mut self) -> Result<Vec<E::Value>, ParseError> {
         let mut out = Vec::new();
         out.push(self.parse_expr_bp(0)?);
         while self.eat(TokenKind::Comma)? {
@@ -1373,7 +1357,7 @@ impl<'a> Parser<'a> {
                 // clause instead.
                 let cp = self.checkpoint();
                 let speculated = match self.parse_expr_bp(0) {
-                    Ok(expr) if is_bare_field(&expr) => {
+                    Ok(expr) if is_bare_field(&self.emit, &expr) => {
                         self.restore(cp)?;
                         None
                     }
@@ -1404,7 +1388,7 @@ impl<'a> Parser<'a> {
     /// appears. Without this RANGE/ROWS would be consumed as Field
     /// identifiers (per the keyword rule) and BETWEEN that follows
     /// them would over-greedily eat the window frame body.
-    fn parse_window_partition_by_exprs(&mut self) -> Result<Vec<Value>, ParseError> {
+    fn parse_window_partition_by_exprs(&mut self) -> Result<Vec<E::Value>, ParseError> {
         let mut out = Vec::new();
         loop {
             out.push(self.parse_expr_bp(0)?);
@@ -1428,10 +1412,9 @@ impl<'a> Parser<'a> {
         Ok(out)
     }
 
-    pub(crate) fn parse_window_expr(&mut self) -> Result<Value, ParseError> {
+    pub(crate) fn parse_window_expr(&mut self) -> Result<E::Value, ParseError> {
         let we_start = self.peek0.start;
-        let mut obj = serde_json::Map::new();
-        obj.insert("node".into(), Value::String("WindowExpr".into()));
+        let mut obj = self.emit.window_expr_empty();
         if matches!(self.peek(), TokenKind::Keyword(Kw::Partition))
             && self.peek_next() == TokenKind::Keyword(Kw::By)
         {
@@ -1441,17 +1424,17 @@ impl<'a> Parser<'a> {
             // following frame/order keywords (RANGE / ROWS / ORDER) or
             // the closing paren of the windowExpr.
             let exprs = self.parse_window_partition_by_exprs()?;
-            obj.insert("partition_by".into(), Value::Array(exprs));
+            self.emit
+                .set_field(&mut obj, "partition_by", self.emit.list_value(exprs));
         }
         if matches!(self.peek(), TokenKind::Keyword(Kw::Order))
             && self.peek_next() == TokenKind::Keyword(Kw::By)
         {
             self.bump()?;
             self.bump()?;
-            obj.insert(
-                "order_by".into(),
-                Value::Array(self.parse_order_expr_list()?),
-            );
+            let ob = self.parse_order_expr_list()?;
+            self.emit
+                .set_field(&mut obj, "order_by", self.emit.list_value(ob));
         }
         // Frame clause: ROWS|RANGE bound [BETWEEN bound AND bound].
         let frame_method = if self.eat_kw(Kw::Rows)? {
@@ -1462,7 +1445,8 @@ impl<'a> Parser<'a> {
             None
         };
         if let Some(m) = frame_method {
-            obj.insert("frame_method".into(), Value::String(m.into()));
+            self.emit
+                .set_field(&mut obj, "frame_method", self.emit.string(m));
             // `BETWEEN` after ROWS / RANGE is ambiguous: the
             // `frameBetween` alt (`BETWEEN bound AND bound`) or a
             // `frameStart` bound whose `columnExpr` is the `between`
@@ -1473,7 +1457,7 @@ impl<'a> Parser<'a> {
             // re-read as the Field of a `frameStart` bound.
             let cp = self.checkpoint();
             let between_frame = if self.eat_kw(Kw::Between)? {
-                (|p: &mut Self| -> Result<(Value, Value), ParseError> {
+                (|p: &mut Self| -> Result<(E::Value, E::Value), ParseError> {
                     let start = p.parse_window_frame_bound()?;
                     p.expect_kw(Kw::And, "AND")?;
                     let end = p.parse_window_frame_bound()?;
@@ -1484,26 +1468,27 @@ impl<'a> Parser<'a> {
                 None
             };
             if let Some((start, end)) = between_frame {
-                obj.insert("frame_start".into(), start);
-                obj.insert("frame_end".into(), end);
+                self.emit.set_field(&mut obj, "frame_start", start);
+                self.emit.set_field(&mut obj, "frame_end", end);
             } else {
                 self.restore(cp)?;
                 let start = self.parse_window_frame_bound()?;
-                obj.insert("frame_start".into(), start);
+                self.emit.set_field(&mut obj, "frame_start", start);
             }
         }
         // cpp's `VISIT(WindowExpr)` calls `addPositionInfo(json, ctx)`,
         // so the JSON has `start` / `end` spanning the window-expr body
         // (between the parens — `OVER ( PARTITION BY ... ROWS ... )`).
-        Ok(self.wrap_pos(Value::Object(obj), we_start))
+        Ok(self.wrap_pos(obj, we_start))
     }
 
-    fn parse_window_frame_bound(&mut self) -> Result<Value, ParseError> {
+    fn parse_window_frame_bound(&mut self) -> Result<E::Value, ParseError> {
         let bound_start = self.peek0.start;
         if self.eat_kw(Kw::Current)? {
             self.expect_kw(Kw::Row, "ROW")?;
+            let null_val = self.emit.null();
             return Ok(self.wrap_pos(
-                json!({"node": "WindowFrameExpr", "frame_type": "CURRENT ROW", "frame_value": Value::Null}),
+                self.emit.window_frame_bound("CURRENT ROW", null_val),
                 bound_start,
             ));
         }
@@ -1515,10 +1500,8 @@ impl<'a> Parser<'a> {
             } else {
                 return Err(self.err("expected PRECEDING or FOLLOWING after UNBOUNDED"));
             };
-            return Ok(self.wrap_pos(
-                json!({"node": "WindowFrameExpr", "frame_type": ty, "frame_value": Value::Null}),
-                bound_start,
-            ));
+            let null_val = self.emit.null();
+            return Ok(self.wrap_pos(self.emit.window_frame_bound(ty, null_val), bound_start));
         }
         // `winFrameBound: columnExpr PRECEDING | columnExpr FOLLOWING`
         // — the value is a full `columnExpr`, so parse it at binding
@@ -1538,26 +1521,22 @@ impl<'a> Parser<'a> {
         // to a bare number only when the value `isInt()`; a float or
         // string Constant keeps its full object form. Mirror that —
         // unwrap only an integer-valued Constant.
-        let frame_value = match val.as_object() {
-            Some(obj)
-                if obj.get("node").and_then(Value::as_str) == Some("Constant")
-                    && obj.get("value").is_some_and(Value::is_i64) =>
-            {
-                obj.get("value").cloned().unwrap_or(Value::Null)
+        let frame_value = if self.emit.node_kind(&val).as_deref() == Some("Constant") {
+            match self.emit.get_field(&val, "value") {
+                Some(v) if self.emit.as_i64(&v).is_some() => v,
+                _ => val,
             }
-            _ => val,
+        } else {
+            val
         };
-        Ok(self.wrap_pos(
-            json!({"node": "WindowFrameExpr", "frame_type": ty, "frame_value": frame_value}),
-            bound_start,
-        ))
+        Ok(self.wrap_pos(self.emit.window_frame_bound(ty, frame_value), bound_start))
     }
 
-    fn parse_select_columns(&mut self) -> Result<Vec<Value>, ParseError> {
+    fn parse_select_columns(&mut self) -> Result<Vec<E::Value>, ParseError> {
         // `selectColumnExprList` with optional trailing comma. Each item is
         // either `IDENT COLON expr` (alias-before), `expr [implicitAlias]`,
         // or `expr AS alias` (`AS` already handled by Pratt as an infix).
-        let mut cols: Vec<Value> = Vec::new();
+        let mut cols: Vec<E::Value> = Vec::new();
         loop {
             if matches!(
                 self.peek(),
@@ -1613,7 +1592,7 @@ impl<'a> Parser<'a> {
                 // (`IDENT COLON columnExpr`) spans from the alias ident
                 // through the value expression. Wrap so the column's
                 // `start` / `end` match cpp's `addPositionInfo`.
-                cols.push(self.wrap_pos(emit::alias(expr, &name), col_start));
+                cols.push(self.wrap_pos(self.emit.alias(expr, &name), col_start));
             } else {
                 let expr = self.parse_expr_bp(0)?;
                 // Implicit alias: a trailing identifier (or one of the
@@ -1627,7 +1606,7 @@ impl<'a> Parser<'a> {
                     // deliberate footgun-catcher — cpp's visitor rejects
                     // it. (`from AS x` is fine; the `AS` form folds into
                     // the expr above and never reaches here.)
-                    if is_bare_from_field(&expr) {
+                    if is_bare_from_field(&self.emit, &expr) {
                         return Err(self.err("Cannot use \"from\" before an implicit alias"));
                     }
                     // cpp's `ColumnExprAlias` ctx for the implicit-alias
@@ -1635,7 +1614,7 @@ impl<'a> Parser<'a> {
                     // expression through the alias identifier — wrap
                     // with the column's running start so the Alias
                     // carries the cpp span.
-                    self.wrap_pos(emit::alias(expr, &name), col_start)
+                    self.wrap_pos(self.emit.alias(expr, &name), col_start)
                 } else {
                     expr
                 };
@@ -1674,18 +1653,15 @@ impl<'a> Parser<'a> {
 /// True when `expr` is a bare `from` Field — a `Field` whose chain is
 /// the single element `from` (any case). Used to flag the grammar's
 /// `ColumnExprInvalidFromImplicitAlias` footgun (`select from x`).
-fn is_bare_from_field(expr: &Value) -> bool {
-    let Some(obj) = expr.as_object() else {
-        return false;
-    };
-    if obj.get("node").and_then(Value::as_str) != Some("Field") {
+fn is_bare_from_field<E: Emitter>(emit: &E, expr: &E::Value) -> bool {
+    if emit.node_kind(expr).as_deref() != Some("Field") {
         return false;
     }
-    match obj.get("chain").and_then(Value::as_array) {
+    match emit.get_field(expr, "chain").and_then(|c| emit.as_list(&c)) {
         Some(chain) => {
             chain.len() == 1
-                && chain[0]
-                    .as_str()
+                && emit
+                    .as_str(&chain[0])
                     .is_some_and(|s| s.eq_ignore_ascii_case("from"))
         }
         None => false,
