@@ -380,6 +380,86 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('empty response caching', () => {
+        // The simple cache in infiniteListLogic.ts is keyed on URL + searchParams and was
+        // poisoning subsequent identical searches for a full 60s when the first result was
+        // empty — forcing users to reload the page after a transient miss (definition not yet
+        // propagated, a typo mid-typing, or a search that briefly returned nothing). Empty
+        // responses must not be cached.
+        let handler: jest.Mock
+        let cacheLogic: ReturnType<typeof infiniteListLogic.build>
+        // Unique queries so this test doesn't collide with the module-level cache populated
+        // by other tests in the suite — apiCache survives across tests.
+        const emptyQuery = 'no-match-for-empty-cache-test-x9q7'
+        const nonEmptyQuery = 'has-match-for-cache-test-x9q7'
+
+        beforeEach(() => {
+            handler = jest.fn((req) => {
+                const search = req.url.searchParams.get('search') ?? ''
+                if (search === nonEmptyQuery) {
+                    return [200, { results: [mockEventDefinitions[0]], count: 1 }]
+                }
+                if (search === emptyQuery) {
+                    return [200, { results: [], count: 0 }]
+                }
+                const results = search ? mockEventDefinitions.filter((e) => e.name.includes(search)) : []
+                return [200, { results, count: results.length }]
+            })
+            useMocks({ get: { '/api/projects/:team/event_definitions': handler } })
+
+            cacheLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'cacheTestList',
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+            })
+            cacheLogic.mount()
+        })
+
+        const callsForSearch = (query: string): number =>
+            handler.mock.calls.filter(([req]) => req.url.searchParams.get('search') === query).length
+
+        it('refetches when the previous response for the same query was empty', async () => {
+            await expectLogic(cacheLogic).toDispatchActions(['loadRemoteItemsSuccess'])
+
+            await expectLogic(cacheLogic, () => cacheLogic.actions.setSearchQuery(emptyQuery))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+            expect(callsForSearch(emptyQuery)).toBe(1)
+
+            // Switch away so the second search for emptyQuery doesn't get short-circuited as "same query".
+            await expectLogic(cacheLogic, () => cacheLogic.actions.setSearchQuery('other-query-not-empty'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            await expectLogic(cacheLogic, () => cacheLogic.actions.setSearchQuery(emptyQuery))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+            // The previous empty response was not cached, so this re-search hit the backend again.
+            expect(callsForSearch(emptyQuery)).toBe(2)
+        })
+
+        it('still caches non-empty responses', async () => {
+            await expectLogic(cacheLogic).toDispatchActions(['loadRemoteItemsSuccess'])
+
+            await expectLogic(cacheLogic, () => cacheLogic.actions.setSearchQuery(nonEmptyQuery))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+            expect(callsForSearch(nonEmptyQuery)).toBe(1)
+
+            await expectLogic(cacheLogic, () => cacheLogic.actions.setSearchQuery('other-query-still-non-empty'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            await expectLogic(cacheLogic, () => cacheLogic.actions.setSearchQuery(nonEmptyQuery))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+            // Non-empty responses are still cached — the second identical search reused the
+            // earlier response without hitting the backend a second time.
+            expect(callsForSearch(nonEmptyQuery)).toBe(1)
+        })
+    })
+
     describe('internal events local options filtering', () => {
         // The Internal Events group has multiple local options ("All internal events" plus
         // product filter options), so substring matching needs to cover both the meta option

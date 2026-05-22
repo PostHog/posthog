@@ -125,13 +125,21 @@ const API_CACHE_TIMEOUT = 60000
 let apiCache: Record<string, ListStorage> = {}
 let apiCacheTimers: Record<string, number> = {}
 
+function isEmptyApiResponse(response: any): boolean {
+    const items = Array.isArray(response?.results) ? response.results : Array.isArray(response) ? response : null
+    return Array.isArray(items) && items.length === 0
+}
+
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
-    let response
     if (apiCache[url]) {
-        response = apiCache[url]
-    } else {
-        response = await api.get(url)
+        return apiCache[url]
+    }
+    const response = await api.get(url)
+    // Skip caching empty responses — a transient miss (definition not yet propagated, a typo
+    // mid-typing, or a backend that just hadn't indexed the property) would otherwise stick
+    // around for the full TTL and force a page reload to recover.
+    if (!isEmptyApiResponse(response)) {
         apiCache[url] = response
         apiCacheTimers[url] = window.setTimeout(() => {
             delete apiCache[url]
