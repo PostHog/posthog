@@ -143,7 +143,7 @@ class TestRefreshTaskRunReconnect:
         fake = FakeTaskRun()
         with patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake) as mock_get:
             result = _refresh_task_run_sync("run-1")
-        assert result is fake
+        assert result is fake  # type: ignore[comparison-overlap]
         mock_get.assert_called_once_with(id="run-1")
 
     def test_retries_once_on_operational_error_and_returns(self):
@@ -156,7 +156,7 @@ class TestRefreshTaskRunReconnect:
             patch("products.tasks.backend.services.custom_prompt_internals.close_old_connections") as mock_close,
         ):
             result = _refresh_task_run_sync("run-1")
-        assert result is fake
+        assert result is fake  # type: ignore[comparison-overlap]
         assert mock_get.call_count == 2
         # Reconnects before each attempt: once preemptively, once after the failure.
         assert mock_close.call_count == 2
