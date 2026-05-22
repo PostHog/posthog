@@ -63,6 +63,33 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
+    def _all_events_trigger_action(self):
+        return {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": None, "name": "All events", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+    def test_hog_flow_rejects_all_events_trigger_when_active(self):
+        hog_flow = {"name": "Test Flow", "status": "active", "actions": [self._all_events_trigger_action()]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "All events" in str(response.json())
+
+    def test_hog_flow_allows_all_events_trigger_as_draft(self):
+        # Drafts do not run, so the "All events" check is only enforced on activation.
+        hog_flow = {"name": "Test Flow", "actions": [self._all_events_trigger_action()]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_function_trigger_copied_from_action(self):
         trigger_action = {
             "id": "trigger_node",

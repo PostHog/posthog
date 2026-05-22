@@ -103,6 +103,20 @@ class HogFlowActionSerializer(serializers.Serializer):
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
+                # An event trigger must target specific events. An "All events" entry
+                # (an event with no id) fires the workflow on the entire event stream,
+                # which can flood the workflow workers.
+                if not is_draft:
+                    for event in filters.get("events") or []:
+                        if not event.get("id"):
+                            raise serializers.ValidationError(
+                                {
+                                    "config": (
+                                        "A workflow trigger must target a specific event. "
+                                        '"All events" triggers fire on the entire event stream and are not allowed.'
+                                    )
+                                }
+                            )
                 # Move filter_test_accounts into filters for bytecode compilation
                 if data.get("config", {}).get("filter_test_accounts") is not None:
                     filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
