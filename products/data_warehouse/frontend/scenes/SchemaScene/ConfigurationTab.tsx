@@ -421,8 +421,8 @@ function ColumnsSection({
     updateSchema: (schema: ExternalDataSourceSchema) => void
     resyncSchema: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
-    const isPostgres = source?.source_type === 'Postgres'
     const available = schema.available_columns ?? []
+    const hasAvailableColumns = available.length > 0
     const synced = schema.enabled_columns
 
     const alwaysRetained = new Set<string>([
@@ -497,10 +497,8 @@ function ColumnsSection({
                 description="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced."
             />
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
-                {!isPostgres ? (
-                    <span className="text-muted">
-                        Per-column selection is currently available for Postgres sources only.
-                    </span>
+                {!hasAvailableColumns ? (
+                    <span className="text-muted">Per-column selection isn't available for this source yet.</span>
                 ) : (
                     <>
                         <span className="text-sm text-secondary">{summaryLine}</span>

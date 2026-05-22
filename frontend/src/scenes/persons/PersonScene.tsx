@@ -305,10 +305,11 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                         label: <span data-attr="persons-events-tab">Events</span>,
                         content: (
                             <Query
-                                uniqueKey="person-profile-events"
+                                uniqueKey={`person-profile-events-${tabId}`}
                                 attachTo={mountedPersonsLogic}
                                 query={eventsQuery}
                                 setQuery={(q) => setEventsQuery(q)}
+                                tabId={tabId}
                                 context={{
                                     insightProps: {
                                         dashboardItemId: `new-${PERSON_EVENTS_CONTEXT_KEY}`,
@@ -372,12 +373,28 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                     {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
-                        content: <Query query={exceptionsQuery} setQuery={(q) => setExceptionsQuery(q)} />,
+                        content: (
+                            <Query
+                                uniqueKey={`person-profile-exceptions-${tabId}`}
+                                attachTo={mountedPersonsLogic}
+                                query={exceptionsQuery}
+                                setQuery={(q) => setExceptionsQuery(q)}
+                                tabId={tabId}
+                            />
+                        ),
                     },
                     {
                         key: PersonsTabType.SURVEY_RESPONSES,
                         label: <span data-attr="persons-survey-responses-tab">Surveys</span>,
-                        content: <Query query={surveyResponsesQuery} setQuery={(q) => setSurveyResponsesQuery(q)} />,
+                        content: (
+                            <Query
+                                uniqueKey={`person-profile-surveys-${tabId}`}
+                                attachTo={mountedPersonsLogic}
+                                query={surveyResponsesQuery}
+                                setQuery={(q) => setSurveyResponsesQuery(q)}
+                                tabId={tabId}
+                            />
+                        ),
                     },
                     {
                         key: PersonsTabType.COHORTS,

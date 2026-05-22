@@ -50,19 +50,22 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.api.external_data_source import (
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
 )
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import IncrementalFieldType
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    sync_frequency_interval_to_sync_frequency,
+)
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -1273,7 +1276,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_source):
-        parsed_config = Mock()
+        parsed_config = Mock(spec=["to_dict"])
         parsed_config.to_dict.return_value = {
             "host": "localhost",
             "port": "5432",
@@ -1297,6 +1300,7 @@ class TestExternalDataSource(APIBaseTest):
         data = response.json()
         self.assertEqual(data["added"], 2)
         self.assertEqual(data["deleted"], 0)
+        self.assertEqual(data["total_tables_seen"], 2)
         self.assertEqual(
             ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
         )
@@ -1532,6 +1536,22 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_returns_zero_total_tables_seen_when_source_returns_nothing(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = []
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["added"], 0)
+        self.assertEqual(data["deleted"], 0)
+        self.assertEqual(data["total_tables_seen"], 0)
 
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")

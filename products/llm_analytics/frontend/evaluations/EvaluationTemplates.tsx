@@ -170,7 +170,7 @@ export function EvaluationTemplatesEmptyState(): JSX.Element {
             title="Create your first evaluation"
             description="Select a pre-configured template to get started quickly, or create your own from scratch."
             showBackButton={false}
-            learnMoreUrl="https://posthog.com/docs/llm-analytics/evaluations"
+            learnMoreUrl="https://posthog.com/docs/ai-evals/evaluations"
             minHeight="60vh"
         />
     )

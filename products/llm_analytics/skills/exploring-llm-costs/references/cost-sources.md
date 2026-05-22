@@ -1,7 +1,7 @@
 # How costs get set: SDK, custom pricing, ingestion
 
 Costs can arrive on the event in three ways; ingestion applies them in this
-precedence (see [Calculating LLM costs](https://posthog.com/docs/llm-analytics/calculating-costs)
+precedence (see [Calculating LLM costs](https://posthog.com/docs/ai-observability/calculating-costs)
 for the authoritative rules):
 
 1. **Pre-calculated** — the SDK / manual capture sets `$ai_input_cost_usd`,

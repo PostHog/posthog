@@ -5,7 +5,8 @@ import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
 import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
 import {
-    buildStackedResolveValue,
+    buildSegmentResolveValue,
+    buildStackedPositionValue,
     computePercentStackData,
     computeStackData,
     createScales as createLineScales,
@@ -228,7 +229,10 @@ function LineChartInner<Meta = unknown>({
         [stackedData]
     )
 
-    const resolveValue = useMemo(() => buildStackedResolveValue(stackedData), [stackedData])
+    // Stacked/percent-stacked areas: display each series's own segment value (resolveValue)
+    // but anchor the tooltip/value labels at the stacked top (resolvePositionValue).
+    const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
+    const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
 
     return (
         <Chart
@@ -244,6 +248,7 @@ function LineChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
+            resolvePositionValue={resolvePositionValue}
         >
             {children}
         </Chart>
