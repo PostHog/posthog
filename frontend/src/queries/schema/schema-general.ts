@@ -1439,6 +1439,8 @@ export type TrendsFilter = {
     excludeBoxPlotOutliers?: boolean
     /** @default false */
     hideWeekends?: boolean
+    /** @default true */
+    showAnnotations?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1463,6 +1465,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
     'excludeBoxPlotOutliers',
     'hideWeekends',
+    'showAnnotations',
 ])
 
 export interface BoxPlotDatum {
@@ -1624,6 +1627,11 @@ export type FunnelsFilter = {
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
     breakdownSorting?: string
+    /**
+     * Whether to render annotations on the chart. Only applies to historical-trends funnels.
+     * @default true
+     */
+    showAnnotations?: boolean
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {

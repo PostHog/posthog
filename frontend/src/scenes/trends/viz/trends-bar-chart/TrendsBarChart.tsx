@@ -335,7 +335,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
 
     // Annotations are date-anchored, so they only make sense for the time-series bar
     // layouts (vertical bars). The horizontal aggregated layout has categorical labels.
-    const showAnnotations = !inSharedMode
+    const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
     const annotationsDates = currentPeriodResult?.days ?? []
     // In compare-against-previous grouped layouts each band holds two bars (previous, current).
     // Anchor each period's annotations on its matching bar so they line up with what they describe.

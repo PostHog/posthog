@@ -19866,6 +19866,11 @@
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
                 },
+                "showAnnotations": {
+                    "default": true,
+                    "description": "Whether to render annotations on the chart. Only applies to historical-trends funnels.",
+                    "type": "boolean"
+                },
                 "showTrendLines": {
                     "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
                     "type": "boolean"
@@ -38464,6 +38469,10 @@
                 },
                 "showAlertThresholdLines": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showAnnotations": {
+                    "default": true,
                     "type": "boolean"
                 },
                 "showConfidenceIntervals": {

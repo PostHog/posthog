@@ -25,6 +25,7 @@ import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/Resul
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertAnomalyPointsFilter } from 'scenes/insights/EditorFilters/ShowAlertAnomalyPointsFilter'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
+import { ShowAnnotationsFilter } from 'scenes/insights/EditorFilters/ShowAnnotationsFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
@@ -72,6 +73,7 @@ export function InsightDisplayConfig(): JSX.Element {
         supportsResultCustomizationBy,
         yAxisScaleType,
         showMultipleYAxes,
+        showAnnotations,
         isNonTimeSeriesDisplay,
         compareFilter,
         supportsCompare,
@@ -103,6 +105,7 @@ export function InsightDisplayConfig(): JSX.Element {
         (smoothingOptions[interval]?.length ?? 0) > 0
     const showMultipleYAxesConfig = (isTrends || isStickiness) && !isNonTimeSeriesDisplay
     const showAlertThresholdLinesConfig = isTrends && !isNonTimeSeriesDisplay
+    const showAnnotationsConfig = (isTrends && !isNonTimeSeriesDisplay) || isTrendsFunnel
     const isLineGraph =
         display === ChartDisplayType.ActionsLineGraph ||
         display === ChartDisplayType.ActionsAreaGraph ||
@@ -195,6 +198,7 @@ export function InsightDisplayConfig(): JSX.Element {
                                 ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
                                     ? [{ label: () => <HideWeekendsFilter /> }]
                                     : []),
+                                ...(showAnnotationsConfig ? [{ label: () => <ShowAnnotationsFilter /> }] : []),
                             ],
                   },
               ]
@@ -350,7 +354,8 @@ export function InsightDisplayConfig(): JSX.Element {
         (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
-        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
+        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
+        (showAnnotationsConfig && showAnnotations === false ? 1 : 0)
 
     return (
         <div
