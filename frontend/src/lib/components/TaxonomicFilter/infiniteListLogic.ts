@@ -53,6 +53,33 @@ function pinnedItemMatchesSearch(
     return name.toLowerCase().includes(query) || (label?.toLowerCase().includes(query) ?? false)
 }
 
+function recentItemMatchesSearch(
+    item: TaxonomicDefinitionTypes,
+    query: string,
+    taxonomicGroups: TaxonomicFilterGroup[]
+): boolean {
+    if (!hasRecentContext(item)) {
+        return false
+    }
+    const sourceGroup = taxonomicGroups.find((g) => g.type === item._recentContext.sourceGroupType)
+    const name = sourceGroup?.getName?.(item) || ('name' in item ? item.name : '') || ''
+    if (name.toLowerCase().includes(query)) {
+        return true
+    }
+    const label = sourceGroup ? getCoreFilterDefinition(name, sourceGroup.type)?.label : undefined
+    if (label?.toLowerCase().includes(query)) {
+        return true
+    }
+    const propertyFilter = item._recentContext.propertyFilter
+    if (propertyFilter) {
+        const recentLabel = formatPropertyLabel(propertyFilter, {})
+        if (recentLabel?.toLowerCase().includes(query)) {
+            return true
+        }
+    }
+    return false
+}
+
 export interface RowInfo {
     startIndex: number
     stopIndex: number
@@ -727,6 +754,23 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 )
             },
         ],
+        suggestedRecentMatches: [
+            (s) => [s.contextFilteredRecentItems, s.searchQuery, s.listGroupType, s.taxonomicGroups],
+            (
+                contextFilteredRecentItems: TaxonomicDefinitionTypes[],
+                searchQuery: string,
+                listGroupType: TaxonomicFilterGroupType,
+                taxonomicGroups: TaxonomicFilterGroup[]
+            ): TaxonomicDefinitionTypes[] => {
+                if (listGroupType !== TaxonomicFilterGroupType.SuggestedFilters || !searchQuery) {
+                    return []
+                }
+                const q = searchQuery.trim().toLowerCase()
+                return (contextFilteredRecentItems || []).filter((item) =>
+                    recentItemMatchesSearch(item, q, taxonomicGroups)
+                )
+            },
+        ],
         keywordShortcutItems: [
             (s) => [s.group, s.searchQuery, (_, props) => props.enableKeywordShortcuts],
             (
@@ -746,6 +790,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.contextFilteredRecentItems,
                 s.contextFilteredPinnedItems,
                 s.suggestedPinnedMatches,
+                s.suggestedRecentMatches,
                 s.keywordShortcutItems,
             ],
             (
@@ -757,6 +802,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 contextFilteredRecentItems,
                 contextFilteredPinnedItems,
                 suggestedPinnedMatches,
+                suggestedRecentMatches,
                 keywordShortcutItems
             ) => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
@@ -766,10 +812,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
                 // see the autocapture/event-type shortcut prominently and pressing Enter picks it.
                 // Real events with the same name remain accessible below the shortcut.
+                // Recent matches appear next: they're computed locally and revealed immediately
+                // so the user sees something useful while remote groups are still loading behind
+                // the reveal barrier.
                 const combinedResults = [
                     ...keywordShortcutItems,
                     ...recentPrefix,
                     ...pinnedPrefix,
+                    ...suggestedRecentMatches,
                     ...suggestedPinnedMatches,
                     ...localItems.results,
                     ...remoteItems.results,
@@ -781,6 +831,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         keywordShortcutItems.length +
                         recentPrefix.length +
                         pinnedPrefix.length +
+                        suggestedRecentMatches.length +
                         suggestedPinnedMatches.length +
                         localItems.count +
                         remoteItems.count +
