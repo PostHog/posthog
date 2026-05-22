@@ -24,8 +24,9 @@ describe('FunnelLineChart', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
+            expect(getHogChart().seriesCount).toBe(1)
             expect(tooltip.element.textContent).toContain(FUNNEL_CONVERSION_SERIES_LABEL)
-            expect(tooltip.element.textContent).toMatch(/40%/)
+            expect(tooltip.element.textContent).toContain('40%')
         })
 
         it('renders a series per breakdown variant', async () => {
@@ -37,7 +38,7 @@ describe('FunnelLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(getHogChart().seriesCount).toBe(2)
             })
         })
 
@@ -98,8 +99,8 @@ describe('FunnelLineChart', () => {
                 const texts = getHogChart()
                     .valueLabels()
                     .map((l) => l.text)
-                expect(texts.length).toBeGreaterThan(0)
-                expect(texts.every((t) => t.endsWith('%'))).toBe(true)
+                // default fixture data [10, 25, 40, 60, 35] rendered as percentages
+                expect([...texts].sort()).toEqual(['10%', '25%', '35%', '40%', '60%'])
             })
         })
     })
@@ -126,8 +127,9 @@ describe('FunnelLineChart', () => {
                 featureFlags: HOG_CHARTS_FUNNEL_FLAG,
             })
 
+            // main series + trend-line series = 2
             await waitFor(() => {
-                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+                expect(getHogChart().seriesCount).toBe(2)
             })
         })
     })
