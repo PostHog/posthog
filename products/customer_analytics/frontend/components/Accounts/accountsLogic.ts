@@ -27,6 +27,7 @@ export const accountsLogic = kea<accountsLogicType>([
         values: [teamLogic, ['currentTeamId']],
     })),
     actions({
+        setSearchQuery: (query: string) => ({ query }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         setAllRolesUnassigned: (value: boolean) => ({ value }),
         setCsmFilter: (value: RoleFilterValue) => ({ value }),
@@ -36,6 +37,12 @@ export const accountsLogic = kea<accountsLogicType>([
         refresh: true,
     }),
     reducers({
+        searchQuery: [
+            '',
+            {
+                setSearchQuery: (_, { query }) => query,
+            },
+        ],
         tagsFilter: [
             [] as string[],
             {
@@ -77,12 +84,15 @@ export const accountsLogic = kea<accountsLogicType>([
         accounts: [
             EMPTY_RESULT,
             {
-                loadAccounts: async (_, breakpoint) => {
+                loadAccounts: async (_ = null, breakpoint) => {
                     await breakpoint(300)
                     const projectId = String(values.currentTeamId)
                     const params: Record<string, string | number | boolean> = {
                         limit: ACCOUNTS_PAGE_SIZE,
                         offset: (values.currentPage - 1) * ACCOUNTS_PAGE_SIZE,
+                    }
+                    if (values.searchQuery.trim()) {
+                        params.search = values.searchQuery.trim()
                     }
                     if (values.tagsFilter.length > 0) {
                         params.tags = JSON.stringify(values.tagsFilter)
@@ -117,6 +127,9 @@ export const accountsLogic = kea<accountsLogicType>([
         results: [(s) => [s.accounts], (a: AccountsLoadResult): AccountApi[] => a.results],
     }),
     listeners(({ actions }) => ({
+        setSearchQuery: () => {
+            actions.setCurrentPage(1)
+        },
         setTagsFilter: () => {
             actions.setCurrentPage(1)
         },

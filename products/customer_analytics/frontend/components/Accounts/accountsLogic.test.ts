@@ -35,6 +35,7 @@ describe('accountsLogic', () => {
     })
 
     it('starts with empty filters', () => {
+        expect(logic.values.searchQuery).toBe('')
         expect(logic.values.tagsFilter).toEqual([])
         expect(logic.values.allRolesUnassigned).toBe(false)
         expect(logic.values.csmFilter).toBeNull()
@@ -59,6 +60,33 @@ describe('accountsLogic', () => {
             tagsFilter: ['enterprise'],
             currentPage: 1,
         })
+    })
+
+    it('setSearchQuery updates the reducer and resets to page 1', async () => {
+        logic.actions.setCurrentPage(3)
+        logic.actions.setSearchQuery('acme')
+        await expectLogic(logic).toMatchValues({
+            searchQuery: 'acme',
+            currentPage: 1,
+        })
+    })
+
+    it('loadAccounts sends a trimmed search param', async () => {
+        logic.actions.setSearchQuery('  acme  ')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockAccountsList).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ search: 'acme' })
+        )
+    })
+
+    it('loadAccounts omits the search param when the query is blank', async () => {
+        logic.actions.setSearchQuery('   ')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockAccountsList).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.not.objectContaining({ search: expect.anything() })
+        )
     })
 
     it('setAllRolesUnassigned toggles the flag', () => {

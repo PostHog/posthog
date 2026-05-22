@@ -370,6 +370,10 @@ export type AccountsListParams = {
      */
     ordering?: string
     /**
+     * Case-insensitive substring search across account name and external ID.
+     */
+    search?: string
+    /**
      * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
      */
     tags?: string

@@ -95,6 +95,7 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
+                search: params.search,
                 tags: params.tags,
             },
         })

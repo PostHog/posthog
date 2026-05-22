@@ -883,6 +883,35 @@ class TestAccountViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [r["name"] for r in response.json()["results"]] == ["Banana", "Apple"]
 
+    @parameterized.expand(
+        [
+            ("name_exact", "Acme Corp", ["Acme Corp"]),
+            ("name_partial_case_insensitive", "acme", ["Acme Corp"]),
+            ("external_id_partial", "glx-9", ["Globex"]),
+            ("matches_name_or_external_id", "1", ["Acme Corp"]),
+            ("no_match", "zzzz", []),
+        ]
+    )
+    def test_list_accounts_search(self, _name, search, expected):
+        self._create_account(name="Acme Corp", external_id="acme-1")
+        self._create_account(name="Globex", external_id="glx-99")
+        response = self.client.get(f"{self.endpoint_base}?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected)
+
+    def test_list_accounts_blank_search_returns_all(self):
+        self._create_account(name="Acme Corp")
+        self._create_account(name="Globex")
+        response = self.client.get(f"{self.endpoint_base}?search=")
+        assert sorted(r["name"] for r in response.json()["results"]) == ["Acme Corp", "Globex"]
+
+    def test_list_accounts_search_respects_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._create_account(team=other_team, name="Acme Corp")
+        self._create_account(name="Acme Corp")
+        response = self.client.get(f"{self.endpoint_base}?search=acme")
+        assert len(response.json()["results"]) == 1
+
     def test_list_accounts_role_filter_respects_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._create_account(

@@ -1,5 +1,7 @@
 import json
 
+from django.db.models import Q
+
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import viewsets
 
@@ -75,6 +77,13 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
     @extend_schema(
         parameters=[
             OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring search across account name and external ID.",
+            ),
+            OpenApiParameter(
                 name="tags",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -129,6 +138,10 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.filter(team_id=self.team.id)
+
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search) | Q(external_id__icontains=search))
 
         tags_param = self.request.query_params.get("tags")
         if tags_param:

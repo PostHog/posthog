@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonInputSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 
@@ -10,9 +10,17 @@ import { tagsModel } from '~/models/tagsModel'
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 
 export function AccountsTabFilters(): JSX.Element {
-    const { tagsFilter, allRolesUnassigned, csmFilter, accountExecutiveFilter, accountOwnerFilter, accountsLoading } =
-        useValues(accountsLogic)
     const {
+        searchQuery,
+        tagsFilter,
+        allRolesUnassigned,
+        csmFilter,
+        accountExecutiveFilter,
+        accountOwnerFilter,
+        accountsLoading,
+    } = useValues(accountsLogic)
+    const {
+        setSearchQuery,
         setTagsFilter,
         setAllRolesUnassigned,
         setCsmFilter,
@@ -27,6 +35,15 @@ export function AccountsTabFilters(): JSX.Element {
 
     return (
         <div className="flex flex-wrap gap-3 items-center">
+            <LemonInput
+                type="search"
+                placeholder="Search by name or ID..."
+                value={searchQuery}
+                onChange={setSearchQuery}
+                size="small"
+                className="min-w-64"
+                data-attr="accounts-search"
+            />
             <LemonDropdown
                 closeOnClickInside={false}
                 overlay={

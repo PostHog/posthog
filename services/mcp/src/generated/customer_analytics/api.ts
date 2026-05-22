@@ -33,6 +33,7 @@ export const AccountsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe("Sort order. Defaults to '-created_at'."),
+    search: zod.string().optional().describe('Case-insensitive substring search across account name and external ID.'),
     tags: zod
         .string()
         .optional()
