@@ -591,14 +591,18 @@ class PersonalSpendViewSet(viewsets.ViewSet):
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [permissions.IsAuthenticated, APIScopePermission]
-    # Not project- or org-nested; the caller's identity is the only scope. INTERNAL
-    # opts out of team/org scope enforcement in APIScopePermission. The required
-    # scope on the wire is still `llm_analytics:read`, supplied below so the MCP
-    # tool's scope declaration stays accurate.
+    # Identity-scoped: the caller reads their own spend, not data nested under
+    # a team or project. `scope_object = "INTERNAL"` + `dangerously_skip_scoped_team_enforcement`
+    # opt out of team/org enforcement in APIScopePermission — valid here because
+    # this viewset filters strictly by the authenticated user's email (see
+    # `_email_filter` in `list` below). The required scope is overridden to the
+    # purpose-built `personal_spend:read` — narrower than the broad `user:read`
+    # cluster — and the frontend (scopes.tsx) marks its `:write` as disabled.
     scope_object = "INTERNAL"
+    dangerously_skip_scoped_team_enforcement = True
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
-        return ["llm_analytics:read"]
+        return ["personal_spend:read"]
 
     def get_throttles(self):
         return [
