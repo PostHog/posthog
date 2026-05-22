@@ -71,7 +71,6 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
     serializer_class = AccountSerializer
     bulk_update_tags = None  # Mixin action assumes integer PKs; Account uses UUIDs.
 
-    ROLE_FILTER_FIELDS = ("csm", "account_executive", "account_owner")
     ALLOWED_ORDERING = frozenset({"name", "-name", "created_at", "-created_at", "updated_at", "-updated_at"})
 
     @extend_schema(
@@ -162,21 +161,32 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
                 _properties__account_owner__id__isnull=True,
             )
 
-        for role_field in self.ROLE_FILTER_FIELDS:
-            value = self.request.query_params.get(role_field)
-            if not value:
-                continue
-            if value == "unassigned":
-                # nosemgrep: orm-field-injection -- role_field from hardcoded ROLE_FILTER_FIELDS; _properties is a JSONField so __ is JSON key traversal
-                queryset = queryset.filter(**{f"_properties__{role_field}__id__isnull": True})
-            else:
-                try:
-                    user_id = int(value)
-                except ValueError:
-                    continue
-                # nosemgrep: orm-field-injection -- role_field from hardcoded ROLE_FILTER_FIELDS; _properties is a JSONField so __ is JSON key traversal
-                # nosemgrep: no-request-param-orm-filter -- user_id is validated as int; role_field is from a hardcoded allowlist
-                queryset = queryset.filter(**{f"_properties__{role_field}__id": user_id})
+        csm_value = self.request.query_params.get("csm")
+        if csm_value == "unassigned":
+            queryset = queryset.filter(_properties__csm__id__isnull=True)
+        elif csm_value:
+            try:
+                queryset = queryset.filter(_properties__csm__id=int(csm_value))
+            except ValueError:
+                pass
+
+        ae_value = self.request.query_params.get("account_executive")
+        if ae_value == "unassigned":
+            queryset = queryset.filter(_properties__account_executive__id__isnull=True)
+        elif ae_value:
+            try:
+                queryset = queryset.filter(_properties__account_executive__id=int(ae_value))
+            except ValueError:
+                pass
+
+        owner_value = self.request.query_params.get("account_owner")
+        if owner_value == "unassigned":
+            queryset = queryset.filter(_properties__account_owner__id__isnull=True)
+        elif owner_value:
+            try:
+                queryset = queryset.filter(_properties__account_owner__id=int(owner_value))
+            except ValueError:
+                pass
 
         ordering = self.request.query_params.get("ordering")
         if ordering in self.ALLOWED_ORDERING:
