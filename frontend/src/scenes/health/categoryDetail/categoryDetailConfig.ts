@@ -42,10 +42,10 @@ export const CATEGORY_DETAIL_CONFIG: Partial<Record<HealthIssueCategory, Categor
     },
     pipelines: {
         docsUrl: 'https://posthog.com/docs/cdp',
-        deepDiveUrl: urls.pipelineStatus(),
-        deepDiveLabel: 'Open pipeline status',
+        deepDiveUrl: urls.sources(),
+        deepDiveLabel: 'Open sources',
         guidance: 'Pipeline failures mean data may not be flowing to your destinations correctly.',
-        redirectUrl: urls.pipelineStatus(),
+        redirectUrl: urls.sources(),
         tableComponent: PipelineHealthTable,
     },
     data_modeling: {

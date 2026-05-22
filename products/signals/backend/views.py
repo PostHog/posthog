@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import (
     BooleanField,
     Case,
@@ -43,13 +43,15 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.models import Team
+from posthog.models import Team, User
+from posthog.models.integration import Integration
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
+from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.signals.backend.api import emit_signal
+from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
@@ -71,6 +73,7 @@ from products.signals.backend.serializers import (
     SignalReportTaskSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
+    SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
 )
 from products.signals.backend.temporal.backfill_error_tracking import (
@@ -90,6 +93,7 @@ from products.signals.backend.temporal.types import (
     SignalReportReingestionWorkflowInputs,
 )
 from products.tasks.backend.models import TaskRun
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 
@@ -567,30 +571,6 @@ class SignalReportViewSet(
         )
         return queryset.annotate(implementation_pr_url=latest_impl_pr_url)
 
-    def _fetch_implementation_pr_urls_for_reports(self, report_ids: list[str]) -> dict[str, str]:
-        if not report_ids:
-            return {}
-
-        # Batch this after pagination so the hot list queryset avoids a per-row correlated TaskRun subquery.
-        latest_runs = (
-            TaskRun.objects.filter(
-                task__signal_report_tasks__report_id__in=report_ids,
-                task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
-                output__pr_url__isnull=False,
-            )
-            .exclude(output__pr_url="")
-            .order_by("task__signal_report_tasks__report_id", "-created_at", "-id")
-            .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
-            .values("task__signal_report_tasks__report_id", "output_pr_url_text")
-            .distinct("task__signal_report_tasks__report_id")
-        )
-
-        return {
-            str(row["task__signal_report_tasks__report_id"]): row["output_pr_url_text"]
-            for row in latest_runs
-            if row["task__signal_report_tasks__report_id"] and row["output_pr_url_text"]
-        }
-
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
         return self._apply_signal_report_ordering(queryset)
@@ -694,7 +674,7 @@ class SignalReportViewSet(
 
         report_ids = [str(r.id) for r in reports]
         source_products_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
-        implementation_pr_url_map = self._fetch_implementation_pr_urls_for_reports(report_ids)
+        implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
 
         context = {
             **self.get_serializer_context(),
@@ -799,13 +779,23 @@ class SignalReportViewSet(
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
         return Response({"report": report_data, "signals": signals_list})
 
+    # The set of allowed reason codes is owned by PostHog Code (the calling UI),
+    # not validated here -- we just persist whatever the client sends.
+    DISMISSAL_NOTE_MAX_LENGTH = 4000
+
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="state", required_scopes=["task:write"])
     def state(self, request, pk=None, **kwargs):
         """
         Transition a report to a new state. The model validates allowed transitions.
 
-        Body: { "state": "suppressed" | "potential", ...kwargs passed to transition_to }
+        Body: {
+            "state": "suppressed" | "potential",
+            # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
+            "dismissal_reason": "<any string code, owned by the caller>",
+            "dismissal_note": "free-form text",
+            ...other kwargs passed to transition_to
+        }
         """
         report = cast(SignalReport, self.get_object())
 
@@ -816,7 +806,31 @@ class SignalReportViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        transition_kwargs = {k: v for k, v in request.data.items() if k != "state"}
+        # Pull dismissal fields out before passing the rest to transition_to.
+        dismissal_reason = request.data.get("dismissal_reason")
+        dismissal_note = request.data.get("dismissal_note")
+        transition_kwargs = {
+            k: v for k, v in request.data.items() if k not in ("state", "dismissal_reason", "dismissal_note")
+        }
+
+        if dismissal_reason is not None and not isinstance(dismissal_reason, str):
+            return Response(
+                {"error": "dismissal_reason must be a string."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if dismissal_note is not None:
+            if not isinstance(dismissal_note, str):
+                return Response(
+                    {"error": "dismissal_note must be a string."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if len(dismissal_note) > self.DISMISSAL_NOTE_MAX_LENGTH:
+                return Response(
+                    {"error": f"dismissal_note must be at most {self.DISMISSAL_NOTE_MAX_LENGTH} characters."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         try:
             updated_fields = report.transition_to(SignalReport.Status(target), **transition_kwargs)
         except InvalidStatusTransition as e:
@@ -832,20 +846,35 @@ class SignalReportViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        report.save(update_fields=updated_fields)
+        with transaction.atomic():
+            report.save(update_fields=updated_fields)
+
+            # Persist the dismissal feedback as its own artefact so it survives status changes
+            # and so multiple dismissals (with different rationales) can stack over time.
+            # Captured for both suppress and snooze (transition to potential) flows.
+            if target in ("suppressed", "potential") and (dismissal_reason or dismissal_note):
+                user = request.user
+                artefact_content = {
+                    "reason": dismissal_reason,
+                    "note": dismissal_note,
+                    "user_id": getattr(user, "id", None) if getattr(user, "is_authenticated", False) else None,
+                    "user_uuid": str(user.uuid)
+                    if getattr(user, "is_authenticated", False) and getattr(user, "uuid", None)
+                    else None,
+                }
+                SignalReportArtefact.objects.create(
+                    team=self.team,
+                    report=report,
+                    type=SignalReportArtefact.ArtefactType.DISMISSAL,
+                    content=json.dumps(artefact_content),
+                )
 
         return Response(SignalReportSerializer(report, context=self.get_serializer_context()).data)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])
     def reingest(self, request, pk=None, **kwargs):
-        """Re-ingest a report's signals. Staff-only."""
-        if not request.user.is_staff:
-            return Response(
-                {"error": "Only staff users can reingest reports."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        """Re-ingest a report's signals (same team access as other report actions)."""
         report = cast(SignalReport, self.get_object())
         report_id = str(report.id)
         team_id = self.team.id
@@ -911,7 +940,6 @@ class SignalUserAutonomyConfigView(APIView):
             return request.user
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff can access other users' autonomy config.")
-        from posthog.models import User
 
         try:
             return User.objects.get(pk=user_id)
@@ -928,14 +956,43 @@ class SignalUserAutonomyConfigView(APIView):
 
     @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})
     def post(self, request, user_id, **kwargs):
-        from products.signals.backend.serializers import SignalUserAutonomyConfigCreateSerializer
-
         user = self._resolve_user(request, user_id)
         serializer = SignalUserAutonomyConfigCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+        # Partial update: only touch fields the client explicitly sent. This lets the
+        # auto-start setting and the Slack notification settings be edited
+        # independently from separate UI surfaces without one wiping the other.
+        defaults: dict = {}
+        if "autostart_priority" in serializer.initial_data:
+            defaults["autostart_priority"] = validated.get("autostart_priority")
+        if "slack_notification_min_priority" in serializer.initial_data:
+            defaults["slack_notification_min_priority"] = validated.get("slack_notification_min_priority")
+        if "slack_notification_channel" in serializer.initial_data:
+            defaults["slack_notification_channel"] = validated.get("slack_notification_channel") or None
+        if "slack_notification_integration_id" in serializer.initial_data:
+            integration_id = validated.get("slack_notification_integration_id")
+            integration = None
+            if integration_id is not None:
+                current_team_id = request.user.current_team_id
+                if current_team_id is None or current_team_id not in UserPermissions(user).team_ids_visible_for_user:
+                    raise serializers.ValidationError(
+                        {"slack_notification_integration_id": "Unknown Slack integration for this user."}
+                    )
+                candidate = Integration.objects.filter(
+                    pk=integration_id,
+                    kind="slack",
+                    team_id=current_team_id,
+                ).first()
+                if candidate is None:
+                    raise serializers.ValidationError(
+                        {"slack_notification_integration_id": "Unknown Slack integration for this user."}
+                    )
+                integration = candidate
+            defaults["slack_notification_integration"] = integration
         config, _created = SignalUserAutonomyConfig.objects.update_or_create(
             user=user,
-            defaults={"autostart_priority": serializer.validated_data.get("autostart_priority")},
+            defaults=defaults,
         )
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 

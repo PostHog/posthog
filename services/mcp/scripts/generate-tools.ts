@@ -792,7 +792,15 @@ function generateToolCode(
         }
     }
 
-    const schemaDecl = `const ${schemaName} = ${composition.schemaExpr}`
+    let schemaExpr = composition.schemaExpr
+    if (config.validators && config.validators.length > 0) {
+        for (const fn of config.validators) {
+            schemaExpr = `(${schemaExpr}).superRefine(${fn})`
+            composition.toolInputsImports.push(fn)
+        }
+    }
+
+    const schemaDecl = `const ${schemaName} = ${schemaExpr}`
 
     const localVarParams = new Set(Object.keys(composition.paramFallbacks))
     const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.', localVarParams)
@@ -1016,8 +1024,17 @@ function generateCustomSchemaToolCode(
 
     const mcpVersionLine = config.mcp_version !== undefined ? `\n    mcpVersion: ${config.mcp_version},` : ''
 
+    let baseSchemaExpr = config.input_schema as string
+    const toolInputsImports: string[] = config.input_schema ? [config.input_schema] : []
+    if (config.validators && config.validators.length > 0) {
+        for (const fn of config.validators) {
+            baseSchemaExpr = `(${baseSchemaExpr}).superRefine(${fn})`
+            toolInputsImports.push(fn)
+        }
+    }
+
     const code = `
-const ${schemaName} = ${config.input_schema}
+const ${schemaName} = ${baseSchemaExpr}
 
 const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${responseType ?? 'unknown'}> => ({
     name: '${toolName}',
@@ -1030,7 +1047,7 @@ ${handlerBody}    },
     return {
         code,
         orvalImports: [],
-        toolInputsImports: config.input_schema ? [config.input_schema] : [],
+        toolInputsImports,
         castHelperImports: new Set(),
         schemaRefBlocks: [],
         responseType,

@@ -11,7 +11,7 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
-// LLM Analytics
+// AI observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
@@ -35,6 +35,8 @@ import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
 import hogqlSchema from './query/schema'
 import queryValidate from './query/validate'
+// Replay
+import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Search
 import entitySearch from './search/entitySearch'
 // Misc
@@ -71,7 +73,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'query-validate': queryValidate,
     'hogql-schema': hogqlSchema,
 
-    // LLM Analytics
+    // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,
 
     // Search
@@ -87,6 +89,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'execute-sql': executeSql,
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,
+
+    // Replay
+    'session-recording-summarize': sessionRecordingSummarize,
 
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,

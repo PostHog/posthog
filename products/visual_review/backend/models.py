@@ -29,6 +29,7 @@ class Repo(ProductTeamModel):
     repo_full_name is kept for API calls and display, auto-updated on rename detection.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # GitHub identity: numeric ID is stable, full_name is for API calls + display
@@ -85,6 +86,7 @@ class Artifact(ProductTeamModel):
     Same hash = same artifact. Deduplicated across all runs in a repo.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="artifacts")
 
@@ -115,6 +117,7 @@ class Run(ProductTeamModel):
     Created when CI posts a manifest. Tracks status through diff processing.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="runs")
 
@@ -193,6 +196,7 @@ class RunSnapshot(ProductTeamModel):
     Links current captured image to baseline. Stores diff results.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="snapshots")
 
@@ -310,6 +314,7 @@ class ToleratedHash(ProductTeamModel):
     baseline_hash no longer matches.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="tolerated_hashes")
 
@@ -361,6 +366,7 @@ class QuarantinedIdentifier(ProductTeamModel):
     runs remain stable even if quarantine policy changes later.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="quarantined_identifiers")
 
@@ -375,6 +381,18 @@ class QuarantinedIdentifier(ProductTeamModel):
 
     expires_at = models.DateTimeField(null=True, blank=True)
     created_by_id = models.BigIntegerField(null=True, blank=True)
+    # The run whose failing snapshot prompted the quarantine. Nullable because
+    # quarantines can also be created from the snapshot history page where no
+    # specific failing run is in context, and entries pre-dating this column
+    # have no source. SET_NULL so a deleted/archived Run doesn't cascade-drop
+    # the quarantine — the audit trail (reason, who, when) still matters.
+    source_run = models.ForeignKey(
+        Run,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="originated_quarantines",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

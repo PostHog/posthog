@@ -72,14 +72,14 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * Check whether the authenticated user has access to PostHog Code.
- * @summary Check access
- */
 export const getCodeInvitesCheckAccessRetrieveUrl = () => {
     return `/api/code/invites/check-access/`
 }
 
+/**
+ * Check whether the authenticated user has access to PostHog Code.
+ * @summary Check access
+ */
 export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getCodeInvitesCheckAccessRetrieveUrl(), {
         ...options,
@@ -87,14 +87,14 @@ export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Pro
     })
 }
 
-/**
- * Redeem a PostHog Code invite code to enable access.
- * @summary Redeem invite code
- */
 export const getCodeInvitesRedeemCreateUrl = () => {
     return `/api/code/invites/redeem/`
 }
 
+/**
+ * Redeem a PostHog Code invite code to enable access.
+ * @summary Redeem invite code
+ */
 export const codeInvitesRedeemCreate = async (
     codeInviteRedeemRequestApi: CodeInviteRedeemRequestApi,
     options?: RequestInit
@@ -107,9 +107,6 @@ export const codeInvitesRedeemCreate = async (
     })
 }
 
-/**
- * API for managing sandbox environments that control network access for task runs.
- */
 export const getSandboxListUrl = (projectId: string, params?: SandboxListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -126,6 +123,9 @@ export const getSandboxListUrl = (projectId: string, params?: SandboxListParams)
         : `/api/projects/${projectId}/sandbox_environments/`
 }
 
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
 export const sandboxList = async (
     projectId: string,
     params?: SandboxListParams,
@@ -137,13 +137,13 @@ export const sandboxList = async (
     })
 }
 
-/**
- * API for managing sandbox environments that control network access for task runs.
- */
 export const getSandboxCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/sandbox_environments/`
 }
 
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
 export const sandboxCreate = async (
     projectId: string,
     sandboxEnvironmentApi: NonReadonly<SandboxEnvironmentApi>,
@@ -201,10 +201,6 @@ export const taskAutomationsCreate = async (
     })
 }
 
-/**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
- * @summary List tasks
- */
 export const getTasksListUrl = (projectId: string, params?: TasksListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -221,6 +217,10 @@ export const getTasksListUrl = (projectId: string, params?: TasksListParams) => 
         : `/api/projects/${projectId}/tasks/`
 }
 
+/**
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
+ * @summary List tasks
+ */
 export const tasksList = async (
     projectId: string,
     params?: TasksListParams,
@@ -232,16 +232,16 @@ export const tasksList = async (
     })
 }
 
-/**
- * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
- */
 export const getTasksCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tasks/`
 }
 
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
 export const tasksCreate = async (
     projectId: string,
-    taskApi: NonReadonly<TaskApi>,
+    taskApi?: NonReadonly<TaskApi>,
     options?: RequestInit
 ): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksCreateUrl(projectId), {
@@ -252,13 +252,13 @@ export const tasksCreate = async (
     })
 }
 
-/**
- * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
- */
 export const getTasksRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/`
 }
 
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
 export const tasksRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksRetrieveUrl(projectId, id), {
         ...options,
@@ -266,17 +266,17 @@ export const tasksRetrieve = async (projectId: string, id: string, options?: Req
     })
 }
 
-/**
- * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
- */
 export const getTasksUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/`
 }
 
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
 export const tasksUpdate = async (
     projectId: string,
     id: string,
-    taskApi: NonReadonly<TaskApi>,
+    taskApi?: NonReadonly<TaskApi>,
     options?: RequestInit
 ): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksUpdateUrl(projectId, id), {
@@ -287,17 +287,17 @@ export const tasksUpdate = async (
     })
 }
 
-/**
- * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
- */
 export const getTasksPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/`
 }
 
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
 export const tasksPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedTaskApi: NonReadonly<PatchedTaskApi>,
+    patchedTaskApi?: NonReadonly<PatchedTaskApi>,
     options?: RequestInit
 ): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksPartialUpdateUrl(projectId, id), {
@@ -308,13 +308,13 @@ export const tasksPartialUpdate = async (
     })
 }
 
-/**
- * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
- */
 export const getTasksDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/`
 }
 
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
 export const tasksDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getTasksDestroyUrl(projectId, id), {
         ...options,
@@ -322,18 +322,18 @@ export const tasksDestroy = async (projectId: string, id: string, options?: Requ
     })
 }
 
-/**
- * Create a new task run and kick off the workflow.
- * @summary Run task
- */
 export const getTasksRunCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/run/`
 }
 
+/**
+ * Create a new task run and kick off the workflow.
+ * @summary Run task
+ */
 export const tasksRunCreate = async (
     projectId: string,
     id: string,
-    taskRunCreateRequestSchemaApi: TaskRunCreateRequestSchemaApi,
+    taskRunCreateRequestSchemaApi?: TaskRunCreateRequestSchemaApi,
     options?: RequestInit
 ): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksRunCreateUrl(projectId, id), {
@@ -344,14 +344,14 @@ export const tasksRunCreate = async (
     })
 }
 
-/**
- * Verify staged S3 uploads and cache their metadata so they can be attached to the next run created for this task.
- * @summary Finalize staged direct uploads for task attachments
- */
 export const getTasksStagedArtifactsFinalizeUploadCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/staged_artifacts/finalize_upload/`
 }
 
+/**
+ * Verify staged S3 uploads and cache their metadata so they can be attached to the next run created for this task.
+ * @summary Finalize staged direct uploads for task attachments
+ */
 export const tasksStagedArtifactsFinalizeUploadCreate = async (
     projectId: string,
     id: string,
@@ -369,14 +369,14 @@ export const tasksStagedArtifactsFinalizeUploadCreate = async (
     )
 }
 
-/**
- * Reserve S3 object keys for task attachments before creating a new run and return presigned POST forms for direct uploads.
- * @summary Prepare staged direct uploads for task attachments
- */
 export const getTasksStagedArtifactsPrepareUploadCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/staged_artifacts/prepare_upload/`
 }
 
+/**
+ * Reserve S3 object keys for task attachments before creating a new run and return presigned POST forms for direct uploads.
+ * @summary Prepare staged direct uploads for task attachments
+ */
 export const tasksStagedArtifactsPrepareUploadCreate = async (
     projectId: string,
     id: string,
@@ -394,10 +394,6 @@ export const tasksStagedArtifactsPrepareUploadCreate = async (
     )
 }
 
-/**
- * Get a list of runs for a specific task.
- * @summary List task runs
- */
 export const getTasksRunsListUrl = (projectId: string, taskId: string, params?: TasksRunsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -414,6 +410,10 @@ export const getTasksRunsListUrl = (projectId: string, taskId: string, params?: 
         : `/api/projects/${projectId}/tasks/${taskId}/runs/`
 }
 
+/**
+ * Get a list of runs for a specific task.
+ * @summary List task runs
+ */
 export const tasksRunsList = async (
     projectId: string,
     taskId: string,
@@ -426,18 +426,18 @@ export const tasksRunsList = async (
     })
 }
 
-/**
- * Create a new run for a specific task without starting execution.
- * @summary Create task run
- */
 export const getTasksRunsCreateUrl = (projectId: string, taskId: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/`
 }
 
+/**
+ * Create a new run for a specific task without starting execution.
+ * @summary Create task run
+ */
 export const tasksRunsCreate = async (
     projectId: string,
     taskId: string,
-    taskRunBootstrapCreateRequestApi: TaskRunBootstrapCreateRequestApi,
+    taskRunBootstrapCreateRequestApi?: TaskRunBootstrapCreateRequestApi,
     options?: RequestInit
 ): Promise<TaskRunDetailApi> => {
     return apiMutator<TaskRunDetailApi>(getTasksRunsCreateUrl(projectId, taskId), {
@@ -448,13 +448,13 @@ export const tasksRunsCreate = async (
     })
 }
 
-/**
- * API for managing task runs. Each run represents an execution of a task.
- */
 export const getTasksRunsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/`
 }
 
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ */
 export const tasksRunsRetrieve = async (
     projectId: string,
     taskId: string,
@@ -467,19 +467,19 @@ export const tasksRunsRetrieve = async (
     })
 }
 
-/**
- * API for managing task runs. Each run represents an execution of a task.
- * @summary Update task run
- */
 export const getTasksRunsPartialUpdateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/`
 }
 
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Update task run
+ */
 export const tasksRunsPartialUpdate = async (
     projectId: string,
     taskId: string,
     id: string,
-    patchedTaskRunUpdateApi: PatchedTaskRunUpdateApi,
+    patchedTaskRunUpdateApi?: PatchedTaskRunUpdateApi,
     options?: RequestInit
 ): Promise<TaskRunDetailApi> => {
     return apiMutator<TaskRunDetailApi>(getTasksRunsPartialUpdateUrl(projectId, taskId, id), {
@@ -490,14 +490,14 @@ export const tasksRunsPartialUpdate = async (
     })
 }
 
-/**
- * Append one or more log entries to the task run log array
- * @summary Append log entries
- */
 export const getTasksRunsAppendLogCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/append_log/`
 }
 
+/**
+ * Append one or more log entries to the task run log array
+ * @summary Append log entries
+ */
 export const tasksRunsAppendLogCreate = async (
     projectId: string,
     taskId: string,
@@ -513,14 +513,14 @@ export const tasksRunsAppendLogCreate = async (
     })
 }
 
-/**
- * Persist task artifacts to S3 and attach them to the run manifest.
- * @summary Upload artifacts for a task run
- */
 export const getTasksRunsArtifactsCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/`
 }
 
+/**
+ * Persist task artifacts to S3 and attach them to the run manifest.
+ * @summary Upload artifacts for a task run
+ */
 export const tasksRunsArtifactsCreate = async (
     projectId: string,
     taskId: string,
@@ -536,14 +536,14 @@ export const tasksRunsArtifactsCreate = async (
     })
 }
 
-/**
- * Streams artifact content for a task run artifact after validating that it belongs to the run.
- * @summary Download an artifact through the backend
- */
 export const getTasksRunsArtifactsDownloadCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/download/`
 }
 
+/**
+ * Streams artifact content for a task run artifact after validating that it belongs to the run.
+ * @summary Download an artifact through the backend
+ */
 export const tasksRunsArtifactsDownloadCreate = async (
     projectId: string,
     taskId: string,
@@ -559,14 +559,14 @@ export const tasksRunsArtifactsDownloadCreate = async (
     })
 }
 
-/**
- * Verify directly uploaded S3 objects and attach them to the run artifact manifest.
- * @summary Finalize direct uploads for task run artifacts
- */
 export const getTasksRunsArtifactsFinalizeUploadCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/finalize_upload/`
 }
 
+/**
+ * Verify directly uploaded S3 objects and attach them to the run artifact manifest.
+ * @summary Finalize direct uploads for task run artifacts
+ */
 export const tasksRunsArtifactsFinalizeUploadCreate = async (
     projectId: string,
     taskId: string,
@@ -585,14 +585,14 @@ export const tasksRunsArtifactsFinalizeUploadCreate = async (
     )
 }
 
-/**
- * Reserve S3 object keys for task artifacts and return presigned POST forms for direct uploads.
- * @summary Prepare direct uploads for task run artifacts
- */
 export const getTasksRunsArtifactsPrepareUploadCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/prepare_upload/`
 }
 
+/**
+ * Reserve S3 object keys for task artifacts and return presigned POST forms for direct uploads.
+ * @summary Prepare direct uploads for task run artifacts
+ */
 export const tasksRunsArtifactsPrepareUploadCreate = async (
     projectId: string,
     taskId: string,
@@ -611,14 +611,14 @@ export const tasksRunsArtifactsPrepareUploadCreate = async (
     )
 }
 
-/**
- * Returns a temporary, signed URL that can be used to download a specific artifact.
- * @summary Generate presigned URL for an artifact
- */
 export const getTasksRunsArtifactsPresignCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/presign/`
 }
 
+/**
+ * Returns a temporary, signed URL that can be used to download a specific artifact.
+ * @summary Generate presigned URL for an artifact
+ */
 export const tasksRunsArtifactsPresignCreate = async (
     projectId: string,
     taskId: string,
@@ -634,14 +634,14 @@ export const tasksRunsArtifactsPresignCreate = async (
     })
 }
 
-/**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
- * @summary Send command to task run
- */
 export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/command/`
 }
 
+/**
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
+ * @summary Send command to task run
+ */
 export const tasksRunsCommandCreate = async (
     projectId: string,
     taskId: string,
@@ -657,14 +657,14 @@ export const tasksRunsCommandCreate = async (
     })
 }
 
-/**
- * Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.
- * @summary Get sandbox connection token
- */
 export const getTasksRunsConnectionTokenRetrieveUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/connection_token/`
 }
 
+/**
+ * Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.
+ * @summary Get sandbox connection token
+ */
 export const tasksRunsConnectionTokenRetrieve = async (
     projectId: string,
     taskId: string,
@@ -677,14 +677,14 @@ export const tasksRunsConnectionTokenRetrieve = async (
     })
 }
 
-/**
- * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
- * @summary Relay run message to Slack
- */
 export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/relay_message/`
 }
 
+/**
+ * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
+ * @summary Relay run message to Slack
+ */
 export const tasksRunsRelayMessageCreate = async (
     projectId: string,
     taskId: string,
@@ -700,14 +700,14 @@ export const tasksRunsRelayMessageCreate = async (
     })
 }
 
-/**
- * Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.
- * @summary Resume task run in cloud
- */
 export const getTasksRunsResumeInCloudCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/resume_in_cloud/`
 }
 
+/**
+ * Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.
+ * @summary Resume task run in cloud
+ */
 export const tasksRunsResumeInCloudCreate = async (
     projectId: string,
     taskId: string,
@@ -720,10 +720,6 @@ export const tasksRunsResumeInCloudCreate = async (
     })
 }
 
-/**
- * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
- * @summary Get filtered task run session logs
- */
 export const getTasksRunsSessionLogsRetrieveUrl = (
     projectId: string,
     taskId: string,
@@ -745,6 +741,10 @@ export const getTasksRunsSessionLogsRetrieveUrl = (
         : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/`
 }
 
+/**
+ * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
+ * @summary Get filtered task run session logs
+ */
 export const tasksRunsSessionLogsRetrieve = async (
     projectId: string,
     taskId: string,
@@ -758,19 +758,19 @@ export const tasksRunsSessionLogsRetrieve = async (
     })
 }
 
-/**
- * Update the output field for a task run (e.g., PR URL, commit SHA, etc.)
- * @summary Set run output
- */
 export const getTasksRunsSetOutputPartialUpdateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/set_output/`
 }
 
+/**
+ * Update the output field for a task run (e.g., PR URL, commit SHA, etc.)
+ * @summary Set run output
+ */
 export const tasksRunsSetOutputPartialUpdate = async (
     projectId: string,
     taskId: string,
     id: string,
-    patchedTaskRunSetOutputRequestApi: PatchedTaskRunSetOutputRequestApi,
+    patchedTaskRunSetOutputRequestApi?: PatchedTaskRunSetOutputRequestApi,
     options?: RequestInit
 ): Promise<TaskRunDetailApi> => {
     return apiMutator<TaskRunDetailApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
@@ -781,19 +781,19 @@ export const tasksRunsSetOutputPartialUpdate = async (
     })
 }
 
-/**
- * Start an existing cloud run after any initial run-scoped attachments have been uploaded.
- * @summary Start task run
- */
 export const getTasksRunsStartCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/start/`
 }
 
+/**
+ * Start an existing cloud run after any initial run-scoped attachments have been uploaded.
+ * @summary Start task run
+ */
 export const tasksRunsStartCreate = async (
     projectId: string,
     taskId: string,
     id: string,
-    taskRunStartRequestApi: TaskRunStartRequestApi,
+    taskRunStartRequestApi?: TaskRunStartRequestApi,
     options?: RequestInit
 ): Promise<TaskApi> => {
     return apiMutator<TaskApi>(getTasksRunsStartCreateUrl(projectId, taskId, id), {
@@ -804,13 +804,13 @@ export const tasksRunsStartCreate = async (
     })
 }
 
-/**
- * API for managing task runs. Each run represents an execution of a task.
- */
 export const getTasksRunsStreamRetrieveUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stream/`
 }
 
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ */
 export const tasksRunsStreamRetrieve = async (
     projectId: string,
     taskId: string,
@@ -823,14 +823,14 @@ export const tasksRunsStreamRetrieve = async (
     })
 }
 
-/**
- * Return the set of repositories referenced by non-deleted, non-internal tasks in the current project. Used to populate repository filter pickers without being constrained by task list pagination.
- * @summary List distinct task repositories
- */
 export const getTasksRepositoriesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tasks/repositories/`
 }
 
+/**
+ * Return the set of repositories referenced by non-deleted, non-internal tasks in the current project. Used to populate repository filter pickers without being constrained by task list pagination.
+ * @summary List distinct task repositories
+ */
 export const tasksRepositoriesRetrieve = async (
     projectId: string,
     options?: RequestInit
@@ -841,10 +841,6 @@ export const tasksRepositoriesRetrieve = async (
     })
 }
 
-/**
- * Get autonomy readiness details for a specific repository in the current project.
- * @summary Get repository readiness
- */
 export const getTasksRepositoryReadinessRetrieveUrl = (
     projectId: string,
     params: TasksRepositoryReadinessRetrieveParams
@@ -864,6 +860,10 @@ export const getTasksRepositoryReadinessRetrieveUrl = (
         : `/api/projects/${projectId}/tasks/repository_readiness/`
 }
 
+/**
+ * Get autonomy readiness details for a specific repository in the current project.
+ * @summary Get repository readiness
+ */
 export const tasksRepositoryReadinessRetrieve = async (
     projectId: string,
     params: TasksRepositoryReadinessRetrieveParams,
@@ -875,10 +875,6 @@ export const tasksRepositoryReadinessRetrieve = async (
     })
 }
 
-/**
- * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
- * @summary Fetch task summaries by ID
- */
 export const getTasksSummariesCreateUrl = (projectId: string, params?: TasksSummariesCreateParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -895,6 +891,10 @@ export const getTasksSummariesCreateUrl = (projectId: string, params?: TasksSumm
         : `/api/projects/${projectId}/tasks/summaries/`
 }
 
+/**
+ * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
+ * @summary Fetch task summaries by ID
+ */
 export const tasksSummariesCreate = async (
     projectId: string,
     taskSummariesRequestApi: TaskSummariesRequestApi,

@@ -15,16 +15,16 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_col
 from posthog.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
-from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 if TYPE_CHECKING:
     from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
     from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 LOGGER = get_logger(__name__)
 
@@ -370,6 +370,7 @@ async def run_post_load_operations(
                     row_count=row_count,
                     queryable_folder=queryable_folder,
                     table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                    primary_keys=resource.primary_keys if resource is not None else None,
                 )
             logger.debug("Finished validating schema and updating table")
 

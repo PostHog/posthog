@@ -17,6 +17,7 @@ from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -69,8 +70,9 @@ def _capture_report_event(
             properties=properties,
             groups=groups(organization, team),
         )
-    except Exception:
+    except Exception as e:
         # Swallow the exception, to avoid breaking the flow over failed analytics event
+        posthoganalytics.capture_exception(e)
         logger.exception(
             "Failed to capture signal report event",
             event=event,
@@ -112,6 +114,13 @@ class SignalReportSummaryWorkflow:
 
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("team_id", inputs.team_id)
+            posthoganalytics.tag("report_id", inputs.report_id)
+            posthoganalytics.tag("product", "signals")
+            await self._run_impl(inputs)
+
+    async def _run_impl(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
         # structlog renderer skips producing when team_id isn't in the event dict).
         log = logger.bind(team_id=inputs.team_id, report_id=inputs.report_id)
@@ -318,6 +327,24 @@ class SignalReportSummaryWorkflow:
                     workflow.logger.exception(
                         f"Failed to publish report_completed notification for {inputs.report_id}",
                     )
+                # Slack notifications to suggested reviewers — separate from the Kafka
+                # publish above so a Slack outage doesn't suppress the inbox event,
+                # and a Kafka outage doesn't suppress Slack delivery.
+                try:
+                    await workflow.execute_activity(
+                        dispatch_inbox_slack_notifications_activity,
+                        DispatchInboxSlackNotificationsInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            source_products=source_products,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception:
+                    workflow.logger.exception(
+                        f"Failed to dispatch inbox Slack notifications for {inputs.report_id}",
+                    )
             return has_new_signals
         except Exception as e:
             await workflow.execute_activity(
@@ -345,6 +372,7 @@ class MarkReportInProgressInput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> None:
     """Mark a report as in_progress and advance signals_at_run by 3.
 
@@ -397,6 +425,7 @@ class MarkReportReadyInput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
     """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
@@ -453,6 +482,7 @@ class MarkReportFailedInput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     """Mark a report as failed and store the error message."""
     try:
@@ -503,6 +533,7 @@ class MarkReportPendingInput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> None:
     """Mark a report as pending human input, storing the draft title/summary for human review."""
     try:
@@ -552,6 +583,7 @@ class ResetReportToPotentialInput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def reset_report_to_potential_activity(input: ResetReportToPotentialInput) -> None:
     """Reset a report's weight to 0 and status to potential (e.g. when deemed not actionable)."""
     try:
@@ -590,6 +622,33 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
 
 
 @dataclass
+class DispatchInboxSlackNotificationsInput:
+    team_id: int
+    report_id: str
+    source_products: list[str] = field(default_factory=list)
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def dispatch_inbox_slack_notifications_activity(
+    input: DispatchInboxSlackNotificationsInput,
+) -> int:
+    """Send Slack notifications for a newly-READY report to suggested reviewers
+    who have configured Slack notifications in their signal autonomy config.
+
+    Returns the number of messages dispatched (informational; failures are
+    swallowed inside the dispatcher and logged).
+    """
+    from products.signals.backend.slack_inbox_notifications import dispatch_inbox_item_notifications
+
+    return await database_sync_to_async(dispatch_inbox_item_notifications, thread_sensitive=False)(
+        report_id=input.report_id,
+        team_id=input.team_id,
+        source_products=input.source_products,
+    )
+
+
+@dataclass
 class PublishReportCompletedInput:
     team_id: int
     report_id: str
@@ -597,6 +656,7 @@ class PublishReportCompletedInput:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def publish_report_completed_activity(input: PublishReportCompletedInput) -> None:
     """Publish a message to Kafka when a report is generated or re-generated."""
     try:

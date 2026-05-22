@@ -53,6 +53,7 @@ function HedgehogStatus(): JSX.Element {
 
 interface TaskSessionViewProps {
     logs: string
+    logsLoading: boolean
     streamEntries: LogEntry[]
     isPolling: boolean
     isStreaming: boolean
@@ -200,6 +201,7 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
 
 export function TaskSessionView({
     logs,
+    logsLoading,
     streamEntries,
     isPolling,
     isStreaming,
@@ -221,6 +223,13 @@ export function TaskSessionView({
     }
 
     if (entries.length === 0) {
+        if (logsLoading) {
+            return (
+                <div className="flex items-center justify-center h-32">
+                    <Spinner />
+                </div>
+            )
+        }
         return (
             <div className="p-4 text-center text-muted">
                 <p>No logs available yet</p>

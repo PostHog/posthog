@@ -6,6 +6,7 @@ keeps the set of schedules in sync with Postgres.
 """
 
 from posthog.temporal.session_replay.summarization_sweep.activities import (
+    consume_summary_quota_activity,
     delete_team_schedule_activity,
     find_sessions_for_team_activity,
     list_enabled_teams_activity,
@@ -25,4 +26,5 @@ SUMMARIZATION_SWEEP_ACTIVITIES = [
     list_enabled_teams_activity,
     list_summarization_schedule_team_ids_activity,
     upsert_team_schedule_activity,
+    consume_summary_quota_activity,
 ]

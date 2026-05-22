@@ -3,11 +3,22 @@ Contract types for visual_review.
 
 Stable, framework-free frozen dataclasses that define what this product
 exposes to the rest of the codebase. No Django imports.
+
+These use ``pydantic.dataclasses.dataclass`` rather than the stdlib variant — same
+syntax, same ``is_dataclass()`` compatibility (so ``DataclassSerializer`` keeps
+working), but with runtime validation on construction. Pydantic v2 coerces where
+the conversion is unambiguous (string→UUID/datetime, int→str) and raises
+``ValidationError`` otherwise, so structural mistakes from mappers or internal
+callers (None for a required int, a dict where a list is expected, an
+unparseable UUID) surface at the facade boundary instead of producing a
+malformed JSON payload twelve stack frames later.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import datetime
 from uuid import UUID
+
+from pydantic.dataclasses import dataclass
 
 # --- Input DTOs ---
 
@@ -276,6 +287,22 @@ class ToleratedHashEntry:
 
 
 @dataclass(frozen=True)
+class QuarantineSourceRun:
+    """Pointer back to the run whose failing snapshot prompted a quarantine.
+
+    Enough fields to render a "View the failing run" link without a second
+    fetch: the run id for routing, plus branch / commit / PR / time for the
+    one-liner the UI shows above the link.
+    """
+
+    id: UUID
+    branch: str
+    commit_sha: str
+    created_at: datetime
+    pr_number: int | None = None
+
+
+@dataclass(frozen=True)
 class QuarantinedIdentifierEntry:
     """A quarantined snapshot identifier."""
 
@@ -287,6 +314,10 @@ class QuarantinedIdentifierEntry:
     created_at: datetime
     updated_at: datetime
     created_by: UserBasicInfo | None = None
+    # Set when the quarantine was created from the run scene (we knew which
+    # failing snapshot prompted it). None for quarantines opened from the
+    # snapshot history page or pre-dating this column.
+    source_run: QuarantineSourceRun | None = None
 
 
 @dataclass(frozen=True)
@@ -296,6 +327,11 @@ class QuarantineInput:
     identifier: str
     reason: str
     expires_at: datetime | None = None
+    # Optional pointer to the run whose failing snapshot prompted this
+    # quarantine. Passed by the run scene so reviewers can jump back to
+    # "what was wrong" later. Omitted when quarantining from the snapshot
+    # history page where no run is in context.
+    source_run_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -366,6 +402,22 @@ BASELINE_DRIFT_RECENT_RUN_COUNT = 10
 
 
 @dataclass(frozen=True)
+class BaselineQuarantineSummary:
+    """Compact view of the active quarantine attached to a baseline entry.
+
+    Embedded on `BaselineEntry` so the overview grid can render rich details
+    (reason, expiry, who, source run) without a per-card fetch.
+    """
+
+    id: UUID
+    reason: str
+    expires_at: datetime | None
+    created_at: datetime
+    created_by: UserBasicInfo | None = None
+    source_run: QuarantineSourceRun | None = None
+
+
+@dataclass(frozen=True)
 class BaselineEntry:
     """The current baseline state of a single snapshot identifier in a repo.
 
@@ -394,6 +446,9 @@ class BaselineEntry:
     # non-zero diff. Drives the drift-severity sort. None when no signal in
     # the window.
     recent_drift_avg: float | None
+    # Populated when `is_quarantined` is true. Lets the overview grid show
+    # reason / expiry / who / source-run inline instead of just a yellow icon.
+    quarantine: BaselineQuarantineSummary | None = None
 
 
 @dataclass(frozen=True)

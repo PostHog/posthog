@@ -17,6 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { AIObservabilityRenameBanner } from '../AIObservabilityRenameBanner'
 import { formatErrorRate, formatLLMCost, formatLLMLatency, formatTokens } from '../utils'
 import { BulletList, ClusterDescription, parseBullets } from './ClusterDescriptionComponents'
 import { ClusterDetailLogicProps, clusterDetailLogic } from './clusterDetailLogic'
@@ -100,6 +101,8 @@ export function LLMAnalyticsClusterScene(): JSX.Element {
                     </Link>
                 }
             />
+
+            <AIObservabilityRenameBanner />
 
             {/* Cluster info header */}
             <div

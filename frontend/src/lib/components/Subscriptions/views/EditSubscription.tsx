@@ -84,6 +84,8 @@ export function EditSubscription({
 
     const emailDisabled = !preflight?.email_service_available
 
+    const availableFrequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
+
     // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
     // For editing, wait until subscription data has loaded from API (target_type exists)
     // We check target_type instead of dashboard_export_insights because old subscriptions
@@ -346,13 +348,7 @@ export function EditSubscription({
                                     <LemonSelect options={intervalOptions} />
                                 </LemonField>
                                 <LemonField name="frequency">
-                                    <LemonSelect
-                                        options={
-                                            subscription.interval === 1
-                                                ? frequencyOptionsSingular
-                                                : frequencyOptionsPlural
-                                        }
-                                    />
+                                    <LemonSelect options={availableFrequencyOptions} />
                                 </LemonField>
 
                                 {subscription.frequency === 'weekly' && (

@@ -13,8 +13,8 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.queries.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)

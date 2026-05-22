@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .paths import TACH_TOML, get_tach_block
-from .scaffold import flatten_structure
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -473,6 +472,9 @@ class MisplacedFilesCheck(ProductCheck):
 
     # Directories allowed in backend/ for strict products.
     # Anything else won't be covered by import-linter's wildcard contracts.
+    # `templates` is allowed because Django's app_directories loader requires
+    # the folder to live at <app>/templates/, and templates aren't Python
+    # imports so import-linter contracts don't apply.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -483,6 +485,7 @@ class MisplacedFilesCheck(ProductCheck):
         "management",
         "models",
         "logic",
+        "templates",
         "__pycache__",
     }
 
@@ -527,17 +530,17 @@ class FileFolderConflictsCheck(ProductCheck):
 
         # Collect "<name>" stems that may be expressed as either a file or a
         # package, from two structure shapes:
-        #   - "<name>.py" with `can_be_folder: true` (e.g. models.py)
-        #   - "<name>/__init__.py"                   (e.g. logic/__init__.py)
-        # Any package init file in the canonical structure (facade, presentation,
-        # tasks, tests, ...) qualifies; this also catches a stray `tasks.py`
-        # next to `tasks/`, which is always a mistake.
+        #   - "<name>.py" with `can_be_folder: true`        (e.g. models.py)
+        #   - "<name>/" as a top-level backend_files entry  (e.g. logic/, facade/)
+        # Subdirectories qualify whether or not they declare an `__init__.py`
+        # in the structure — namespace packages are fine, and this also catches
+        # a stray `tasks.py` next to `tasks/`, which is always a mistake.
         stems: set[str] = set()
-        for path, config in flatten_structure(ctx.structure.get("backend_files", {})).items():
-            if config.get("can_be_folder", False) and path.endswith(".py"):
-                stems.add(path[: -len(".py")])
-            elif path.endswith("/__init__.py"):
-                stems.add(path[: -len("/__init__.py")])
+        for name, config in ctx.structure.get("backend_files", {}).items():
+            if name.endswith("/"):
+                stems.add(name.rstrip("/"))
+            elif name.endswith(".py") and isinstance(config, dict) and config.get("can_be_folder", False):
+                stems.add(name[: -len(".py")])
 
         # Conflict if both `<stem>.py` and `<stem>/` directory exist on disk.
         # Check the directory itself (not `__init__.py`) so a half-migrated state

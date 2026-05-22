@@ -42,14 +42,16 @@
 
 <!-- Fill this section if an agent co-authored or authored this PR. Remove it for fully human-authored PRs. -->
 <!-- Include:
-     - tools/agent used and link to session
+     - tools/agent used and link to session. List the agent and tool names used, but do not include tool call results.
      - decisions made along the way (what was tried, rejected, chosen, and why)
      - anything else that helps reviewers
      Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.
+     DO NOT INCLUDE sensitive data that may have been shared in an agent session.
 -->
 <!-- Rules for agent-authored PRs:
      - All PRs must be attributable to a human author, even if agent-assisted.
      - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
      - Agent-authored PRs always require human review — do not self-merge or auto-approve.
      - Do NOT claim manual testing you haven't done.
+     - GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
 -->

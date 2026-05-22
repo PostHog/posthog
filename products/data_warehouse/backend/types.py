@@ -184,6 +184,7 @@ class ExternalDataSourceType(models.TextChoices):
     CLICKHOUSE = "ClickHouse", "ClickHouse"
     PLAIN = "Plain", "Plain"
     RESEND = "Resend", "Resend"
+    PGANALYZE = "PgAnalyze", "PgAnalyze"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

@@ -15,9 +15,10 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.signals.registry import get_signal_source_identity
 
 from products.data_warehouse.backend.data_load.service import delete_external_data_schedule
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.signals.backend.models import SignalSourceConfig
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 

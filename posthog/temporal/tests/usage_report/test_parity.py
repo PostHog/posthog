@@ -235,8 +235,8 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert str(org_a.id) in celery_per_org
     assert str(org_b.id) in celery_per_org
 
-    # Celery skips zero-usage orgs; Temporal includes them. Compare only
-    # the orgs Celery emitted — those are the ones billing receives.
+    # Both paths skip zero-usage orgs; comparing on the Celery key set
+    # keeps the assertion focused on the orgs billing actually receives.
     for org_id, celery_dict in celery_per_org.items():
         assert org_id in temporal_per_org, f"Celery emitted {org_id} but Temporal didn't"
         celery_json = json.dumps(celery_dict, sort_keys=True, default=str)
@@ -256,7 +256,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     assert temporal_per_org[str(org_b.id)]["team_count"] == 1
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_temporal_build_org_reports_does_not_run_per_org_membership_queries() -> None:
     """The Temporal-local `aggregator.build_org_reports` must fetch
     organization membership counts in bulk. The legacy Celery facade still

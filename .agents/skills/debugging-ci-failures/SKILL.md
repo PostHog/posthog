@@ -117,9 +117,6 @@ Do NOT run `hogli test` with no arguments. Do NOT run `hogli nuke` or
   that agents can query in this environment.
 - If a job fails before `Checkout` completes (no app code ran), classify as
   `infra / runner`. Do not propose code fixes.
-- Shadow workflows are non-blocking even when red. Known shadows:
-  `ci-blacksmith-shadow.yml`, `ci-test-selection-shadow.yml`. Call this out
-  explicitly in the report so the user does not chase a non-blocker.
 - PostHog CI frequently parallelizes the same test class across N shards
   (`backend-tests (3/10)` style). Reproduce from the specific failing test
   path, not the shard index.

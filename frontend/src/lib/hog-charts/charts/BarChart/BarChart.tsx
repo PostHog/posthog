@@ -1,3 +1,4 @@
+import * as d3 from 'd3'
 import React, { useCallback, useMemo } from 'react'
 
 import { type BarChartPrivate, computeBarAtIndex, computeSeriesBars } from '../../core/bar-layout'
@@ -5,6 +6,8 @@ import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } 
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
+    buildSegmentResolveValue,
+    buildStackedPositionValue,
     computePercentStackData,
     computeStackData,
     createBarScales,
@@ -243,26 +246,16 @@ function BarChartInner<Meta = unknown>({
     )
 
     const drawHover = useCallback(
-        ({
-            ctx,
-            scales,
-            series: coloredSeries,
-            labels: drawLabels,
-            hoverIndex,
-            hoverPosition,
-            theme,
-        }: ChartDrawArgs) => {
+        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition }: ChartDrawArgs) => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales || hoverIndex < 0) {
                 return
             }
-            const highlightColor = theme.crosshairColor ?? 'rgba(0, 0, 0, 0.2)'
             const hoveredLabel = drawLabels[hoverIndex]
-            // For grouped, narrow to the bars under the cursor. If the cursor sits in a gap
-            // (no hits), fall back to highlighting all — matches the tooltip narrower's
-            // gap-fallback so highlight and tooltip don't disagree about what's "active".
+            // Narrow to bars whose band-axis extent contains the cursor; an empty hit set
+            // means the cursor is in a gap, so draw nothing.
             let hitKeys: Set<string> | null = null
-            if (barLayout === 'grouped' && hoverPosition) {
+            if (hoverPosition) {
                 const hits = seriesKeysAtCursor({
                     series: coloredSeries,
                     label: hoveredLabel,
@@ -274,9 +267,10 @@ function BarChartInner<Meta = unknown>({
                     stackedData,
                     topStackedKeyByAxis,
                 })
-                if (hits.size > 0) {
-                    hitKeys = hits
+                if (hits.size === 0) {
+                    return
                 }
+                hitKeys = hits
             }
             for (const s of coloredSeries) {
                 if (s.visibility?.excluded) {
@@ -299,6 +293,7 @@ function BarChartInner<Meta = unknown>({
                     isTopOfStack: isTop,
                 })
                 if (bar) {
+                    const highlightColor = d3.color(s.color)?.darker(0.6).toString() ?? s.color
                     drawBarHighlight(ctx, bar, highlightColor, barCornerRadius)
                 }
             }
@@ -306,20 +301,10 @@ function BarChartInner<Meta = unknown>({
         [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
     )
 
-    const resolveValue = useMemo(() => {
-        if (!stackedData) {
-            return undefined
-        }
-        // Return the stacked top so the tooltip anchor lands at the visual top of each segment, not the raw series value.
-        return (s: Series, dataIndex: number): number => {
-            const stacked = stackedData.get(s.key)?.top[dataIndex]
-            if (stacked != null && Number.isFinite(stacked)) {
-                return stacked
-            }
-            const raw = s.data[dataIndex]
-            return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
-        }
-    }, [stackedData])
+    // Show each series's own segment value (resolveValue) but anchor the tooltip/value labels
+    // at the stacked top (resolvePositionValue) so a stacked bar doesn't read as a running total.
+    const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
+    const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
 
     return (
         <Chart
@@ -344,6 +329,7 @@ function BarChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
+            resolvePositionValue={resolvePositionValue}
         >
             {children}
         </Chart>

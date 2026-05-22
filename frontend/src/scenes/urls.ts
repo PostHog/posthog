@@ -10,6 +10,7 @@ import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
+import type { ModelsSceneTab } from './models/modelsSceneLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
@@ -43,7 +44,7 @@ export const urls = {
     webScripts: (): string => '/web-scripts',
     webScriptsNew: (): string => '/web-scripts/new',
     destinations: (): string => '/data-management/destinations',
-    models: (): string => '/models',
+    models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     transformations: (): string => '/data-management/transformations',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
@@ -146,11 +147,14 @@ export const urls = {
     /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
     accountSocialConnected: (): string => '/account/social-connected',
     /**
-     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO) or
-     * `github-integration` (user GitHub App integration); see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
+     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO),
+     * `github-integration` (user GitHub App integration), or `slack-integration` (team Slack integration);
+     * see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
      */
     accountConnected: (kind: string = ':kind'): string =>
         kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
+    /** One-shot credential review interstitial shown to users with existing API keys they haven't acknowledged. */
+    credentialReview: (): string => '/account/credential-review',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     emailMFAVerify: (): string => '/login/verify',
@@ -164,46 +168,40 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     vercelConnect: (): string => '/connect/vercel/link',
     vercelLinkError: (): string => '/integrations/vercel/link-error',
+    agenticAccountMismatch: (): string => '/agentic/account-mismatch',
     inviteSignup: (id: string): string => `/signup/${id}`,
     onboarding: ({
         campaign,
         productKey,
         stepKey,
+        step,
         sdk,
-        secondary,
-        from,
-        resumeStep,
+        withProducts,
     }: {
         campaign?: string
         productKey?: string
         stepKey?: OnboardingStepKey
+        // Namespaced step ID (e.g. `install:logs`). Takes precedence over `stepKey` when both are passed.
+        step?: string
         sdk?: SDKKey
-        /** Secondary product keys selected in this onboarding session (comma-joined in URL) */
-        secondary?: string[]
-        /** Product key the user navigated from (used for back navigation when diverted) */
-        from?: string
-        /** Step on the from-product to resume after a divert completes */
-        resumeStep?: OnboardingStepKey
+        /** Other products to include in the flow alongside the primary (comma-joined in the URL). */
+        withProducts?: string[]
     } = {}): string => {
         if (campaign) {
             return `/onboarding/coupons/${campaign}`
         }
 
         const params = new URLSearchParams()
-        if (stepKey) {
+        if (step) {
+            params.set('step', step)
+        } else if (stepKey) {
             params.set('step', stepKey)
         }
         if (sdk) {
             params.set('sdk', sdk)
         }
-        if (secondary?.length) {
-            params.set('secondary', secondary.join(','))
-        }
-        if (from) {
-            params.set('from', from)
-        }
-        if (resumeStep) {
-            params.set('resumeStep', resumeStep)
+        if (withProducts?.length) {
+            params.set('with', withProducts.join(','))
         }
 
         const base = `/onboarding${productKey ? `/${productKey}` : ''}`

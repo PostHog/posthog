@@ -114,6 +114,7 @@ const CONTROL_PLANE_DESCRIPTIONS: Record<
     [LogsAlertEventKindEnumApi.Snooze]: { label: 'Snoozed', type: 'highlight' },
     [LogsAlertEventKindEnumApi.Unsnooze]: { label: 'Unsnoozed', type: 'highlight' },
     [LogsAlertEventKindEnumApi.ThresholdChange]: { label: 'Threshold changed', type: 'completion' },
+    [LogsAlertEventKindEnumApi.BrokenConfig]: { label: 'Broken config', type: 'caution' },
 }
 
 function describeEvent(event: LogsAlertEventApi): EventDescription {

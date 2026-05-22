@@ -59,12 +59,22 @@ def _metric_supports_cuped(metric: object) -> bool:
     return False
 
 
-def get_cuped_config(stats_config: dict | None, metric: object) -> CupedQueryConfig:
+def get_cuped_config(
+    stats_config: dict | None,
+    metric: object,
+    team_default_enabled: bool = False,
+) -> CupedQueryConfig:
     if not _metric_supports_cuped(metric):
         return CupedQueryConfig()
 
     cuped_config = (stats_config or {}).get("cuped") or {}
-    enabled = bool(cuped_config.get("enabled", False))
+    # Distinguish "experiment hasn't set this" from "experiment explicitly disabled it":
+    # only the latter should override a team default of `True`.
+    if "enabled" in cuped_config:
+        enabled = bool(cuped_config["enabled"])
+    else:
+        enabled = team_default_enabled
+
     if not enabled:
         return CupedQueryConfig()
 

@@ -21,7 +21,7 @@ jobs:
         outputs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # MCP integration tests boot the full PostHog backend (Django web server,
             # Celery worker, migrations, demo data), so the filter mirrors the Dagster
@@ -88,7 +88,7 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -159,7 +159,7 @@ jobs:
         if: needs.changes.outputs.mcp == 'true'
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Setup pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -198,6 +198,9 @@ jobs:
                     exit 1
                   fi
 
+            - name: Run Hono unit tests
+              run: cd services/mcp && pnpm run test:hono
+
             - name: Create snapshot patch
               id: create-snapshot-patch
               if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
@@ -227,13 +230,8 @@ jobs:
                   if-no-files-found: ignore
 
     integration-tests:
-        name: Integration Tests (${{ matrix.runner }})
-        strategy:
-            fail-fast: false
-            matrix:
-                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest-4","is_shadow":false}]') }}
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ matrix.is_shadow }}
+        name: Integration Tests (depot-ubuntu-latest-4)
+        runs-on: depot-ubuntu-latest-4
         needs: changes
         timeout-minutes: 30
         if: needs.changes.outputs.mcp == 'true'
@@ -256,9 +254,13 @@ jobs:
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
             CELERY_METRICS_PORT: 8999
             POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting'
+            # Required for the feature_flags test_evaluation endpoint, which authenticates
+            # historical-flag override requests to the Rust flags service. Any non-empty
+            # value is fine for CI — the Rust service in the test stack accepts it.
+            INTERNAL_REQUEST_TOKEN: 'mcp-ci-internal-request-token'
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
 
@@ -353,7 +355,7 @@ jobs:
                   touch frontend/dist/exporter.html
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
@@ -368,6 +370,19 @@ jobs:
             - name: Install sqlx-cli
               run: |
                   cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
+            - name: Build Rust flags service
+              working-directory: rust
+              env:
+                  # Debug builds compile much faster than release (~4 min vs ~9 min).
+                  # We disable debug assertions because the codebase contains
+                  # debug_assert! checks that intentionally panic on data invariant
+                  # violations, which would crash the service mid-test-run.
+                  RUSTFLAGS: '-C debug-assertions=no'
+              run: cargo build -p feature-flags
+
+            - name: Download MaxMind Database
+              run: ./bin/download-mmdb
 
             - name: Start Docker services
               shell: bash
@@ -394,6 +409,41 @@ jobs:
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
 
+            - name: Start Rust flags service
+              working-directory: rust
+              env:
+                  BIND_HOST: '127.0.0.1'
+                  BIND_PORT: '3001'
+                  READ_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog
+                  WRITE_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog
+                  PERSONS_READ_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_persons
+                  PERSONS_WRITE_DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_persons
+                  REDIS_URL: redis://localhost:6379/
+                  CACHE_TTL_SECONDS: '0'
+                  RUST_BACKTRACE: '1'
+              run: |
+                  ./target/debug/feature-flags > /tmp/rust-flags.log 2>&1 &
+                  RUST_FLAGS_PID=$!
+                  echo "RUST_FLAGS_PID=$RUST_FLAGS_PID" >> $GITHUB_ENV
+                  for i in {1..30}; do
+                      if ! kill -0 "$RUST_FLAGS_PID" 2>/dev/null; then
+                          echo "ERROR: Rust flags service exited unexpectedly"
+                          cat /tmp/rust-flags.log || true
+                          exit 1
+                      fi
+                      if curl -s http://127.0.0.1:3001/_readiness > /dev/null 2>&1; then
+                          echo "Rust flags service is ready"
+                          break
+                      fi
+                      echo "Waiting for Rust flags service... ($i/30)"
+                      sleep 2
+                  done
+                  if ! curl -s http://127.0.0.1:3001/_readiness > /dev/null 2>&1; then
+                      echo "ERROR: Rust flags service failed to start after 30 attempts"
+                      cat /tmp/rust-flags.log || true
+                      exit 1
+                  fi
+
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
 
@@ -412,7 +462,7 @@ jobs:
                   PersonalAPIKey.objects.create(
                       user=user,
                       label='mcp_ci_api_key',
-                      secure_value=hash_key_value('e2e_demo_api_key'),
+                      secure_value=hash_key_value('phx_e2e_demo_api_key'),
                       scopes=['*'],
                   )
                   # Ensure common event definitions exist for MCP integration tests
@@ -444,7 +494,7 @@ jobs:
               run: cd services/mcp && pnpm run test:integration
               env:
                   TEST_POSTHOG_API_BASE_URL: http://localhost:8000
-                  TEST_POSTHOG_PERSONAL_API_KEY: e2e_demo_api_key
+                  TEST_POSTHOG_PERSONAL_API_KEY: phx_e2e_demo_api_key
                   TEST_ORG_ID: ${{ env.TEST_ORG_ID }}
                   TEST_PROJECT_ID: ${{ env.TEST_PROJECT_ID }}
 
@@ -455,6 +505,10 @@ jobs:
             - name: Show celery logs on failure
               if: failure()
               run: cat /tmp/celery.log || true
+
+            - name: Show Rust flags service logs on failure
+              if: failure()
+              run: cat /tmp/rust-flags.log || true
 
             - name: Show docker compose logs on failure
               if: failure()
@@ -479,7 +533,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}

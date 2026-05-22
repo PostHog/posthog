@@ -42,6 +42,9 @@ tools:
     conversations-tickets-bulk-update-tags-create:
         operation: conversations_tickets_bulk_update_tags_create
         enabled: false
+    conversations-tickets-compose-create:
+        operation: conversations_tickets_compose_create
+        enabled: false
     conversations-tickets-create:
         operation: conversations_tickets_create
         enabled: false

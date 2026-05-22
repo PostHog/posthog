@@ -7,6 +7,7 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -1605,6 +1606,188 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
+_MARKDOWN_ESCAPE_CHARS = r"\`*_{}[]()#+-.!|<>~"
+
+
+def _escape_markdown(value: str) -> str:
+    """Escape GitHub-flavored markdown control characters in user-supplied text."""
+    return "".join(f"\\{c}" if c in _MARKDOWN_ESCAPE_CHARS else c for c in value)
+
+
+@dataclass(frozen=True)
+class _Approver:
+    label: str
+    is_github_login: bool
+
+
+def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | None) -> str:
+    """Build the markdown body of the post-approval PR comment.
+
+    A short textual summary of what changed — reviewers go to PostHog to see
+    the actual snapshots.
+    """
+    from django.conf import settings
+
+    counts = Counter(
+        run.snapshots.filter(
+            result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
+        ).values_list("result", flat=True)
+    )
+
+    run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+    if approver is None:
+        approver_text = "a reviewer"
+    elif approver.is_github_login:
+        approver_text = f"@{approver.label}"
+    else:
+        approver_text = _escape_markdown(approver.label)
+    baseline_sha = run.metadata.get("baseline_commit_sha")
+    sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
+
+    header = f"✅ **Visual changes approved** by {approver_text}{sha_text}.\n\n[View this run in PostHog]({run_url})\n"
+
+    parts = []
+    for result, label in (
+        (SnapshotResult.CHANGED, "changed"),
+        (SnapshotResult.NEW, "new"),
+        (SnapshotResult.REMOVED, "removed"),
+    ):
+        if counts.get(result):
+            parts.append(f"{counts[result]} {label}")
+
+    if not parts:
+        return header
+
+    return header + f"\n{', '.join(parts)}.\n"
+
+
+def _resolve_approver(user_id: int | None) -> _Approver | None:
+    """Resolve the approver's identity for the PR comment.
+
+    Prefers a verified GitHub login (safe to mention with `@`); otherwise
+    falls back to email local-part or first name, which the caller must
+    treat as untrusted markdown.
+    """
+    if user_id is None:
+        return None
+
+    from posthog.models.user import User
+    from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
+    gh = (
+        UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB)
+        .order_by("-created_at")
+        .first()
+    )
+    if gh is not None:
+        github_login = UserGitHubIntegration(gh).github_login
+        if github_login:
+            return _Approver(label=github_login, is_github_login=True)
+
+    user = User.objects.filter(id=user_id).only("email", "first_name").first()
+    if user is None:
+        return None
+    if user.email and "@" in user.email:
+        return _Approver(label=user.email.split("@", 1)[0], is_github_login=False)
+    if user.first_name:
+        return _Approver(label=user.first_name, is_github_login=False)
+    return None
+
+
+def _post_approval_comment(run: Run, repo: Repo) -> None:
+    """Update the existing PR comment in place with the approved-changes summary.
+
+    Best-effort and never raises. Skips silently when the original review-prompt
+    comment was never posted (no `github_comment_id` in run.metadata) — i.e.,
+    when the review wasn't initiated by a human.
+    """
+    if not repo.enable_pr_comments:
+        return
+
+    if not repo.repo_full_name or run.pr_number is None:
+        return
+
+    if run.review_decision != ReviewDecision.HUMAN_APPROVED:
+        return
+
+    comment_id = run.metadata.get("github_comment_id")
+    if not comment_id:
+        return
+    if isinstance(comment_id, str) and comment_id.isdigit():
+        comment_id = int(comment_id)
+    if not isinstance(comment_id, int):
+        return
+
+    approver = _resolve_approver(run.approved_by_id)
+    body = _build_approval_comment_body(run, repo, approver)
+
+    try:
+        response = _github_api_request(
+            method="PATCH",
+            repo=repo,
+            path=f"issues/comments/{comment_id}",
+            json={"body": body},
+            timeout=15,
+        )
+        if response.status_code == 200:
+            return
+
+        # Comment was deleted or inaccessible — fall back to creating a new one
+        if response.status_code == 404:
+            create_response = _github_api_request(
+                method="POST",
+                repo=repo,
+                path=f"issues/{run.pr_number}/comments",
+                json={"body": body},
+                timeout=15,
+            )
+            if create_response.status_code == 201:
+                new_comment_id = create_response.json().get("id")
+                if isinstance(new_comment_id, int):
+                    run.metadata["github_comment_id"] = new_comment_id
+                    run.save(update_fields=["metadata"], using=WRITER_DB)
+                return
+            logger.warning(
+                "visual_review.approval_comment_create_failed",
+                run_id=str(run.id),
+                pr_number=run.pr_number,
+                status_code=create_response.status_code,
+                response=create_response.text[:200],
+            )
+            return
+
+        logger.warning(
+            "visual_review.approval_comment_update_failed",
+            run_id=str(run.id),
+            comment_id=comment_id,
+            status_code=response.status_code,
+            response=response.text[:200],
+        )
+    except GitHubRateLimitError:
+        # Bubble up so the Celery task can retry with the suggested countdown.
+        raise
+    except Exception:
+        logger.warning(
+            "visual_review.approval_comment_error",
+            run_id=str(run.id),
+            pr_number=run.pr_number,
+            exc_info=True,
+        )
+
+
+def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None) -> None:
+    """Public entrypoint for the Celery task to update a PR comment after approval."""
+    run = (
+        Run.objects.select_related("repo")
+        .using(READER_DB)
+        .filter(id=run_id, **({"team_id": team_id} if team_id is not None else {}))
+        .first()
+    )
+    if run is None:
+        return
+    _post_approval_comment(run, run.repo)
+
+
 @transaction.atomic(using=WRITER_DB)
 def approve_all(
     run_id: UUID,
@@ -1775,6 +1958,16 @@ def approve_run(
     if commit_to_github:
         _post_commit_status(run, repo, "success", "Visual changes approved")
 
+    if commit_to_github and review_decision == ReviewDecision.HUMAN_APPROVED:
+        from .tasks.tasks import post_approval_comment
+
+        run_id_str = str(run.id)
+        run_team_id = run.team_id
+        transaction.on_commit(
+            lambda: post_approval_comment.delay(run_team_id, run_id_str),
+            using=WRITER_DB,
+        )
+
     return run
 
 
@@ -1940,7 +2133,6 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
       - 2 queries for the recent-drift average (resolve last-N runs, aggregate)
       - 3 cheap aggregate queries for totals
     """
-    from collections import Counter
     from datetime import timedelta
 
     from .facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES
@@ -1969,7 +2161,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             entries=[],
             tolerate_30d_by_id={},
             tolerate_90d_by_id={},
-            quarantined_ids=set(),
+            active_quarantines_by_key={},
             change_count_by_key={},
             recent_drift_by_key={},
             totals_all=0,
@@ -2050,17 +2242,30 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
 
     # 3b. Active quarantines for this repo, scoped to the universe identifiers
     # AND the run_types they live on (quarantine is per (repo, run_type, id)).
-    quarantined_pairs: set[tuple[str, str]] = set()
+    # We hydrate the full row (not just identity) so the overview can render
+    # reason / expiry / who / source-run inline without a per-card fetch.
+    # `select_related("source_run")` is a single JOIN, capped by
+    # `BASELINE_OVERVIEW_MAX_ENTRIES`. `Run.metadata` (JSONField) and
+    # `Run.error_message` (TextField) can be large and aren't needed by the
+    # summary — defer them to keep the response light.
+    active_quarantines_by_key: dict[tuple[str, str], QuarantinedIdentifier] = {}
     if universe_identifiers:
-        quarantined_pairs = {
-            (run_type, identifier)
-            for run_type, identifier in QuarantinedIdentifier.objects.filter(
+        for q in (
+            QuarantinedIdentifier.objects.filter(
                 repo_id=repo_id,
                 identifier__in=universe_identifiers,
             )
             .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
-            .values_list("run_type", "identifier")
-        }
+            .select_related("source_run")
+            .defer("source_run__metadata", "source_run__error_message")
+            .order_by("-created_at")
+        ):
+            key = (q.run_type, q.identifier)
+            # Multiple active rows for the same key shouldn't happen — create
+            # auto-supersedes prior — but if it does, keep the latest (sorted
+            # above) and ignore the rest.
+            if key not in active_quarantines_by_key:
+                active_quarantines_by_key[key] = q
 
     # 3c. Per-baseline stability signals: a lifetime baseline-flip count and a
     # smoothed recent-drift average. Replaces a daily-bucket sparkline that
@@ -2174,7 +2379,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         )
         frequent_ids = set(frequent_grouped)
 
-    # `quarantined_pairs` was built from the truncated set above (per-entry
+    # `active_quarantines_by_key` was built from the truncated set above (per-entry
     # attached). Re-query for the totals so they cover the full universe.
     if truncated and full_universe_identifiers:
         quarantined_id_count = (
@@ -2188,7 +2393,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
             .count()
         )
     else:
-        quarantined_id_count = len({identifier for _, identifier in quarantined_pairs})
+        quarantined_id_count = len({identifier for _, identifier in active_quarantines_by_key})
 
     # by_run_type counts every entry in the universe. Aggregate query under
     # truncation so it doesn't undercount; in-memory Counter when not truncated
@@ -2207,7 +2412,7 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
         entries=universe,
         tolerate_30d_by_id=tolerate_30d_by_id,
         tolerate_90d_by_id=tolerate_90d_by_id,
-        quarantined_ids=quarantined_pairs,
+        active_quarantines_by_key=active_quarantines_by_key,
         change_count_by_key=change_count_by_key,
         recent_drift_by_key=recent_drift_by_key,
         totals_all=totals_all,
@@ -2230,7 +2435,11 @@ class _BaselineOverviewRaw:
     entries: list[RunSnapshot]
     tolerate_30d_by_id: dict[str, int]
     tolerate_90d_by_id: dict[str, int]
-    quarantined_ids: set[tuple[str, str]]
+    # Latest active QuarantinedIdentifier (with `source_run` preloaded) for each
+    # `(run_type, identifier)` in the universe — lets the facade build the rich
+    # quarantine summary embedded on each BaselineEntry. Membership doubles as
+    # the "is_quarantined" signal — no separate set needed.
+    active_quarantines_by_key: dict[tuple[str, str], QuarantinedIdentifier]
     # Stability signals keyed by `(run_type, identifier)` because the same
     # identifier in different run types is a different baseline; merging would
     # bleed storybook stability into playwright stability.
@@ -2311,7 +2520,16 @@ def get_tolerated_hashes_for_identifier(repo_id: UUID, identifier: str) -> list[
 def list_quarantined_identifiers(
     repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
 ) -> list[QuarantinedIdentifier]:
-    qs = QuarantinedIdentifier.objects.using(WRITER_DB).filter(repo_id=repo_id, team_id=team_id)
+    qs = (
+        QuarantinedIdentifier.objects.using(WRITER_DB)
+        .filter(repo_id=repo_id, team_id=team_id)
+        # Preload `source_run` so the facade can render the "what was wrong"
+        # link without an extra fetch per row. `Run.metadata` (JSONField) and
+        # `Run.error_message` (TextField) can be large and aren't needed for
+        # the summary — defer to keep response payloads tight.
+        .select_related("source_run")
+        .defer("source_run__metadata", "source_run__error_message")
+    )
     if run_type:
         qs = qs.filter(run_type=run_type)
     if identifier:
@@ -2331,9 +2549,18 @@ def quarantine_identifier(
     user_id: int,
     team_id: int,
     expires_at: datetime | None = None,
+    source_run_id: UUID | None = None,
 ) -> QuarantinedIdentifier:
     get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     now = timezone.now()
+    # Resolve the source run inside the team scope so a malicious caller can't
+    # attach a quarantine to an unrelated run. Silently drop on mismatch — the
+    # quarantine itself still wins; we just lose the "what was wrong" pointer.
+    # We fetch (not just .exists()) so the facade can serialize source_run
+    # without a lazy-load on the freshly-created row.
+    source_run: Run | None = None
+    if source_run_id is not None:
+        source_run = Run.objects.using(WRITER_DB).filter(id=source_run_id, repo_id=repo_id, team_id=team_id).first()
     QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
         repo_id=repo_id,
         identifier=identifier,
@@ -2348,6 +2575,7 @@ def quarantine_identifier(
         reason=reason,
         expires_at=expires_at,
         created_by_id=user_id,
+        source_run=source_run,
     )
 
 
