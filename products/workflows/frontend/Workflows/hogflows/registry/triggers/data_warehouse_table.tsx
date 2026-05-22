@@ -57,6 +57,8 @@ function StepTriggerConfigurationDataWarehouseTable({ node }: { node: any }): JS
             type: 'data-warehouse-table',
             table_name: tableName ?? '',
             filters: { properties: newProperties },
+            // Preserve any existing masking/dedup key set via the API or a future UI
+            ...(config.key_property ? { key_property: config.key_property } : {}),
         })
     }
 

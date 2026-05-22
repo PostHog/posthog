@@ -183,8 +183,12 @@ function convertDataWarehouseEventToHogFunctionInvocationGlobals(
             timestamp: DateTime.now().toISO(),
             url: '',
         },
-        // Used to match row-scoped `data-warehouse-table` HogFlow triggers against the source table
-        dataWarehouseTable: event.table_name,
+        // Used to match row-scoped `data-warehouse-table` HogFlow triggers against the source table.
+        // Always set a non-undefined value for warehouse rows (falling back to '' for old messages
+        // that predate table_name) so the executor's `!== undefined` event-trigger guard reliably
+        // skips warehouse rows, while event-sourced globals (where this is left undefined) still run
+        // event triggers. An empty string also can't match any real (non-empty) trigger table_name.
+        dataWarehouseTable: event.table_name ?? '',
     }
 
     return context

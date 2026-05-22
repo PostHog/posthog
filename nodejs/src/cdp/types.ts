@@ -111,7 +111,10 @@ export type HogFunctionInvocationGlobals = {
     variables?: Record<string, any> // For HogFlows, workflow-level variables
 
     // Set for rows synced into a data warehouse table. Dot-notated table name used to match
-    // `data-warehouse-table` HogFlow triggers against the row's source table.
+    // `data-warehouse-table` HogFlow triggers against the row's source table. The DWH consumer
+    // always sets this for warehouse rows ('' for old messages that predate the table name), so
+    // `undefined` here unambiguously means "event-sourced globals" and warehouse rows never run
+    // event triggers.
     dataWarehouseTable?: string
 }
 
