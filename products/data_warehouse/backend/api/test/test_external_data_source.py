@@ -50,19 +50,22 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
 
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.api.external_data_source import (
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
 )
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import sync_frequency_interval_to_sync_frequency
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import IncrementalFieldType
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    sync_frequency_interval_to_sync_frequency,
+)
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -1144,6 +1147,8 @@ class TestExternalDataSource(APIBaseTest):
                     "description": schema.description,
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
+                    "enabled_columns": None,
+                    "available_columns": [],
                 }
             ],
         )
@@ -1271,7 +1276,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_source):
-        parsed_config = Mock()
+        parsed_config = Mock(spec=["to_dict"])
         parsed_config.to_dict.return_value = {
             "host": "localhost",
             "port": "5432",
@@ -1295,6 +1300,7 @@ class TestExternalDataSource(APIBaseTest):
         data = response.json()
         self.assertEqual(data["added"], 2)
         self.assertEqual(data["deleted"], 0)
+        self.assertEqual(data["total_tables_seen"], 2)
         self.assertEqual(
             ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
         )
@@ -1520,6 +1526,7 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_returns_400_when_get_schemas_raises(self, mock_get_source):
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_non_retryable_errors.return_value = {"Connection failed": None}
         mock_get_source.return_value.get_schemas.side_effect = Exception("Connection failed")
         source = self._create_external_data_source()
 
@@ -1529,6 +1536,68 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_returns_zero_total_tables_seen_when_source_returns_nothing(self, mock_get_source):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = []
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["added"], 0)
+        self.assertEqual(data["deleted"], 0)
+        self.assertEqual(data["total_tables_seen"], 0)
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_returns_specific_message_without_capture_for_expected_source_error(
+        self, mock_get_source, mock_capture_exception
+    ):
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_non_retryable_errors.return_value = {"timeout": None}
+        mock_get_source.return_value.get_schemas.side_effect = TimeoutError("connection timed out")
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json().get("message"),
+            "Connection timed out while fetching schemas from the source.",
+        )
+        mock_capture_exception.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_captures_unexpected_source_error(self, mock_get_source, mock_capture_exception):
+        error = RuntimeError("schema parser exploded")
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_non_retryable_errors.return_value = {}
+        mock_get_source.return_value.get_schemas.side_effect = error
+        source = self._create_external_data_source()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json().get("message"), "Could not fetch schemas from source.")
+        mock_capture_exception.assert_called_once_with(
+            error,
+            {
+                "source_id": str(source.id),
+                "source_type": source.source_type,
+                "team_id": self.team.pk,
+                "refresh_schemas": True,
+            },
+        )
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
@@ -2317,6 +2386,130 @@ class TestExternalDataSource(APIBaseTest):
         else:
             assert schema.sync_type_config["primary_key_columns"] == expected_persisted
 
+    @parameterized.expand(
+        [
+            # Field omitted -> None: sync everything (default).
+            ("omitted_means_sync_all", "omitted", None),
+            # Explicit null -> None: also sync everything.
+            ("null_means_sync_all", None, None),
+            # Explicit empty list -> []: sync only PKs + incremental field. Critical:
+            # this must NOT collapse to None, since `[]` and `None` carry different
+            # semantics downstream (`build_select_clause`, `filter_columns_by_*`).
+            ("empty_list_means_pks_only", [], []),
+            # Subset list passes through verbatim.
+            ("subset_passes_through", ["email", "name"], ["email", "name"]),
+        ]
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_persists_enabled_columns_payload(
+        self,
+        _name: str,
+        payload_value: list[str] | None | str,
+        expected_persisted: list[str] | None,
+        mock_get_source,
+    ):
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("email", "text", True), ("name", "text", True)],
+                foreign_keys=[],
+            ),
+        ]
+
+        schema_payload: dict[str, t.Any] = {"name": "events", "should_sync": True, "sync_type": None}
+        if payload_value != "omitted":
+            schema_payload["enabled_columns"] = payload_value
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "schemas": [schema_payload],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="events")
+        assert schema.enabled_columns == expected_persisted
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_renames_legacy_direct_query_rows(self, mock_get_source):
+        # Direct-query mode opts in to eager renaming: the live `DataWarehouseTable` is rebuilt
+        # from `schema_metadata` on every `refresh_schemas`, so renaming the row never orphans
+        # data. This is the long-standing behavior we MUST preserve for direct sources.
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.auth_group",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="auth_group",
+            ),
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="direct",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        legacy_table = DataWarehouseTable.objects.create(
+            name="auth_group",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64"}},
+        )
+        legacy_schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="auth_group",
+            should_sync=True,
+            table=legacy_table,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        legacy_schema.refresh_from_db()
+        # Direct mode renames the row to the qualified discovered name.
+        assert legacy_schema.name == "public.auth_group"
+        assert legacy_schema.table_id == legacy_table.id
+
     def test_create_direct_non_postgres_is_rejected(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -2350,27 +2543,6 @@ class TestExternalDataSource(APIBaseTest):
             response.json(),
             {"message": "Direct query mode is currently supported only for Postgres sources."},
         )
-
-    def test_create_postgres_warehouse_source_requires_schema(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/",
-            data={
-                "source_type": "Postgres",
-                "created_via": "web",
-                "access_method": "warehouse",
-                "payload": {
-                    "host": "db.example.com",
-                    "port": 5432,
-                    "database": "postgres",
-                    "user": "postgres",
-                    "password": "secret",
-                    "schema": "",
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json(), {"message": "Schema is required for warehouse imports."})
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_database_schema_postgres_direct_allows_blank_schema(self, mock_get_source):

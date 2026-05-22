@@ -14,7 +14,7 @@ export interface OverlayContextOverrides {
     labels?: string[]
     series?: ResolvedSeries[]
     theme?: ChartTheme
-    resolveValue?: ResolveValueFn
+    resolvePositionValue?: ResolveValueFn
     canvasBounds?: () => DOMRect | null
     axisOrientation?: 'vertical' | 'horizontal'
     isPercent?: boolean
@@ -31,7 +31,7 @@ export function makeOverlayContext(scales: ChartScales, overrides: OverlayContex
         series: overrides.series ?? [],
         scales,
         theme: overrides.theme ?? DEFAULT_THEME,
-        resolveValue: overrides.resolveValue ?? DEFAULT_RESOLVE,
+        resolvePositionValue: overrides.resolvePositionValue ?? DEFAULT_RESOLVE,
         canvasBounds: overrides.canvasBounds ?? (() => null),
         axis: {
             orientation: overrides.axisOrientation ?? 'vertical',

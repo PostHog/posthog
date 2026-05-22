@@ -9,17 +9,83 @@
  */
 import * as zod from 'zod'
 
-export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .describe('Property-group filters that define when this rule matches incoming error events.'),
+    assignee: zod
+        .object({
+            type: zod
+                .enum(['user', 'role'])
+                .describe('\* `user` - user\n\* `role` - role')
+                .describe(
+                    'Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n\* `user` - user\n\* `role` - role'
+                ),
+            id: zod
+                .union([zod.number(), zod.uuid()])
+                .describe('User ID when `type` is `user`, or role UUID when `type` is `role`.'),
+        })
+        .describe('User or role to assign matching issues to.'),
+})
 
-export const ErrorTrackingAssignmentRulesUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const ErrorTrackingAssignmentRulesUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .union([
+            zod
+                .record(zod.string(), zod.unknown())
+                .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Property-group filters that define when this rule matches incoming error events.'),
+    assignee: zod
+        .union([
+            zod.object({
+                type: zod
+                    .enum(['user', 'role'])
+                    .describe('\* `user` - user\n\* `role` - role')
+                    .describe(
+                        'Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n\* `user` - user\n\* `role` - role'
+                    ),
+                id: zod
+                    .union([zod.number(), zod.uuid()])
+                    .describe('User ID when `type` is `user`, or role UUID when `type` is `role`.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('User or role to assign matching issues to.'),
+})
 
-export const ErrorTrackingAssignmentRulesPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const ErrorTrackingAssignmentRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .union([
+            zod
+                .record(zod.string(), zod.unknown())
+                .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Property-group filters that define when this rule matches incoming error events.'),
+    assignee: zod
+        .union([
+            zod.object({
+                type: zod
+                    .enum(['user', 'role'])
+                    .describe('\* `user` - user\n\* `role` - role')
+                    .describe(
+                        'Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n\* `user` - user\n\* `role` - role'
+                    ),
+                id: zod
+                    .union([zod.number(), zod.uuid()])
+                    .describe('User ID when `type` is `user`, or role UUID when `type` is `role`.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('User or role to assign matching issues to.'),
+})
 
 export const errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
 export const errorTrackingAssignmentRulesReorderPartialUpdateBodyOrderKeyMax = 2147483647
@@ -40,35 +106,60 @@ export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.obj
     issue: zod.uuid(),
 })
 
-export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
-
-export const errorTrackingGroupingRulesUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingGroupingRulesUpdateBodyOrderKeyMax = 2147483647
-
-export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown(),
-    description: zod.string().nullish(),
-    order_key: zod
-        .number()
-        .min(errorTrackingGroupingRulesUpdateBodyOrderKeyMin)
-        .max(errorTrackingGroupingRulesUpdateBodyOrderKeyMax),
-    disabled_data: zod.unknown().optional(),
+export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .describe('Property-group filters that define which exceptions should be grouped into the same issue.'),
+    assignee: zod
+        .union([
+            zod.object({
+                type: zod
+                    .enum(['user', 'role'])
+                    .describe('\* `user` - user\n\* `role` - role')
+                    .describe(
+                        'Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n\* `user` - user\n\* `role` - role'
+                    ),
+                id: zod
+                    .union([zod.number(), zod.uuid()])
+                    .describe('User ID when `type` is `user`, or role UUID when `type` is `role`.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional user or role to assign to issues created by this grouping rule.'),
+    description: zod
+        .string()
+        .nullish()
+        .describe('Optional human-readable description of what this grouping rule is for.'),
 })
 
-export const errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMax = 2147483647
+export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .union([
+            zod
+                .record(zod.string(), zod.unknown())
+                .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters.'
+        ),
+})
 
 export const ErrorTrackingGroupingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().optional(),
-    description: zod.string().nullish(),
-    order_key: zod
-        .number()
-        .min(errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMin)
-        .max(errorTrackingGroupingRulesPartialUpdateBodyOrderKeyMax)
-        .optional(),
-    disabled_data: zod.unknown().optional(),
+    filters: zod
+        .union([
+            zod
+                .record(zod.string(), zod.unknown())
+                .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters.'
+        ),
 })
 
 export const errorTrackingGroupingRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
@@ -775,35 +866,68 @@ export const ErrorTrackingStackFramesBatchGetCreateBody = /* @__PURE__ */ zod.ob
     symbol_set_ref: zod.string().optional(),
 })
 
-export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const errorTrackingSuppressionRulesCreateBodySamplingRateDefault = 1
+export const errorTrackingSuppressionRulesCreateBodySamplingRateMin = 0
+export const errorTrackingSuppressionRulesCreateBodySamplingRateMax = 1
 
-export const errorTrackingSuppressionRulesUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingSuppressionRulesUpdateBodyOrderKeyMax = 2147483647
-
-export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown(),
-    order_key: zod
+export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .optional()
+        .describe(
+            'Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule.'
+        ),
+    sampling_rate: zod
         .number()
-        .min(errorTrackingSuppressionRulesUpdateBodyOrderKeyMin)
-        .max(errorTrackingSuppressionRulesUpdateBodyOrderKeyMax),
-    disabled_data: zod.unknown().optional(),
-    sampling_rate: zod.number().optional(),
+        .min(errorTrackingSuppressionRulesCreateBodySamplingRateMin)
+        .max(errorTrackingSuppressionRulesCreateBodySamplingRateMax)
+        .default(errorTrackingSuppressionRulesCreateBodySamplingRateDefault)
+        .describe(
+            'Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; `0.5` drops half. Higher values suppress more.'
+        ),
 })
 
-export const errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMin = -2147483648
-export const errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMax = 2147483647
+export const errorTrackingSuppressionRulesUpdateBodySamplingRateMin = 0
+export const errorTrackingSuppressionRulesUpdateBodySamplingRateMax = 1
+
+export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .optional()
+        .describe(
+            'Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters.'
+        ),
+    sampling_rate: zod
+        .number()
+        .min(errorTrackingSuppressionRulesUpdateBodySamplingRateMin)
+        .max(errorTrackingSuppressionRulesUpdateBodySamplingRateMax)
+        .optional()
+        .describe(
+            'Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.'
+        ),
+})
+
+export const errorTrackingSuppressionRulesPartialUpdateBodySamplingRateMin = 0
+export const errorTrackingSuppressionRulesPartialUpdateBodySamplingRateMax = 1
 
 export const ErrorTrackingSuppressionRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    filters: zod.unknown().optional(),
-    order_key: zod
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+        .optional()
+        .describe(
+            'Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters.'
+        ),
+    sampling_rate: zod
         .number()
-        .min(errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMin)
-        .max(errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMax)
-        .optional(),
-    disabled_data: zod.unknown().optional(),
-    sampling_rate: zod.number().optional(),
+        .min(errorTrackingSuppressionRulesPartialUpdateBodySamplingRateMin)
+        .max(errorTrackingSuppressionRulesPartialUpdateBodySamplingRateMax)
+        .optional()
+        .describe(
+            'Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.'
+        ),
 })
 
 export const errorTrackingSuppressionRulesReorderPartialUpdateBodyOrderKeyMin = -2147483648
@@ -854,6 +978,7 @@ export const ErrorTrackingSymbolSetsBulkFinishUploadCreateBody = /* @__PURE__ */
 })
 
 export const errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault = false
+export const errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault = false
 
 export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ zod.object({
     chunk_ids: zod
@@ -881,4 +1006,8 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .boolean()
         .default(errorTrackingSymbolSetsBulkStartUploadCreateBodyForceDefault)
         .describe('Whether to overwrite uploaded symbol sets whose content hash changed.'),
+    skip_on_conflict: zod
+        .boolean()
+        .default(errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault)
+        .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
 })

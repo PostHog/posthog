@@ -778,7 +778,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        '/llm-analytics/prompts/:name': (_, __, ___, { method }) => {
+        '/prompt-management/prompts/:name': (_, __, ___, { method }) => {
             if (method === 'PUSH' && values.isNewPrompt) {
                 actions.setPrompt(DEFAULT_PROMPT_FORM_VALUES)
                 actions.resetPromptForm(DEFAULT_PROMPT_FORM_VALUES)

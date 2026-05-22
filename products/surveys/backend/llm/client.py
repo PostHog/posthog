@@ -25,7 +25,7 @@ def create_gemini_client():
 
     posthog_client = posthoganalytics.default_client
     if not posthog_client:
-        logger.warning("PostHog default_client not available, LLM analytics will not be tracked")
+        logger.warning("PostHog default_client not available, AI observability will not be tracked")
 
     return genai.Client(
         api_key=settings.GEMINI_API_KEY,

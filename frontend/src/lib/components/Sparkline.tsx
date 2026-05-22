@@ -1,9 +1,10 @@
+import annotationPlugin from 'chartjs-plugin-annotation'
 import clsx from 'clsx'
 import { useMemo, useRef, useState } from 'react'
 
 import { Popover } from '@posthog/lemon-ui'
 
-import { ScaleOptions, TooltipModel } from 'lib/Chart'
+import { Chart, ScaleOptions, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
@@ -12,6 +13,21 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
 import { LemonSkeleton } from '../lemon-ui/LemonSkeleton'
+
+// Register once at module load. Chart.register is idempotent so re-registers (eg. by
+// AlertHistoryChart, which also uses the annotation plugin) are safe.
+Chart.register(annotationPlugin)
+
+export interface SparklineReferenceLine {
+    /** Y-axis value the dashed line is drawn at, in the same units as the series data. */
+    value: number
+    /** Color name from `vars.scss` (e.g. 'danger'). @default 'danger' */
+    color?: string
+    /** Optional label to anchor at the end of the line (shown only when provided). */
+    label?: string
+    /** Where to anchor the optional label. @default 'end' */
+    labelPosition?: 'start' | 'center' | 'end'
+}
 
 export interface SparklineTimeSeries {
     name: string
@@ -54,6 +70,10 @@ export interface SparklineProps {
     hideZerosInTooltip?: boolean
     /** Sort tooltip items by count (descending). @default false */
     sortTooltipByCount?: boolean
+    /** Optional horizontal dashed reference lines (thresholds, goals, limits). */
+    referenceLines?: SparklineReferenceLine[]
+    /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
+    renderTooltipValue?: (value: number) => string
 }
 
 export function Sparkline({
@@ -74,6 +94,8 @@ export function Sparkline({
     tooltipRowCutoff,
     hideZerosInTooltip = false,
     sortTooltipByCount = false,
+    referenceLines,
+    renderTooltipValue,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -137,12 +159,19 @@ export function Sparkline({
                 alignToPixels: true,
             }
 
+            // Make sure reference lines always fit on the chart — Chart.js would otherwise
+            // auto-scale to the data only and a threshold above the peak would be clipped.
+            const referenceLineMax =
+                referenceLines && referenceLines.length > 0 ? Math.max(...referenceLines.map((l) => l.value)) : 0
+
             const defaultYScale: AnyScaleOptions = {
                 // We use the Y axis for the maximum indicator
                 display: maximumIndicator,
                 bounds: 'data',
                 min: 0, // Always starting at 0
-                suggestedMax: 1,
+                // Headroom above whichever is taller — data or a reference line — so a threshold
+                // sitting near the chart top still has room for its label without clipping.
+                suggestedMax: referenceLineMax > 0 ? referenceLineMax * 1.2 : 1,
                 stacked: true,
                 ticks: {
                     includeBounds: true,
@@ -213,6 +242,43 @@ export function Sparkline({
                                 setTooltip({ ...tooltip } as TooltipModel<'bar'>)
                             },
                         },
+                        ...(referenceLines && referenceLines.length > 0
+                            ? {
+                                  annotation: {
+                                      annotations: Object.fromEntries(
+                                          referenceLines.map((line, i) => {
+                                              const lineColor = getColorVar(line.color || 'danger')
+                                              return [
+                                                  `referenceLine${i}`,
+                                                  {
+                                                      type: 'line',
+                                                      yMin: line.value,
+                                                      yMax: line.value,
+                                                      borderColor: lineColor,
+                                                      borderWidth: 1.5,
+                                                      borderDash: [5, 4],
+                                                      ...(line.label
+                                                          ? {
+                                                                label: {
+                                                                    display: true,
+                                                                    content: line.label,
+                                                                    position: line.labelPosition || 'end',
+                                                                    font: { size: 9 },
+                                                                    color: lineColor,
+                                                                    backgroundColor: 'transparent',
+                                                                    // Sit the label just above the line so it doesn't render on top of it.
+                                                                    // The 20% y-axis headroom set above guarantees it stays inside the chart.
+                                                                    yAdjust: -8,
+                                                                },
+                                                            }
+                                                          : {}),
+                                                  },
+                                              ]
+                                          })
+                                      ),
+                                  },
+                              }
+                            : {}),
                     },
                     maintainAspectRatio: false,
                     interaction: {
@@ -223,7 +289,7 @@ export function Sparkline({
                 },
             }
         },
-        deps: [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type],
+        deps: [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type, referenceLines],
     })
 
     const dataPointCount = adjustedData[0]?.values?.length || 0
@@ -347,7 +413,7 @@ export function Sparkline({
                                 .filter((item) => !hideZerosInTooltip || item.count > 0)
                                 .sort((a, b) => (sortTooltipByCount ? b.count - a.count : a.order - b.order))}
                             renderSeries={(value) => value}
-                            renderCount={(count) => humanFriendlyNumber(count)}
+                            renderCount={(count) => (renderTooltipValue ?? humanFriendlyNumber)(count)}
                             rowCutoff={tooltipRowCutoff}
                         />
                     }

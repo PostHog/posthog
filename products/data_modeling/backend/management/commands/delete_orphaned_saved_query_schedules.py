@@ -13,7 +13,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_delete_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
 

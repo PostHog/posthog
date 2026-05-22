@@ -7,8 +7,7 @@ from django.dispatch import receiver
 from posthog.rbac.decorators import field_access_control
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
-
-from .external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = logging.getLogger(__name__)
 

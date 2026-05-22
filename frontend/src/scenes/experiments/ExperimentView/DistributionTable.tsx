@@ -24,9 +24,9 @@ import {
 } from '../ExperimentForm/VariantDistributionEditor'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { VariantTag } from './components'
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
+import { VariantTag } from './VariantTag'
 
 export function DistributionModal(): JSX.Element {
     const { experiment, experimentLoading } = useValues(experimentLogic)
