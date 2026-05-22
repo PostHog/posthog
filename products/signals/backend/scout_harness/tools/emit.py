@@ -24,12 +24,12 @@ from typing import Any
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.models import SignalScoutRun, SignalSourceConfig
 
 logger = logging.getLogger(__name__)
 
-SOURCE_PRODUCT = "signals_scout"
-SOURCE_TYPE = "cross_source_issue"
+SOURCE_PRODUCT = SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value
+SOURCE_TYPE = SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE.value
 
 # Defensive cap on evidence list length — the agent shouldn't ship hundreds of
 # citations per finding. The pydantic schema accepts any length; this is a harness
@@ -338,8 +338,6 @@ def _preflight_emit_gates(team: Team) -> str | None:
     Surfacing the gate result here lets the view return a useful skipped_reason
     instead of "emitted" for an emit the pipeline silently dropped.
     """
-    from products.signals.backend.models import SignalSourceConfig
-
     organization = team.organization
     if not organization.is_ai_data_processing_approved:
         return "ai_processing_not_approved"
