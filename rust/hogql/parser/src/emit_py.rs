@@ -1,37 +1,17 @@
-//! `PyEmitter` — `Emitter` impl that constructs `posthog.hogql.ast`
-//! dataclass instances directly during parsing, bypassing the
-//! `serde_json::Value` intermediate tree.
+//! `PyEmitter` — `Emitter` impl that constructs `posthog.hogql.ast` dataclasses directly during parsing, bypassing the `serde_json::Value` intermediate tree.
 //!
-//! Used by the `parse_*_py` PyO3 entry points in [`crate::lib`]. The
-//! `parse_*_json` entry points stay on `JsonEmitter` for the future
-//! WASM build (no CPython link) and for tests that compare on JSON
-//! shape.
+//! Used by the `parse_*_py` PyO3 entry points in [`crate::lib`]. The `parse_*_json` entry points stay on `JsonEmitter` for the future WASM build (no CPython link) and for tests that compare on JSON shape.
 //!
 //! Construction strategy:
-//!  - All `posthog.hogql.ast` classes are looked up *once* at
-//!    [`PyEmitter::new`] and stored as `Bound<'py, PyAny>` references.
-//!    A `getattr(ast_module, "Constant")` per node would dominate
-//!    runtime over the json round-trip we're trying to beat.
-//!  - Each emitter method builds a `PyDict` of kwargs and calls
-//!    `class.call((), Some(&kwargs))`. The constructed object is
-//!    wrapped in [`PyAst`] (which also tracks the `positions_locked`
-//!    flag for idempotent `with_pos` / `no_pos` semantics).
+//!  - All `posthog.hogql.ast` classes are looked up *once* at [`PyEmitter::new`] and stored as `Bound<'py, PyAny>` references — a `getattr(ast_module, "Constant")` per node would dominate runtime over the json round-trip we're trying to beat.
+//!  - Each emitter method builds a `PyDict` of kwargs and calls `class.call((), Some(&kwargs))`. The constructed object is wrapped in [`PyAst`] (which also tracks `positions_locked` for idempotent `with_pos` / `no_pos` semantics).
 //!
 //! Position handling:
-//!  - `position()` returns a plain `PyInt` (the offset). Lines/columns
-//!    aren't used by the Python side — `AST.start` / `AST.end` are
-//!    `Optional[int]`. Mirrors the post-walk extraction done by
-//!    `pyobject::Converter` for the `parse_*_py` Phase 1 path.
-//!  - `with_pos` / `no_pos` / `replace_pos` mirror cpp's idempotent
-//!    semantics:
-//!    * `with_pos(v, start, end)`: set `v.start = start, v.end = end`
-//!      only if `v.start` is currently `None` AND `positions_locked`
-//!      isn't set.
-//!    * `no_pos(v)`: marks the wrapper with `positions_locked = true`.
-//!      The underlying object's `start` / `end` stay at their dataclass
-//!      defaults (`None`).
-//!    * `replace_pos(v, start, end)`: unconditionally writes (subject
-//!      to `positions_locked`). Used for outer-span overrides.
+//!  - `position()` returns a plain `PyInt` (the offset). Lines/columns aren't used by the Python side — `AST.start` / `AST.end` are `Optional[int]`. Mirrors the post-walk extraction done by `pyobject::Converter` for the Phase 1 path.
+//!  - `with_pos` / `no_pos` / `replace_pos` mirror cpp's idempotent semantics:
+//!    * `with_pos(v, start, end)`: set `v.start = start, v.end = end` only if `v.start` is currently `None` AND `positions_locked` isn't set.
+//!    * `no_pos(v)`: marks the wrapper with `positions_locked = true`. The underlying object's `start` / `end` stay at dataclass defaults (`None`).
+//!    * `replace_pos(v, start, end)`: unconditionally writes (subject to `positions_locked`). Used for outer-span overrides.
 
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
@@ -44,38 +24,19 @@ use crate::emit::Emitter;
 // PyAst — AST value wrapper.
 // ============================================================================
 
-/// Wrapper around a Python AST object plus the out-of-band
-/// `positions_locked` flag. The underlying `posthog.hogql.ast.*`
-/// dataclasses use `slots=True` so they can't carry an arbitrary
-/// "positions locked" attribute; the wrapper carries it instead.
+/// Wrapper around a Python AST object plus the out-of-band `positions_locked` flag. The underlying `posthog.hogql.ast.*` dataclasses use `slots=True` so they can't carry an arbitrary "positions locked" attribute; the wrapper carries it instead.
 ///
-/// `obj` is unbound (`Py<PyAny>`, no GIL lifetime) so the wrapper can
-/// live alongside `Parser` without dragging a 'py through the parser's
-/// type signatures everywhere. Re-attach to the GIL via `obj.bind(py)`
-/// inside emitter methods where `py: Python<'_>` is available.
+/// `obj` is unbound (`Py<PyAny>`, no GIL lifetime) so the wrapper can live alongside `Parser` without dragging a 'py through the parser's type signatures. Re-attach via `obj.bind(py)` inside emitter methods where `py: Python<'_>` is available.
 pub struct PyAst {
     pub obj: Py<PyAny>,
     pub positions_locked: bool,
-    /// Out-of-band storage for parser-internal sentinel fields like
-    /// `__rust_offset_liftable` and `__rust_table_args`. The JSON path
-    /// stores these as transient keys on the underlying `Value::Object`
-    /// Map and removes them before the node leaves the parser. Python
-    /// `slots=True` dataclasses reject `setattr` for unknown attributes,
-    /// so PyEmitter routes sentinel reads/writes through this HashMap
-    /// instead.
-    ///
-    /// `Option<Box<HashMap>>` instead of a bare `HashMap` because the
-    /// vast majority of nodes never see a sentinel — the inline
-    /// HashMap struct is 48 bytes; the Option<Box> is 8 bytes and
-    /// avoids the allocation altogether for empty cases. Lazy-init
-    /// happens in `sentinel_mut()`.
+    /// Side-channel for parser-internal `__rust_*` sentinel keys — the JSON path stores these on the underlying `Value::Object` Map, but slots=True dataclasses reject setattr for unknown attrs, so PyEmitter routes them here.
+    /// `Option<Box<HashMap>>` over inline HashMap (8 vs 48 bytes) — >99% of nodes never carry a sentinel, so this skips the allocation entirely. Lazy-init via `sentinels_mut()`.
     pub rust_sentinels: Option<Box<HashMap<String, Py<PyAny>>>>,
 }
 
 impl PyAst {
-    /// Lazy accessor for the sentinel map. Allocates the inner box
-    /// on first access. Used by the rare `set_field` site that's
-    /// routing a `__rust_*` sentinel.
+    /// Lazy accessor for the sentinel map — allocates the inner box on first access. Used by the rare `set_field` site routing a `__rust_*` sentinel.
     fn sentinels_mut(&mut self) -> &mut HashMap<String, Py<PyAny>> {
         self.rust_sentinels
             .get_or_insert_with(|| Box::new(HashMap::new()))
@@ -84,14 +45,11 @@ impl PyAst {
 
 impl Clone for PyAst {
     fn clone(&self) -> Self {
-        // `Py<T>::clone_ref` needs the GIL; the parse loop always holds
-        // it (we're called from a PyO3 #[pyfunction]), so `with_gil` is a
-        // free re-borrow of the already-acquired GIL token.
+        // `Py<T>::clone_ref` needs the GIL; the parse loop always holds it via the outer #[pyfunction], so `with_gil` is a free re-borrow of the already-acquired token.
         Python::with_gil(|py| Self {
             obj: self.obj.clone_ref(py),
             positions_locked: self.positions_locked,
-            // Skip the allocation entirely when the source had no
-            // sentinels (the common case).
+            // Skip the allocation entirely when the source had no sentinels (the common case).
             rust_sentinels: self.rust_sentinels.as_ref().map(|m| {
                 Box::new(
                     m.iter()
@@ -104,18 +62,12 @@ impl Clone for PyAst {
 }
 
 // ============================================================================
-// PyEmitter — caches AST class references and constructs nodes via
-// class.call.
+// PyEmitter — caches AST class references and constructs nodes via class.call.
 // ============================================================================
 
-/// Constructs `posthog.hogql.ast` instances directly. Holds the GIL
-/// token + cached class references for the full duration of one parse.
+/// Constructs `posthog.hogql.ast` instances directly. Holds the GIL token + cached class references for the full duration of one parse.
 ///
-/// `Clone` is required by the Emitter trait bound — the parser clones
-/// the emitter into a sub-`Parser` when handling `f'{…}'` template
-/// blocks. Each `Bound<'py, _>` clone is just a refcount bump, so
-/// cloning the whole struct is ~60 refcount bumps (one per cached
-/// class). Cheap compared to a parse round.
+/// `Clone` is required by the Emitter trait bound — the parser clones the emitter into a sub-`Parser` for `f'{…}'` template blocks. Each `Bound<'py, _>` clone is just a refcount bump, so cloning the whole struct is ~60 refcount bumps — cheap compared to a parse round.
 #[derive(Clone)]
 pub struct PyEmitter<'py> {
     py: Python<'py>,
@@ -185,11 +137,7 @@ pub struct PyEmitter<'py> {
     cls_interpolate_expr: Bound<'py, PyAny>,
     cls_limit_by_expr: Bound<'py, PyAny>,
     // ===== Op enum members (pre-resolved at construction) =====
-    // The previous implementation did `cls.get_item(op)` on every
-    // arith/compare call — a PyDict lookup against the StrEnum class.
-    // For a parser that runs millions of arith/compare ops across the
-    // factory suite, that's millions of avoided lookups. Each cached
-    // entry is one refcount-bumped `Bound` — trivial memory cost.
+    // Previous impl did `cls.get_item(op)` per arith/compare call — a PyDict lookup against the StrEnum class. Caching saves millions of lookups across the factory suite; each entry is one refcount-bumped `Bound`.
     arith_op_add: Bound<'py, PyAny>,
     arith_op_sub: Bound<'py, PyAny>,
     arith_op_mult: Bound<'py, PyAny>,
@@ -215,10 +163,7 @@ pub struct PyEmitter<'py> {
     compare_op_iregex: Bound<'py, PyAny>,
     compare_op_not_regex: Bound<'py, PyAny>,
     compare_op_not_iregex: Bound<'py, PyAny>,
-    // ===== Module handle as escape hatch for any class not cached
-    // above. Currently unused — every node the parser emits has a
-    // typed entry, but kept in case a future trait extension needs
-    // to fall back to `getattr` for less-common classes.
+    // ===== Module handle as escape hatch for any class not cached above. Currently unused — every emitted node has a typed entry, but kept in case a future trait extension needs `getattr` fallback for less-common classes.
     #[allow(dead_code)]
     pub ast_module: Bound<'py, PyModule>,
 }
@@ -226,10 +171,7 @@ pub struct PyEmitter<'py> {
 impl<'py> PyEmitter<'py> {
     pub fn new(py: Python<'py>) -> PyResult<Self> {
         let ast_module = py.import_bound("posthog.hogql.ast")?;
-        // Bind the two StrEnum classes once so the per-member lookups
-        // below stay readable. Not stored on the struct — once the
-        // members are pulled out, the enum classes themselves are
-        // never read again.
+        // Bind the StrEnum classes once for readability — not stored on the struct since the enum classes themselves are never read again after member extraction.
         let arith_enum = ast_module.getattr("ArithmeticOperationOp")?;
         let compare_enum = ast_module.getattr("CompareOperationOp")?;
         Ok(Self {
@@ -295,9 +237,7 @@ impl<'py> PyEmitter<'py> {
             cls_window_expr: ast_module.getattr("WindowExpr")?,
             cls_interpolate_expr: ast_module.getattr("InterpolateExpr")?,
             cls_limit_by_expr: ast_module.getattr("LimitByExpr")?,
-            // Pre-resolve enum members by NAME. The StrEnum classes
-            // are subscriptable by member-name (`cls["Add"]`) — value
-            // (`cls["+"]`) doesn't work, so we always use the name path.
+            // Pre-resolve enum members by NAME — StrEnum classes are subscriptable by member-name (`cls["Add"]`), not by value (`cls["+"]` fails).
             arith_op_add: arith_enum.get_item("Add")?,
             arith_op_sub: arith_enum.get_item("Sub")?,
             arith_op_mult: arith_enum.get_item("Mult")?,
@@ -328,8 +268,7 @@ impl<'py> PyEmitter<'py> {
         })
     }
 
-    /// Map an arithmetic op symbol to the cached `ArithmeticOperationOp`
-    /// StrEnum member. Compiles to a jump table — one branch + return ref.
+    /// Map an arithmetic op symbol to the cached `ArithmeticOperationOp` StrEnum member — compiles to a jump table (one branch + return ref).
     fn arith_op(&self, op: &str) -> &Bound<'py, PyAny> {
         match op {
             "+" => &self.arith_op_add,
@@ -341,8 +280,7 @@ impl<'py> PyEmitter<'py> {
         }
     }
 
-    /// Map a comparison op symbol to the cached `CompareOperationOp`
-    /// StrEnum member.
+    /// Map a comparison op symbol to the cached `CompareOperationOp` StrEnum member.
     fn compare_op(&self, op: &str) -> &Bound<'py, PyAny> {
         match op {
             "==" => &self.compare_op_eq,
@@ -369,8 +307,7 @@ impl<'py> PyEmitter<'py> {
         }
     }
 
-    /// Construct a node by invoking `class(**kwargs)`. Wraps the result
-    /// in [`PyAst`] with `positions_locked = false`.
+    /// Construct a node by invoking `class(**kwargs)`. Wraps the result in [`PyAst`] with `positions_locked = false`.
     fn build(&self, class: &Bound<'py, PyAny>, kwargs: &Bound<'py, PyDict>) -> PyAst {
         let obj = class
             .call(PyTuple::empty_bound(self.py), Some(kwargs))
@@ -383,8 +320,7 @@ impl<'py> PyEmitter<'py> {
         }
     }
 
-    /// Helper: wrap a non-AST primitive (None, bool, int, str, list)
-    /// in PyAst so it flows through the parser as `Self::Value`.
+    /// Helper: wrap a non-AST primitive (None, bool, int, str, list) in PyAst so it flows through the parser as `Self::Value`.
     fn wrap_prim(&self, obj: PyObject) -> PyAst {
         PyAst {
             obj,
@@ -444,9 +380,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         self.build(&self.cls_constant, &kw)
     }
     fn constant_special_number(&self, name: &'static str) -> PyAst {
-        // cpp's `Infinity` / `-Infinity` / `NaN` shipped as a string in
-        // the JSON form. The Python side unwraps to the f64 value, so
-        // the Constant holds `value: float('inf')` etc.
+        // cpp's `Infinity` / `-Infinity` / `NaN` ship as strings in JSON; the Python side unwraps to f64, so the Constant holds `value: float('inf')` etc.
         let f = match name {
             "Infinity" => f64::INFINITY,
             "-Infinity" => f64::NEG_INFINITY,
@@ -458,8 +392,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         self.build(&self.cls_constant, &kw)
     }
     fn constant_number_string(&self, text: String) -> PyAst {
-        // Lossless big int: hand the digit string to Python `int(text, base)`.
-        // Mirrors `pyobject::parse_large_int_literal`.
+        // Lossless big int: hand the digit string to Python `int(text, base)`. Mirrors `pyobject::parse_large_int_literal`.
         let body = text.strip_prefix('-').unwrap_or(&text);
         let is_hex = body.starts_with("0x") || body.starts_with("0X");
         let base = if is_hex { 16 } else { 10 };
@@ -490,8 +423,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         self.build(&self.cls_compare_op, &kw)
     }
     fn compare_is_null(&self, left: PyAst, negated: bool) -> PyAst {
-        // `expr IS [NOT] NULL` → CompareOperation(left, Constant(None),
-        // == / !=, is_null_comparison_style=True).
+        // `expr IS [NOT] NULL` → CompareOperation(left, Constant(None), == / !=, is_null_comparison_style=True).
         let kw = PyDict::new_bound(self.py);
         kw.set_item("left", left.obj.bind(self.py)).unwrap();
         let null_constant = self.constant(self.null());
@@ -666,9 +598,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         kw.set_item("name", name).unwrap();
         kw.set_item("value", value.obj.bind(self.py)).unwrap();
         let mut node = self.build(&self.cls_named_argument, &kw);
-        // cpp's `VISIT(NamedArgument)` emits this without `addPositionInfo`.
-        // The wrapper's `positions_locked` short-circuits future `with_pos`
-        // calls.
+        // cpp's `VISIT(NamedArgument)` emits this without `addPositionInfo`; `positions_locked` short-circuits future `with_pos` calls.
         node.positions_locked = true;
         node
     }
@@ -834,10 +764,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         self.build(&self.cls_variable_declaration, &kw)
     }
     fn catch_clause(&self, var: PyAst, ty: PyAst, body: PyAst) -> PyAst {
-        // cpp emits this as a `[var, type, body]` JSON array — for Py
-        // we represent the catch clause the same way (the
-        // `TryCatchStatement.catches` field is `list[list[Expr | Type
-        // | Block]]` shape).
+        // cpp emits this as a `[var, type, body]` JSON array — we mirror the shape on Py since `TryCatchStatement.catches` is `list[list[Expr | Type | Block]]`.
         let list = PyList::empty_bound(self.py);
         list.append(var.obj).unwrap();
         list.append(ty.obj).unwrap();
@@ -995,12 +922,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         self.build(&self.cls_limit_by_expr, &kw)
     }
     fn select_query_empty(&self) -> PyAst {
-        // `SelectQuery` has `select: list[Expr]` as a required (no-default)
-        // field — passing nothing trips dataclass `__init__` validation.
-        // The parser fills the real value via `set_field("select", ...)`
-        // before the node leaves the parser, so an empty list is a
-        // safe placeholder. Same idea for the other AST surgery sites
-        // that work on top of an `_empty()` shell.
+        // `SelectQuery.select: list[Expr]` is required (no default) — passing nothing trips dataclass `__init__` validation. The parser fills the real value via `set_field("select", ...)` before the node leaves, so an empty list is a safe placeholder. Same idea for the other `_empty()` shell sites.
         let kw = PyDict::new_bound(self.py);
         kw.set_item("select", PyList::empty_bound(self.py)).unwrap();
         self.build(&self.cls_select_query, &kw)
@@ -1156,11 +1078,7 @@ impl<'py> Emitter for PyEmitter<'py> {
 
     // ===== Position machinery =====
     fn position(&self, _line: u32, _column: u32, offset: usize) -> PyAst {
-        // Python AST `start` / `end` are plain `Optional[int]` —
-        // only the offset survives. Lines/columns aren't carried on
-        // the final dataclass. We pre-allocate the `Py<int>` here so
-        // `with_pos` / `replace_pos` can setattr it via a `Bound`
-        // (fast IntoPy path, no per-setattr int allocation).
+        // Python AST `start` / `end` are `Optional[int]` — only the offset survives; lines/columns aren't carried on the dataclass. Pre-allocating the `Py<int>` here lets `with_pos` / `replace_pos` setattr via a `Bound` (fast IntoPy, no per-setattr int alloc).
         self.wrap_prim(offset.into_py(self.py))
     }
     fn with_pos(&self, value: PyAst, start: PyAst, end: PyAst) -> PyAst {
@@ -1168,8 +1086,7 @@ impl<'py> Emitter for PyEmitter<'py> {
             return value;
         }
         let bound = value.obj.bind(self.py);
-        // `start` is only present on AST dataclasses (via `AST` base);
-        // primitives like int / str / None don't have it.
+        // `start` is only on AST dataclasses (via `AST` base); primitives (int / str / None) don't have it.
         if let Ok(existing) = bound.getattr("start") {
             if existing.is_none() {
                 bound.setattr("start", start.obj.bind(self.py)).unwrap();
@@ -1197,12 +1114,7 @@ impl<'py> Emitter for PyEmitter<'py> {
     // ===== Inspection =====
     fn node_kind<'a>(&self, v: &'a PyAst) -> Option<Cow<'a, str>> {
         let bound = v.obj.bind(self.py);
-        // Plain primitives (int / str / None / list / dict / bool)
-        // aren't AST nodes — return None to match JsonEmitter semantics.
-        // Distinguish by checking if the type name matches an ast.*
-        // class. Simplest: try `_visit_method_name` attr (every AST
-        // dataclass has it via `__init_subclass__`) — fast attribute
-        // probe, no string parsing.
+        // Plain primitives (int / str / None / list / dict / bool) aren't AST nodes — return None to match JsonEmitter. Probe `_visit_method_name` (every AST dataclass has it via `__init_subclass__`) — fast attr probe, no string parsing.
         if !bound.hasattr("_visit_method_name").unwrap_or(false) {
             return None;
         }
@@ -1210,9 +1122,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         Some(Cow::Owned(type_name.to_string()))
     }
     fn get_field(&self, v: &PyAst, name: &str) -> Option<PyAst> {
-        // Sentinel fields (`__rust_*`) live in the side-channel map
-        // rather than as dataclass attributes — see `rust_sentinels`
-        // on `PyAst`.
+        // Sentinel fields (`__rust_*`) live in the side-channel map — see `rust_sentinels` on `PyAst`.
         if let Some(stored) = v.rust_sentinels.as_ref().and_then(|m| m.get(name)) {
             return Some(PyAst {
                 obj: stored.clone_ref(self.py),
@@ -1231,17 +1141,8 @@ impl<'py> Emitter for PyEmitter<'py> {
         }
     }
     fn has_field(&self, v: &PyAst, name: &str) -> bool {
-        // JsonEmitter's `has_field` returns true iff the key exists in
-        // the JSON Map — which the JSON impl only inserts when the
-        // parser explicitly emitted a non-default value for the field.
-        // The Python equivalent is "attribute exists AND is not None":
-        // slots=True dataclasses always declare every field as an
-        // attribute (even when its default is None), so a plain
-        // `hasattr` returns true for unset fields too. The parser uses
-        // `has_field` to gate "did the parser set this?" branches
-        // (wrap_pivot_chain's decoration check, the array-join FROM
-        // check). The `not None` semantic matches the JSON Map "key
-        // exists" check for those uses.
+        // JsonEmitter returns true iff the JSON Map has the key — only set when the parser emitted a non-default value.
+        // Python equivalent is "attribute exists AND is not None": slots=True dataclasses always declare every field as an attribute (even when default is None), so plain `hasattr` returns true for unset fields. The `not None` semantic matches JSON's "key exists" check for the parser's gating sites (wrap_pivot_chain's decoration check, the array-join FROM check).
         if v.rust_sentinels
             .as_ref()
             .is_some_and(|m| m.contains_key(name))
@@ -1300,13 +1201,10 @@ impl<'py> Emitter for PyEmitter<'py> {
         let bound = v.obj.bind(self.py);
         let prev = bound.getattr(name).ok()?;
         if prev.is_none() {
-            // Field already unset (slots=True keeps the attr bound but
-            // None) — treat as "absent" to match the JSON `as_object_mut().remove`
-            // semantics where remove returns None if the key isn't present.
+            // Field already unset (slots=True keeps the attr bound but None) — treat as absent to match JSON's `as_object_mut().remove` returning None for missing keys.
             return None;
         }
-        // Replace with `None` (the default) so the field still exists
-        // (slots=True keeps it bound) but reads as missing semantically.
+        // Replace with `None` so the field still exists (slots=True keeps it bound) but reads as missing semantically.
         bound.setattr(name, self.py.None()).unwrap();
         Some(PyAst {
             obj: prev.unbind(),
@@ -1315,22 +1213,13 @@ impl<'py> Emitter for PyEmitter<'py> {
         })
     }
     fn set_field(&self, v: &mut PyAst, name: &str, value: PyAst) {
-        // Parser-internal sentinel fields (`__rust_*`) aren't declared
-        // on the dataclass; slots=True rejects setattr for them. Route
-        // to the side-channel HashMap instead.
+        // Parser-internal sentinel fields (`__rust_*`) aren't on the dataclass; slots=True rejects setattr — route to the side-channel HashMap.
         if name.starts_with("__rust_") {
             v.sentinels_mut().insert(name.to_string(), value.obj);
             return;
         }
         let bound = v.obj.bind(self.py);
-        // Dict-shaped AST fields (`_DICT_FIELDS` in `json_ast.py`):
-        // `ctes`, `replace`, `window_exprs`. The parser builds `ctes`
-        // as a list (see `inject_ctes_into_select`) — the JSON path
-        // leaves it as a list and `json_ast.py::_deserialize_node`
-        // folds into a dict on the Python side. PyEmitter has no
-        // such post-walk, so the fold has to happen here. Each item
-        // carries its own `name` attribute (it's a `CTE`); use that as
-        // the dict key.
+        // Dict-shaped AST fields (`_DICT_FIELDS` in `json_ast.py`): `ctes`, `replace`, `window_exprs`. The parser builds `ctes` as a list (see `inject_ctes_into_select`) and the JSON path folds list→dict in `json_ast.py::_deserialize_node`. PyEmitter has no post-walk, so we fold here using each item's `name` attribute (it's a `CTE`) as the dict key.
         if name == "ctes" {
             let val_bound = value.obj.bind(self.py);
             if let Ok(list) = val_bound.downcast::<PyList>() {
@@ -1349,8 +1238,7 @@ impl<'py> Emitter for PyEmitter<'py> {
     }
     fn extend_list_field(&self, v: &mut PyAst, name: &str, items: Vec<PyAst>) {
         let bound = v.obj.bind(self.py);
-        // Try to read the existing list; fall back to creating a fresh
-        // list if absent or non-list.
+        // Read the existing list; fall back to a fresh list if absent or non-list.
         match bound.getattr(name) {
             Ok(existing) if existing.is_instance_of::<PyList>() => {
                 let list = existing.downcast::<PyList>().unwrap();

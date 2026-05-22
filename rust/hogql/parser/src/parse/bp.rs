@@ -164,13 +164,7 @@ fn is_concat_call<E: Emitter>(emit: &E, v: &E::Value) -> bool {
         == Some("concat")
 }
 
-/// Flatten And/Or chains. cpp's `And` / `Or` visitor flattens BOTH
-/// operands, so `a AND b AND c` and `a AND (b AND c)` both produce a
-/// single flat `And` with three exprs — parenthesisation does not
-/// nest. We rebuild a fresh node from the extracted exprs so the
-/// outer pratt loop's `wrap_pos` can stamp the merged span (without
-/// the rebuild the idempotent `with_pos` would keep the pre-merge
-/// `[start, end]` and `a or b or c` would end at `b`'s position).
+/// Flatten And/Or chains. cpp's `And`/`Or` visitor flattens BOTH operands, so `a AND b AND c` and `a AND (b AND c)` both produce a single flat `And` with three exprs — parenthesisation does not nest. We rebuild a fresh node from the extracted exprs so the outer pratt loop's `wrap_pos` can stamp the merged span (without the rebuild, idempotent `with_pos` would keep the pre-merge `[start, end]` and `a or b or c` would end at `b`'s position).
 pub(super) fn merge_and_or<E: Emitter>(
     emit: &E,
     node: &str,
@@ -187,8 +181,7 @@ pub(super) fn merge_and_or<E: Emitter>(
     }
 }
 
-/// If `v` is an `And`/`Or` node matching `node`, push its `exprs`
-/// children individually; otherwise push `v` itself.
+/// If `v` is an `And`/`Or` node matching `node`, push its `exprs` children individually; otherwise push `v` itself.
 fn extend_with_node_children<E: Emitter>(
     emit: &E,
     out: &mut Vec<E::Value>,

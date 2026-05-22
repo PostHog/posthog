@@ -276,11 +276,7 @@ pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     /// once at construction so the hot wrap_pos path stays O(log n) via the
     /// line-starts binary search.
     pub(crate) is_ascii_src: bool,
-    /// AST node builder. Routes every node/position construction through
-    /// the `Emitter` trait so we can swap `JsonEmitter` (current default,
-    /// kept for the WASM build) for `PyEmitter` (constructs Python ast.*
-    /// objects directly, avoiding the `serde_json::Value` intermediate
-    /// tree). See `crate::emit`.
+    /// AST node builder. Routes every node/position construction through the `Emitter` trait so we can swap `JsonEmitter` (current default, kept for WASM) for `PyEmitter` (constructs Python ast.* objects directly, avoiding the `serde_json::Value` intermediate). See `crate::emit`.
     pub(crate) emit: E,
 }
 
@@ -321,12 +317,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     }
 }
 
-/// Convenience constructors for the JsonEmitter-bound `Parser<'_,
-/// JsonEmitter>` path. The public `parse_<rule>` entry points route
-/// through `parse_<rule>_with_emit` directly (the `_with_emit` variant
-/// constructs via `Parser::new_with_emit`), so these only have callers
-/// inside the test module — `#[cfg(test)]` keeps them out of the
-/// non-test build to silence dead-code warnings.
+/// Convenience constructors for the JsonEmitter-bound `Parser<'_, JsonEmitter>` path. Public `parse_<rule>` entry points route through `parse_<rule>_with_emit` directly, so these only have callers inside the test module — `#[cfg(test)]` silences dead-code warnings in non-test builds.
 #[cfg(test)]
 impl<'a> Parser<'a, JsonEmitter> {
     pub(crate) fn new(src: &'a str) -> Result<Self, ParseError> {

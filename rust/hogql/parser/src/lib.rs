@@ -28,23 +28,16 @@ where
 {
     match f() {
         Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| {
-            // serde_json::Value -> string never fails in practice, but emit
-            // a structured error rather than panicking across the FFI.
+            // serde_json::Value -> string never fails in practice, but emit a structured error rather than panic across the FFI.
             error::ParseError::syntax("internal: failed to serialize AST", 0, 0).to_json_string()
         }),
         Err(err) => err.to_json_string(),
     }
 }
 
-/// Counterpart to [`run`] for the `parse_*_py` entry points: drive a
-/// `PyEmitter` so the parser constructs `posthog.hogql.ast` instances
-/// directly, returning the unbound `Py<PyAny>` handle. Skips both the
-/// JSON-string serialise step on the Rust side AND the post-walk
-/// `Value`→`PyObject` converter from Phase 1 — there is no
-/// `serde_json::Value` intermediate on the success path at all.
+/// Counterpart to [`run`] for `parse_*_py` entry points: drive a `PyEmitter` so the parser constructs `posthog.hogql.ast` instances directly, returning the unbound `Py<PyAny>`. Skips both the JSON-string serialise step AND the post-walk `Value`→`PyObject` converter from Phase 1 — no `serde_json::Value` intermediate on the success path.
 ///
-/// Error path still routes through the JSON-envelope `Converter` so
-/// the Python exception construction stays in one place.
+/// Error path still routes through the JSON-envelope `Converter` so Python exception construction stays in one place.
 fn run_py<'py, F>(py: Python<'py>, f: F) -> PyResult<PyObject>
 where
     F: FnOnce(emit_py::PyEmitter<'py>) -> Result<emit_py::PyAst, error::ParseError>,
@@ -53,9 +46,7 @@ where
     match f(emitter) {
         Ok(v) => Ok(v.obj),
         Err(err) => {
-            // Build the JSON error envelope so the converter can raise
-            // the matching Python exception with start/end positions.
-            // One code path for both error sources.
+            // Build the JSON error envelope so the converter raises the matching Python exception with start/end positions — one code path for both error sources.
             let value = err.to_json_value();
             let converter = pyobject::Converter::new(py)?;
             converter.convert_root(&value)
@@ -89,10 +80,7 @@ fn parse_full_template_string_json(string: &str) -> String {
     run(|| parse::parse_full_template_string(string))
 }
 
-// `parse_*_py` mirror the `_json` entry points but return Python ast
-// dataclass instances directly. They skip the JSON serialise/deserialise
-// round-trip on both sides. The `_json` versions stay alongside for the
-// future WASM build and for tests that compare on the JSON shape.
+// `parse_*_py` mirror the `_json` entry points but return Python ast dataclass instances directly, skipping the JSON serialise/deserialise round-trip on both sides. The `_json` versions stay alongside for the future WASM build and for tests that compare on JSON shape.
 
 #[pyfunction]
 #[pyo3(signature = (statement, is_internal=false))]

@@ -1,76 +1,40 @@
-//! The `Emitter` trait abstracts AST node construction so the parser can
-//! emit either `serde_json::Value` (via `JsonEmitter`, used by the
-//! `parse_*_json` entry points + the future WASM build) or Python
-//! `posthog.hogql.ast` dataclass instances directly during parse (via
-//! `PyEmitter` in `emit_py.rs`, used by the `parse_*_py` entry points).
+//! The `Emitter` trait abstracts AST node construction so the parser can emit either `serde_json::Value` (via `JsonEmitter`, used by `parse_*_json` entry points + the future WASM build) or Python `posthog.hogql.ast` dataclass instances directly during parse (via `PyEmitter` in `emit_py.rs`, used by `parse_*_py`).
 //!
-//! Field names and shapes mirror the dataclasses at [`posthog/hogql/ast.py`].
-//! The Python deserialiser at [`posthog/hogql/json_ast.py`] also builds
-//! these dataclasses from the JSON shape, so the two backends produce
-//! `__eq__`-equivalent objects.
+//! Field names and shapes mirror the dataclasses at [`posthog/hogql/ast.py`]. The Python deserialiser at [`posthog/hogql/json_ast.py`] also builds these dataclasses from the JSON shape, so the two backends produce `__eq__`-equivalent objects.
 
 use serde_json::{json, Value};
 use std::borrow::Cow;
 
-/// AST node + value constructor surface. Every construction site in the
-/// parser routes through this trait so the same parse logic can produce
-/// `serde_json::Value` (kept for the WASM build and tests) or Python
-/// dataclass instances directly via PyO3.
+/// AST node + value constructor surface. Every construction site in the parser routes through this trait so the same parse logic can produce `serde_json::Value` (kept for WASM and tests) or Python dataclass instances directly via PyO3.
 ///
-/// Inspection methods (`node_kind`, `get_field`, …) cover the parser's
-/// post-construction AST-surgery patterns: split-and-hoist for nested
-/// BETWEEN, AND/OR chain folding, position propagation, and concat
-/// merging. JSON impls read the underlying map directly; the Python
-/// impl uses PyO3 `getattr` against the dataclass attrs.
+/// Inspection methods (`node_kind`, `get_field`, …) cover the parser's post-construction AST-surgery patterns: split-and-hoist for nested BETWEEN, AND/OR chain folding, position propagation, and concat merging. JSON impls read the underlying map directly; the Python impl uses PyO3 `getattr` against the dataclass attrs.
 ///
-/// A handful of methods (`window_frame_expr`, `window_expr`,
-/// `position_offset`, `extend_list_field`, `clone_value`) are kept
-/// alongside the trait surface as "shoreline" hooks for the cascade
-/// migration — they covered AST-surgery patterns that ended up
-/// being rewritten differently in the final shape. Left in place
-/// (with `#[allow(dead_code)]`) since they're part of the documented
-/// API surface for future emitter implementations.
+/// A handful of methods (`window_frame_expr`, `window_expr`, `position_offset`, `extend_list_field`, `clone_value`) are kept as "shoreline" hooks for the cascade migration — they covered AST-surgery patterns rewritten differently in the final shape. Left in place (with `#[allow(dead_code)]`) as part of the documented API surface for future emitter implementations.
 #[allow(dead_code)]
 pub trait Emitter {
-    /// AST tree handle. Cheap to clone (Json: refcount via Value::clone;
-    /// Py: `Bound::clone_ref` on the underlying PyObject).
+    /// AST tree handle. Cheap to clone (Json: refcount via Value::clone; Py: `Bound::clone_ref` on the underlying PyObject).
     type Value: Clone;
 
     // ===== Primitive value constructors =====
-    /// `None`-equivalent (Json null / Py None). Used as a sentinel for
-    /// "no value" slots that the deserialiser maps to dataclass-field
-    /// `None` defaults.
+    /// `None`-equivalent (Json null / Py None). Sentinel for "no value" slots that the deserialiser maps to dataclass-field `None` defaults.
     fn null(&self) -> Self::Value;
     fn bool(&self, v: bool) -> Self::Value;
     fn int(&self, v: i64) -> Self::Value;
     fn string(&self, v: &str) -> Self::Value;
-    /// Finite float as `Value::Number` (Json) / Python float (Py).
-    /// Non-finite (NaN, ±Inf) caller-side route through
-    /// `constant_special_number` instead.
+    /// Finite float as `Value::Number` (Json) / Python float (Py). Non-finite (NaN, ±Inf) routes through `constant_special_number` instead.
     fn float(&self, v: f64) -> Self::Value;
-    /// Unsigned integer beyond i64 range. JSON emits as `Value::Number`
-    /// via `u64` (preserving the full magnitude); Py emits as a
-    /// Python int.
+    /// Unsigned integer beyond i64 range. JSON emits as `Value::Number` via `u64` (preserving magnitude); Py emits as a Python int.
     fn uint(&self, v: u64) -> Self::Value;
-    /// Raw map value (JSON object / Python dict) keyed by string.
-    /// Used for AST fields whose JSON shape is `{key: child_node, …}`
-    /// rather than a list: `window_exprs`, `ctes` (when emitted as a
-    /// dict-form), `replace`. The deserialiser respects this via
-    /// `_DICT_FIELDS`.
+    /// Raw map value (JSON object / Python dict) keyed by string. Used for AST fields whose JSON shape is `{key: child_node, …}` rather than a list: `window_exprs`, `ctes` (dict-form), `replace`. The deserialiser respects this via `_DICT_FIELDS`.
     fn string_keyed_map(&self, pairs: Vec<(String, Self::Value)>) -> Self::Value;
-    /// Raw list value (JSON array / Python list). Distinct from the
-    /// `Array(...)` AST node: this is used for fields whose value is
-    /// a plain list, e.g. HogQLXAttribute.children.
+    /// Raw list value (JSON array / Python list). Distinct from the `Array(...)` AST node — used for fields whose value is a plain list, e.g. `HogQLXAttribute.children`.
     fn list_value(&self, items: Vec<Self::Value>) -> Self::Value;
 
     // ===== AST node builders =====
     fn constant(&self, value: Self::Value) -> Self::Value;
-    /// `inf` / `-inf` / `nan` shipped as a string with `value_type: "number"`.
-    /// Mirrors cpp's nlohmann::json-string encoding for non-finite floats.
+    /// `inf` / `-inf` / `nan` shipped as a string with `value_type: "number"`. Mirrors cpp's nlohmann::json-string encoding for non-finite floats.
     fn constant_special_number(&self, name: &'static str) -> Self::Value;
-    /// Integer-literal Constant whose magnitude exceeds i64. Exact decimal
-    /// or `0x…` hex digits with optional leading `-`. Deserialiser
-    /// rebuilds an arbitrary-precision Python int.
+    /// Integer-literal Constant whose magnitude exceeds i64. Exact decimal or `0x…` hex digits with optional leading `-`; deserialiser rebuilds an arbitrary-precision Python int.
     fn constant_number_string(&self, text: String) -> Self::Value;
     fn field(&self, chain: Vec<Self::Value>) -> Self::Value;
     fn arith(&self, left: Self::Value, op: &str, right: Self::Value) -> Self::Value;
@@ -107,10 +71,7 @@ pub trait Emitter {
         within_group: Option<Vec<Self::Value>>,
     ) -> Self::Value;
     fn lambda(&self, args: Vec<String>, expr: Self::Value) -> Self::Value;
-    /// `ExprCall(expr, args)` — a call where the head is an arbitrary
-    /// expression rather than a function name. Emitted by `ColumnExprCall`
-    /// (always) and by `ColumnExprCallSelect` (when the LHS isn't a
-    /// single-element Field chain).
+    /// `ExprCall(expr, args)` — call where the head is an arbitrary expression rather than a function name. Emitted by `ColumnExprCall` (always) and `ColumnExprCallSelect` (when LHS isn't a single-element Field chain).
     fn expr_call(&self, expr: Self::Value, args: Vec<Self::Value>) -> Self::Value;
     fn type_cast(&self, expr: Self::Value, type_name: &str) -> Self::Value;
     fn try_cast(&self, expr: Self::Value, type_name: &str) -> Self::Value;
@@ -123,9 +84,7 @@ pub trait Emitter {
     fn dict_(&self, items: Vec<(Self::Value, Self::Value)>) -> Self::Value;
     fn placeholder(&self, expr: Self::Value) -> Self::Value;
     fn named_argument(&self, name: &str, value: Self::Value) -> Self::Value;
-    /// `e IGNORE NULLS` is dropped by the C++ visitor — the expression
-    /// returns as-is. Kept as a named helper to leave room for richer
-    /// behaviour later.
+    /// `e IGNORE NULLS` is dropped by the C++ visitor — the expression returns as-is. Kept as a named helper to leave room for richer behaviour later.
     fn ignore_nulls(&self, expr: Self::Value) -> Self::Value {
         expr
     }
@@ -144,8 +103,7 @@ pub trait Emitter {
         replace: Option<Vec<(String, Self::Value)>>,
     ) -> Self::Value;
     fn spread_expr(&self, expr: Self::Value) -> Self::Value;
-    /// `{positional_ref: index}` — the `$N` form inside Hog blocks. Mirrors
-    /// cpp's `PositionalRef` node.
+    /// `{positional_ref: index}` — the `$N` form inside Hog blocks. Mirrors cpp's `PositionalRef` node.
     fn positional_ref(&self, index: i64) -> Self::Value;
 
     /// `Program(declarations)`.
@@ -181,8 +139,7 @@ pub trait Emitter {
     fn variable_assignment(&self, left: Self::Value, right: Self::Value) -> Self::Value;
     /// `ReturnStatement(expr)`. `expr` may be null for `return;`.
     fn return_statement(&self, expr: Self::Value) -> Self::Value;
-    /// `TryCatchStatement(try_stmt, catches, finally_stmt)`. Each catch
-    /// is itself a `[var, type, body]` tuple — encoded as a list value.
+    /// `TryCatchStatement(try_stmt, catches, finally_stmt)`. Each catch is itself a `[var, type, body]` tuple — encoded as a list value.
     fn try_catch_statement(
         &self,
         try_stmt: Self::Value,
@@ -193,9 +150,7 @@ pub trait Emitter {
     fn throw_statement(&self, expr: Self::Value) -> Self::Value;
     /// `VariableDeclaration(name, expr)`.
     fn variable_declaration(&self, name: &str, expr: Self::Value) -> Self::Value;
-    /// One element of a `try_catch` `catches` list: `[var, type, body]`.
-    /// Represented as an array of three values (matching cpp's
-    /// nlohmann::json shape).
+    /// One element of a `try_catch` `catches` list: `[var, type, body]` — array of three values matching cpp's nlohmann::json shape.
     fn catch_clause(&self, var: Self::Value, ty: Self::Value, body: Self::Value) -> Self::Value;
 
     // ===== Query / clause builders =====
@@ -229,8 +184,7 @@ pub trait Emitter {
     fn hogqlx_tag(&self, kind: &str, attributes: Vec<Self::Value>) -> Self::Value;
     /// `HogQLXAttribute(name, value)`.
     fn hogqlx_attribute(&self, name: &str, value: Self::Value) -> Self::Value;
-    /// `WindowFrameExpr(...)`. Various optional fields encoded via the
-    /// trait method below; here we just take all fields verbatim.
+    /// `WindowFrameExpr(...)`. Various optional fields encoded via the trait method below; here we just take all fields verbatim.
     fn window_frame_expr(
         &self,
         frame_type: &str,
@@ -243,8 +197,7 @@ pub trait Emitter {
     fn select_set_query(&self, initial: Self::Value, subsequent: Vec<Self::Value>) -> Self::Value;
     /// Empty `WindowExpr` shell — caller adds fields via `set_field`.
     fn window_expr_empty(&self) -> Self::Value;
-    /// `WindowFrameExpr(frame_type, frame_value)`. `frame_value` may
-    /// be null (CURRENT ROW / UNBOUNDED forms) or a Constant / expr.
+    /// `WindowFrameExpr(frame_type, frame_value)`. `frame_value` may be null (CURRENT ROW / UNBOUNDED forms) or a Constant / expr.
     fn window_frame_bound(&self, frame_type: &str, frame_value: Self::Value) -> Self::Value;
     /// `InterpolateExpr(expr, value?)`.
     fn interpolate_expr(&self, expr: Self::Value, value: Option<Self::Value>) -> Self::Value;
@@ -255,13 +208,9 @@ pub trait Emitter {
         exprs: Vec<Self::Value>,
         offset_value: Option<Self::Value>,
     ) -> Self::Value;
-    /// Empty `SelectQuery` shell — caller adds fields via `set_field`.
-    /// Used by the SELECT-clause builder which threads many optional
-    /// fields and surfacing each through a constructor argument list
-    /// would balloon the trait method count.
+    /// Empty `SelectQuery` shell — caller adds fields via `set_field`. Used by the SELECT-clause builder; surfacing every optional field as a constructor argument would balloon the trait method count.
     fn select_query_empty(&self) -> Self::Value;
-    /// `SelectSetNode(select_query, set_operator)`. Used inside the
-    /// SelectSetQuery `subsequent_select_queries` list.
+    /// `SelectSetNode(select_query, set_operator)`. Used inside `SelectSetQuery.subsequent_select_queries`.
     fn select_set_node(&self, select_query: Self::Value, set_operator: Option<&str>)
         -> Self::Value;
     /// `SampleExpr(sample_value, offset_value?)`.
@@ -298,10 +247,7 @@ pub trait Emitter {
         table_final: bool,
         sample: Option<Self::Value>,
     ) -> Self::Value;
-    /// `WindowFunction(name, exprs, args, over_expr, over_identifier)`.
-    /// `over_expr` and `over_identifier` are alternatives — only one
-    /// is set per node. `args` defaults to empty list (NOT None) so
-    /// the deserialiser `__eq__` distinguishes from non-window calls.
+    /// `WindowFunction(name, exprs, args, over_expr, over_identifier)`. `over_expr` and `over_identifier` are alternatives — only one is set per node. `args` defaults to empty list (NOT None) so the deserialiser's `__eq__` distinguishes from non-window calls.
     #[allow(clippy::too_many_arguments)]
     fn window_function(
         &self,
@@ -330,34 +276,21 @@ pub trait Emitter {
     ) -> Self::Value;
 
     // ===== Position machinery =====
-    /// `{line, column, offset}` per cpp's visitor — line is 1-based,
-    /// column is 0-based, offset is the character position.
+    /// `{line, column, offset}` per cpp's visitor — line is 1-based, column is 0-based, offset is the character position.
     fn position(&self, line: u32, column: u32, offset: usize) -> Self::Value;
-    /// Inject `start` / `end` position objects. Idempotent: if `start` is
-    /// already present (set OR explicitly null-poisoned by `no_pos`), the
-    /// existing values are kept — this is how cpp's paren wrap `(expr)`
-    /// preserves the inner expression's positions.
+    /// Inject `start` / `end` position objects. Idempotent: if `start` is already set (or explicitly null-poisoned by `no_pos`), existing values are kept — this is how cpp's paren wrap `(expr)` preserves the inner expression's positions.
     fn with_pos(&self, value: Self::Value, start: Self::Value, end: Self::Value) -> Self::Value;
-    /// Mark a node as position-less so downstream `with_pos` calls leave
-    /// it bare. Mirrors cpp visitors that emit a node without
-    /// `addPositionInfo(json, ctx)` — Python AST shows dataclass defaults
-    /// (None). Example: `NamedArgument`.
+    /// Mark a node as position-less so downstream `with_pos` calls leave it bare. Mirrors cpp visitors that emit a node without `addPositionInfo(json, ctx)` — Python AST shows dataclass defaults (None). Example: `NamedArgument`.
     fn no_pos(&self, value: Self::Value) -> Self::Value;
-    /// Override existing `start` / `end` keys, unlike the idempotent
-    /// `with_pos`. Used by call sites that need the outer span to
-    /// include tokens the inner expression's wrap didn't see.
+    /// Override existing `start` / `end` keys, unlike the idempotent `with_pos`. Used when the outer span needs to include tokens the inner expression's wrap didn't see.
     fn replace_pos(&self, value: Self::Value, start: Self::Value, end: Self::Value) -> Self::Value;
 
     // ===== Inspection =====
-    /// Get the AST node kind ("Constant", "ArithmeticOperation", …) or
-    /// `None` for non-node values (primitives, lists, positions).
+    /// Get the AST node kind ("Constant", "ArithmeticOperation", …) or `None` for non-node values (primitives, lists, positions).
     fn node_kind<'a>(&self, v: &'a Self::Value) -> Option<Cow<'a, str>>;
-    /// Get a named field value. Returns `None` if the field is missing or
-    /// the value isn't a node. The returned value is owned (cloned).
+    /// Get a named field value. Returns `None` if the field is missing or the value isn't a node. Returned value is owned (cloned).
     fn get_field(&self, v: &Self::Value, name: &str) -> Option<Self::Value>;
-    /// True if the field is present at all (even if its value is null).
-    /// Distinguishes "field not set" from "field explicitly null" — the
-    /// `no_pos` + `with_pos` idempotency relies on this.
+    /// True if the field is present at all (even if its value is null). Distinguishes "field not set" from "field explicitly null" — the `no_pos` + `with_pos` idempotency relies on this.
     fn has_field(&self, v: &Self::Value, name: &str) -> bool;
     /// `Value::is_null` analogue.
     fn is_null(&self, v: &Self::Value) -> bool;
@@ -373,34 +306,20 @@ pub trait Emitter {
     fn as_i64(&self, v: &Self::Value) -> Option<i64>;
 
     // ===== Mutation =====
-    /// Remove a named field from a node, returning the previous value
-    /// (or None when absent). Used to drop sentinel keys before the
-    /// node leaves the parser, e.g. the `__rust_offset_liftable` flag.
+    /// Remove a named field from a node, returning the previous value (or None when absent). Used to drop sentinel keys before the node leaves the parser, e.g. `__rust_offset_liftable`.
     fn remove_field(&self, v: &mut Self::Value, name: &str) -> Option<Self::Value>;
-    /// Set / overwrite a named field on a node. Used by AST-surgery
-    /// sites that copy a node and tweak one field — primarily the
-    /// BETWEEN-split recursion, the merge-select-decorators pass, and
-    /// CTE injection. JSON impl inserts into the underlying `Map`; Py
-    /// impl calls `obj.setattr(name, value)`.
+    /// Set / overwrite a named field on a node. Used by AST-surgery sites that copy a node and tweak one field — primarily BETWEEN-split recursion, merge-select-decorators, and CTE injection. JSON inserts into the underlying `Map`; Py calls `obj.setattr(name, value)`.
     fn set_field(&self, v: &mut Self::Value, name: &str, value: Self::Value);
-    /// Extend a list-valued field by pushing additional items at the
-    /// end. Used by `inject_ctes_into_select` and AND/OR mutators.
-    /// Falls back to setting the field outright if it isn't present
-    /// or isn't a list.
+    /// Extend a list-valued field by pushing items at the end. Used by `inject_ctes_into_select` and AND/OR mutators. Falls back to setting the field outright if it isn't present or isn't a list.
     fn extend_list_field(&self, v: &mut Self::Value, name: &str, items: Vec<Self::Value>);
-    /// Clone a value. Convenience for sites that need an owned copy.
-    /// `Self::Value: Clone` is already in the trait bound, but
-    /// callers in generic contexts that don't have direct access to
-    /// the bound sometimes need this method form.
+    /// Clone a value. Convenience for sites that need an owned copy — `Self::Value: Clone` is in the trait bound, but generic callers without direct access to it sometimes need this method form.
     fn clone_value(&self, v: &Self::Value) -> Self::Value {
         v.clone()
     }
 }
 
 // ============================================================================
-// JsonEmitter — `serde_json::Value` impl, mirrors the previous free
-// `emit::xxx` functions. Used by `parse_*_json` entry points and the
-// future WASM build.
+// JsonEmitter — `serde_json::Value` impl, mirrors the previous free `emit::xxx` functions. Used by `parse_*_json` entry points and the future WASM build.
 // ============================================================================
 
 #[derive(Default, Clone, Copy)]
@@ -1058,13 +977,7 @@ impl Emitter for JsonEmitter {
 }
 
 // ============================================================================
-// Migration-compat free functions, scoped behind a `compat` submodule with a
-// module-level `dead_code` allow. The parser code originally called these
-// directly; during the Phase 2 generic-emitter refactor it's been moved to
-// `self.emit.xxx(...)`. These thin wrappers stay for free helper functions
-// (where `self` isn't in scope — `apply_between_hoist`,
-// `wrap_literal_chunk`, `emit_float_constant`, …) and are re-exported at
-// the module root so existing `emit::xxx(...)` call sites keep working.
+// Migration-compat free functions, scoped behind a `compat` submodule with module-level `dead_code` allow. Parser code originally called these directly; Phase 2's generic-emitter refactor moved most to `self.emit.xxx(...)`. These thin wrappers stay for free helper functions (where `self` isn't in scope — `apply_between_hoist`, `wrap_literal_chunk`, `emit_float_constant`, …) and are re-exported at the module root so existing `emit::xxx(...)` call sites keep working.
 // ============================================================================
 
 #[allow(dead_code)]

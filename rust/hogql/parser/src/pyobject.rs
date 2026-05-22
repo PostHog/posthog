@@ -1,28 +1,15 @@
-//! Convert a parser-built `serde_json::Value` AST into `posthog.hogql.ast`
-//! dataclass instances directly, skipping the JSON-string serialise step on
-//! the Rust side AND the orjson + `_deserialize_node` walk on the Python
-//! side. Mirrors [`posthog/hogql/json_ast.py`].
+//! Convert a parser-built `serde_json::Value` AST into `posthog.hogql.ast` dataclass instances directly, skipping the JSON-string serialise step on the Rust side AND the orjson + `_deserialize_node` walk on the Python side. Mirrors [`posthog/hogql/json_ast.py`].
 //!
-//! Used by the `parse_*_py` PyO3 entry points in [`crate::lib`]. The
-//! `parse_*_json` entry points stay alongside for callers that need the
-//! string form (tests, future WASM build that can't link to CPython).
+//! Used by the `parse_*_py` PyO3 entry points in [`crate::lib`]. The `parse_*_json` entry points stay alongside for callers that need the string form (tests, future WASM build that can't link to CPython).
 //!
-//! Strategy: walk the existing `Value` tree once and construct Python
-//! objects via PyO3. The intermediate `Value` is still built by the parser;
-//! a later iteration that emits Python objects directly during parsing
-//! would skip that too, but the value→PyObject converter proves out the
-//! integration first and lets us measure the JSON-elimination win on its
-//! own.
+//! Strategy: walk the existing `Value` tree once and construct Python objects via PyO3. The intermediate `Value` is still built by the parser; a later iteration that emits Python objects directly during parsing would skip that too, but the value→PyObject converter proves out the integration first and lets us measure the JSON-elimination win on its own.
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use serde_json::Value;
 
-/// Cached references to the AST module, the two error classes, and the two
-/// enum types we coerce per `_ENUM_FIELDS` in `json_ast.py`. Built once
-/// per call; reused across the recursive walk. Cheaper than `import` +
-/// `getattr` per node.
+/// Cached references to the AST module, the two error classes, and the two enum types we coerce per `_ENUM_FIELDS` in `json_ast.py`. Built once per call; reused across the recursive walk — cheaper than `import` + `getattr` per node.
 pub struct Converter<'py> {
     py: Python<'py>,
     ast_module: Bound<'py, PyModule>,
@@ -50,9 +37,7 @@ impl<'py> Converter<'py> {
         })
     }
 
-    /// Top-level entry: convert the root `Value` to a Python AST instance.
-    /// Raises `ExposedHogQLError` / `SyntaxError` if the parser returned an
-    /// error envelope.
+    /// Top-level entry: convert the root `Value` to a Python AST instance. Raises `ExposedHogQLError` / `SyntaxError` if the parser returned an error envelope.
     pub fn convert_root(&self, value: &Value) -> PyResult<PyObject> {
         self.convert(value)
     }
@@ -125,8 +110,7 @@ impl<'py> Converter<'py> {
                         }
                     }
 
-                    // Numeric Constants serialised as strings: non-finite floats
-                    // (Infinity / NaN) and integer literals wider than int64.
+                    // Numeric Constants serialised as strings: non-finite floats (Infinity / NaN) and integer literals wider than int64.
                     if is_constant && key == "value" && value_type == Some("number") {
                         if let Value::String(s) = val {
                             if let Some(f) = parse_special_float(s) {
@@ -143,8 +127,7 @@ impl<'py> Converter<'py> {
                         }
                     }
 
-                    // `ctes` may arrive as a list of nodes carrying `name` —
-                    // fold into a dict keyed by name, preserving order.
+                    // `ctes` may arrive as a list of nodes carrying `name` — fold into a dict keyed by name, preserving order.
                     if key == "ctes" {
                         if let Value::Array(items) = val {
                             let dict = PyDict::new_bound(self.py);
@@ -162,8 +145,7 @@ impl<'py> Converter<'py> {
                         }
                     }
 
-                    // `window_exprs`, `replace`, and `ctes`-as-dict: dict-shaped
-                    // fields whose values are child nodes.
+                    // `window_exprs`, `replace`, and `ctes`-as-dict: dict-shaped fields whose values are child nodes.
                     if (key == "window_exprs" || key == "replace" || key == "ctes")
                         && val.is_object()
                         && !val.as_object().is_some_and(|m| m.contains_key("node"))
@@ -179,9 +161,7 @@ impl<'py> Converter<'py> {
 
                     let converted = self.convert(val)?;
 
-                    // Enum coercion for `ArithmeticOperation.op` and
-                    // `CompareOperation.op`. Both are StrEnums; pull the
-                    // member out via `cls[name]`.
+                    // Enum coercion for `ArithmeticOperation.op` and `CompareOperation.op` — both StrEnums; pull the member via `cls[name]`.
                     if let Value::String(s) = val {
                         let enum_cls = match (node_type, key.as_str()) {
                             ("ArithmeticOperation", "op") => Some(&self.arith_op_enum),
@@ -193,8 +173,7 @@ impl<'py> Converter<'py> {
                                 kwargs.set_item(key, member)?;
                                 continue;
                             }
-                            // Fall through to the converted string on KeyError —
-                            // matches the Python deserializer's `except KeyError: pass`.
+                            // Fall through to the converted string on KeyError — matches the Python deserializer's `except KeyError: pass`.
                         }
                     }
 
@@ -207,9 +186,7 @@ impl<'py> Converter<'py> {
         }
     }
 
-    /// Build a Python exception object from a parser error envelope. The
-    /// envelope shape `{error: true, type, message, start: {offset}, end: {offset}}`
-    /// is set by `ParseError::to_json_value` in `error.rs`.
+    /// Build a Python exception object from a parser error envelope `{error: true, type, message, start: {offset}, end: {offset}}` as set by `ParseError::to_json_value` in `error.rs`.
     fn build_error(&self, map: &serde_json::Map<String, Value>) -> PyErr {
         let error_type = map
             .get("type")
@@ -257,16 +234,12 @@ fn parse_special_float(s: &str) -> Option<f64> {
     }
 }
 
-/// Build a Python `int` from an integer literal in the lossless-string
-/// envelope (decimal or `0x…` hex, optional leading `-`). The Rust side
-/// can't represent arbitrary-precision ints natively, so we hand the raw
-/// digits to Python's `int(text, base)` constructor.
+/// Build a Python `int` from an integer literal in the lossless-string envelope (decimal or `0x…` hex, optional leading `-`). Rust can't natively represent arbitrary-precision ints, so we hand the raw digits to Python's `int(text, base)` constructor.
 fn parse_large_int_literal(py: Python<'_>, value: &str) -> PyResult<Option<PyObject>> {
     let body = value.strip_prefix('-').unwrap_or(value);
     let is_hex = body.starts_with("0x") || body.starts_with("0X");
     let base = if is_hex { 16 } else { 10 };
-    // Validate by trying as Rust i128 first for the common in-range case;
-    // fall through to Python `int(...)` for true bignums.
+    // Validate by trying as Rust i128 first for the common in-range case; fall through to Python `int(...)` for true bignums.
     let body_no_prefix = if is_hex { &body[2..] } else { body };
     if !body_no_prefix.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Ok(None);
