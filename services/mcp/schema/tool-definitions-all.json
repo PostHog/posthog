@@ -2948,21 +2948,6 @@
             "readOnlyHint": true
         }
     },
-    "llma-clustering-job-get": {
-        "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or generation), event filters, enabled status, and timestamps.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get clustering job",
-        "title": "Get clustering job",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "llma-clustering-job-list": {
         "description": "List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis level (trace or generation) and event filters that scope which traces are included in clustering runs. Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or execute-sql to query them.",
         "category": "AI observability",
@@ -3023,36 +3008,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-evaluation-delete": {
-        "description": "Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Delete evaluation",
-        "title": "Delete evaluation",
-        "required_scopes": ["evaluation:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-evaluation-get": {
-        "description": "Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get evaluation",
-        "title": "Get evaluation",
-        "required_scopes": ["evaluation:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "llma-evaluation-judge-models": {
         "description": "List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry returns the model id and whether it is available on PostHog trial credits. Call this before creating an llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is chosen.",
         "category": "AI observability",
@@ -3098,51 +3053,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-evaluation-report-delete": {
-        "description": "Soft-delete an evaluation report configuration. The report stops firing and is hidden from list views; historical report runs are preserved. Equivalent to calling llma-evaluation-report-update with deleted=true — that update path is the canonical way to soft-delete and is the only option when you also want to change other fields in the same call.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Delete evaluation report config",
-        "title": "Delete evaluation report config",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-evaluation-report-generate": {
-        "description": "Immediately trigger an AI-generated evaluation report for this report config. Enqueues a Temporal workflow that analyzes recent evaluation runs and delivers the report to configured targets (email or Slack). Returns 202 on success. Duplicate requests within the same minute are coalesced — only one report is generated. Rate-limited by daily_run_cap.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Trigger evaluation report generation",
-        "title": "Trigger evaluation report generation",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-evaluation-report-get": {
-        "description": "Get a specific evaluation report configuration by UUID. Returns the full config including frequency, delivery targets, trigger thresholds, and schedule settings.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get evaluation report config",
-        "title": "Get evaluation report config",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "llma-evaluation-report-list": {
         "description": "List all evaluation report configurations for the current project. Optionally filter by evaluation UUID using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are generated and delivered (email or Slack).",
         "category": "AI observability",
@@ -3156,36 +3066,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "llma-evaluation-report-run-list": {
-        "description": "List the run history for a specific evaluation report config. Each run record includes the generated report content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery error details.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "List evaluation report runs",
-        "title": "List evaluation report runs",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llma-evaluation-report-update": {
-        "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), or switch frequency between 'every_n' and 'scheduled'. For 'every_n' mode set trigger_threshold (10–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule and starts_at. Set deleted=true to soft-delete the config.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Update evaluation report config",
-        "title": "Update evaluation report config",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "llma-evaluation-run": {
@@ -3234,21 +3114,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-evaluation-update": {
-        "description": "Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt or Hog source), or change the model configuration.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Update evaluation",
-        "title": "Update evaluation",
-        "required_scopes": ["evaluation:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "llma-personal-spend": {
         "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. Pass `product` (e.g. `posthog_code`, `background_agents`) to scope the tool / model / trace breakdowns to a single product; `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
         "category": "AI observability",
@@ -3262,81 +3127,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "llma-prompt-create": {
-        "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object).",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Create prompt",
-        "title": "Create prompt",
-        "required_scopes": ["llm_prompt:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-prompt-duplicate": {
-        "description": "Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after creation.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Duplicate prompt",
-        "title": "Duplicate prompt",
-        "required_scopes": ["llm_prompt:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-prompt-get": {
-        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get prompt",
-        "title": "Get prompt",
-        "required_scopes": ["llm_prompt:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llma-prompt-list": {
-        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "List prompts",
-        "title": "List prompts",
-        "required_scopes": ["llm_prompt:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llma-prompt-update": {
-        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Update prompt",
-        "title": "Update prompt",
-        "required_scopes": ["llm_prompt:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "llma-review-queue-create": {
@@ -3354,36 +3144,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-review-queue-delete": {
-        "description": "Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments that still belong to it.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Delete review queue",
-        "title": "Delete review queue",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-review-queue-get": {
-        "description": "Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get review queue",
-        "title": "Get review queue",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "llma-review-queue-item-create": {
         "description": "Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if the trace already has an active review or is already pending in any review queue.",
         "category": "AI observability",
@@ -3397,36 +3157,6 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "llma-review-queue-item-delete": {
-        "description": "Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the trace can be queued again later if needed.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Delete review queue item",
-        "title": "Delete review queue item",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-review-queue-item-get": {
-        "description": "Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and timestamps for the pending review task.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get review queue item",
-        "title": "Get review queue item",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "llma-review-queue-item-list": {
@@ -3444,21 +3174,6 @@
             "readOnlyHint": true
         }
     },
-    "llma-review-queue-item-update": {
-        "description": "Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace has already been reviewed and can no longer stay queued.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Update review queue item",
-        "title": "Update review queue item",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "llma-review-queue-list": {
         "description": "List review queues used for trace reviews. Returns queue names, pending_item_count, creator info, and timestamps. Supports queue-name search and ordering.",
         "category": "AI observability",
@@ -3472,21 +3187,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "llma-review-queue-update": {
-        "description": "Rename an existing review queue. The updated name must stay unique among active queues in the project.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Update review queue",
-        "title": "Update review queue",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "llma-score-definition-create": {
@@ -3504,21 +3204,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-score-definition-get": {
-        "description": "Retrieve a scorer by ID, including its current immutable `config` payload, `current_version` number, kind, archived state, and timestamps.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get scorer",
-        "title": "Get scorer",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "llma-score-definition-list": {
         "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description. Returns metadata plus the current config snapshot.",
         "category": "AI observability",
@@ -3532,36 +3217,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "llma-score-definition-new-version": {
-        "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds, rename boolean labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Bump scorer to a new version",
-        "title": "Bump scorer to a new version",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-score-definition-update": {
-        "description": "Update a scorer's metadata: rename via `name`, edit `description`, or toggle `archived` to hide (`true`) or restore (`false`). Archiving is reversible — there is no destroy endpoint. To change the scoring rules instead, call `llma-score-definition-new-version`. `kind` cannot be changed.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Update scorer metadata",
-        "title": "Update scorer metadata",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "llma-sentiment-create": {
@@ -3805,36 +3460,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-trace-review-delete": {
-        "description": "Delete a trace review by ID. This soft-deletes the review so the same trace can be reviewed again later if needed.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Delete trace review",
-        "title": "Delete trace review",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-trace-review-get": {
-        "description": "Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and timestamps.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get trace review",
-        "title": "Get trace review",
-        "required_scopes": ["llm_analytics:read"],
-        "new_mcp": false,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "llma-trace-review-list": {
         "description": "List saved trace reviews. Supports filtering by trace_id, definition_id, search, and ordering. Returns comments, scores, reviewers, and timestamps.",
         "category": "AI observability",
@@ -3848,21 +3473,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "llma-trace-review-update": {
-        "description": "Update a trace review. Pass comment and/or the full desired scores array. You can also pass queue_id to clear only a matching pending queue item after the review is saved.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Update trace review",
-        "title": "Update trace review",
-        "required_scopes": ["llm_analytics:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "logs-alerts-create": {
