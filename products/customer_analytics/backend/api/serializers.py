@@ -4,11 +4,12 @@ from drf_spectacular.utils import extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountProperties
-from products.notebooks.backend.models import ResourceNotebook
+from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 _ACCOUNT_ASSIGNMENT_SCHEMA = {
     "type": "object",
@@ -225,3 +226,48 @@ def _format_pydantic_errors(exc: PydanticValidationError) -> list[str]:
         loc = ".".join(str(part) for part in err["loc"])
         messages.append(f"{loc}: {err['msg']}" if loc else err["msg"])
     return messages
+
+
+class AccountNotebookSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    last_modified_by = UserBasicSerializer(read_only=True)
+    title = serializers.CharField(
+        max_length=256,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Human-readable title of the account notebook.",
+    )
+    content = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Notebook content as a ProseMirror JSON document structure.",
+    )
+    text_content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Plain text representation of the notebook content for search.",
+    )
+
+    class Meta:
+        model = Notebook
+        fields = [
+            "id",
+            "short_id",
+            "title",
+            "content",
+            "text_content",
+            "created_at",
+            "created_by",
+            "last_modified_at",
+            "last_modified_by",
+        ]
+        read_only_fields = [
+            "id",
+            "short_id",
+            "created_at",
+            "created_by",
+            "last_modified_at",
+            "last_modified_by",
+        ]
