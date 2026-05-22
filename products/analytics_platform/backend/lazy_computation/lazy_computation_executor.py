@@ -1101,13 +1101,22 @@ def _build_manual_insert_sql(
     expires_at_expr = ast.Alias(alias="expires_at", expr=ast.Constant(value=ch_expires_at))
     query.select.append(expires_at_expr)
 
-    # Print to SQL
+    # Precompute tables store `time_window_start` (and equivalents) as UTC, and
+    # the `{time_window_min}` / `{time_window_max}` placeholders the framework
+    # injects per job are UTC datetimes. Leaving `convertToProjectTimezone=True`
+    # makes HogQL wrap every DateTime field reference and constant in
+    # `toTimeZone(..., team_tz)`, which shifts the WHERE/HAVING comparisons in
+    # the inner subquery and silently produces zero preagg rows on slower CH
+    # instances. Mirrors the read-side fix in
+    # `products/web_analytics/backend/hogql_queries/web_overview_lazy_precompute.py`.
+    modifiers = create_default_modifiers_for_team(team)
+    modifiers.convertToProjectTimezone = False
     context = HogQLContext(
         team_id=team.id,
         team=team,
         enable_select_queries=True,
         limit_top_select=False,
-        modifiers=create_default_modifiers_for_team(team),
+        modifiers=modifiers,
     )
     select_sql, _ = prepare_and_print_ast(
         query,

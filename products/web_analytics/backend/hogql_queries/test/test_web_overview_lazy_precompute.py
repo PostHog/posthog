@@ -71,7 +71,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
         self._wait_for_raw_sessions(expected=2)
 
-    def _wait_for_raw_sessions_rows(self, expected: int, timeout_s: float = 5.0) -> None:
+    def _wait_for_raw_sessions_rows(self, expected: int, timeout_s: float = 10.0) -> None:
         # Variant of `_wait_for_raw_sessions` that polls total row count instead
         # of distinct session_id_v7 count. Useful when a test adds a *late event
         # to an existing session* — the MV still emits a new row, so the row
@@ -96,7 +96,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"within {timeout_s}s — got {last_count}, expected >= {expected}."
         )
 
-    def _wait_for_raw_sessions(self, expected: int, timeout_s: float = 5.0) -> None:
+    def _wait_for_raw_sessions(self, expected: int, timeout_s: float = 10.0) -> None:
         # In CI, `bulk_create_events` writes directly to `sharded_events`, which
         # triggers the `raw_sessions_mv` materialized view. Locally that
         # propagates fast enough that the lazy INSERT's `session.*` join sees
