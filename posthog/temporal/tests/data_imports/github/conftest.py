@@ -6,6 +6,7 @@ import pytest
 
 from dateutil import parser as dateutil_parser
 
+from posthog.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
 from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, STARGAZERS, WORKFLOW_RUNS
 
 
@@ -26,13 +27,16 @@ class MockGithubAPI:
         "pulls": PULL_REQUESTS,
         "commits": COMMITS,
         "stargazers": STARGAZERS,
-        # /repos/{owner}/{repo}/actions/runs — last path segment is "runs"
         "runs": WORKFLOW_RUNS,
     }
 
-    # Resources whose API responses wrap the list in an envelope rather than
-    # returning a top-level array.
-    ENVELOPE_KEYS: dict[str, str] = {"runs": "workflow_runs"}
+    # Derived from the production endpoint config so the mock and source stay
+    # in sync on which endpoints return enveloped responses.
+    ENVELOPE_KEYS: dict[str, str] = {
+        config.path.rsplit("/", 1)[-1]: config.response_data_path
+        for config in GITHUB_ENDPOINTS.values()
+        if config.response_data_path
+    }
 
     def __init__(self, requests_mock):
         self.requests_mock = requests_mock

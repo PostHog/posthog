@@ -616,8 +616,6 @@ class TestGetRowsResume:
         assert saved.next_url == mock_get.return_value.get.call_args_list[0].args[0]
 
     def test_workflow_runs_envelope_is_unwrapped(self) -> None:
-        """workflow_runs returns {"total_count": N, "workflow_runs": [...]}, not
-        a top-level array. The source must drill into response_data_path."""
         manager = _make_manager(can_resume=False)
         envelope = {"total_count": 1, "workflow_runs": [{"id": 1001, "created_at": "2026-01-20T10:00:00Z"}]}
 
@@ -639,7 +637,6 @@ class TestGetRowsResume:
                 )
             )
 
-        # The single envelope row is yielded as a chunk by the immediate batcher.
         assert len(rows) == 1
         assert rows[0]["id"] == 1001
 
