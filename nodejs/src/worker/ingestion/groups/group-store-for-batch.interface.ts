@@ -12,15 +12,11 @@ export interface CacheMetrics {
 
 export interface GroupStoreForBatch extends BatchWritingStore {
     /**
-     * Reports metrics about group operations in batch
+     * Stop any background work (e.g., periodic metric emission) and flush
+     * remaining accumulated metrics. Called on graceful shutdown. Does NOT
+     * clear data caches.
      */
-    reportBatch(): void
-
-    /**
-     * Resets the batch store state, clearing all caches and metrics.
-     * Should be called after flush() to prepare for the next batch.
-     */
-    reset(): void
+    shutdown(): void
 
     upsertGroup(
         teamId: TeamId,

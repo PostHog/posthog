@@ -23,14 +23,12 @@ describe('flush-batch-stores-step', () => {
     beforeEach(() => {
         mockPersonsStore = {
             flush: jest.fn(),
-            reportBatch: jest.fn(),
-            reset: jest.fn(),
+            shutdown: jest.fn(),
         } as any
 
         mockGroupStore = {
             flush: jest.fn(),
-            reportBatch: jest.fn(),
-            reset: jest.fn(),
+            shutdown: jest.fn(),
         } as any
 
         mockOutputs = createMockIngestionOutputs<
@@ -72,26 +70,6 @@ describe('flush-batch-stores-step', () => {
 
             expect(mockPersonsStore.flush).toHaveBeenCalledTimes(1)
             expect(mockGroupStore.flush).toHaveBeenCalledTimes(1)
-        })
-
-        it('should report batch metrics after flushing', async () => {
-            mockPersonsStore.flush.mockResolvedValue([])
-            mockGroupStore.flush.mockResolvedValue([])
-
-            await step(makeInput())
-
-            expect(mockPersonsStore.reportBatch).toHaveBeenCalledTimes(1)
-            expect(mockGroupStore.reportBatch).toHaveBeenCalledTimes(1)
-        })
-
-        it('should reset both stores after flushing', async () => {
-            mockPersonsStore.flush.mockResolvedValue([])
-            mockGroupStore.flush.mockResolvedValue([])
-
-            await step(makeInput())
-
-            expect(mockPersonsStore.reset).toHaveBeenCalledTimes(1)
-            expect(mockGroupStore.reset).toHaveBeenCalledTimes(1)
         })
 
         it('should return ok result with produce promises as side effects', async () => {
@@ -264,16 +242,11 @@ describe('flush-batch-stores-step', () => {
             await expect(step(makeInput())).rejects.toThrow('Database connection failed')
         })
 
-        it('should not reset or report if flush fails', async () => {
+        it('throws if persons store flush fails', async () => {
             mockPersonsStore.flush.mockRejectedValue(new Error('DB error'))
             mockGroupStore.flush.mockResolvedValue([])
 
             await expect(step(makeInput())).rejects.toThrow('DB error')
-
-            expect(mockPersonsStore.reportBatch).not.toHaveBeenCalled()
-            expect(mockGroupStore.reportBatch).not.toHaveBeenCalled()
-            expect(mockPersonsStore.reset).not.toHaveBeenCalled()
-            expect(mockGroupStore.reset).not.toHaveBeenCalled()
         })
 
         it('should handle null values in messages', async () => {
@@ -297,7 +270,7 @@ describe('flush-batch-stores-step', () => {
             })
         })
 
-        it('should call lifecycle methods in correct order', async () => {
+        it('flushes both stores in parallel', async () => {
             const callOrder: string[] = []
 
             mockPersonsStore.flush.mockImplementation(() => {
@@ -308,28 +281,10 @@ describe('flush-batch-stores-step', () => {
                 callOrder.push('group.flush')
                 return Promise.resolve([])
             })
-            mockPersonsStore.reportBatch.mockImplementation(() => {
-                callOrder.push('persons.reportBatch')
-            })
-            mockGroupStore.reportBatch.mockImplementation(() => {
-                callOrder.push('group.reportBatch')
-            })
-            mockPersonsStore.reset.mockImplementation(() => {
-                callOrder.push('persons.reset')
-            })
-            mockGroupStore.reset.mockImplementation(() => {
-                callOrder.push('group.reset')
-            })
 
             await step(makeInput())
 
-            expect(callOrder.slice(0, 2).sort()).toEqual(['group.flush', 'persons.flush'])
-            expect(callOrder.slice(2)).toEqual([
-                'persons.reportBatch',
-                'group.reportBatch',
-                'persons.reset',
-                'group.reset',
-            ])
+            expect(callOrder.sort()).toEqual(['group.flush', 'persons.flush'])
         })
 
         it('should produce messages with correct Buffer conversion', async () => {

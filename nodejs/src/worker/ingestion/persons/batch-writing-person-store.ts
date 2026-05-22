@@ -91,6 +91,12 @@ export interface BatchWritingPersonsStoreOptions {
     optimisticUpdateRetryInterval: number
     /** When true, all property changes trigger person updates (disables batch-level filtering) */
     updateAllProperties: boolean
+    /**
+     * Interval at which accumulated per-distinct_id metrics are emitted and
+     * cleared. Set to 0 to disable the timer (used by tests; production
+     * always wants a positive interval).
+     */
+    metricEmissionIntervalMs: number
 }
 
 const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
@@ -100,6 +106,7 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     maxOptimisticUpdateRetries: 5,
     optimisticUpdateRetryInterval: 50,
     updateAllProperties: false,
+    metricEmissionIntervalMs: 30_000,
 }
 
 interface CacheMetrics {
@@ -128,6 +135,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     private options: BatchWritingPersonsStoreOptions
     // Cache for batch personless distinct ID insert results (is_merged values)
     private personlessBatchResults: Map<string, boolean>
+    // Periodic metric emitter — emits accumulated per-distinct_id metrics on
+    // a fixed cadence rather than at batch boundaries (which are unreliable
+    // under concurrentBatches > 1).
+    private metricEmissionTimer: NodeJS.Timeout | undefined
 
     constructor(
         private personRepository: PersonRepository,
@@ -149,6 +160,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             updateCacheMisses: 0,
             checkCacheHits: 0,
             checkCacheMisses: 0,
+        }
+
+        if (this.options.metricEmissionIntervalMs > 0) {
+            this.metricEmissionTimer = setInterval(
+                () => this.emitAccumulatedMetrics(),
+                this.options.metricEmissionIntervalMs
+            )
+            // Don't keep the process alive solely for this timer.
+            this.metricEmissionTimer.unref?.()
         }
     }
 
@@ -226,42 +246,51 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     async flush(): Promise<FlushResult[]> {
         const flushStartTime = performance.now()
 
-        // Track outcomes for all person updates that were actually modified and filter to only those that should write
-        const updateEntries = Array.from(this.personUpdateCache.entries()).filter(
-            (entry): entry is [string, PersonUpdate] => {
-                const [_, update] = entry
-
-                // Skip null entries - these are deleted persons or cleared cache entries
-                if (!update) {
-                    return false
-                }
-
-                // Skip entries not marked for write - these are read-only cache entries from fetchForUpdate
-                // that were cached but never modified (no events tried to update their properties)
-                if (!update.needs_write) {
-                    return false
-                }
-
-                // Determine outcome and track metrics for this person update
-                const outcome = this.getPersonUpdateOutcome(update)
-                personProfileBatchUpdateOutcomeCounter.labels({ outcome }).inc()
-
-                // Track which property keys caused person updates (only for 'changed' outcomes)
-                if (outcome === 'changed') {
-                    const metricsKeys = new Set<string>()
-                    Object.keys(update.properties_to_set).forEach((key) => {
-                        metricsKeys.add(getMetricKey(key))
-                    })
-                    update.properties_to_unset.forEach((key) => {
-                        metricsKeys.add(getMetricKey(key))
-                    })
-                    metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
-                }
-
-                // Only write to database if outcome is 'changed'
-                return outcome === 'changed'
+        // SYNCHRONOUS LINEARIZATION POINT for cross-batch correctness.
+        // Walk every dirty entry, decide whether it needs a DB write, and
+        // clear `needs_write` before any await below. Concurrent batches
+        // that mutate an entry between this clear and the async DB write
+        // will re-set `needs_write=true` and be picked up by the next flush.
+        // DO NOT introduce any `await` inside this block.
+        const updateEntries: [string, PersonUpdate][] = []
+        for (const [key, update] of this.personUpdateCache.entries()) {
+            // Skip null entries - these are deleted persons or cleared cache entries
+            if (!update) {
+                continue
             }
-        )
+
+            // Skip entries not marked for write - these are read-only cache entries from fetchForUpdate
+            // that were cached but never modified (no events tried to update their properties)
+            if (!update.needs_write) {
+                continue
+            }
+
+            // Determine outcome and track metrics for this person update
+            const outcome = this.getPersonUpdateOutcome(update)
+            personProfileBatchUpdateOutcomeCounter.labels({ outcome }).inc()
+
+            if (outcome === 'changed') {
+                // Track which property keys caused person updates
+                const metricsKeys = new Set<string>()
+                Object.keys(update.properties_to_set).forEach((propertyKey) => {
+                    metricsKeys.add(getMetricKey(propertyKey))
+                })
+                update.properties_to_unset.forEach((propertyKey) => {
+                    metricsKeys.add(getMetricKey(propertyKey))
+                })
+                metricsKeys.forEach((propertyKey) => personPropertyKeyUpdateCounter.labels({ key: propertyKey }).inc())
+
+                updateEntries.push([key, update])
+            }
+
+            // Clear needs_write for every dirty entry we considered, including
+            // ones we decided not to write (ignored / no_change). This is the
+            // linearization point — concurrent batches that mutate the entry
+            // after this point will re-set needs_write=true and the next
+            // flush will pick those changes up.
+            update.needs_write = false
+        }
+        // END synchronous linearization point.
 
         const batchSize = updateEntries.length
         personFlushBatchSizeHistogram.observe({ db_write_mode: this.options.dbWriteMode }, batchSize)
@@ -996,7 +1025,17 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return await this.personRepository.personPropertiesSize(personId, teamId)
     }
 
-    reportBatch(): void {
+    /**
+     * Emit the accumulated per-distinct_id metric samples to Prometheus and
+     * reset the in-memory accumulators. Runs on a fixed-interval timer in
+     * production; tests may invoke it directly via `shutdown()`.
+     *
+     * Under concurrentBatches > 1, per-batch attribution is unreliable
+     * (first-flush-wins), so emission is decoupled from batch boundaries.
+     * The histogram names retain a "...PerBatch..." suffix for dashboard
+     * compatibility but the window is now the emission interval.
+     */
+    private emitAccumulatedMetrics(): void {
         for (const [_, methodCounts] of this.methodCountsPerDistinctId.entries()) {
             for (const [method, count] of methodCounts.entries()) {
                 personMethodCallsPerBatchHistogram.observe({ method }, count)
@@ -1019,24 +1058,49 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         personCacheOperationsCounter.inc({ cache: 'update', operation: 'miss' }, this.cacheMetrics.updateCacheMisses)
         personCacheOperationsCounter.inc({ cache: 'check', operation: 'hit' }, this.cacheMetrics.checkCacheHits)
         personCacheOperationsCounter.inc({ cache: 'check', operation: 'miss' }, this.cacheMetrics.checkCacheMisses)
-    }
 
-    reset(): void {
-        this.personCheckCache.clear()
-        this.distinctIdToPersonId.clear()
-        this.personUpdateCache.clear()
-        this.fetchPromisesForUpdate.clear()
-        this.fetchPromisesForChecking.clear()
         this.methodCountsPerDistinctId.clear()
         this.databaseOperationCountsPerDistinctId.clear()
         this.updateLatencyPerDistinctIdSeconds.clear()
-        this.personlessBatchResults.clear()
         this.cacheMetrics = {
             updateCacheHits: 0,
             updateCacheMisses: 0,
             checkCacheHits: 0,
             checkCacheMisses: 0,
         }
+    }
+
+    /**
+     * Stop the metric-emission timer and emit any remaining accumulated
+     * metrics. Idempotent.
+     *
+     * Does NOT flush dirty cache entries — the pipeline drain is expected
+     * to have run `flushBatchStoresStep` for every in-flight batch before
+     * shutdown reaches the stores. If dirty entries remain at shutdown
+     * time, that indicates a drain-ordering bug upstream; we log loudly
+     * so the bug is visible rather than silently flushing without
+     * orchestrating the downstream Kafka produces (flush() returns
+     * Kafka messages for the caller to produce).
+     *
+     * Also does NOT clear the data caches (personUpdateCache et al.).
+     * Those persist for the worker's lifetime; eviction is intentionally
+     * decoupled from this lifecycle hook.
+     */
+    shutdown(): void {
+        if (this.metricEmissionTimer) {
+            clearInterval(this.metricEmissionTimer)
+            this.metricEmissionTimer = undefined
+        }
+
+        const dirtyCount = Array.from(this.personUpdateCache.values()).filter((u) => u?.needs_write).length
+        if (dirtyCount > 0) {
+            logger.error('🚨', 'BatchWritingPersonsStore.shutdown() called with dirty entries', {
+                dirtyCount,
+                note: 'pipeline drain should have flushed before shutdown — investigate drain ordering',
+            })
+        }
+
+        this.emitAccumulatedMetrics()
     }
 
     // Private implementation methods

@@ -93,9 +93,11 @@ class GroupCache {
         return this.cache.entries()
     }
 
-    reset(): void {
-        this.cache.clear()
-        this.fetchPromises.clear()
+    /**
+     * Reset per-batch metric accumulators. The cache and in-flight fetch
+     * promises persist across batches under the persistent-cache model.
+     */
+    resetMetrics(): void {
         this.metrics = {
             cacheHits: 0,
             cacheMisses: 0,
@@ -116,21 +118,28 @@ export interface BatchWritingGroupStoreOptions {
     maxConcurrentUpdates: number
     maxOptimisticUpdateRetries: number
     optimisticUpdateRetryInterval: number
+    /**
+     * Interval at which accumulated group operation metrics are emitted and
+     * cleared. Set to 0 to disable the timer (used by tests; production
+     * always wants a positive interval).
+     */
+    metricEmissionIntervalMs: number
 }
 
 const DEFAULT_OPTIONS: BatchWritingGroupStoreOptions = {
     maxConcurrentUpdates: 10,
     maxOptimisticUpdateRetries: 5,
     optimisticUpdateRetryInterval: 50,
+    metricEmissionIntervalMs: 30_000,
 }
 
 /**
  * This class is used to write groups to the database in batches.
- * It will use a cache to avoid reading the same group from the database multiple times.
- * And will accumulate all changes for the same group in a single batch. At the
- * end of the batch processing, it flushes all changes to the database.
- *
- * After each batch, call reset() to clear the cache and prepare for the next batch.
+ * It uses a cache to avoid reading the same group from the database multiple
+ * times and accumulates all changes for the same group across events. Writes
+ * to the DB are issued on `flush()` calls; the cache itself persists across
+ * batches under concurrentBatches > 1. Call `shutdown()` on graceful exit to
+ * stop the metric-emission timer.
  */
 export class BatchWritingGroupStore implements GroupStore {
     private groupCache: GroupCache
@@ -139,6 +148,9 @@ export class BatchWritingGroupStore implements GroupStore {
     private outputs: IngestionOutputs<GroupsOutput | IngestionWarningsOutput>
     private groupRepository: GroupRepository
     private clickhouseGroupRepository: ClickhouseGroupRepository
+    // Periodic metric emitter — emits accumulated group-operation metrics on
+    // a fixed cadence rather than at batch boundaries.
+    private metricEmissionTimer: NodeJS.Timeout | undefined
 
     constructor(
         outputs: IngestionOutputs<GroupsOutput | IngestionWarningsOutput>,
@@ -152,6 +164,14 @@ export class BatchWritingGroupStore implements GroupStore {
         this.outputs = outputs
         this.groupRepository = groupRepository
         this.clickhouseGroupRepository = clickhouseGroupRepository
+
+        if (this.options.metricEmissionIntervalMs > 0) {
+            this.metricEmissionTimer = setInterval(
+                () => this.emitAccumulatedMetrics(),
+                this.options.metricEmissionIntervalMs
+            )
+            this.metricEmissionTimer.unref?.()
+        }
     }
 
     getGroupCache(): GroupCache {
@@ -159,10 +179,25 @@ export class BatchWritingGroupStore implements GroupStore {
     }
 
     async flush(): Promise<FlushResult[]> {
-        const pendingUpdates = Array.from(this.groupCache.entries()).filter((entry): entry is [string, GroupUpdate] => {
-            const [_, update] = entry
-            return update !== null && update.needsWrite
-        })
+        // SYNCHRONOUS LINEARIZATION POINT for cross-batch correctness.
+        // Walk every dirty entry, capture it for writing, and clear
+        // `needsWrite` before any await below. Concurrent batches that
+        // mutate an entry between this clear and the async DB write will
+        // re-set `needsWrite=true` and be picked up by the next flush.
+        // DO NOT introduce any `await` inside this block.
+        const pendingUpdates: [string, GroupUpdate][] = []
+        for (const [key, update] of this.groupCache.entries()) {
+            if (!update) {
+                continue
+            }
+            if (!update.needsWrite) {
+                continue
+            }
+            update.needsWrite = false
+            pendingUpdates.push([key, update])
+        }
+        // END synchronous linearization point.
+
         if (pendingUpdates.length === 0) {
             return []
         }
@@ -579,7 +614,16 @@ export class BatchWritingGroupStore implements GroupStore {
         this.databaseOperationCounts.set(operation, (this.databaseOperationCounts.get(operation) || 0) + 1)
     }
 
-    reportBatch(): void {
+    /**
+     * Emit accumulated group operation metrics to Prometheus and reset the
+     * in-memory accumulators. Runs on a fixed-interval timer in production.
+     *
+     * Under concurrentBatches > 1, per-batch attribution is unreliable
+     * (first-flush-wins), so emission is decoupled from batch boundaries.
+     * The histogram names retain a "...PerBatch..." suffix for dashboard
+     * compatibility but the window is now the emission interval.
+     */
+    private emitAccumulatedMetrics(): void {
         groupCacheSizeHistogram.observe(this.groupCache.getSize())
         const metrics = this.groupCache.getMetrics()
         groupCacheOperationsCounter.inc({ operation: 'hit' }, metrics.cacheHits)
@@ -587,11 +631,45 @@ export class BatchWritingGroupStore implements GroupStore {
         for (const [operation, count] of this.databaseOperationCounts.entries()) {
             groupDatabaseOperationsPerBatchHistogram.observe({ operation }, count)
         }
-    }
 
-    reset(): void {
-        this.groupCache.reset()
+        this.groupCache.resetMetrics()
         this.databaseOperationCounts.clear()
         groupOptimisticUpdateConflictsPerBatchCounter.reset()
+    }
+
+    /**
+     * Stop the metric-emission timer and emit any remaining accumulated
+     * metrics. Idempotent.
+     *
+     * Does NOT flush dirty cache entries — the pipeline drain is expected
+     * to have run `flushBatchStoresStep` for every in-flight batch before
+     * shutdown reaches the stores. If dirty entries remain at shutdown
+     * time, that indicates a drain-ordering bug upstream; we log loudly
+     * so the bug is visible rather than silently flushing without the
+     * downstream orchestration (clickhouse upsert side effects).
+     *
+     * Also does NOT clear the group cache. Cache eviction is intentionally
+     * decoupled from this lifecycle hook.
+     */
+    shutdown(): void {
+        if (this.metricEmissionTimer) {
+            clearInterval(this.metricEmissionTimer)
+            this.metricEmissionTimer = undefined
+        }
+
+        let dirtyCount = 0
+        for (const [_, entry] of this.groupCache.entries()) {
+            if (entry && entry.needsWrite) {
+                dirtyCount++
+            }
+        }
+        if (dirtyCount > 0) {
+            logger.error('🚨', 'BatchWritingGroupStore.shutdown() called with dirty entries', {
+                dirtyCount,
+                note: 'pipeline drain should have flushed before shutdown — investigate drain ordering',
+            })
+        }
+
+        this.emitAccumulatedMetrics()
     }
 }

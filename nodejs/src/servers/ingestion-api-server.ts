@@ -148,6 +148,8 @@ export class IngestionApiServer implements NodeServer {
     private cookielessRedisPool?: RedisPool
     private cookielessManager?: CookielessManager
     private pubsub?: PubSub
+    private personsStore?: BatchWritingPersonsStore
+    private groupStore?: BatchWritingGroupStore
 
     private joinedPipeline!: ReturnType<
         typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
@@ -298,7 +300,7 @@ export class IngestionApiServer implements NodeServer {
                 this.config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(Boolean),
         })
 
-        const personsStore: PersonsStore = new BatchWritingPersonsStore(personRepository, ingestionOutputs, {
+        this.personsStore = new BatchWritingPersonsStore(personRepository, ingestionOutputs, {
             dbWriteMode: this.config.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             useBatchUpdates: this.config.PERSON_BATCH_WRITING_USE_BATCH_UPDATES,
             maxConcurrentUpdates: this.config.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
@@ -306,12 +308,14 @@ export class IngestionApiServer implements NodeServer {
             optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
         })
+        const personsStore: PersonsStore = this.personsStore
 
-        const groupStore = new BatchWritingGroupStore(ingestionOutputs, groupRepository, clickhouseGroupRepository, {
+        this.groupStore = new BatchWritingGroupStore(ingestionOutputs, groupRepository, clickhouseGroupRepository, {
             maxConcurrentUpdates: this.config.GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.config.GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
             optimisticUpdateRetryInterval: this.config.GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
         })
+        const groupStore = this.groupStore
 
         this.topHog = new TopHog({
             outputs: ingestionOutputs,
@@ -473,6 +477,8 @@ export class IngestionApiServer implements NodeServer {
             additionalCleanup: async () => {
                 await this.ingestionProducerRegistry?.disconnectAll()
                 this.cookielessManager?.shutdown()
+                this.personsStore?.shutdown()
+                this.groupStore?.shutdown()
             },
         }
     }

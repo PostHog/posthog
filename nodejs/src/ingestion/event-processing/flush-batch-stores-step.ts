@@ -42,7 +42,11 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
 
     return async function flushBatchStoresStep(input) {
         try {
-            // Flush both stores in parallel (DB operations, still blocking)
+            // Flush both stores in parallel (DB operations, still blocking).
+            // Stores own their own metric-emission lifecycle (periodic timer
+            // started in their constructors, drained by shutdown()), so this
+            // step no longer touches reset/reportBatch — caches persist across
+            // batches by design under concurrentBatches > 1.
             const [_groupResults, personsStoreMessages] = await Promise.all([groupStore.flush(), personsStore.flush()])
 
             logger.info('🔄', 'flushBatchStoresStep: Flushed stores', {
@@ -52,14 +56,6 @@ export function createFlushBatchStoresStep<TOutput, COutput, CBatch, R extends s
 
             // Create Kafka produce promises for all person/group store updates
             const producePromises = createProducePromises(personsStoreMessages, outputs)
-
-            // Report metrics for this batch
-            personsStore.reportBatch()
-            groupStore.reportBatch()
-
-            // Reset stores for next batch
-            personsStore.reset()
-            groupStore.reset()
 
             return ok({ elements: input.elements, batchContext: input.batchContext }, producePromises)
         } catch (error) {
