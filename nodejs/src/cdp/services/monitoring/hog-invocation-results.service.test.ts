@@ -90,9 +90,9 @@ describe('HogInvocationResultsService', () => {
             expect(rows).toHaveLength(1)
             const globals = parseJSON(rows[0].invocation_globals) as Record<string, any>
 
-            // The event/person/project context we care about is preserved.
+            // The event/project context we care about is preserved.
             expect(globals.event?.uuid).toBeDefined()
-            expect(globals.person?.id).toBeDefined()
+            expect(globals.project?.id).toBeDefined()
             // But `inputs` is gone entirely.
             expect(globals).not.toHaveProperty('inputs')
             // And the serialized blob does not mention the secret anywhere
@@ -100,6 +100,33 @@ describe('HogInvocationResultsService', () => {
             // under a different key without us noticing).
             expect(rows[0].invocation_globals).not.toContain('sk-super-secret')
             expect(rows[0].invocation_globals).not.toContain('abc123')
+        })
+
+        it('strips groups and person from invocation_globals — large and reloaded by the worker', async () => {
+            const invocation = createExampleInvocation({}, {
+                groups: {
+                    organization: {
+                        id: 'org-1',
+                        type: 'organization',
+                        index: 0,
+                        url: 'http://localhost',
+                        properties: { plan: 'enterprise', seats: 500 },
+                    },
+                },
+            } as any)
+            service.queueLifecycleRow(invocation, 'running')
+            await service.flush()
+
+            const rows = parseProducedRows(outputs)
+            const globals = parseJSON(rows[0].invocation_globals) as Record<string, any>
+            expect(globals).not.toHaveProperty('groups')
+            expect(globals).not.toHaveProperty('person')
+            // Non-reloadable context is kept.
+            expect(globals.event?.uuid).toBeDefined()
+            expect(globals.project?.id).toBeDefined()
+            // The promoted person_id column still carries the id — stripping is
+            // serialization-only and does not mutate the invocation.
+            expect(rows[0].person_id).toBe(invocation.state.globals.person!.id)
         })
 
         it('marks is_retry=1 and attempts=N when state.rerunAttempts is set', async () => {

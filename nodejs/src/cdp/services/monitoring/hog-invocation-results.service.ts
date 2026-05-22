@@ -201,15 +201,16 @@ const stripInputs = <T>(value: T): T => {
     return out as T
 }
 
-// The full payload that the rerun path needs to rehydrate the invocation.
-// For hog functions this is the globals tree (event, person, groups, etc.) —
-// with `inputs` stripped, see `stripInputs`. For hog flows it's the workflow
-// context (event, personId, variables, actionStepCount). Worker-side ZSTD
-// compression on the ClickHouse column keeps the storage cost down; we
-// serialize plain JSON here.
+// The payload the rerun path needs to rehydrate the invocation. `groups` +
+// `person` are stripped: both are large and the cyclotron worker reloads them
+// on every pass — including on rerun — via `addGroupsToGlobals` /
+// `getCyclotronPerson`, so persisting them is dead weight (mirrors what the
+// job queue itself drops, see `sanitizeInvocationForPersistence`). `inputs` is
+// stripped separately for security (see `stripInputs`).
 const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string => {
     if (isHogFunctionInvocation(invocation)) {
-        return JSON.stringify(stripInputs(invocation.state.globals))
+        const { groups: _groups, person: _person, ...globals } = invocation.state.globals
+        return JSON.stringify(stripInputs(globals))
     }
     if (isHogFlowInvocation(invocation)) {
         // Hog flow state can carry a per-action `currentAction.hogFunctionState.globals.inputs`
