@@ -447,13 +447,40 @@ class AssistantContextManager(AssistantContextMixin):
 
     async def _get_context_messages(self, state: BaseStateWithMessages) -> list[ContextMessage]:
         prompts: list[ContextMessage] = []
+        ui_context = self.get_ui_context(state)
         if mode_prompt := self._get_mode_context_messages(state):
             prompts.append(mode_prompt)
         if contextual_tools := await self._get_contextual_tools_prompt():
             prompts.append(ContextMessage(content=contextual_tools, id=str(uuid4())))
-        if ui_context := await self._format_ui_context(self.get_ui_context(state)):
-            prompts.append(ContextMessage(content=ui_context, id=str(uuid4())))
+        if voice_prompt := self._get_voice_mode_prompt(ui_context):
+            prompts.append(ContextMessage(content=voice_prompt, id=str(uuid4())))
+        if formatted_ui_context := await self._format_ui_context(ui_context):
+            prompts.append(ContextMessage(content=formatted_ui_context, id=str(uuid4())))
         return self._deduplicate_context_messages(state, prompts)
+
+    def _get_voice_mode_prompt(self, ui_context: MaxUIContext | None) -> str | None:
+        """Return a voice-mode instruction when the user is asking via hands-free voice.
+
+        The response is rendered to speech by ElevenLabs TTS, so the LLM needs to write
+        text that sounds natural when read aloud: numbers and currencies spelled out,
+        no markdown formatting, no inline code, no emoji.
+        """
+        if not ui_context or not ui_context.voice_mode:
+            return None
+        return (
+            "<voice_mode>\n"
+            "The user is asking via hands-free voice mode. Your response will be read "
+            "aloud by text-to-speech. Write it so it sounds natural when spoken:\n"
+            "- Spell out all numbers and currencies in words "
+            '(e.g. "one hundred dollars from five thousand two hundred and thirty eight users", '
+            'not "$100 from 5,238 users").\n'
+            "- Spell out percentages as words "
+            '(e.g. "twelve point five percent", not "12.5%").\n'
+            "- No markdown — no headings, no bullets, no bold, no inline code or code blocks.\n"
+            "- No emoji.\n"
+            "- Use plain sentences. Keep it concise — assume the user can't see the screen.\n"
+            "</voice_mode>"
+        )
 
     async def _get_contextual_tools_prompt(self) -> str | None:
         from ee.hogai.registry import get_contextual_tool_class

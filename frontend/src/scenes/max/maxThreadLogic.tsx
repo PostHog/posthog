@@ -1002,9 +1002,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
+            const handsFree = handsFreeLogic.findMounted({ tabId: props.tabId })
+            const voiceMode = handsFree?.values.isActive ? { voice_mode: true } : {}
             const mergedUiContext = uiContext
-                ? { ...values.compiledContext, ...uiContext }
-                : values.compiledContext || undefined
+                ? { ...values.compiledContext, ...uiContext, ...voiceMode }
+                : Object.keys(voiceMode).length > 0
+                  ? { ...values.compiledContext, ...voiceMode }
+                  : values.compiledContext || undefined
             const billingContext =
                 values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]
                     ? values.billingContext

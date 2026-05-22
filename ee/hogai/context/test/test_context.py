@@ -328,6 +328,17 @@ class TestAssistantContextManager(BaseTest):
         self.assertIsNone(result)
         mock_capture_exception.assert_called()
 
+    def test_voice_mode_prompt_emitted_when_ui_context_voice_mode_true(self):
+        prompt = self.context_manager._get_voice_mode_prompt(MaxUIContext(voice_mode=True))
+        assert prompt is not None
+        assert "<voice_mode>" in prompt
+        assert "spelled out" in prompt.lower() or "spell out" in prompt.lower()
+
+    def test_voice_mode_prompt_absent_when_voice_mode_false_or_missing(self):
+        assert self.context_manager._get_voice_mode_prompt(MaxUIContext(voice_mode=False)) is None
+        assert self.context_manager._get_voice_mode_prompt(MaxUIContext(insights=None)) is None
+        assert self.context_manager._get_voice_mode_prompt(None) is None
+
     def test_deduplicate_context_messages(self):
         """Test that context messages are deduplicated based on existing context message content"""
         # Create state with existing context messages
