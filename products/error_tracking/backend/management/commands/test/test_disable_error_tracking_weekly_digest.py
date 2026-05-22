@@ -14,7 +14,8 @@ class TestDisableErrorTrackingWeeklyDigest(BaseTest):
         call_command("disable_error_tracking_weekly_digest", "--email", self.user.email, stdout=out)
 
         self.user.refresh_from_db()
-        assert self.user.partial_notification_settings["error_tracking_weekly_digest"] is False
+        settings = self.user.partial_notification_settings or {}
+        assert settings["error_tracking_weekly_digest"] is False
         assert "Updated 1 user(s)" in out.getvalue()
 
     def test_disables_for_multiple_emails(self):
@@ -36,8 +37,10 @@ class TestDisableErrorTrackingWeeklyDigest(BaseTest):
 
         self.user.refresh_from_db()
         user2.refresh_from_db()
-        assert self.user.partial_notification_settings["error_tracking_weekly_digest"] is False
-        assert user2.partial_notification_settings["error_tracking_weekly_digest"] is False
+        settings1 = self.user.partial_notification_settings or {}
+        settings2 = user2.partial_notification_settings or {}
+        assert settings1["error_tracking_weekly_digest"] is False
+        assert settings2["error_tracking_weekly_digest"] is False
         assert "Updated 2 user(s)" in out.getvalue()
 
     def test_disables_for_organization(self):
@@ -58,15 +61,18 @@ class TestDisableErrorTrackingWeeklyDigest(BaseTest):
 
         self.user.refresh_from_db()
         user2.refresh_from_db()
-        assert self.user.partial_notification_settings["error_tracking_weekly_digest"] is False
-        assert user2.partial_notification_settings["error_tracking_weekly_digest"] is False
+        settings1 = self.user.partial_notification_settings or {}
+        settings2 = user2.partial_notification_settings or {}
+        assert settings1["error_tracking_weekly_digest"] is False
+        assert settings2["error_tracking_weekly_digest"] is False
 
     def test_dry_run_does_not_modify(self):
         out = StringIO()
         call_command("disable_error_tracking_weekly_digest", "--email", self.user.email, "--dry-run", stdout=out)
 
         self.user.refresh_from_db()
-        assert self.user.partial_notification_settings.get("error_tracking_weekly_digest") is not False
+        settings = self.user.partial_notification_settings or {}
+        assert settings.get("error_tracking_weekly_digest") is not False
         assert "Dry run" in out.getvalue()
         assert "Would disable" in out.getvalue()
 
@@ -107,7 +113,7 @@ class TestDisableErrorTrackingWeeklyDigest(BaseTest):
         call_command("disable_error_tracking_weekly_digest", "--email", self.user.email, stdout=StringIO())
 
         self.user.refresh_from_db()
-        settings = self.user.partial_notification_settings
+        settings = self.user.partial_notification_settings or {}
         assert settings["error_tracking_weekly_digest"] is False
         assert settings["plugin_disabled"] is True
         assert settings["discussions_mentioned"] is True
