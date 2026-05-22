@@ -14,6 +14,7 @@ export class FunnelsInsight {
     readonly tooltip: Locator
     readonly taxonomicFilter: TaxonomicFilter
     readonly conversionWindowInput: Locator
+    readonly comparisonButton: Locator
     private readonly conversionWindowSection: Locator
 
     constructor(private readonly page: Page) {
@@ -29,6 +30,7 @@ export class FunnelsInsight {
         this.taxonomicFilter = new TaxonomicFilter(page)
         this.conversionWindowSection = page.getByTestId('funnel-conversion-window-filter')
         this.conversionWindowInput = this.conversionWindowSection.getByRole('spinbutton')
+        this.comparisonButton = page.getByTestId('compare-filter')
     }
 
     async waitForChart(): Promise<void> {
@@ -119,6 +121,12 @@ export class FunnelsInsight {
         await this.expandFunnelSettings()
         await this.page.getByTestId('funnel-aggregation-filter').getByTestId('retention-aggregation-selector').click()
         await this.page.getByRole('menuitem', { name: label }).click()
+    }
+
+    async selectComparison(text: string): Promise<void> {
+        await this.comparisonButton.click()
+        await this.page.getByText(text).click()
+        await this.waitForTrendsLineGraph()
     }
 
     stepLegend(index: number): Locator {

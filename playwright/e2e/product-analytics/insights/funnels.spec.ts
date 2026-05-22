@@ -3,6 +3,7 @@ import { InsightShortId, InsightType } from '~/types'
 import { InsightPage } from '../../../page-models/insightPage'
 import { randomString } from '../../../utils'
 import { createEvent, daysAgo } from '../../../utils/event-data'
+import { mockFeatureFlags } from '../../../utils/mockApi'
 import { PlaywrightSetupEvent } from '../../../utils/playwright-setup'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
@@ -166,6 +167,35 @@ test.describe('Funnel insights', () => {
             await expect(insight.funnels.stepLegend(0)).toContainText('20')
             await expect(insight.funnels.stepLegend(1)).toContainText('10')
             await expect(insight.funnels.stepLegend(2)).toContainText('5')
+        })
+    })
+
+    test('Compare to previous period toggle is gated to Historical trends + funnels-compare flag', async ({ page }) => {
+        // Seeded funnel uses date_from '-7d' so the supportsCompare date guard is satisfied.
+        await mockFeatureFlags(page, { 'funnels-compare': true })
+
+        const insight = await goToSeededFunnel(page)
+
+        await test.step('compare-filter is hidden in default Conversion steps viz', async () => {
+            await expect(insight.funnels.comparisonButton).not.toBeVisible()
+        })
+
+        await test.step('switch to Historical trends — compare-filter becomes visible', async () => {
+            await insight.funnels.selectVizType('Historical trends')
+            await insight.funnels.waitForTrendsLineGraph()
+            await expect(insight.funnels.comparisonButton).toBeVisible()
+        })
+
+        await test.step('enable Compare to previous period — button label updates and chart still renders', async () => {
+            await insight.funnels.selectComparison('Compare to previous period')
+            await expect(insight.funnels.comparisonButton).toContainText('Previous')
+            await expect(insight.funnels.trendsLineGraph).toBeVisible()
+        })
+
+        await test.step('switch back to Conversion steps — compare-filter is gated off again', async () => {
+            await insight.funnels.selectVizType('Conversion steps')
+            await insight.funnels.waitForChart()
+            await expect(insight.funnels.comparisonButton).not.toBeVisible()
         })
     })
 
