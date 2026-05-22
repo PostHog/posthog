@@ -129,7 +129,7 @@ def _create_activity_log(team: Team, label: str) -> ActivityLog:
 
 
 def _create_account(team: Team, label: str) -> Account:
-    return Account.objects.create(team=team, name=f"account_{label}", external_id=f"ext_{label}")
+    return Account.objects.unscoped().create(team=team, name=f"account_{label}", external_id=f"ext_{label}")
 
 
 def _create_action(team: Team, label: str) -> Action:
