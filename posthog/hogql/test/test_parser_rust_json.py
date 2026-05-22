@@ -43,3 +43,15 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
         for backend in ("cpp-json", "rust-json"):
             with self.assertRaises(BaseHogQLError):
                 parse_expr("x -> { interval 'ln' }", backend=backend)
+
+    def test_date_timestamp_literal_in_block_body_rejected(self):
+        # `DATE STRING` / `TIMESTAMP STRING` (the date/timestamp literal forms) are
+        # rejected — cpp parses them but its visitor has no literal node for them.
+        # rust must commit to the literal form, not treat `date` / `timestamp` as an
+        # identifier and strand the string; otherwise inside a Hog `{ … }` block body
+        # `{ date 'x' }` parses as the two statements `date; 'x'` and accepts input
+        # the cpp oracle rejects.
+        for query in ("x -> { date 'ddg' }", "x -> { timestamp 'x' }"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)

@@ -637,6 +637,27 @@ impl<'a> Parser<'a> {
                     self.try_alt(&[&Self::parse_interval_expr, &Self::parse_ident_lead])
                 }
             }
+            // ColumnExprDate (`DATE STRING_LITERAL`) / ColumnExprTimestamp
+            // (`TIMESTAMP STRING_LITERAL`). cpp's grammar matches these but its
+            // visitor raises NotImplementedError — the AST builder has no date /
+            // timestamp literal node — so they reject. Without this arm rust
+            // treats `date` / `timestamp` as a plain identifier and strands the
+            // string: at expression level `expect_eof` rejects, but inside a Hog
+            // `{ … }` block body the string becomes a second statement, so
+            // `{ date 'x' }` parses as `date; 'x'` and accepts input cpp rejects.
+            // Reject fatally so no outer `try_alt` rolls it back to the
+            // identifier form. `date(…)` (function call) and bare `date` keep
+            // the identifier path — only `date <string>` is the literal form.
+            TokenKind::Keyword(Kw::Date | Kw::Timestamp)
+                if self.peek_next() == TokenKind::String =>
+            {
+                let tok = self.peek0;
+                Err(ParseError::not_implemented_fatal(
+                    "Date and timestamp literals are not supported",
+                    tok.start,
+                    tok.end,
+                ))
+            }
             // Grammar (line 289): LAMBDA identifier (COMMA identifier)* COMMA? COLON columnExpr
             // vs the keyword rule's "LAMBDA as identifier in primary position."
             // Try the lambda form first; if it fails (no params, no `:`,
