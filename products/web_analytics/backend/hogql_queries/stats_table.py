@@ -598,20 +598,34 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     def outer_where_breakdown(self) -> ast.Expr | None:
         match self.query.breakdownBy:
             case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
-                return parse_expr("tupleElement(`context.columns.breakdown_value`, 2) IS NOT NULL")
+                # Country (element 1) must be present; region/city (element 2) may be NULL when
+                # GeoIP can't resolve the subdivision/city — those rows surface in the UI as
+                # "(not set)" so totals stay consistent with the parent Country view.
+                return parse_expr("tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL")
             case WebStatsBreakdown.VIEWPORT:
                 return parse_expr(
                     "tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL AND tupleElement(`context.columns.breakdown_value`, 2) IS NOT NULL AND "
                     "tupleElement(`context.columns.breakdown_value`, 1) != 0 AND tupleElement(`context.columns.breakdown_value`, 2) != 0"
                 )
             case (
-                WebStatsBreakdown.INITIAL_UTM_SOURCE
+                # Breakdowns where missing data is real and worth surfacing as "(not set)"
+                # rather than silently dropped — keeps totals consistent with the overview tile
+                # and parent breakdowns. Path-like breakdowns (PAGE/INITIAL_PAGE/EXIT_*/...) still
+                # drop NULLs via the default branch since a pageview without a path is junk.
+                WebStatsBreakdown.COUNTRY
+                | WebStatsBreakdown.BROWSER
+                | WebStatsBreakdown.OS
+                | WebStatsBreakdown.DEVICE_TYPE
+                | WebStatsBreakdown.LANGUAGE
+                | WebStatsBreakdown.TIMEZONE
+                | WebStatsBreakdown.INITIAL_REFERRING_DOMAIN
+                | WebStatsBreakdown.INITIAL_UTM_SOURCE
                 | WebStatsBreakdown.INITIAL_UTM_CAMPAIGN
                 | WebStatsBreakdown.INITIAL_UTM_MEDIUM
                 | WebStatsBreakdown.INITIAL_UTM_TERM
                 | WebStatsBreakdown.INITIAL_UTM_CONTENT
             ):
-                return None  # actually show null values
+                return None
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return parse_expr(
                     "`context.columns.breakdown_value` IS NOT NULL AND `context.columns.breakdown_value` != ''"

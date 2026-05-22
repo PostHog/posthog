@@ -126,13 +126,49 @@ tools:
         enabled: false
     feature-flags-bulk-delete-create:
         operation: feature_flags_bulk_delete_create
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Bulk delete feature flags
+        description: >
+            Soft-delete multiple feature flags in one call. Provide either `ids` (explicit list of flag IDs) OR
+            `filters` (same shape as the list endpoint, e.g., search, active, type, tags), but not both. WARNING:
+            `filters` can match an unbounded number of flags. Preview matches via the list endpoint before calling this
+            with `filters`, and prefer explicit `ids` whenever the user has named specific flags. Flags linked to active
+            experiments, early access features, or that other flags depend on are skipped and reported in `errors`.
+            Returns `deleted` (with each flag's rollout state at deletion time) and `errors` arrays.
     feature-flags-bulk-keys-create:
         operation: feature_flags_bulk_keys_create
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Look up feature flag keys by ID
+        description: >
+            Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns
+            `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have
+            IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.
     feature-flags-bulk-update-tags-create:
         operation: feature_flags_bulk_update_tags_create
-        enabled: false
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Bulk update tags on feature flags
+        description: >
+            Add, remove, or replace tags on multiple feature flags in one call. Provide `ids` (up to 500), an `action`
+            ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-flag final tag list) and
+            `skipped` (flags missing or without edit permission, with reason).
     feature-flags-copy-flags-create:
         operation: feature_flags_copy_flags_create
         enabled: true
