@@ -19446,6 +19446,7 @@ export namespace Schemas {
     * `intercom` - Intercom
     * `jira` - Jira
     * `linear` - Linear
+    * `linear-agent` - Linear Agent
     * `linkedin-ads` - Linkedin Ads
     * `meta-ads` - Meta Ads
     * `pinterest-ads` - Pinterest Ads
@@ -19487,6 +19488,7 @@ export namespace Schemas {
       Intercom: 'intercom',
       Jira: 'jira',
       Linear: 'linear',
+      LinearAgent: 'linear-agent',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
       PinterestAds: 'pinterest-ads',
@@ -39393,6 +39395,7 @@ export namespace Schemas {
     * `intercom` - Intercom
     * `jira` - Jira
     * `linear` - Linear
+    * `linear-agent` - Linear Agent
     * `linkedin-ads` - Linkedin Ads
     * `meta-ads` - Meta Ads
     * `pinterest-ads` - Pinterest Ads
@@ -39445,6 +39448,7 @@ export namespace Schemas {
       Intercom: 'intercom',
       Jira: 'jira',
       Linear: 'linear',
+      LinearAgent: 'linear-agent',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
       PinterestAds: 'pinterest-ads',
@@ -44666,6 +44670,7 @@ export namespace Schemas {
     * `intercom` - Intercom
     * `jira` - Jira
     * `linear` - Linear
+    * `linear-agent` - Linear Agent
     * `linkedin-ads` - Linkedin Ads
     * `meta-ads` - Meta Ads
     * `pinterest-ads` - Pinterest Ads
@@ -44718,6 +44723,7 @@ export namespace Schemas {
       Intercom: 'intercom',
       Jira: 'jira',
       Linear: 'linear',
+      LinearAgent: 'linear-agent',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
       PinterestAds: 'pinterest-ads',
