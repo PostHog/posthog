@@ -643,7 +643,7 @@ class SandboxedDemoData:
         )
 
 
-# Event-level properties the error-tracking ``searchQuery`` matches on
+# Event-level properties the error-tracking ``searchQuery`` test cases match on
 # (see ``products/error_tracking/backend/hogql_queries/error_tracking_query_runner_utils.py``).
 # These are stored as JSON arrays (``["TypeError"]``); without materialized
 # columns the bare ``properties.$exception_types`` lookup goes through
@@ -655,8 +655,6 @@ class SandboxedDemoData:
 _EVAL_MATERIALIZED_EVENT_PROPERTIES: tuple[str, ...] = (
     "$exception_types",
     "$exception_values",
-    "$exception_sources",
-    "$exception_functions",
 )
 
 

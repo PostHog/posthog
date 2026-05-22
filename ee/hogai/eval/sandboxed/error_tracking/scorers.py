@@ -69,7 +69,7 @@ BINARY_CHOICE_SCORES = {"yes": 1.0, "no": 0.0}
 
 _JUDGE_MODEL = "gpt-5.4"
 _SESSION_ID_TEXT_RE = re.compile(r"""["']?\$?session_id["']?\s*[:=]\s*["']?([^"',\s}\]]+)""")
-_TOON_NON_EMPTY_RESULTS_RE = re.compile(r"""(?m)^\s*results\[[1-9]\d*\]\{[^}]*\}:""")
+_TOON_NON_EMPTY_RESULTS_RE = re.compile(r"""(?m)^\s*results\[[1-9]\d*\](?:\{[^}]*\})?:""")
 
 
 # ---------------------------------------------------------------------------

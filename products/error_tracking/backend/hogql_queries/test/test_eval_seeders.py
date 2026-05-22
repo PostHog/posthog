@@ -19,7 +19,7 @@ class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
     def setUpClass(cls) -> None:
         from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 
-        for property_name in ("$exception_types", "$exception_values", "$exception_sources", "$exception_functions"):
+        for property_name in ("$exception_types", "$exception_values"):
             if (property_name, "properties") not in get_materialized_columns("events"):
                 materialize("events", property_name)
         super().setUpClass()
@@ -69,4 +69,10 @@ class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
             .model_dump()
         )
 
-        assert [result["id"] for result in response["results"]] == [target_id]
+        assert [(result["id"], result["function"], result["source"]) for result in response["results"]] == [
+            (
+                target_id,
+                "submitInvite",
+                "https://app.hedgebox.test/static/js/team-settings.js",
+            )
+        ]
