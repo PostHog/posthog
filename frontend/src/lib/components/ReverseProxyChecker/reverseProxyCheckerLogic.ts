@@ -46,7 +46,10 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         // Read-only mode blocks every POST by design — afterMount fires on
                         // every scene, so reporting these floods error tracking with expected
                         // failures. Bail out without capturing.
-                        if (error instanceof ReadOnlyModeError || (error as Error)?.cause instanceof ReadOnlyModeError) {
+                        if (
+                            error instanceof ReadOnlyModeError ||
+                            (error as Error)?.cause instanceof ReadOnlyModeError
+                        ) {
                             return values.hasReverseProxy
                         }
                         // This check is advisory (used only to auto-complete a setup task).
