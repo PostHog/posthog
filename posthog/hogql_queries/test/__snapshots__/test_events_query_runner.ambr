@@ -3,12 +3,12 @@
   '''
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2020-01-12 23:59:59.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-12 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 101)), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2020-01-12 23:59:59.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-12 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2020-01-12 23:59:59.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-12 00:00:00.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                                                       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                                                        FROM events
+                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2020-01-12 23:59:59.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-12 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                        ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+                                                                                                                                                                                                                                                        LIMIT 101)))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -139,12 +139,7 @@
   SELECT events.event AS event,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY events.event ASC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 3
   OFFSET 0 SETTINGS readonly=2,
@@ -214,12 +209,12 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                    (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                     FROM events
+                                                                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                     ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+                                                                                                                                                                                                                     LIMIT 3)))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 3
   OFFSET 0 SETTINGS readonly=2,
@@ -239,12 +234,12 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                    (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                     FROM events
+                                                                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')))
+                                                                                                                                                                                                                     ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+                                                                                                                                                                                                                     LIMIT 3)))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 3
   OFFSET 0 SETTINGS readonly=2,
@@ -264,12 +259,12 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                    (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                     FROM events
+                                                                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')))
+                                                                                                                                                                                                                     ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+                                                                                                                                                                                                                     LIMIT 3)))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 3
   OFFSET 0 SETTINGS readonly=2,
@@ -439,12 +434,12 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                    (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                     FROM events
+                                                                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                     ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+                                                                                                                                                                                                                     LIMIT 3)))
   ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
   LIMIT 3
   OFFSET 0 SETTINGS readonly=2,
@@ -464,12 +459,12 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(less(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                    (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                     FROM events
+                                                                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                     ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+                                                                                                                                                                                                                     LIMIT 3)))
   ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
   LIMIT 3
   OFFSET 0 SETTINGS readonly=2,
@@ -489,12 +484,12 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(less(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                    (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                     FROM events
+                                                                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                     ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+                                                                                                                                                                                                                     LIMIT 3)))
   ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
   LIMIT 3
   OFFSET 0 SETTINGS readonly=2,
@@ -663,12 +658,12 @@
   '''
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                    (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                     FROM events
+                                                                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                     ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+                                                                                                                                                                                                                     LIMIT 3)))
   ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
   LIMIT 3
   OFFSET 0 SETTINGS readonly=2,
@@ -735,12 +730,12 @@
   '''
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), notILike(toString(events.elements_chain), '%div%'), equals(events.event, '$autocapture'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-20 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 101)), and(notILike(toString(events.elements_chain), '%div%'), equals(events.event, '$autocapture'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-20 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(notILike(toString(events.elements_chain), '%div%'), equals(events.event, '$autocapture'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-20 00:00:00.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                                                                                                              (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                                                                                                               FROM events
+                                                                                                                                                                                                                                                                                                               WHERE and(equals(events.team_id, 99999), notILike(toString(events.elements_chain), '%div%'), equals(events.event, '$autocapture'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-20 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                               ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+                                                                                                                                                                                                                                                                                                               LIMIT 101)))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -759,12 +754,12 @@
   '''
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 101)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                                                                                                                                                                                          (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                                                                                                                                                                                           FROM events
+                                                                                                                                                                                                                                                                                                                                                                                           WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                           ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+                                                                                                                                                                                                                                                                                                                                                                                           LIMIT 101)))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -783,12 +778,12 @@
   '''
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC, events.event ASC
-                                                 LIMIT 101)), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                                                       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                                                        FROM events
+                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                        ORDER BY toTimeZone(events.timestamp, 'UTC') DESC, events.event ASC
+                                                                                                                                                                                                                                                        LIMIT 101)))
   ORDER BY toTimeZone(events.timestamp, 'UTC') DESC, events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -807,12 +802,12 @@
   '''
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY events.event ASC
-                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                    (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                     FROM events
+                                                                                                                                                                                                                     WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                     ORDER BY events.event ASC
+                                                                                                                                                                                                                     LIMIT 101)))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -831,12 +826,12 @@
   '''
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events
-                                                 WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'priority'), ''), 'null'), '^"|"$', '') ASC
-                                                 LIMIT 101)), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+  WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.uuid),
+                                                                                                                                                                                                                                                       (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.uuid AS uuid
+                                                                                                                                                                                                                                                        FROM events
+                                                                                                                                                                                                                                                        WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
+                                                                                                                                                                                                                                                        ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'priority'), ''), 'null'), '^"|"$', '') ASC
+                                                                                                                                                                                                                                                        LIMIT 101)))
   ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'priority'), ''), 'null'), '^"|"$', '') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
