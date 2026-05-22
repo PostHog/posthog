@@ -450,9 +450,16 @@ services:
                 # Redpanda auto_create_topics_enabled=true only fires on producer-first
                 # writes. Consumer-only services (e.g. embedding-worker) error on missing
                 # topics, so we pre-create them here. Idempotent — re-running is safe.
+                TIMEOUT=60
+                ELAPSED=0
                 until rpk topic list --brokers kafka:9092 2>/dev/null; do
-                    echo "Waiting for Kafka broker..."
+                    echo "Waiting for Kafka broker... (elapsed: ${ELAPSED}s)"
                     sleep 2
+                    ELAPSED=$((ELAPSED + 2))
+                    if [ $ELAPSED -ge $TIMEOUT ]; then
+                        echo "Timeout waiting for Kafka broker after ${TIMEOUT}s"
+                        exit 1
+                    fi
                 done
                 for topic in document_embeddings_input; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
@@ -465,7 +472,8 @@ services:
                     fi
                 done
         depends_on:
-            - kafka
+            kafka:
+                condition: service_healthy
 
     kafka_ui:
         extends:
