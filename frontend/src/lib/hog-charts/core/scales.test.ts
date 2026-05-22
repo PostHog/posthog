@@ -574,5 +574,22 @@ describe('hog-charts scales', () => {
             const resolve = buildSegmentResolveValue(new Map<string, StackedBand>())!
             expect(resolve(series, 1)).toBe(20)
         })
+
+        it('falls back to the raw value when either the segment top or bottom is non-finite', () => {
+            // The guard requires both top and bottom finite, so a NaN on either edge falls back to raw.
+            const stacked = new Map<string, StackedBand>([['a', { top: [NaN, 20, 980], bottom: [0, NaN, 490] }]])
+            const resolve = buildSegmentResolveValue(stacked)!
+            expect(resolve(series, 0)).toBe(10) // top NaN → raw 10
+            expect(resolve(series, 1)).toBe(20) // bottom NaN → raw 20
+            expect(resolve(series, 2)).toBe(490) // both finite → 980 - 490
+        })
+
+        it('returns 0 when both the segment and the raw value are non-finite', () => {
+            const nanSeries = makeSeries({ key: 'a', data: [NaN, Infinity, 0] })
+            const stacked = new Map<string, StackedBand>([['a', { top: [NaN, 10, 0], bottom: [NaN, NaN, 0] }]])
+            const resolve = buildSegmentResolveValue(stacked)!
+            expect(resolve(nanSeries, 0)).toBe(0) // segment NaN + raw NaN → 0
+            expect(resolve(nanSeries, 1)).toBe(0) // bottom NaN + raw Infinity → 0
+        })
     })
 })
