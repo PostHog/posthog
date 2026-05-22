@@ -92,14 +92,14 @@ export const Empty: Story = {
     ],
 }
 
-// CUSTOMER_ANALYTICS must stay enabled (the outer scene gate) so we hit the inner
-// CSP-only gate; dropping the outer flag would render the parent opt-in instead.
+// CUSTOMER_ANALYTICS must stay enabled (the outer scene gate) so we get past it;
+// without CUSTOMER_ANALYTICS_CSP the accounts URL is treated as a 404.
 export const FeatureGateOff: Story = {
     render: () => <App />,
     parameters: {
         featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS],
         testOptions: {
-            waitForSelector: '#feature-preview-gate-switch',
+            waitForSelector: '[data-attr="not-found-page"]',
         },
     },
 }
