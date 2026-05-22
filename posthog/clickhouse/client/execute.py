@@ -310,6 +310,9 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
     tags = get_query_tags()
+    # A caller that passes an explicit ch_user has made a deliberate, trusted choice; it wins over
+    # the automatic product-based routing below.
+    caller_set_ch_user = ch_user != ClickHouseUser.DEFAULT
     is_personal_api_key = tags.access_method == AccessMethod.PERSONAL_API_KEY
 
     # When someone uses an API key, always put their query to the offline cluster
@@ -367,12 +370,14 @@ def sync_execute(
     # ClickHouse user selection keys off the server-determined `tags.product` only. Client-supplied
     # product tags live in `tags.client_product` (observability only) and never reach here. Keep the
     # set of products handled below in sync with _PRODUCTS_WITH_DEDICATED_CH_USER in query_tagging.py.
-    if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
-        ch_user = ClickHouseUser.MAX_AI
-    elif tags.product == Product.ENDPOINTS:
-        ch_user = ClickHouseUser.ENDPOINTS
-    elif tags.product == Product.BILLING:
-        ch_user = ClickHouseUser.BILLING
+    # Skipped when the caller passed an explicit ch_user — that choice takes precedence.
+    if not caller_set_ch_user:
+        if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
+            ch_user = ClickHouseUser.MAX_AI
+        elif tags.product == Product.ENDPOINTS:
+            ch_user = ClickHouseUser.ENDPOINTS
+        elif tags.product == Product.BILLING:
+            ch_user = ClickHouseUser.BILLING
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries

@@ -12,6 +12,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.dags.common.resources import ClayWebhookResource
@@ -84,7 +85,7 @@ def build_team_product_df(org_ids: list[str]) -> pl.DataFrame:
         WHERE organization_id IN %(org_ids)s
     """
     tag_queries(product=Product.BILLING, feature=Feature.BILLING_ETL)
-    results = sync_execute(query, {"org_ids": org_ids})
+    results = sync_execute(query, {"org_ids": org_ids}, ch_user=ClickHouseUser.BILLING)
 
     if not results:
         return pl.DataFrame(schema=TEAM_PRODUCT_SCHEMA)
@@ -148,7 +149,7 @@ def fetch_org_usage(org_ids: list[str]) -> pl.DataFrame:
         LIMIT 1 BY id
     """
     tag_queries(product=Product.BILLING, feature=Feature.BILLING_ETL)
-    results = sync_execute(query, {"org_ids": org_ids})
+    results = sync_execute(query, {"org_ids": org_ids}, ch_user=ClickHouseUser.BILLING)
 
     if not results:
         return pl.DataFrame(

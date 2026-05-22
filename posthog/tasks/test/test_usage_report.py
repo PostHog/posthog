@@ -4573,3 +4573,17 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             self.team.id,
         )
         self.assertEqual(all_data["teams_with_event_count_in_period"][self.team.id], 20)
+
+
+@patch("posthog.tasks.usage_report.sync_execute")
+def test_billing_sync_execute_runs_as_billing_user(mock_sync_execute: MagicMock) -> None:
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.tasks.usage_report import _billing_sync_execute
+
+    _billing_sync_execute("SELECT 1")
+    assert mock_sync_execute.call_args.kwargs["ch_user"] == ClickHouseUser.BILLING
+
+    # An explicit ch_user from the caller is preserved.
+    mock_sync_execute.reset_mock()
+    _billing_sync_execute("SELECT 1", ch_user=ClickHouseUser.APP)
+    assert mock_sync_execute.call_args.kwargs["ch_user"] == ClickHouseUser.APP
