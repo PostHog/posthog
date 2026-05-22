@@ -188,7 +188,34 @@ def test_subclasses_runsql_for_introspection_compatibility():
     """Subclasses must remain RunSQL so makemigrations / sqlmigrate continue to work."""
     op = CreateIndexConcurrently(index_name="x", table_name="y", columns="(z)")
     assert isinstance(op, migrations.RunSQL)
+    # RunSQL types sql/reverse_sql as str | Sequence | None; the helper always
+    # builds plain strings, so narrow before the membership checks.
+    assert isinstance(op.sql, str)
+    assert isinstance(op.reverse_sql, str)
     assert "CREATE INDEX CONCURRENTLY" in op.sql
     assert "IF NOT EXISTS" in op.sql
     assert "DROP INDEX CONCURRENTLY" in op.reverse_sql
     assert "IF EXISTS" in op.reverse_sql
+
+
+@pytest.mark.parametrize("op_cls", [CreateIndexConcurrently, DropIndexConcurrently])
+@pytest.mark.parametrize(
+    "extra_kwargs",
+    [
+        {},
+        {"unique": True, "using": "btree", "where": "WHERE col_a IS NOT NULL"},
+    ],
+)
+def test_deconstruct_round_trips(op_cls, extra_kwargs):
+    # RunSQL.deconstruct() emits sql=/reverse_sql=, which the helper __init__
+    # rejects; the override must emit kwargs that rebuild an equivalent op so
+    # squashmigrations / the migration writer work.
+    op = op_cls(index_name="my_idx", table_name="my_table", columns="(col_a)", **extra_kwargs)
+
+    name, args, kwargs = op.deconstruct()
+
+    assert name == op_cls.__name__
+    assert args == []
+    rebuilt = op_cls(**kwargs)
+    assert rebuilt.sql == op.sql
+    assert rebuilt.reverse_sql == op.reverse_sql

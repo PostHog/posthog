@@ -75,6 +75,32 @@ class _ConcurrentIndexOp(migrations.RunSQL):
 
     reversible = True
 
+    # Set by subclass __init__; read by deconstruct() (so squashmigrations /
+    # the migration writer can rebuild the op) and describe().
+    index_name: str
+    table_name: str
+    columns: str
+    unique: bool
+    using: str
+    where: str
+
+    def deconstruct(self) -> tuple[str, list[object], dict[str, str | bool]]:
+        # RunSQL.deconstruct() emits sql=/reverse_sql= kwargs, which this op's
+        # keyword-only __init__ rejects — so squashmigrations / the migration
+        # writer would fail to rebuild it. Emit the real constructor kwargs.
+        kwargs: dict[str, str | bool] = {
+            "index_name": self.index_name,
+            "table_name": self.table_name,
+            "columns": self.columns,
+        }
+        if self.unique:
+            kwargs["unique"] = True
+        if self.using:
+            kwargs["using"] = self.using
+        if self.where:
+            kwargs["where"] = self.where
+        return (self.__class__.__qualname__, [], kwargs)
+
     @staticmethod
     def _disable_timeouts(schema_editor) -> None:
         schema_editor.execute("SET lock_timeout = 0")
@@ -148,11 +174,15 @@ class CreateIndexConcurrently(_ConcurrentIndexOp):
         using: str = "",
         where: str = "",
     ) -> None:
-        # `index_name` and `table_name` survive on the instance — they're
-        # read by `_drop_if_invalid` / `describe`. The rest are only used
-        # to build the SQL strings below and don't need to be kept.
+        # All constructor args survive on the instance: index_name/table_name
+        # are read by `_drop_if_invalid` / `describe`, and every arg is needed
+        # by `deconstruct` so squashmigrations can rebuild the op.
         self.index_name = index_name
         self.table_name = table_name
+        self.columns = columns
+        self.unique = unique
+        self.using = using
+        self.where = where
         super().__init__(
             sql=_build_create_sql(
                 index_name=index_name,
@@ -207,11 +237,15 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
         using: str = "",
         where: str = "",
     ) -> None:
-        # `index_name` and `table_name` survive on the instance — they're
-        # read by `_drop_if_invalid` (on rollback) and `describe`. The
-        # rest are only used to build the SQL strings.
+        # All constructor args survive on the instance: index_name/table_name
+        # are read by `_drop_if_invalid` (on rollback) / `describe`, and every
+        # arg is needed by `deconstruct` so squashmigrations can rebuild the op.
         self.index_name = index_name
         self.table_name = table_name
+        self.columns = columns
+        self.unique = unique
+        self.using = using
+        self.where = where
         super().__init__(
             sql=_build_drop_sql(index_name),
             reverse_sql=_build_create_sql(
