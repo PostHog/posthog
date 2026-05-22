@@ -14,6 +14,8 @@ import {
     funnelResultTimeToConvert,
     funnelResultTimeToConvertWithoutConversions,
     funnelResultTrends,
+    funnelResultTrendsCompare,
+    funnelResultTrendsCompareWithBreakdown,
     funnelResultWithBreakdown,
     funnelResultWithMultiBreakdown,
 } from './__mocks__/funnelDataLogicMocks'
@@ -1309,6 +1311,69 @@ describe('funnelDataLogic', () => {
             }).toMatchValues({
                 incompletenessOffsetFromEnd: -3,
             })
+        })
+    })
+
+    describe('indexedSteps colorIndex pairing', () => {
+        const trendsQuery: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [],
+            funnelsFilter: {
+                funnelVizType: FunnelVizType.Trends,
+            },
+        }
+
+        async function loadResult(result: unknown): Promise<void> {
+            const insight: Partial<InsightModel> = {
+                filters: { insight: InsightType.FUNNELS },
+                result: result as InsightModel['result'],
+            }
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+                logic.actions.updateQuerySource(trendsQuery)
+            }).toFinishAllListeners()
+        }
+
+        it('assigns colorIndex 0 to a single-period trends result', async () => {
+            await loadResult(funnelResultTrends.result)
+            const steps = logic.values.indexedSteps as Array<Record<string, unknown>>
+            expect(steps).toHaveLength(1)
+            expect(steps[0].colorIndex).toBe(0)
+            expect(steps[0].seriesIndex).toBe(0)
+        })
+
+        it('pairs current and previous on the same colorIndex without a breakdown', async () => {
+            await loadResult(funnelResultTrendsCompare.result)
+            const steps = logic.values.indexedSteps as Array<Record<string, unknown>>
+            expect(steps).toHaveLength(2)
+            expect(steps[0].colorIndex).toBe(0)
+            expect(steps[1].colorIndex).toBe(0)
+            expect(steps[0].seriesIndex).toBe(0)
+            expect(steps[1].seriesIndex).toBe(1)
+            expect(steps[0].compare_label).toBe('current')
+            expect(steps[1].compare_label).toBe('previous')
+        })
+
+        it('pairs current and previous per breakdown value', async () => {
+            await loadResult(funnelResultTrendsCompareWithBreakdown.result)
+            const steps = logic.values.indexedSteps as Array<Record<string, unknown>>
+            expect(steps).toHaveLength(4)
+
+            const byKey = (label: string, breakdownValue: string): Record<string, unknown> => {
+                const found = steps.find((s) => s.compare_label === label && s.breakdown_value === breakdownValue)
+                if (!found) {
+                    throw new Error(`missing row ${label}/${breakdownValue}`)
+                }
+                return found
+            }
+            const currentUs = byKey('current', 'us')
+            const previousUs = byKey('previous', 'us')
+            const currentUk = byKey('current', 'uk')
+            const previousUk = byKey('previous', 'uk')
+
+            expect(currentUs.colorIndex).toBe(previousUs.colorIndex)
+            expect(currentUk.colorIndex).toBe(previousUk.colorIndex)
+            expect(currentUs.colorIndex).not.toBe(currentUk.colorIndex)
         })
     })
 })
