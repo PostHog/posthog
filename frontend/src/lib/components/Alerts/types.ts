@@ -84,7 +84,7 @@ export type InvestigationVerdict = 'true_positive' | 'false_positive' | 'inconcl
 export interface AlertCheck {
     id: string
     created_at: string
-    calculated_value: number
+    calculated_value: number | null
     state: AlertState
     targets_notified: boolean
     anomaly_scores?: (number | null)[] | null

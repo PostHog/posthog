@@ -891,11 +891,13 @@ export const WebStatsTableTile = ({
     control,
     attachTo,
     headerSlot,
+    uniqueKey,
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
     tileId: TileId
     headerSlot?: React.ReactNode
+    uniqueKey: string
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { productTab } = useValues(webAnalyticsLogic)
@@ -1056,7 +1058,7 @@ export const WebStatsTableTile = ({
         query,
         insightProps,
         context,
-        uniqueKey: 'WebAnalytics.WebStatsTableTile',
+        uniqueKey,
     })
 
     return (
@@ -1067,13 +1069,7 @@ export const WebStatsTableTile = ({
                 dataNodeLogicProps={dataNodeLogicProps}
                 skeleton={<TableTileSkeleton numericColumns={numericColumns} />}
             >
-                <Query
-                    uniqueKey="WebAnalytics.WebStatsTableTile"
-                    attachTo={attachTo}
-                    query={query}
-                    readOnly={true}
-                    context={context}
-                />
+                <Query uniqueKey={uniqueKey} attachTo={attachTo} query={query} readOnly={true} context={context} />
             </WebAnalyticsTileSkeletonGate>
         </div>
     )
@@ -1420,6 +1416,7 @@ export const WebQuery = ({
                 control={control}
                 tileId={tileId}
                 headerSlot={headerSlot}
+                uniqueKey={uniqueKey}
             />
         )
     }
