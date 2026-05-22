@@ -25,12 +25,12 @@ const TrendsCalendarHeatMap = lazy(() =>
 const BoxPlotChart = lazy(() => import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart })))
 // Flag-gated — keep full d3 out of the eager Trends/Dashboard bundle
 const TrendsLineChart = lazy(() =>
-    import('products/product_analytics/frontend/charts/trends/TrendsLineChart').then((m) => ({
+    import('products/product_analytics/frontend/charts/trends-line-chart/TrendsLineChart').then((m) => ({
         default: m.TrendsLineChart,
     }))
 )
 const TrendsBarChart = lazy(() =>
-    import('products/product_analytics/frontend/charts/trends/TrendsBarChart').then((m) => ({
+    import('products/product_analytics/frontend/charts/trends-bar-chart/TrendsBarChart').then((m) => ({
         default: m.TrendsBarChart,
     }))
 )
