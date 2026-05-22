@@ -168,8 +168,8 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
 
         await screen.findByRole('img', { name: /chart with/i })
-        expect(getHogChart().xAxisTitle()).toBe('Total events')
-        expect(getHogChart().yAxisTitle()).toBe('Series')
+        expect(getHogChart().xAxisLabel()).toBe('Total events')
+        expect(getHogChart().yAxisLabel()).toBe('Series')
         expect(
             getHogChart()
                 .element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')

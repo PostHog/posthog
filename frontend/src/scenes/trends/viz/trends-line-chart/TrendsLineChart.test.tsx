@@ -465,8 +465,8 @@ describe('TrendsLineChart', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            expect(getHogChart().xAxisTitle()).toBe(expectedX)
-            expect(getHogChart().yAxisTitle()).toBe(expectedY)
+            expect(getHogChart().xAxisLabel()).toBe(expectedX)
+            expect(getHogChart().yAxisLabel()).toBe(expectedY)
         })
     })
 
