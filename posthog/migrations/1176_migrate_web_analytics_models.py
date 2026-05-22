@@ -19,21 +19,11 @@ def _move_content_types(apps, schema_editor, from_label, to_label):
     Permission = apps.get_model("auth", "Permission")
 
     for model_name in MODELS_TO_MOVE:
-        source = (
-            ContentType.objects.using(db_alias)
-            .filter(app_label=from_label, model=model_name)
-            .first()
-        )
-        target = (
-            ContentType.objects.using(db_alias)
-            .filter(app_label=to_label, model=model_name)
-            .first()
-        )
+        source = ContentType.objects.using(db_alias).filter(app_label=from_label, model=model_name).first()
+        target = ContentType.objects.using(db_alias).filter(app_label=to_label, model=model_name).first()
 
         if source and target:
-            Permission.objects.using(db_alias).filter(content_type=source).update(
-                content_type=target
-            )
+            Permission.objects.using(db_alias).filter(content_type=source).update(content_type=target)
             source.delete(using=db_alias)
         elif source:
             source.app_label = to_label
