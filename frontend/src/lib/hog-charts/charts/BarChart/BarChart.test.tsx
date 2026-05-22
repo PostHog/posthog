@@ -207,6 +207,40 @@ describe('BarChart', () => {
             expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(expectedKeys)
         })
 
+        it('stacked tooltip shows each series own value, not the cumulative stack total', async () => {
+            // At index 1: a=20 (bottom) and b=15 stacked on top. b's stacked top is 35, but the
+            // tooltip must report b's own 15 — the segment, not the running total.
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
+            )
+            chart.hoverAtIndex(1)
+            const tooltip = await chart.waitForTooltip()
+            const byKey = Object.fromEntries(tooltip.seriesData.map((s) => [s.series.key, s.value]))
+            expect(byKey).toEqual({ a: 20, b: 15 })
+        })
+
+        it('stacked onPointClick reports each series own value, not the cumulative stack total', async () => {
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked' }}
+                    onPointClick={onPointClick}
+                />
+            )
+            await chart.clickAtIndex(1)
+            const clickData = onPointClick.mock.calls[0][0]
+            const byKey = Object.fromEntries(
+                clickData.crossSeriesData.map((d: { series: { key: string }; value: number }) => [
+                    d.series.key,
+                    d.value,
+                ])
+            )
+            expect(byKey).toEqual({ a: 20, b: 15 })
+        })
+
         it.each<[string, BarChartConfig]>([
             ['grouped', { barLayout: 'grouped' } as BarChartConfig],
             ['stacked', { barLayout: 'stacked' } as BarChartConfig],

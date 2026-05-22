@@ -248,10 +248,12 @@ export function computePercentStackData(series: Series[], labels: string[]): Map
     return buildStackData(series, labels, d3.stackOffsetExpand)
 }
 
-/** Returns the stacked top of each series so the tooltip anchor lands at the visual
- *  top of each segment, not the raw series value. Falls back to the raw value when the
- *  series isn't part of the stack (e.g. trend-line overlays, CI bands). */
-export function buildStackedResolveValue(
+/** Returns the stacked top of each series so the tooltip anchor and value-label position
+ *  land at the visual top of each segment. This is a *position* resolver — for the value
+ *  to *display* (the segment, not the cumulative total) use {@link buildSegmentResolveValue}.
+ *  Falls back to the raw value when the series isn't part of the stack (e.g. trend-line
+ *  overlays, CI bands). */
+export function buildStackedPositionValue(
     stackedData: Map<string, StackedBand> | undefined
 ): ResolveValueFn | undefined {
     if (!stackedData) {
@@ -261,6 +263,32 @@ export function buildStackedResolveValue(
         const stacked = stackedData.get(s.key)?.top[dataIndex]
         if (stacked != null && Number.isFinite(stacked)) {
             return stacked
+        }
+        const raw = s.data[dataIndex]
+        return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
+    }
+}
+
+/** Returns the height of each series's own segment (`top − bottom`) — i.e. the per-series
+ *  *value* — so tooltips and click handlers report each series's own value rather than the
+ *  cumulative stack total. For count stacks this equals the raw value; for percent stacks
+ *  it's the series's own fraction. Falls back to the raw value when the series isn't part
+ *  of the stack. Pair with {@link buildStackedPositionValue}, which anchors overlays at the
+ *  cumulative top. */
+export function buildSegmentResolveValue(
+    stackedData: Map<string, StackedBand> | undefined
+): ResolveValueFn | undefined {
+    if (!stackedData) {
+        return undefined
+    }
+    return (s, dataIndex) => {
+        const band = stackedData.get(s.key)
+        if (band) {
+            const top = band.top[dataIndex]
+            const bottom = band.bottom[dataIndex]
+            if (Number.isFinite(top) && Number.isFinite(bottom)) {
+                return top - bottom
+            }
         }
         const raw = s.data[dataIndex]
         return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
