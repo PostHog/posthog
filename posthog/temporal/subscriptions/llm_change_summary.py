@@ -80,7 +80,7 @@ The user may provide additional context to guide your summary focus. Use it to d
 INITIAL_USER_PROMPT_TEMPLATE = """Current data (captured {{current_timestamp}}):
 {{current_section}}
 
-Summarize the key takeaways in 2-4 bullet points. Use - as the bullet character. Each bullet should be a single sentence. Do not use markdown formatting such as bold, italic, or headers.
+{{annotations_section}}Summarize the key takeaways in 2-4 bullet points. Use - as the bullet character. Each bullet should be a single sentence. Do not use markdown formatting such as bold, italic, or headers.
 
 Focus on:
 - Notable metric values (unusually high, low, or outlier values)
@@ -97,7 +97,7 @@ USER_PROMPT_TEMPLATE = """Previous data (captured {{previous_timestamp}}):
 Current data (captured {{current_timestamp}}):
 {{current_section}}
 
-Summarize the key changes in 2-4 bullet points. Use - as the bullet character. Each bullet should be a single sentence. Do not use markdown formatting such as bold, italic, or headers.
+{{annotations_section}}Summarize the key changes in 2-4 bullet points. Use - as the bullet character. Each bullet should be a single sentence. Do not use markdown formatting such as bold, italic, or headers.
 
 Focus on:
 - Changes of 10% or more in key metrics
@@ -248,6 +248,7 @@ def build_prompt_messages(
     prompt_guide: str = "",
     team: Team | None = None,
     core_memory_text: str = "",
+    annotations_section: str = "",
 ) -> list[dict]:
     previous_section_parts, current_section_parts = _build_sections(previous_states, current_states)
 
@@ -262,6 +263,7 @@ def build_prompt_messages(
             "previous_section": _wrap_insight_data("\n\n".join(previous_section_parts) or "No previous data"),
             "current_timestamp": current_timestamp,
             "current_section": _wrap_insight_data("\n\n".join(current_section_parts) or "No current data"),
+            "annotations_section": annotations_section,
         },
     )
 
@@ -281,6 +283,7 @@ def build_initial_prompt_messages(
     prompt_guide: str = "",
     team: Team | None = None,
     core_memory_text: str = "",
+    annotations_section: str = "",
 ) -> list[dict]:
     current_section_parts = _build_current_sections(current_states)
     current_timestamp = current_states[0].get("timestamp", "unknown") if current_states else "unknown"
@@ -291,6 +294,7 @@ def build_initial_prompt_messages(
         {
             "current_timestamp": current_timestamp,
             "current_section": _wrap_insight_data("\n\n".join(current_section_parts) or "No data"),
+            "annotations_section": annotations_section,
         },
     )
 
@@ -364,6 +368,7 @@ def generate_change_summary(
     delivery_id: str | None = None,
     insight_images: dict[int, bytes] | None = None,
     core_memory_text: str = "",
+    annotations_section: str = "",
 ) -> str:
     team_id = team.id if team else 0
 
@@ -375,6 +380,7 @@ def generate_change_summary(
             prompt_guide,
             team=team,
             core_memory_text=core_memory_text,
+            annotations_section=annotations_section,
         )
     else:
         messages = build_initial_prompt_messages(
@@ -383,6 +389,7 @@ def generate_change_summary(
             prompt_guide,
             team=team,
             core_memory_text=core_memory_text,
+            annotations_section=annotations_section,
         )
 
     attached = _attach_images_to_user_message(messages, current_states, insight_images)

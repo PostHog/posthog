@@ -218,7 +218,9 @@ def get_insight_analysis(
         date_range = resolve_query_date_range(query, team)
         if date_range is not None:
             date_from, date_to = date_range
-            annotations = get_annotations_for_ai_context(team, date_from, date_to, insight_id=insight_id)
+            annotations = get_annotations_for_ai_context(
+                team, date_from, date_to, insight_ids=[insight_id] if insight_id else None
+            )
             annotations_block = format_annotations_for_prompt(annotations)
 
         prompt = (

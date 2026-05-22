@@ -706,3 +706,33 @@ class TestGenerateChangeSummary:
         assert captured["properties"]["team_id"] == 42
         assert captured["properties"]["ai_product"] == "subscriptions"
         assert captured["groups"] == {"project": "42"}
+
+
+class TestAnnotationsSection:
+    def test_change_prompt_omits_annotations_block_when_empty(self):
+        previous = [_make_state(1, "Pageviews", "avg 100/day")]
+        current = [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")]
+
+        messages = build_prompt_messages(previous, current)
+
+        assert "Annotations during this period" not in messages[1]["content"]
+
+    def test_change_prompt_includes_annotations_block_when_provided(self):
+        previous = [_make_state(1, "Pageviews", "avg 100/day")]
+        current = [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")]
+        annotations_section = (
+            "Annotations during this period (...):\n- 2025-04-14 (project): rolled out new home page\n\n"
+        )
+
+        messages = build_prompt_messages(previous, current, annotations_section=annotations_section)
+
+        assert "rolled out new home page" in messages[1]["content"]
+        assert "Annotations during this period" in messages[1]["content"]
+
+    def test_initial_prompt_includes_annotations_block_when_provided(self):
+        current = [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")]
+        annotations_section = "Annotations during this period (...):\n- 2025-04-14 (project): release v2\n\n"
+
+        messages = build_initial_prompt_messages(current, annotations_section=annotations_section)
+
+        assert "release v2" in messages[1]["content"]
