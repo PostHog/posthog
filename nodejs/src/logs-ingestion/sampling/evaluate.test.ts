@@ -453,4 +453,199 @@ describe('evaluateLogRecord', () => {
             })
         })
     })
+
+    describe('deterministic drops outrank rate_limit regardless of priority', () => {
+        // A rate-limit bucket is a finite shared resource; if a record was going to be
+        // dropped anyway by a deterministic rule, charging the bucket for it just
+        // starves legitimate traffic for no reason. So path_drop / severity_sampling
+        // ALWAYS resolve a record before rate_limit can claim it, even when rate_limit
+        // appears first in the priority-ordered rule list.
+
+        it('path_drop wins when rate_limit appears earlier in rule order', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-first',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                {
+                    id: 'pd-second',
+                    rule_type: 'path_drop',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { patterns: ['/healthz'] },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            expect(classifySamplingRecord(rules, rec)).toEqual({
+                kind: 'resolved',
+                decision: SAMPLING_DECISION_DROP,
+                ruleId: 'pd-second',
+            })
+        })
+
+        it('severity_sampling drop wins when rate_limit appears earlier in rule order', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-first',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                {
+                    id: 'ss-second',
+                    rule_type: 'severity_sampling',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        actions: {
+                            DEBUG: { type: 'keep' },
+                            INFO: { type: 'drop' },
+                            WARN: { type: 'keep' },
+                            ERROR: { type: 'keep' },
+                        },
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            rec.severity_text = 'info'
+            expect(classifySamplingRecord(rules, rec)).toEqual({
+                kind: 'resolved',
+                decision: SAMPLING_DECISION_DROP,
+                ruleId: 'ss-second',
+            })
+        })
+
+        it('severity_sampling keep wins over later rate_limit (record is preserved, bucket not charged)', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-first',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                {
+                    id: 'ss-second',
+                    rule_type: 'severity_sampling',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        actions: {
+                            DEBUG: { type: 'keep' },
+                            INFO: { type: 'keep' },
+                            WARN: { type: 'keep' },
+                            ERROR: { type: 'keep' },
+                        },
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            expect(classifySamplingRecord(rules, rec)).toEqual({
+                kind: 'resolved',
+                decision: 'keep',
+                ruleId: 'ss-second',
+            })
+        })
+
+        it('rate_limit still wins when no deterministic rule resolves the record', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-first',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                {
+                    id: 'pd-noop',
+                    rule_type: 'path_drop',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { patterns: ['/never-matches'] },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            expect(classifySamplingRecord(rules, rec)).toEqual({ kind: 'rate_limit', ruleId: 'rl-first' })
+        })
+
+        it('first matching rate_limit rule wins when multiple rate_limit rules apply and no deterministic rule resolves', () => {
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-a',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                {
+                    id: 'rl-b',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 100 },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            expect(classifySamplingRecord(rules, rec)).toEqual({ kind: 'rate_limit', ruleId: 'rl-a' })
+        })
+
+        it('alwaysKeep on a later rule still pre-empts an earlier rate_limit match', () => {
+            // alwaysKeep already short-circuits to KEEP today; this guards against a
+            // future refactor accidentally letting rate_limit win over an explicit
+            // alwaysKeep that sits after it in the priority order.
+            const rules = compileRuleSet([
+                {
+                    id: 'rl-first',
+                    rule_type: 'rate_limit',
+                    scope_service: 'api',
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { logs_per_second: 10 },
+                },
+                {
+                    id: 'keep-errors',
+                    rule_type: 'severity_sampling',
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        actions: {
+                            DEBUG: { type: 'drop' },
+                            INFO: { type: 'drop' },
+                            WARN: { type: 'keep' },
+                            ERROR: { type: 'keep' },
+                        },
+                        always_keep: { status_gte: 500 },
+                    },
+                },
+            ])
+            const rec = baseRecord()
+            rec.service_name = 'api'
+            rec.attributes = { 'http.status_code': '503' }
+            expect(classifySamplingRecord(rules, rec)).toEqual({
+                kind: 'resolved',
+                decision: 'keep',
+                ruleId: 'keep-errors',
+            })
+        })
+    })
 })
