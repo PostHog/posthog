@@ -36,6 +36,7 @@ await import('./build-products.mjs')
 const common = {
     absWorkingDir: __dirname,
     bundle: true,
+    writeMetaFile: !isDev,
 }
 
 await buildInParallel(
@@ -47,7 +48,6 @@ await buildInParallel(
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
-            writeMetaFile: !isDev,
             ...common,
         },
         {
@@ -87,7 +87,6 @@ await buildInParallel(
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
-            writeMetaFile: !isDev,
             ...common,
         },
         {

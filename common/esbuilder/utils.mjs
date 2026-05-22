@@ -509,7 +509,7 @@ export async function buildOrWatch(config) {
 
             if (writeMetaFile) {
                 await fs.writeFile(
-                    `${config.name.toLowerCase().replace(' ', '-')}-esbuild-meta.json`,
+                    `${config.name.toLowerCase().replace(/ /g, '-')}-esbuild-meta.json`,
                     JSON.stringify(buildResult.metafile)
                 )
             }
