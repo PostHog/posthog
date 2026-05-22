@@ -151,6 +151,27 @@ def _session_ids_from_recordings_input(tool_input: dict[str, Any]) -> set[str]:
     return set()
 
 
+def _has_results_list(value: Any) -> bool:
+    if isinstance(value, dict):
+        results = value.get("results")
+        if isinstance(results, list):
+            return bool(results)
+        return any(_has_results_list(nested) for nested in value.values())
+    if isinstance(value, list):
+        return bool(value) and any(_has_results_list(item) for item in value)
+    if isinstance(value, str):
+        return bool(_TOON_NON_EMPTY_RESULTS_RE.search(value))
+    return False
+
+
+def _query_output_has_results(raw_output: str) -> bool:
+    try:
+        decoded = json.loads(raw_output)
+    except json.JSONDecodeError:
+        return bool(_TOON_NON_EMPTY_RESULTS_RE.search(raw_output))
+    return _has_results_list(decoded)
+
+
 def _has_recordings_result(value: Any) -> bool:
     if isinstance(value, dict):
         if isinstance(value.get("id"), str):
@@ -273,6 +294,33 @@ class EventsToolUsed(_ToolUsedScorer):
 
     def __init__(self, *, name: str = "events_tool_used"):
         super().__init__(name=name)
+
+    def _evaluate(self, output: dict | None) -> Score:
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log to parse"})
+        successful_calls = [call for call in parser.get_tool_calls(self._tool_name) if not call.is_error]
+        if not successful_calls:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": f"Agent never ran {self._tool_name} successfully"},
+            )
+        non_empty_positions = [call.position for call in successful_calls if _query_output_has_results(call.output)]
+        if not non_empty_positions:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": f"{self._tool_name} returned no sampled events",
+                    "successful_call_positions": [call.position for call in successful_calls],
+                },
+            )
+        return Score(
+            name=self._name(),
+            score=1.0,
+            metadata={"tool": self._tool_name, "non_empty_positions": non_empty_positions},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -765,8 +813,20 @@ class IssueDrilldownOrder(Scorer):
                 return Score(name=self._name(), score=0.0, metadata=metadata)
             events_prerequisite_pos = issue_pos if issue_pos is not None else list_pos
             events_prerequisite_tool = QUERY_ISSUE_TOOL if issue_pos is not None else QUERY_ISSUES_LIST_TOOL
-            if events_pos <= events_prerequisite_pos:
+            events_after_prerequisite = [
+                call
+                for call in parser.get_tool_calls(QUERY_ISSUE_EVENTS_TOOL)
+                if not call.is_error and call.position > events_prerequisite_pos
+            ]
+            if not events_after_prerequisite:
                 metadata["reason"] = f"{QUERY_ISSUE_EVENTS_TOOL} did not run after {events_prerequisite_tool}"
+                return Score(name=self._name(), score=0.0, metadata=metadata)
+            event_result_positions = [
+                call.position for call in events_after_prerequisite if _query_output_has_results(call.output)
+            ]
+            metadata["events_result_positions"] = event_result_positions
+            if not event_result_positions:
+                metadata["reason"] = f"{QUERY_ISSUE_EVENTS_TOOL} returned no sampled events"
                 return Score(name=self._name(), score=0.0, metadata=metadata)
         elif forbids_events and events_pos is not None:
             metadata["reason"] = (
