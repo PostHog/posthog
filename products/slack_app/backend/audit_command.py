@@ -14,17 +14,22 @@ place.
 """
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 from django.core import signing
 from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.integration import Integration, SlackIntegration, SlackIntegrationError, validate_slack_request
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.scopes import downgrade_scopes_to_read_only
 
 logger = structlog.get_logger(__name__)
 
@@ -32,6 +37,12 @@ AUDIT_CONFIRM_ACTION_ID = "posthog_code_audit_confirm"
 AUDIT_CANCEL_ACTION_ID = "posthog_code_audit_cancel"
 AUDIT_CONFIRM_TOKEN_SALT = "posthog_code_audit_confirm"
 AUDIT_CONFIRM_TOKEN_MAX_AGE_SECONDS = 300
+
+# Ephemeral PAT TTL for an audit run. One hour is well over the time any
+# `auditing-*` / `diagnosing-*` skill takes to complete in practice, and
+# short enough that an accidentally leaked key has a small window.
+AUDIT_KEY_TTL = timedelta(hours=1)
+AUDIT_KEY_LABEL_PREFIX = "audit ephemeral"
 
 # V0 read-only audit skills. Every entry here must be a non-mutating
 # investigation/audit skill — adding write-capable skills here is a security
@@ -266,19 +277,48 @@ def _log_audit_run_started(*, team: Team, staff_user: User, skill: str) -> None:
     )
 
 
-def _dispatch_audit_run(*, team: Team, staff_user: User, skill: str, channel: str) -> None:
-    """V1 will: mint a scoped read-only token for `team`, then start a Temporal
-    workflow that runs the agent with the `skill` bundle and streams results
-    back to `channel`. For v0 this is a no-op so we can ship the confirm/log
-    surface without committing to the auth-layer changes (PAT TTL / ephemeral
-    token model) those need.
+def mint_ephemeral_audit_key(*, team: Team, staff_user: User, skill: str) -> tuple[PersonalAPIKey, str]:
+    """Mint a TTL-bound, project-scoped, read-only personal API key for an
+    audit run. Returns `(key_row, raw_token)` — `raw_token` is the only place
+    the plaintext value exists and must be handed to the agent immediately;
+    the database stores only the hash.
+
+    Scopes are the explicit expansion of `*:read` (see
+    `downgrade_scopes_to_read_only`) so the wildcard short-circuit in
+    `posthog/permissions.py` doesn't grant write by accident.
     """
+    raw_token = generate_random_token_personal()
+    read_only_scopes = downgrade_scopes_to_read_only("*").split()
+    key = PersonalAPIKey.objects.create(
+        user=staff_user,
+        label=f"{AUDIT_KEY_LABEL_PREFIX}: {skill}",
+        secure_value=hash_key_value(raw_token),
+        mask_value=mask_key_value(raw_token),
+        scopes=read_only_scopes,
+        scoped_teams=[team.id],
+        expires_at=timezone.now() + AUDIT_KEY_TTL,
+    )
+    return key, raw_token
+
+
+def _dispatch_audit_run(*, team: Team, staff_user: User, skill: str, channel: str) -> None:
+    """Mint a scoped read-only ephemeral key for the agent, then hand off.
+
+    The actual agent dispatch (Temporal workflow that runs the skill bundle
+    and streams results back to `channel`) is the remaining follow-up — at
+    that point the helper just needs the raw_token plumbed into the workflow
+    inputs. Mint-only is safe to ship now because expired keys are rejected
+    by both the DRF authenticator and the lookup helper.
+    """
+    key, _raw_token = mint_ephemeral_audit_key(team=team, staff_user=staff_user, skill=skill)
     logger.info(
-        "posthog_code_audit_dispatch_stub",
+        "posthog_code_audit_dispatch_minted_key",
         team_id=team.id,
         staff_user_id=staff_user.id,
         skill=skill,
         channel=channel,
+        api_key_id=key.id,
+        api_key_expires_at=key.expires_at.isoformat() if key.expires_at else None,
     )
 
 

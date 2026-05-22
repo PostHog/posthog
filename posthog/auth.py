@@ -38,6 +38,7 @@ from posthog.models.personal_api_key import (
     PERSONAL_API_KEY_AUTH_COUNTER,
     PERSONAL_API_KEY_MODES_TO_TRY,
     PersonalAPIKey,
+    unexpired_q,
 )
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
@@ -258,6 +259,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                     personal_api_key_object = (
                         PersonalAPIKey.objects.select_related("user")
                         .filter(user__is_active=True)
+                        .filter(unexpired_q())
                         .get(secure_value=secure_value)
                     )
                     mode_used = mode

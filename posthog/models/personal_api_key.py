@@ -3,6 +3,7 @@ from typing import Optional
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
@@ -41,6 +42,10 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     last_used_at = models.DateTimeField(null=True, blank=True)
     last_rolled_at = models.DateTimeField(null=True, blank=True)
+    # NULL means the key never expires. Set by ephemeral-key flows (e.g. the
+    # staff audit slash command) that need a short-lived, read-only credential.
+    # The auth path filters out expired keys via `unexpired_q()` below.
+    expires_at = models.DateTimeField(null=True, blank=True)
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), default=list)
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
@@ -57,6 +62,16 @@ class PersonalAPIKey(ModelActivityMixin, models.Model):
     )
 
 
+def unexpired_q() -> Q:
+    """Q clause that filters out expired personal API keys.
+
+    A key with `expires_at IS NULL` never expires (the default for keys
+    minted via the user-facing API). A key with a non-NULL `expires_at`
+    must still be in the future to be considered valid.
+    """
+    return Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())
+
+
 def find_personal_api_key(token: str) -> tuple[PersonalAPIKey, str] | None:
     for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
         secure_value = hash_key_value(token, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations)
@@ -64,6 +79,7 @@ def find_personal_api_key(token: str) -> tuple[PersonalAPIKey, str] | None:
             obj = (
                 PersonalAPIKey.objects.select_related("user")
                 .filter(user__is_active=True)
+                .filter(unexpired_q())
                 .get(secure_value=secure_value)
             )
             return obj, mode
