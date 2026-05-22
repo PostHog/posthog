@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheckCircle, IconGlobe, IconList } from '@posthog/icons'
+import { IconCheck, IconCheckCircle, IconGlobe, IconList, IconSparkles, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -12,6 +12,7 @@ import {
     LemonSwitch,
     LemonTextArea,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -208,107 +209,52 @@ export function ResumeExperimentModal(): JSX.Element {
     )
 }
 
-export type RecommendationPanelState = 'pending' | 'accepted' | 'overridden'
-
-interface RecommendationPanelProps {
+interface RecommendationChipProps {
     recommendation: RecommendedVariantToKeep
-    conclusion: ExperimentConclusion
-    state: RecommendationPanelState
     onAccept: () => void
-    onChooseAnother: () => void
-    aggregationTargetName: string
+    onReject: () => void
 }
 
-// Forces an explicit Accept / Choose-another step before End experiment can submit, so the
-// kept-variant choice is conscious even on Won/Lost where a smart default would otherwise be defensible.
-// Gated behind EXPERIMENTS_END_MODAL_RECOMMENDATION_PATTERN — control bucket sees the legacy select.
-export function RecommendationPanel({
-    recommendation,
-    conclusion,
-    state,
-    onAccept,
-    onChooseAnother,
-    aggregationTargetName,
-}: RecommendationPanelProps): JSX.Element {
-    const conclusionConfig = CONCLUSION_DISPLAY_CONFIG[conclusion]
+// Compact purple "smart suggestion" chip shown beside the Variant-to-ship dropdown: a sparkle + the
+// recommended variant, with a tick (accept → fills the dropdown) and cross (reject → dismiss the chip).
+// Gated behind EXPERIMENTS_END_MODAL_RECOMMENDATION_PATTERN — control bucket sees the plain dropdown.
+export function RecommendationChip({ recommendation, onAccept, onReject }: RecommendationChipProps): JSX.Element {
     const { experiment } = useValues(experimentLogic)
     const variants = experiment.feature_flag?.filters.multivariate?.variants
     const variantColor = variants ? getVariantColor(recommendation.variantKey, variants) : 'var(--text-muted)'
 
-    if (state === 'accepted') {
-        return (
-            <LemonBanner type="info" className="mb-0" data-attr="recommendation-panel-accepted">
-                <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                        <IconCheckCircle className="text-accent text-lg" />
-                        <span>
-                            Shipping <VariantTag variantKey={recommendation.variantKey} />
-                        </span>
-                    </div>
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        onClick={onChooseAnother}
-                        data-attr="recommendation-panel-change"
-                    >
-                        Change
-                    </LemonButton>
-                </div>
-            </LemonBanner>
-        )
-    }
-
-    if (state === 'overridden') {
-        return (
-            <div className="text-secondary text-sm flex items-center gap-2" data-attr="recommendation-panel-overridden">
-                <div className={clsx('w-2 h-2 rounded-full', conclusionConfig.color)} />
-                <span>
-                    Recommendation: <VariantTag variantKey={recommendation.variantKey} /> ({recommendation.reason})
-                </span>
-            </div>
-        )
-    }
-
     return (
-        <div className="flex flex-col gap-2" data-attr="recommendation-panel-pending">
-            <LemonLabel>Variant to keep</LemonLabel>
-            <LemonBanner type="ai" className="mb-0">
-                <div className="flex flex-col gap-3">
-                    <div>
-                        <div className="flex items-center gap-2 mb-1.5">
-                            <div
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ backgroundColor: variantColor }}
-                            />
-                            <span className="text-lg font-semibold">{recommendation.variantKey}</span>
-                        </div>
-                        <div className="text-xs text-muted">
-                            We suggest shipping this variant to 100% of {aggregationTargetName} —{' '}
-                            {recommendation.reason}.
-                        </div>
-                    </div>
-                    <div className="flex justify-end gap-2">
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            onClick={onChooseAnother}
-                            data-attr="recommendation-panel-choose-another"
-                        >
-                            Choose another variant
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            icon={<IconCheckCircle />}
-                            onClick={onAccept}
-                            data-attr="recommendation-panel-accept"
-                        >
-                            Accept
-                        </LemonButton>
-                    </div>
-                </div>
-            </LemonBanner>
+        <div
+            className="flex items-center gap-1.5 rounded px-2 py-1 shrink-0"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ border: '1px solid var(--purple)', background: 'rgb(167 139 250 / 8%)' }}
+            data-attr="recommendation-chip"
+        >
+            <Tooltip title={`Suggested: ${recommendation.reason}`}>
+                <span className="flex items-center gap-1.5">
+                    <IconSparkles className="text-purple shrink-0" />
+                    <div
+                        className="w-2 h-2 rounded-full shrink-0"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ backgroundColor: variantColor }}
+                    />
+                    <span className="text-sm font-semibold">{recommendation.variantKey}</span>
+                </span>
+            </Tooltip>
+            <LemonButton
+                size="xsmall"
+                icon={<IconCheck />}
+                tooltip="Accept suggestion"
+                onClick={onAccept}
+                data-attr="recommendation-chip-accept"
+            />
+            <LemonButton
+                size="xsmall"
+                icon={<IconX />}
+                tooltip="Dismiss suggestion"
+                onClick={onReject}
+                data-attr="recommendation-chip-reject"
+            />
         </div>
     )
 }
@@ -328,11 +274,10 @@ export function FinishExperimentModal(): JSX.Element {
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
-    // 'pending'    → recommendation panel showing Accept / Choose another
-    // 'accepted'   → recommendation accepted, panel collapsed to "Shipping X · Change"
-    // 'overridden' → user clicked Choose another, manual LemonSelect revealed
-    // 'no-ship'    → no-ship switch on; submit routes to endExperimentWithoutShipping
-    const [variantChoiceMode, setVariantChoiceMode] = useState<RecommendationPanelState | 'no-ship'>('pending')
+    // Recommendation pattern only: `noShip` routes submit to endExperimentWithoutShipping;
+    // `suggestionDismissed` hides the recommendation chip after the user accepts (tick) or rejects (cross).
+    const [noShip, setNoShip] = useState<boolean>(false)
+    const [suggestionDismissed, setSuggestionDismissed] = useState<boolean>(false)
 
     useEffect(() => {
         if (showRecommendationPattern) {
@@ -355,7 +300,8 @@ export function FinishExperimentModal(): JSX.Element {
         if (!showRecommendationPattern) {
             return
         }
-        setVariantChoiceMode('pending')
+        setNoShip(false)
+        setSuggestionDismissed(false)
         setSelectedVariantKey(null)
     }, [experiment.conclusion, showRecommendationPattern])
 
@@ -369,34 +315,27 @@ export function FinishExperimentModal(): JSX.Element {
             return
         }
         setSelectedVariantKey(recommendedVariantToKeep.variantKey)
-        setVariantChoiceMode('accepted')
+        setSuggestionDismissed(true)
         reportExperimentRecommendationAccepted(experiment, recommendedVariantToKeep.variantKey)
     }
 
-    const handleChooseAnotherVariant = (): void => {
-        // "Change" from ACCEPTED resets to PENDING so the user can re-Accept; only "Choose another" from
-        // PENDING counts as a rejection of the recommendation.
-        if (variantChoiceMode === 'accepted') {
-            setSelectedVariantKey(null)
-            setVariantChoiceMode('pending')
-            return
-        }
-        if (recommendedVariantToKeep && variantChoiceMode === 'pending') {
+    const handleRejectRecommendation = (): void => {
+        // Cross dismisses the chip without changing the dropdown — the user picks the variant manually.
+        if (recommendedVariantToKeep) {
             reportExperimentRecommendationRejected(experiment, recommendedVariantToKeep.variantKey)
         }
-        setSelectedVariantKey(null)
-        setVariantChoiceMode('overridden')
+        setSuggestionDismissed(true)
     }
 
     const handleNoShipToggle = (checked: boolean): void => {
-        setVariantChoiceMode(checked ? 'no-ship' : 'pending')
+        setNoShip(checked)
         if (checked) {
             setSelectedVariantKey(null)
         }
     }
 
     const handleEndExperiment = (): void => {
-        if (isSingleVariantShipped || variantChoiceMode === 'no-ship' || !selectedVariantKey) {
+        if (isSingleVariantShipped || noShip || !selectedVariantKey) {
             endExperimentWithoutShipping()
         } else {
             // Control variant: preserve pre-flag behavior (prepend catch-all release condition).
@@ -421,11 +360,11 @@ export function FinishExperimentModal(): JSX.Element {
         if (!showRecommendationPattern) {
             return false
         }
-        if (variantChoiceMode === 'no-ship') {
+        if (noShip) {
             return false
         }
         if (!selectedVariantKey) {
-            return 'Accept the recommendation, choose another variant, or end without shipping'
+            return 'Select a variant to ship, or end without shipping'
         }
         return false
     })()
@@ -488,64 +427,50 @@ export function FinishExperimentModal(): JSX.Element {
                     ) : showRecommendationPattern ? (
                         <>
                             <ConclusionForm />
-                            {experiment.conclusion && recommendedVariantToKeep ? (
-                                <>
-                                    {variantChoiceMode !== 'no-ship' && (
-                                        <RecommendationPanel
-                                            recommendation={recommendedVariantToKeep}
-                                            conclusion={experiment.conclusion}
-                                            state={
-                                                variantChoiceMode === 'accepted'
-                                                    ? 'accepted'
-                                                    : variantChoiceMode === 'overridden'
-                                                      ? 'overridden'
-                                                      : 'pending'
+                            <div>
+                                <LemonLabel>Variant to ship</LemonLabel>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <div className="w-1/2">
+                                        <LemonSelect
+                                            className="w-full"
+                                            data-attr="metrics-selector"
+                                            value={selectedVariantKey}
+                                            placeholder="Select a variant"
+                                            disabledReason={
+                                                noShip ? 'Turn off "Don\'t ship a variant" to choose one' : undefined
                                             }
+                                            onChange={(variantKey) => setSelectedVariantKey(variantKey)}
+                                            allowClear={true}
+                                            options={
+                                                experiment.feature_flag?.filters.multivariate?.variants?.map(
+                                                    ({ key }) => ({
+                                                        value: key,
+                                                        label: (
+                                                            <div className="deprecated-space-x-2 inline-flex">
+                                                                <VariantTag variantKey={key} />
+                                                            </div>
+                                                        ),
+                                                    })
+                                                ) || []
+                                            }
+                                        />
+                                    </div>
+                                    {recommendedVariantToKeep && !suggestionDismissed && !noShip && (
+                                        <RecommendationChip
+                                            recommendation={recommendedVariantToKeep}
                                             onAccept={handleAcceptRecommendation}
-                                            onChooseAnother={handleChooseAnotherVariant}
-                                            aggregationTargetName={aggregationTargetName}
+                                            onReject={handleRejectRecommendation}
                                         />
                                     )}
-                                    {variantChoiceMode === 'overridden' && (
-                                        <div>
-                                            <LemonLabel>Variant to ship</LemonLabel>
-                                            <div className="w-1/2 mt-1">
-                                                <LemonSelect
-                                                    className="w-full"
-                                                    data-attr="metrics-selector"
-                                                    value={selectedVariantKey}
-                                                    placeholder="Select a variant"
-                                                    onChange={(variantKey) => setSelectedVariantKey(variantKey)}
-                                                    allowClear={true}
-                                                    options={
-                                                        experiment.feature_flag?.filters.multivariate?.variants?.map(
-                                                            ({ key }) => ({
-                                                                value: key,
-                                                                label: (
-                                                                    <div className="deprecated-space-x-2 inline-flex">
-                                                                        <VariantTag variantKey={key} />
-                                                                    </div>
-                                                                ),
-                                                            })
-                                                        ) || []
-                                                    }
-                                                />
-                                            </div>
-                                        </div>
-                                    )}
-                                    <LemonSwitch
-                                        checked={variantChoiceMode === 'no-ship'}
-                                        onChange={handleNoShipToggle}
-                                        label="Don't ship a variant, end the experiment only"
-                                        data-attr="finish-experiment-no-ship"
-                                    />
-                                </>
-                            ) : (
-                                <div className="text-secondary text-sm italic">
-                                    Select a conclusion above to see the recommended variant to keep.
                                 </div>
-                            )}
-                            {showReleaseModeChoice && selectedVariantKey && variantChoiceMode !== 'no-ship' && (
+                            </div>
+                            <LemonSwitch
+                                checked={noShip}
+                                onChange={handleNoShipToggle}
+                                label="Don't ship a variant, end the experiment only"
+                                data-attr="finish-experiment-no-ship"
+                            />
+                            {showReleaseModeChoice && !noShip && (
                                 <div className="flex flex-col gap-2">
                                     <LemonLabel>How to release this variant</LemonLabel>
                                     <div
