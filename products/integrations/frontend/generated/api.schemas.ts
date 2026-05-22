@@ -172,7 +172,6 @@ export interface RoleLookupResponseApi {
  * `intercom` - Intercom
  * `jira` - Jira
  * `linear` - Linear
- * `linear-agent` - Linear Agent
  * `linkedin-ads` - Linkedin Ads
  * `meta-ads` - Meta Ads
  * `pinterest-ads` - Pinterest Ads
@@ -213,7 +212,6 @@ export const IntegrationKindEnumApi = {
     Intercom: 'intercom',
     Jira: 'jira',
     Linear: 'linear',
-    LinearAgent: 'linear-agent',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
     PinterestAds: 'pinterest-ads',
@@ -459,7 +457,6 @@ export type IntegrationsListParams = {
      * `intercom` - Intercom
      * `jira` - Jira
      * `linear` - Linear
-     * `linear-agent` - Linear Agent
      * `linkedin-ads` - Linkedin Ads
      * `meta-ads` - Meta Ads
      * `pinterest-ads` - Pinterest Ads
@@ -511,7 +508,6 @@ export const IntegrationsListKind = {
     Intercom: 'intercom',
     Jira: 'jira',
     Linear: 'linear',
-    LinearAgent: 'linear-agent',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
     PinterestAds: 'pinterest-ads',
