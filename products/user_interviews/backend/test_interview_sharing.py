@@ -1,3 +1,5 @@
+import io
+import csv
 import hmac
 import json
 import hashlib
@@ -120,16 +122,17 @@ class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin):
         self.assertIn("attachment", response["Content-Disposition"])
         self.assertIn(".csv", response["Content-Disposition"])
 
-        body = response.content.decode("utf-8")
-        lines = body.strip().splitlines()
-        # Header + one row per targeted interviewee (3 in the default _create_topic).
-        self.assertEqual(len(lines), 4)
-        self.assertEqual(lines[0], "interviewee_identifier,interviewee_email,user_name,interview_url")
+        reader = csv.DictReader(io.StringIO(response.content.decode("utf-8")))
+        self.assertEqual(
+            reader.fieldnames,
+            ["interviewee_identifier", "interviewee_email", "user_name", "interview_url"],
+        )
+        rows = list(reader)
+        # One row per targeted interviewee (3 in the default _create_topic).
+        self.assertEqual(len(rows), 3)
         # Email column is empty for distinct-id-only rows; URL column always populated.
-        for row in lines[1:]:
-            cells = row.split(",")
-            self.assertEqual(len(cells), 4)
-            self.assertIn("/interview/", cells[3])
+        for row in rows:
+            self.assertIn("/interview/", row["interview_url"])
 
     def test_generate_links_csv_rejects_topic_with_no_identifiers(self):
         topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])

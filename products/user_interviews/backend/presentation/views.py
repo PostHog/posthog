@@ -801,7 +801,6 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["post"],
         url_path="links_csv",
-        renderer_classes=[csvrenderers.CSVRenderer],
     )
     def links_csv(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         topic = self.get_object()
