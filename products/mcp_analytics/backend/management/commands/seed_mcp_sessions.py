@@ -170,10 +170,10 @@ class Command(BaseCommand):
             )
 
         for session_idx in range(session_count):
-            # $mcp_conversation_id is the canonical session grouping key emitted by the MCP
-            # service. Use uuid4 because that's the format the real service emits (e.g.
+            # $mcp_session_id is the canonical session grouping key emitted by the MCP
+            # SDK. Use uuid4 because that's the format the real service emits (e.g.
             # ba10420e-7ff2-4253-a6ac-3e404f14f8be).
-            conversation_id = str(uuid.uuid4())
+            mcp_session_id = str(uuid.uuid4())
             # $session_id keeps the PostHog uuid7 convention so session-replay-style
             # consumers don't choke on it.
             session_id = str(uuid7())
@@ -218,7 +218,7 @@ class Command(BaseCommand):
                     timestamp=timestamp,
                     properties={
                         "$session_id": session_id,
-                        "$mcp_conversation_id": conversation_id,
+                        "$mcp_session_id": mcp_session_id,
                         "$mcp_tool_name": tool_name,
                         "$mcp_intent": intent,
                         "$mcp_error_message": "Upstream returned 500" if is_error else "",
@@ -235,9 +235,9 @@ class Command(BaseCommand):
             # Don't write to MCPSession directly — the backfill Temporal activity is
             # the source of truth and will derive the row from the events we just
             # captured. Pre-populating here would produce duplicates keyed on the
-            # uuid7 $session_id instead of the uuid4 $mcp_conversation_id.
+            # uuid7 $session_id instead of the uuid4 $mcp_session_id.
             self.stdout.write(
-                f"  session {session_idx + 1}/{session_count}: {calls} tool calls (conversation_id={conversation_id})"
+                f"  session {session_idx + 1}/{session_count}: {calls} tool calls (mcp_session_id={mcp_session_id})"
             )
 
         self.stdout.write(

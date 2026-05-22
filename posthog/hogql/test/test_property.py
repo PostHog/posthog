@@ -24,6 +24,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
+    _resolve_boolean_value,
     entity_to_expr,
     has_aggregation,
     map_virtual_properties,
@@ -38,8 +39,10 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
 
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ee.clickhouse.materialized_columns.columns import materialize
 
@@ -1981,3 +1984,53 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
 
         count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
         assert count == expected_count
+
+
+# Executes generated SQL: a non-boolean value against a Boolean property renders
+# valid HogQL but ClickHouse rejects it at runtime, so AST-only tests miss it.
+class TestBooleanPropertyComparisonWithData(APIBaseTest):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        PropertyDefinition.objects.create(
+            team=cls.team, name="is_active", property_type="Boolean", type=PropertyDefinition.Type.EVENT
+        )
+        _create_event(team=cls.team, event="signup", distinct_id="u1", properties={"is_active": "true"})
+        _create_event(team=cls.team, event="signup", distinct_id="u2", properties={"is_active": "false"})
+
+    def _run(self, filter: dict) -> int:
+        query_ast = ast.SelectQuery(
+            select=[ast.Call(name="count", args=[])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=property_to_expr(filter, team=self.team, scope="event"),
+        )
+        return execute_hogql_query(team=self.team, query=query_ast).results[0][0]
+
+    @parameterized.expand(
+        [
+            ("true_matches", "true", "exact", 1),
+            ("false_matches", "false", "exact", 1),
+            # a non-boolean value cannot match a boolean property — 0 rows, not a crash
+            ("non_boolean_value_matches_nothing", "not-a-boolean", "exact", 0),
+            # is_not with a valid boolean value returns the complementary row
+            ("is_not_true_matches_false_row", "true", "is_not", 1),
+            # is_not with a non-boolean value: every row "is not" it — match all, not a crash and not 0 rows
+            ("is_not_non_boolean_matches_everything", "not-a-boolean", "is_not", 2),
+        ]
+    )
+    def test_boolean_property_comparison(self, _name, value, operator, expected_count):
+        assert self._run({"type": "event", "key": "is_active", "value": value, "operator": operator}) == expected_count
+
+    @parameterized.expand(
+        [
+            ("true", "true", True),
+            ("false", "false", False),
+            ("bool_passthrough", True, True),
+            # only the UI's "true"/"false" resolve — anything else matches nothing
+            ("one_is_none", "1", None),
+            ("yes_is_none", "yes", None),
+            ("non_boolean_is_none", "not-a-boolean", None),
+        ]
+    )
+    def test_resolve_boolean_value(self, _name, value, expected):
+        assert _resolve_boolean_value(value) is expected

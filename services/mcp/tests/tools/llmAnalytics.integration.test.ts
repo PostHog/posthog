@@ -14,7 +14,7 @@ import {
 import getLLMCostsTool from '@/tools/llmAnalytics/getLLMCosts'
 import type { Context } from '@/tools/types'
 
-describe('LLM Analytics', { concurrent: false }, () => {
+describe('AI observability', { concurrent: false }, () => {
     let context: Context
     const createdResources: CreatedResources = {
         featureFlags: [],
@@ -69,7 +69,7 @@ describe('LLM Analytics', { concurrent: false }, () => {
         })
     })
 
-    describe('LLM Analytics workflow', () => {
+    describe('AI observability workflow', () => {
         it('should support getting costs for different time periods', async () => {
             const costsTool = getLLMCostsTool()
 

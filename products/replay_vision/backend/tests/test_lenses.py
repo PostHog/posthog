@@ -286,6 +286,78 @@ class TestClassifierLens:
         ok = schema_class(tags=["a"], reasoning="r", confidence=0.9)
         assert ok.tags == ["a"]  # type: ignore[attr-defined]
 
+    def test_freeform_default_off_rejects_freeform_in_validate(self) -> None:
+        lens = lens_from_db(
+            _build_replay_lens(lens_type=LensType.CLASSIFIER, lens_config={"prompt": "x", "tags": ["a", "b"]})
+        )
+        assert isinstance(lens, ClassifierLens)
+        assert lens.allow_freeform_tags is False
+        out = ClassifierOutput(tags=["a"], tags_freeform=["sneaky"], reasoning="r", confidence=0.9)
+        error = lens.validate_semantics(out)
+        assert error is not None
+        assert "allow_freeform_tags=False" in error
+
+    def test_freeform_on_admits_field_in_schema(self) -> None:
+        lens = lens_from_db(
+            _build_replay_lens(
+                lens_type=LensType.CLASSIFIER,
+                lens_config={"prompt": "x", "tags": ["a", "b"], "allow_freeform_tags": True},
+            )
+        )
+        schema_class = lens.llm_response_schema
+        ok = schema_class(tags=["a"], tags_freeform=["custom_one", "custom_two"], reasoning="r", confidence=0.9)
+        assert ok.tags_freeform == ["custom_one", "custom_two"]  # type: ignore[attr-defined]
+        with pytest.raises(ValidationError):
+            schema_class(tags=["a"], tags_freeform=[f"t{i}" for i in range(6)], reasoning="r", confidence=0.9)
+
+    def test_freeform_prompt_block_only_when_enabled(self) -> None:
+        on = lens_from_db(
+            _build_replay_lens(
+                lens_type=LensType.CLASSIFIER,
+                lens_config={"prompt": "x", "tags": ["a"], "allow_freeform_tags": True},
+            )
+        )
+        off = lens_from_db(
+            _build_replay_lens(lens_type=LensType.CLASSIFIER, lens_config={"prompt": "x", "tags": ["a"]})
+        )
+        events = EventTable(columns=[], rows=[])
+        assert "tags_freeform" in on.build_prompt(team_name="Acme", events=events)
+        assert "tags_freeform" not in off.build_prompt(team_name="Acme", events=events)
+
+    def test_finalize_strips_overlap_with_fixed_vocab_case_insensitive(self) -> None:
+        lens = lens_from_db(
+            _build_replay_lens(
+                lens_type=LensType.CLASSIFIER,
+                lens_config={"prompt": "x", "tags": ["LoginFailure", "Onboarding"], "allow_freeform_tags": True},
+            )
+        )
+        llm_response = lens.llm_response_schema(
+            tags=["LoginFailure"],
+            tags_freeform=["loginfailure", "ONBOARDING", "billing"],
+            reasoning="r",
+            confidence=0.9,
+        )
+        finalized = lens.finalize(llm_response)
+        assert isinstance(finalized, ClassifierOutput)
+        assert finalized.tags_freeform == ["billing"]
+
+    def test_finalize_normalizes_freeform_to_snake_case(self) -> None:
+        lens = lens_from_db(
+            _build_replay_lens(
+                lens_type=LensType.CLASSIFIER,
+                lens_config={"prompt": "x", "tags": ["a"], "allow_freeform_tags": True},
+            )
+        )
+        llm_response = lens.llm_response_schema(
+            tags=["a"],
+            tags_freeform=["Password Reset", "PASSWORD reset", "  rate-limit  ", "Slow Checkout!"],
+            reasoning="r",
+            confidence=0.9,
+        )
+        finalized = lens.finalize(llm_response)
+        assert isinstance(finalized, ClassifierOutput)
+        assert finalized.tags_freeform == ["password_reset", "rate-limit", "slow_checkout"]
+
 
 class TestScorerLens:
     def test_lens_from_db_picks_scorer_subclass(self) -> None:

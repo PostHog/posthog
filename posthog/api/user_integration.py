@@ -67,6 +67,48 @@ logger = structlog.get_logger(__name__)
 
 PERSONAL_INTEGRATIONS_SETTINGS_PATH = "/settings/user-personal-integrations"
 ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH = "/account-connected/github-integration"
+# Native deep link the mobile app (apps/mobile) registers as the OAuth return
+# URL. The in-app browser (ASWebAuthenticationSession / Custom Tabs) closes and
+# returns control to the app when the callback 302s here.
+MOBILE_GITHUB_CALLBACK_URL = "posthog://github/callback"
+# ``connect_from`` values for first-party clients that use the lightweight app
+# linking flow (OAuth-only when the team already has the GitHub App installed,
+# otherwise discover/install) and return to a client-specific destination.
+APP_CONNECT_FROM_VALUES = ("posthog_code", "posthog_mobile")
+
+
+class _AppDeepLinkRedirect(HttpResponseRedirect):
+    """Redirect that also permits the mobile app's custom ``posthog://`` scheme.
+
+    Django's default ``HttpResponseRedirect`` rejects non-web schemes as unsafe
+    (``DisallowedRedirect``). The target here is a hardcoded first-party deep
+    link, not user input, so allowing the extra scheme is safe.
+    """
+
+    allowed_schemes = [*HttpResponseRedirect.allowed_schemes, "posthog"]
+
+
+def _final_github_redirect(connect_from: str | None, *, error: str | None = None) -> HttpResponseRedirect:
+    """Pick the post-OAuth destination based on which client started the flow.
+
+    - ``posthog_mobile`` → the app's ``posthog://`` deep link so the in-app
+      browser auto-closes.
+    - ``posthog_code`` → the web ``/account-connected`` page that the desktop app
+      intercepts via its own deep link.
+    - anything else (web UI) → the personal integrations settings page.
+    """
+    app_base_urls: dict[str, str] = {
+        "posthog_mobile": MOBILE_GITHUB_CALLBACK_URL,
+        "posthog_code": ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH,
+    }
+    if connect_from in app_base_urls:
+        params = {"provider": "github"}
+        if error:
+            params["error"] = error
+        return _AppDeepLinkRedirect(f"{app_base_urls[connect_from]}?{urlencode(params)}")
+    if error:
+        return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_error={error}")
+    return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_success=1")
 
 
 def _github_oauth_authorize_url(state: str) -> str:
@@ -381,11 +423,12 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         page handles both cases: orgs where the app is installed show "Configure"
         (no admin needed), orgs where it isn't show "Install" (needs admin).
 
-        **PostHog Code fast path:** when ``connect_from`` is ``"posthog_code"``,
+        **First-party app fast path:** when ``connect_from`` is one of
+        ``APP_CONNECT_FROM_VALUES`` (e.g. ``"posthog_code"`` or ``"posthog_mobile"``),
         the current project already has a team-level GitHub installation, and the
         user has no ``UserIntegration`` for that installation yet, we skip the org
         picker and redirect straight to ``/login/oauth/authorize`` so the user
-        only authorizes themselves and returns to PostHog Code immediately.
+        only authorizes themselves and returns to the originating client immediately.
 
         In both cases the response key is ``install_url`` for compatibility with callers.
         """
@@ -397,8 +440,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         team = _resolve_team_for_github_start(user, self.request)
         connect_from = request.data.get("connect_from")
 
-        if connect_from == "posthog_code":
-            if fast_path_response := _attempt_posthog_code_oauth_fast_path(user, team, token, state):
+        if connect_from in APP_CONNECT_FROM_VALUES:
+            if fast_path_response := _attempt_app_oauth_fast_path(user, team, token, state, connect_from):
                 return fast_path_response
             if _team_github_installation_id(team) is None:
                 cache.set(
@@ -433,19 +476,20 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         )
 
 
-def _posthog_code_flow_from_state_query(request: HttpRequest) -> bool:
-    """Best-effort: OAuth error callbacks may still include ``state``; read cache (do not delete)."""
+def _app_connect_from_from_state_query(request: HttpRequest) -> str | None:
+    """Best-effort: OAuth error callbacks may still include ``state``; read cache
+    (do not delete) to recover which first-party client started the flow so the
+    error redirect returns to the right place."""
     state_raw = request.GET.get("state")
     if not state_raw:
-        return False
+        return None
     token = _github_state_token(state_raw)
     cache_key = f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}"
     state_payload = cache.get(cache_key)
-    return bool(
-        state_payload
-        and state_payload.get("user_id") == request.user.id
-        and state_payload.get("connect_from") == "posthog_code"
-    )
+    if not state_payload or state_payload.get("user_id") != request.user.id:
+        return None
+    connect_from = state_payload.get("connect_from")
+    return connect_from if connect_from in APP_CONNECT_FROM_VALUES else None
 
 
 @require_http_methods(["GET"])
@@ -466,14 +510,13 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
 
     user = cast(User, request.user)
 
-    posthog_code_flow = False
+    # Which first-party client (if any) started this flow; controls the final
+    # redirect destination. Resolved from validated server-side state below.
+    connect_from_value: str | None = None
 
     def _error(reason: str) -> HttpResponseRedirect:
         logger.warning("github_link: redirecting with error", reason=reason, user_id=user.id)
-        if posthog_code_flow:
-            q = urlencode({"provider": "github", "error": reason})
-            return redirect(f"{ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH}?{q}")
-        return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_error={reason}")
+        return _final_github_redirect(connect_from_value, error=reason)
 
     # GitHub appends ?error=... when the user denied consent.
     if github_error := request.GET.get("error"):
@@ -483,8 +526,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
             description=request.GET.get("error_description"),
             user_id=user.id,
         )
-        if _posthog_code_flow_from_state_query(request):
-            posthog_code_flow = True
+        connect_from_value = _app_connect_from_from_state_query(request)
         return _error(github_error if github_error == "access_denied" else "github_oauth_error")
 
     code = request.GET.get("code")
@@ -503,8 +545,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     state_payload = cache.get(cache_key)
     if not state_payload or state_payload.get("user_id") != user.id:
         return _error("invalid_state")
-    if state_payload.get("connect_from") == "posthog_code":
-        posthog_code_flow = True
+    connect_from_value = state_payload.get("connect_from")
     cache.delete(cache_key)
 
     flow = state_payload.get("flow")
@@ -562,10 +603,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
         except requests.RequestException:
             return _error("installation_fetch_failed")
         if not installation_ids:
-            return _redirect_to_github_app_install(
-                user,
-                "posthog_code" if posthog_code_flow else cast(str | None, state_payload.get("connect_from")),
-            )
+            return _redirect_to_github_app_install(user, connect_from_value)
 
     for installation_id in installation_ids:
         # installation_id must be a plain positive integer (GitHub App IDs always are).
@@ -660,9 +698,7 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
         joiner = "&" if "?" in target else "?"
         return redirect(f"{target}{joiner}{urlencode(forwarded_params)}")
 
-    if posthog_code_flow:
-        return redirect(f"{ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH}?{urlencode({'provider': 'github'})}")
-    return redirect(f"{PERSONAL_INTEGRATIONS_SETTINGS_PATH}?github_link_success=1")
+    return _final_github_redirect(connect_from_value)
 
 
 def _resolve_team_for_github_start(user: User, request: Request):
@@ -748,10 +784,14 @@ def _team_github_installation_id(team: Any) -> str | None:
     return str(team_row.integration_id) if team_row is not None and team_row.integration_id else None
 
 
-def _attempt_posthog_code_oauth_fast_path(user: User, team: Any, token: str, state: str) -> Response | None:
+def _attempt_app_oauth_fast_path(
+    user: User, team: Any, token: str, state: str, connect_from: str | None
+) -> Response | None:
     """If the team has a GitHub installation the user hasn't linked yet, return
-    an OAuth-only ``/login/oauth/authorize`` redirect so PostHog Code users
-    authorize and return immediately — no org picker needed.
+    an OAuth-only ``/login/oauth/authorize`` redirect so first-party app users
+    (PostHog Code, mobile) authorize and return immediately — no org picker
+    needed. ``connect_from`` is preserved so the callback returns to the right
+    client.
 
     Returns ``None`` when the fast path doesn't apply (no team integration,
     user already linked, or missing config).
@@ -767,7 +807,7 @@ def _attempt_posthog_code_oauth_fast_path(user: User, team: Any, token: str, sta
             "user_id": user.id,
             "installation_id": team_installation_id,
             "flow": "oauth_authorize",
-            "connect_from": "posthog_code",
+            "connect_from": connect_from,
         },
         timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
     )

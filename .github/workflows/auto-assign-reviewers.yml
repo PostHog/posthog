@@ -9,6 +9,7 @@ name: Auto Assign Reviewers
 #
 # This has the small downside that changes to CODEOWNERS will not be reflected in here until we merge it to master,
 # which means testing this workflow is slightly less convenient but that's well worth it.
+# nosemgrep: semgrep.rules.github-actions-pull-request-target
 on:
     pull_request_target:
         # Only opened or when clicking ready otherwise you can never remove the reviewers

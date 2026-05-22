@@ -192,7 +192,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
         Translations: Each question can include inline translations.
         - `translations`: Object mapping language codes to translated fields.
-        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Language codes: Canonical BCP-47-ish strings (e.g., "es", "es-MX", "zh-CN"). Aliases like "english" or "default" are rejected. The survey's `base_language` (default "en") declares the language of the untranslated text and cannot also appear as a translation key.
         - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
         Example with translations:
@@ -280,9 +280,13 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
     # TipTap editor layout for form-builder surveys
     form_content = models.JSONField(blank=True, null=True)
+    # Language the top-level survey/question text is written in.
+    # Used as the "original" label in the editor and as the source language for AI-generated translations.
+    # The SDK does not read this field — base text is always the rendering fallback when no translation matches.
+    base_language = models.CharField(max_length=20, default="en")
     # Translations for multi-language support
     # Format: { [languageCode]: { name: string, description: string, thankYouMessageHeader: string, thankYouMessageDescription: string, thankYouMessageCloseButtonText: string, ... } }
-    # Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+    # Language codes must be canonical BCP-47-ish strings (e.g. "es", "es-MX"). Aliases like "english" or "default" are rejected by the API.
     translations = models.JSONField(blank=True, null=True)
 
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.

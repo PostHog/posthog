@@ -17,14 +17,15 @@ vi.mock('@shared/guidelines.md', () => ({
     default: '# Guidelines\nTest guidelines content.',
 }))
 
-vi.mock('@/resources/ui-apps', () => ({
-    registerUiAppResources: vi.fn().mockResolvedValue(undefined),
-    withUiApp: <T extends { _meta?: unknown }>(_appKey: string, config: Omit<T, '_meta'>): T => config as T,
-}))
+vi.mock('@/resources/ui-apps', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@/resources/ui-apps')>()
+    return {
+        ...actual,
+        registerUiAppResources: vi.fn().mockResolvedValue(undefined),
+    }
+})
 
-vi.mock('@/resources/ui-apps.generated', () => ({
-    UI_APP_REGISTRY: {},
-}))
+vi.mock('@/resources/ui-apps.generated', async (importOriginal) => importOriginal())
 
 vi.mock('@posthog/mcp-analytics', () => ({
     track: vi.fn(),

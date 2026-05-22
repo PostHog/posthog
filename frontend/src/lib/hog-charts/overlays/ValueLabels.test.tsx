@@ -212,11 +212,11 @@ describe('ValueLabels', () => {
 
     it('positions labels at the resolved (e.g. stacked) y, not the raw series.data y', () => {
         // Raw value 25 sits at y=278 on the left axis; stacking lifts it to top-of-stack=75 → y=104.
-        // The resolveValue closure mimics what LineChart provides for stacked series.
+        // The resolvePositionValue closure mimics what LineChart provides for stacked series.
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [25] }]
         const stackedTops: Record<string, number[]> = { s: [75] }
-        const resolveValue: ResolveValueFn = (s, i) => stackedTops[s.key]?.[i] ?? s.data[i] ?? 0
-        const ctx = makeContext(series, { labels: ['Mon'], resolveValue })
+        const resolvePositionValue: ResolveValueFn = (s, i) => stackedTops[s.key]?.[i] ?? s.data[i] ?? 0
+        const ctx = makeContext(series, { labels: ['Mon'], resolvePositionValue })
         const { container } = renderInChart(ctx, <ValueLabels />)
         const divs = labelDivs(container)
         expect(divs).toHaveLength(1)

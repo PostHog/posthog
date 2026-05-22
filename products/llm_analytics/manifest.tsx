@@ -9,32 +9,32 @@ import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import { LLM_ANALYTICS_CLUSTER_URL_PATTERN } from './frontend/clusters/constants'
 
 export const manifest: ProductManifest = {
-    name: 'LLM Analytics',
+    name: 'AI observability',
     scenes: {
         LLMAnalytics: {
             import: () => import('./frontend/LLMAnalyticsScene'),
             projectBased: true,
-            name: 'LLM analytics',
+            name: 'AI observability',
             layout: 'app-container',
-            description: 'Analyze and understand your LLM usage and performance.',
+            description: 'Analyze and understand your AI usage and performance.',
             iconType: 'llm_analytics',
         },
         LLMAnalyticsTrace: {
             import: () => import('./frontend/LLMAnalyticsTraceScene'),
             projectBased: true,
-            name: 'LLM analytics trace',
+            name: 'AI observability trace',
             layout: 'app-container',
         },
         LLMAnalyticsSession: {
             import: () => import('./frontend/LLMAnalyticsSessionScene'),
             projectBased: true,
-            name: 'LLM analytics session',
+            name: 'AI observability session',
             layout: 'app-container',
         },
         LLMAnalyticsUsers: {
             import: () => import('./frontend/LLMAnalyticsUsers'),
             projectBased: true,
-            name: 'LLM analytics users',
+            name: 'AI observability users',
             layout: 'app-container',
         },
         LLMAnalyticsPlayground: {
@@ -56,7 +56,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsDataset: {
             import: () => import('./frontend/datasets/LLMAnalyticsDatasetScene'),
             projectBased: true,
-            name: 'LLM analytics dataset',
+            name: 'Dataset',
             layout: 'app-container',
             iconType: 'llm_datasets',
         },
@@ -72,7 +72,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsEvaluation: {
             import: () => import('./frontend/evaluations/LLMAnalyticsEvaluation'),
             projectBased: true,
-            name: 'LLM analytics evaluation',
+            name: 'Evaluation',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
@@ -80,7 +80,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsEvaluationTemplates: {
             import: () => import('./frontend/evaluations/EvaluationTemplates'),
             projectBased: true,
-            name: 'LLM analytics evaluation templates',
+            name: 'Evaluation templates',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_evaluations',
@@ -88,8 +88,8 @@ export const manifest: ProductManifest = {
         LLMAnalyticsTags: {
             import: () => import('./frontend/tags/LLMAnalyticsTagsScene'),
             projectBased: true,
-            name: 'Tags',
-            description: 'Add custom tags to your LLM generations automatically.',
+            name: 'Taggers',
+            description: 'Add custom tags to your AI generations automatically.',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_tags',
@@ -97,7 +97,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsTag: {
             import: () => import('./frontend/tags/LLMAnalyticsTag'),
             projectBased: true,
-            name: 'LLM analytics tag',
+            name: 'Tagger',
             activityScope: 'LLMAnalytics',
             layout: 'app-container',
             iconType: 'llm_tags',
@@ -113,7 +113,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsPrompt: {
             import: () => import('./frontend/prompts/LLMPromptScene'),
             projectBased: true,
-            name: 'LLM analytics prompt',
+            name: 'Prompt',
             layout: 'app-container',
             iconType: 'llm_prompts',
         },
@@ -128,7 +128,7 @@ export const manifest: ProductManifest = {
         LLMAnalyticsSkill: {
             import: () => import('./frontend/skills/LLMSkillScene'),
             projectBased: true,
-            name: 'LLM analytics skill',
+            name: 'Skill',
             layout: 'app-container',
             iconType: 'llm_prompts',
         },
@@ -136,80 +136,178 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/clusters/LLMAnalyticsClustersScene'),
             projectBased: true,
             name: 'Clusters',
-            description: 'Discover patterns and clusters in your LLM usage.',
+            description: 'Discover patterns and clusters in your AI usage.',
             layout: 'app-container',
             iconType: 'llm_clusters',
         },
         LLMAnalyticsCluster: {
             import: () => import('./frontend/clusters/LLMAnalyticsClusterScene'),
             projectBased: true,
-            name: 'LLM analytics cluster',
+            name: 'AI observability cluster',
             layout: 'app-container',
             iconType: 'llm_clusters',
         },
     },
     routes: {
-        '/llm-analytics/dashboard': ['LLMAnalytics', 'llmAnalyticsDashboard'],
-        '/llm-analytics/generations': ['LLMAnalytics', 'llmAnalyticsGenerations'],
-        '/llm-analytics/reviews': ['LLMAnalytics', 'llmAnalyticsReviews'],
-        '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
-        '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
-        '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
-        '/llm-analytics/errors': ['LLMAnalytics', 'llmAnalyticsErrors'],
-        '/llm-analytics/tools': ['LLMAnalytics', 'llmAnalyticsTools'],
-        '/llm-analytics/sentiment': ['LLMAnalytics', 'llmAnalyticsSentiment'],
-        '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
-        '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
-        '/llm-analytics/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
-        '/llm-analytics/datasets': ['LLMAnalyticsDatasets', 'llmAnalyticsDatasets'],
-        '/llm-analytics/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
-        '/llm-analytics/tags': ['LLMAnalyticsTags', 'llmAnalyticsTags'],
-        '/llm-analytics/tags/:id': ['LLMAnalyticsTag', 'llmAnalyticsTag'],
-        '/llm-analytics/evaluations': ['LLMAnalyticsEvaluations', 'llmAnalyticsEvaluations'],
-        '/llm-analytics/evaluations/offline/experiments': ['LLMAnalyticsEvaluations', 'llmAnalyticsOfflineEvaluations'],
-        '/llm-analytics/evaluations/offline/experiments/:experimentId': [
+        '/ai-observability/dashboard': ['LLMAnalytics', 'llmAnalyticsDashboard'],
+        '/ai-observability/generations': ['LLMAnalytics', 'llmAnalyticsGenerations'],
+        '/ai-observability/reviews': ['LLMAnalytics', 'llmAnalyticsReviews'],
+        '/ai-observability/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
+        '/ai-observability/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
+        '/ai-observability/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
+        '/ai-observability/errors': ['LLMAnalytics', 'llmAnalyticsErrors'],
+        '/ai-observability/tools': ['LLMAnalytics', 'llmAnalyticsTools'],
+        '/ai-observability/sentiment': ['LLMAnalytics', 'llmAnalyticsSentiment'],
+        '/ai-observability/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
+        '/ai-observability/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
+        '/ai-observability/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
+        '/ai-observability/clusters': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
+        '/ai-observability/clusters/:runId': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
+        [LLM_ANALYTICS_CLUSTER_URL_PATTERN]: ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
+        '/ai-evals/datasets': ['LLMAnalyticsDatasets', 'llmAnalyticsDatasets'],
+        '/ai-evals/datasets/:id': ['LLMAnalyticsDataset', 'llmAnalyticsDataset'],
+        '/ai-evals/taggers': ['LLMAnalyticsTags', 'llmAnalyticsTags'],
+        '/ai-evals/taggers/:id': ['LLMAnalyticsTag', 'llmAnalyticsTag'],
+        '/ai-evals/evaluations': ['LLMAnalyticsEvaluations', 'llmAnalyticsEvaluations'],
+        '/ai-evals/evaluations/offline/experiments': ['LLMAnalyticsEvaluations', 'llmAnalyticsOfflineEvaluations'],
+        '/ai-evals/evaluations/offline/experiments/:experimentId': [
             'LLMAnalyticsEvaluations',
             'llmAnalyticsOfflineEvaluationExperiment',
         ],
-        '/llm-analytics/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
-        '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
-        '/llm-analytics/prompts': ['LLMAnalyticsPrompts', 'llmAnalyticsPrompts'],
-        '/llm-analytics/prompts/:name': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
-        '/llm-analytics/skills': ['LLMAnalyticsSkills', 'llmAnalyticsSkills'],
-        '/llm-analytics/skills/:name': ['LLMAnalyticsSkill', 'llmAnalyticsSkill'],
-        '/llm-analytics/clusters': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
-        '/llm-analytics/clusters/:runId': ['LLMAnalyticsClusters', 'llmAnalyticsClusters'],
-        [LLM_ANALYTICS_CLUSTER_URL_PATTERN]: ['LLMAnalyticsCluster', 'llmAnalyticsCluster'],
+        '/ai-evals/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
+        '/ai-evals/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
+        '/prompt-management/prompts': ['LLMAnalyticsPrompts', 'llmAnalyticsPrompts'],
+        '/prompt-management/prompts/:name': ['LLMAnalyticsPrompt', 'llmAnalyticsPrompt'],
+        '/prompt-management/skills': ['LLMAnalyticsSkills', 'llmAnalyticsSkills'],
+        '/prompt-management/skills/:name': ['LLMAnalyticsSkill', 'llmAnalyticsSkill'],
     },
     redirects: {
+        '/ai-observability': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsDashboard(), searchParams, hashParams).url,
+        '/ai-observability/settings': (_params, searchParams, hashParams) => {
+            const nextHashParams = { ...hashParams }
+
+            if (Object.prototype.hasOwnProperty.call(nextHashParams, 'llm-analytics-byok')) {
+                delete nextHashParams['llm-analytics-byok']
+            }
+            if (nextHashParams.setting === 'llm-analytics-byok') {
+                nextHashParams.setting = 'ai-observability-byok'
+            }
+            if (nextHashParams.selectedSetting === 'llm-analytics-byok') {
+                nextHashParams.selectedSetting = 'ai-observability-byok'
+            }
+            nextHashParams['ai-observability-byok'] = null
+
+            return combineUrl(urls.settings('project-ai-observability'), searchParams, nextHashParams).url
+        },
+        '/ai-evals': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsEvaluations(), searchParams, hashParams).url,
+        '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsOfflineEvaluations(), searchParams, hashParams).url,
+        '/ai-evals/tags': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsTags(), searchParams, hashParams).url,
+        '/ai-evals/tags/:id': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsTag(params.id), searchParams, hashParams).url,
+        '/prompt-management': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsPrompts(), searchParams, hashParams).url,
         '/llm-analytics': (_params, searchParams, hashParams) =>
-            combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
-        '/llm-analytics/settings': (_params, searchParams) =>
-            combineUrl(urls.settings('environment-llm-analytics', 'llm-analytics-byok'), searchParams).url,
-        '/llm-observability': (_params, searchParams, hashParams) =>
-            combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
-        '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
-            combineUrl(`/llm-analytics/dashboard`, searchParams, hashParams).url,
-        '/llm-observability/generations': (_params, searchParams, hashParams) =>
-            combineUrl(`/llm-analytics/generations`, searchParams, hashParams).url,
-        '/llm-observability/reviews': (_params, searchParams, hashParams) =>
-            combineUrl(`/llm-analytics/reviews`, searchParams, hashParams).url,
-        '/llm-observability/traces': (_params, searchParams, hashParams) =>
-            combineUrl(`/llm-analytics/traces`, searchParams, hashParams).url,
-        '/llm-observability/traces/:id': (params, searchParams, hashParams) =>
-            combineUrl(`/llm-analytics/traces/${params.id}`, searchParams, hashParams).url,
-        '/llm-observability/users': (_params, searchParams, hashParams) =>
-            combineUrl(`/llm-analytics/users`, searchParams, hashParams).url,
-        '/llm-observability/playground': (_params, searchParams, hashParams) =>
-            combineUrl(`/llm-analytics/playground`, searchParams, hashParams).url,
+            combineUrl(urls.llmAnalyticsDashboard(), searchParams, hashParams).url,
+        '/llm-analytics/settings': (_params, searchParams, hashParams) => {
+            const nextHashParams = { ...hashParams }
+
+            if (Object.prototype.hasOwnProperty.call(nextHashParams, 'llm-analytics-byok')) {
+                delete nextHashParams['llm-analytics-byok']
+            }
+            if (nextHashParams.setting === 'llm-analytics-byok') {
+                nextHashParams.setting = 'ai-observability-byok'
+            }
+            if (nextHashParams.selectedSetting === 'llm-analytics-byok') {
+                nextHashParams.selectedSetting = 'ai-observability-byok'
+            }
+            nextHashParams['ai-observability-byok'] = null
+
+            return combineUrl(urls.settings('project-ai-observability'), searchParams, nextHashParams).url
+        },
+        '/llm-analytics/dashboard': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsDashboard(), searchParams, hashParams).url,
+        '/llm-analytics/generations': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsGenerations(), searchParams, hashParams).url,
+        '/llm-analytics/reviews': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsReviews(), searchParams, hashParams).url,
+        '/llm-analytics/traces': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsTraces(), searchParams, hashParams).url,
+        '/llm-analytics/traces/:id': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsTrace(params.id), searchParams, hashParams).url,
+        '/llm-analytics/users': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsUsers(), searchParams, hashParams).url,
+        '/llm-analytics/errors': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsErrors(), searchParams, hashParams).url,
+        '/llm-analytics/tools': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsTools(), searchParams, hashParams).url,
+        '/llm-analytics/sentiment': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsSentiment(), searchParams, hashParams).url,
+        '/llm-analytics/sessions': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsSessions(), searchParams, hashParams).url,
+        '/llm-analytics/sessions/:id': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsSession(params.id), searchParams, hashParams).url,
+        '/llm-analytics/playground': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsPlayground(), searchParams, hashParams).url,
+        '/llm-analytics/clusters': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsClusters(), searchParams, hashParams).url,
+        '/llm-analytics/clusters/:runId': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsClusters(params.runId), searchParams, hashParams).url,
+        '/llm-analytics/clusters/:runId/:clusterId': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsCluster(params.runId, params.clusterId), searchParams, hashParams).url,
+        '/llm-analytics/datasets': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsDatasets(), searchParams, hashParams).url,
+        '/llm-analytics/datasets/:id': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsDataset(params.id), searchParams, hashParams).url,
+        '/llm-analytics/tags': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsTags(), searchParams, hashParams).url,
+        '/llm-analytics/tags/:id': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsTag(params.id), searchParams, hashParams).url,
+        '/llm-analytics/evaluations': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsEvaluations(), searchParams, hashParams).url,
         '/llm-analytics/evaluations/offline': (_params, searchParams, hashParams) =>
             combineUrl(urls.llmAnalyticsOfflineEvaluations(), searchParams, hashParams).url,
+        '/llm-analytics/evaluations/offline/experiments': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsOfflineEvaluations(), searchParams, hashParams).url,
+        '/llm-analytics/evaluations/offline/experiments/:experimentId': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsOfflineEvaluationExperiment(params.experimentId), searchParams, hashParams).url,
+        '/llm-analytics/evaluations/templates': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsEvaluationTemplates(), searchParams, hashParams).url,
+        '/llm-analytics/evaluations/:id': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsEvaluation(params.id), searchParams, hashParams).url,
+        '/llm-analytics/prompts': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsPrompts(), searchParams, hashParams).url,
+        '/llm-analytics/prompts/:name': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsPrompt(params.name), searchParams, hashParams).url,
+        '/llm-analytics/skills': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsSkills(), searchParams, hashParams).url,
+        '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsSkill(params.name), searchParams, hashParams).url,
+        '/llm-observability': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsDashboard(), searchParams, hashParams).url,
+        '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsDashboard(), searchParams, hashParams).url,
+        '/llm-observability/generations': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsGenerations(), searchParams, hashParams).url,
+        '/llm-observability/reviews': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsReviews(), searchParams, hashParams).url,
+        '/llm-observability/traces': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsTraces(), searchParams, hashParams).url,
+        '/llm-observability/traces/:id': (params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsTrace(params.id), searchParams, hashParams).url,
+        '/llm-observability/users': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsUsers(), searchParams, hashParams).url,
+        '/llm-observability/playground': (_params, searchParams, hashParams) =>
+            combineUrl(urls.llmAnalyticsPlayground(), searchParams, hashParams).url,
     },
     urls: {
-        llmAnalyticsDashboard: (): string => '/llm-analytics/dashboard',
-        llmAnalyticsGenerations: (): string => '/llm-analytics/generations',
-        llmAnalyticsReviews: (): string => '/llm-analytics/reviews',
-        llmAnalyticsTraces: (): string => '/llm-analytics/traces',
+        llmAnalyticsDashboard: (): string => '/ai-observability/dashboard',
+        llmAnalyticsGenerations: (): string => '/ai-observability/generations',
+        llmAnalyticsReviews: (): string => '/ai-observability/reviews',
+        llmAnalyticsTraces: (): string => '/ai-observability/traces',
         llmAnalyticsTrace: (
             id: string,
             params?: {
@@ -223,13 +321,13 @@ export const manifest: ProductManifest = {
         ): string => {
             const queryParams = new URLSearchParams(params)
             const stringifiedParams = queryParams.toString()
-            return `/llm-analytics/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+            return `/ai-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
-        llmAnalyticsUsers: (): string => '/llm-analytics/users',
-        llmAnalyticsErrors: (): string => '/llm-analytics/errors',
-        llmAnalyticsTools: (): string => '/llm-analytics/tools',
-        llmAnalyticsSentiment: (): string => '/llm-analytics/sentiment',
-        llmAnalyticsSessions: (): string => '/llm-analytics/sessions',
+        llmAnalyticsUsers: (): string => '/ai-observability/users',
+        llmAnalyticsErrors: (): string => '/ai-observability/errors',
+        llmAnalyticsTools: (): string => '/ai-observability/tools',
+        llmAnalyticsSentiment: (): string => '/ai-observability/sentiment',
+        llmAnalyticsSessions: (): string => '/ai-observability/sessions',
         llmAnalyticsSession: (
             id: string,
             params?: {
@@ -238,35 +336,36 @@ export const manifest: ProductManifest = {
         ): string => {
             const queryParams = new URLSearchParams(params)
             const stringifiedParams = queryParams.toString()
-            return `/llm-analytics/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+            return `/ai-observability/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
-        llmAnalyticsPlayground: (): string => '/llm-analytics/playground',
-        llmAnalyticsDatasets: (): string => '/llm-analytics/datasets',
+        llmAnalyticsPlayground: (): string => '/ai-observability/playground',
+        llmAnalyticsDatasets: (): string => '/ai-evals/datasets',
         llmAnalyticsDataset: (id: string, params?: { item?: string }): string =>
-            combineUrl(`/llm-analytics/datasets/${id}`, params).url,
-        llmAnalyticsTags: (): string => '/llm-analytics/tags',
-        llmAnalyticsTag: (id: string): string => `/llm-analytics/tags/${id}`,
-        llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
-        llmAnalyticsOfflineEvaluations: (): string => '/llm-analytics/evaluations/offline/experiments',
+            combineUrl(`/ai-evals/datasets/${id}`, params).url,
+        llmAnalyticsTags: (): string => '/ai-evals/taggers',
+        llmAnalyticsTag: (id: string): string => `/ai-evals/taggers/${id}`,
+        llmAnalyticsEvaluations: (): string => '/ai-evals/evaluations',
+        llmAnalyticsOfflineEvaluations: (): string => '/ai-evals/evaluations/offline/experiments',
         llmAnalyticsOfflineEvaluationExperiment: (experimentId: string, encode: boolean = true): string =>
-            `/llm-analytics/evaluations/offline/experiments/${encode ? encodeURIComponent(experimentId) : experimentId}`,
-        llmAnalyticsEvaluationTemplates: (): string => '/llm-analytics/evaluations/templates',
-        llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
-        llmAnalyticsPrompts: (): string => '/llm-analytics/prompts',
-        llmAnalyticsPrompt: (name: string): string => `/llm-analytics/prompts/${name}`,
-        llmAnalyticsSkills: (): string => '/llm-analytics/skills',
+            `/ai-evals/evaluations/offline/experiments/${encode ? encodeURIComponent(experimentId) : experimentId}`,
+        llmAnalyticsEvaluationTemplates: (): string => '/ai-evals/evaluations/templates',
+        llmAnalyticsEvaluation: (id: string): string => `/ai-evals/evaluations/${id}`,
+        llmAnalyticsPrompts: (): string => '/prompt-management/prompts',
+        llmAnalyticsPrompt: (name: string): string => `/prompt-management/prompts/${name}`,
+        llmAnalyticsSkills: (): string => '/prompt-management/skills',
         llmAnalyticsSkill: (name: string, params?: { file?: string; version?: number }): string =>
-            combineUrl(`/llm-analytics/skills/${name}`, params).url,
+            combineUrl(`/prompt-management/skills/${name}`, params).url,
         llmAnalyticsClusters: (runId?: string): string =>
-            runId ? `/llm-analytics/clusters/${encodeURIComponent(runId)}` : '/llm-analytics/clusters',
-        llmAnalyticsCluster: (runId: string, clusterId: number): string =>
-            `/llm-analytics/clusters/${encodeURIComponent(runId)}/${clusterId}`,
+            runId ? `/ai-observability/clusters/${encodeURIComponent(runId)}` : '/ai-observability/clusters',
+        llmAnalyticsCluster: (runId: string, clusterId: number | string): string =>
+            `/ai-observability/clusters/${encodeURIComponent(runId)}/${clusterId}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
     treeItemsProducts: [
         {
             path: 'LLM analytics',
+            displayLabel: 'AI observability',
             intents: [
                 ProductKey.LLM_ANALYTICS,
                 ProductKey.LLM_EVALUATIONS,
@@ -326,7 +425,7 @@ export const manifest: ProductManifest = {
             sceneKey: 'LLMAnalyticsEvaluations',
         },
         {
-            path: 'Tags',
+            path: 'Taggers',
             intents: [ProductKey.LLM_ANALYTICS],
             category: ProductItemCategory.AI_ENGINEERING,
             type: 'llm_tags',

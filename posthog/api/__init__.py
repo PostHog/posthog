@@ -22,6 +22,7 @@ from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
+from posthog.batch_exports.api import file_download
 from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
 
 import products.logs.backend.api as logs
@@ -127,11 +128,17 @@ from products.visual_review.backend.presentation.views import (
     RunViewSet as VisualReviewRunViewSet,
     SnapshotViewSet as VisualReviewSnapshotViewSet,
 )
+from products.web_analytics.backend.api.heatmaps_api import (
+    HeatmapScreenshotViewSet,
+    HeatmapViewSet,
+    LegacyHeatmapViewSet,
+    SavedHeatmapViewSet,
+)
+from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
-from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_external_reference_api import SessionRecordingExternalReferenceViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
@@ -198,7 +205,6 @@ from .file_system import file_system, file_system_shortcut, persisted_folder, us
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
-from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -490,12 +496,21 @@ environment_batch_exports_router, legacy_project_batch_exports_router = (
         r"batch_exports", batch_exports.BatchExportViewSet, "environment_batch_exports", ["team_id"]
     )
 )
+
+register_grandfathered_environment_nested_viewset(
+    r"file_download_batch_exports",
+    file_download.FileDownloadBatchExportOnDemandViewSet,
+    "environment_file_download_batch_exports",
+    ["team_id"],
+)
+
 environment_batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "environment_batch_export_runs", ["team_id", "batch_export_id"]
 )
 legacy_project_batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "project_batch_export_runs", ["team_id", "batch_export_id"]
 )
+
 environment_batch_exports_router.register(
     r"backfills",
     batch_exports.BatchExportBackfillViewSet,

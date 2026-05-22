@@ -5,11 +5,11 @@ from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.data_load.saved_query_service import (
     saved_query_workflow_exists,
     sync_saved_query_workflow,
 )
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
 
