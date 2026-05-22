@@ -4,7 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 
 export function getExternalAIProvidersTooltipTitle(): string {
-    return `As of ${dayjs().format('MMMM YYYY')}: Anthropic, OpenAI, and Alphabet`
+    return `As of ${dayjs().format('MMMM YYYY')}: Alphabet, Anthropic, Microsoft, and OpenAI`
 }
 
 export function AIHipaaDisclaimer(): JSX.Element {
