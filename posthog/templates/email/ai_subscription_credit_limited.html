@@ -1,0 +1,17 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+    <p>
+        Your AI subscription <strong>{{ title }}</strong> didn't run this cycle because your
+        organization reached its <strong>AI credit limit</strong>.
+    </p>
+    <p>
+        No action is needed to keep it — delivery resumes automatically on
+        <strong>{{ resume_date|date:"F j, Y" }}</strong>, when your AI credits reset.
+        To get reports sooner, raise your AI credit billing limit.
+    </p>
+    <div class="mb mt text-center">
+        <a class="button primary" href="{{ billing_url }}">Manage AI credits</a>
+    </div>
+    <div class="mb text-center">
+        <a href="{{ subscription_url }}">View subscription</a>
+    </div>
+{% endblock %}

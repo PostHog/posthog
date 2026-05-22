@@ -6,6 +6,7 @@ from datetime import datetime
 
 from django.utils import timezone as tz
 
+import dateutil.parser
 import temporalio.activity
 from slack_sdk.errors import SlackApiError
 from structlog import get_logger
@@ -35,11 +36,13 @@ from posthog.temporal.subscriptions.types import (
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.ai_subscription.delivery import (
     SlackIntegrationMissingError,
     generate_ai_subscription_markdown,
     render_ai_email_html,
+    send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
@@ -599,6 +602,48 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 
+# If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
+# skipped sub still moves forward instead of re-firing every tick.
+_CREDIT_RESET_FALLBACK_DAYS = 31
+
+
+def _ai_credit_reset_date(subscription: Subscription) -> datetime:
+    """When the org's AI credits next reset — the billing-period end synced from billing."""
+    usage = subscription.team.organization.usage
+    period = usage.get("period") if usage else None
+    if period and len(period) == 2 and period[1]:
+        try:
+            return dateutil.parser.isoparse(period[1])
+        except (ValueError, TypeError):
+            pass
+    return tz.now() + dt.timedelta(days=_CREDIT_RESET_FALLBACK_DAYS)
+
+
+def _skip_ai_delivery_over_credit_limit_sync(subscription: Subscription) -> datetime:
+    """Reschedule the over-limit subscription past the credit reset and notify the owner once.
+    Runs entirely sync (DB + email) — call via `database_sync_to_async`. Returns the reset date.
+
+    Persisting `next_delivery_date = reset_date` is deliberate: the always-runs
+    `advance_next_delivery_date` activity recomputes from this value (`rrule.after(reset_date)`),
+    so the next delivery lands on the first on-schedule slot AFTER credits reset rather than the
+    next normal occurrence (which could fall before the reset and re-fire while still over-limit).
+    """
+    reset_date = _ai_credit_reset_date(subscription)
+    subscription.next_delivery_date = reset_date
+    subscription.save(update_fields=["next_delivery_date"])
+
+    if subscription.created_by and subscription.created_by.email:
+        send_email_ai_subscription_credit_limited(
+            email=subscription.created_by.email,
+            subscription=subscription,
+            resume_date=reset_date,
+            # Stable within a billing period (reset_date is the period end), so MessagingRecord
+            # dedups to one notice per credit-reset cycle.
+            billing_period_key=reset_date.date().isoformat(),
+        )
+    return reset_date
+
+
 async def _deliver_ai_subscription(
     subscription: Subscription,
     inputs: DeliverSubscriptionInputs,
@@ -648,6 +693,28 @@ async def _deliver_ai_subscription(
         )
         markdown = cached_markdown
     else:
+        # Only gate on AI credits for a cache MISS — a hit means tokens were already spent on a
+        # prior retry this run, so shipping it costs nothing and shouldn't be blocked. The
+        # interactive Max path enforces this same limit in ee/api/conversation.py; scheduled
+        # deliveries need their own check or they'd keep spending against an exhausted balance.
+        over_credit_limit = await database_sync_to_async(
+            lambda: is_team_limited(
+                subscription.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            ),
+            thread_sensitive=False,
+        )()
+        if over_credit_limit:
+            reset_date = await database_sync_to_async(_skip_ai_delivery_over_credit_limit_sync, thread_sensitive=False)(
+                subscription
+            )
+            LOGGER.warning(
+                "deliver_subscription.ai_skipped_over_credit_limit",
+                subscription_id=subscription.id,
+                team_id=subscription.team_id,
+                resumes_at=reset_date.isoformat(),
+            )
+            # Empty recipient_results → workflow records this delivery as SKIPPED (not FAILED).
+            return DeliverSubscriptionResult(recipient_results=[])
         try:
             markdown = await database_sync_to_async(generate_ai_subscription_markdown, thread_sensitive=False)(
                 subscription

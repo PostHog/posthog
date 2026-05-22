@@ -48,6 +48,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.ai_reports import AiReportStageError, generate_ai_report
 from ee.tasks.subscriptions.ai_subscription.spec_generator import (
     ALLOWED_AI_MODELS,
@@ -1009,6 +1010,15 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         gate_reason = _ai_create_gate_reason(self.organization, kind="reports", verb="generating")
         if gate_reason is not None:
             return Response({"detail": gate_reason}, status=status.HTTP_403_FORBIDDEN)
+
+        # This endpoint burns LLM tokens synchronously, so enforce the AI-credit limit up front —
+        # same gate the interactive Max path applies (ee/api/conversation.py). Scheduled deliveries
+        # enforce it separately in the Temporal activity (skip-and-reschedule rather than 429).
+        if is_team_limited(self.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
+            raise QuotaLimitExceeded(
+                "Your organization reached its AI credit usage limit. Increase the limits in Billing settings, "
+                "or ask an org admin to do so."
+            )
 
         serializer = AiReportRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

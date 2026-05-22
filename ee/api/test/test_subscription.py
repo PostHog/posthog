@@ -1911,6 +1911,23 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert kwargs["prompt"] == "What changed this week?"
         assert kwargs["window_days"] == 7
 
+    @patch("ee.api.subscription.is_team_limited", return_value=True)
+    @patch("ee.api.subscription.generate_ai_report")
+    def test_ai_report_endpoint_rejects_when_over_ai_credit_limit(
+        self, mock_generate, mock_limited, mock_is_cloud, mock_flag, mock_sync
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/ai_report",
+            {"prompt": "What changed this week?"},
+            format="json",
+        )
+        # QuotaLimitExceeded → 402, matching the interactive Max path (ee/api/conversation.py).
+        assert response.status_code == status.HTTP_402_PAYMENT_REQUIRED, response.json()
+        assert "AI credit" in str(response.json())
+        mock_generate.assert_not_called()
+
     @patch(
         "ee.api.subscription.generate_ai_report",
         side_effect=AiReportStageError("synthesis", TimeoutError("LLM timed out")),
