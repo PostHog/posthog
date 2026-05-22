@@ -8,6 +8,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from django.db import OperationalError, close_old_connections
+
 from asgiref.sync import sync_to_async
 
 from posthog.models.team.team import Team
@@ -85,6 +87,27 @@ async def create_task_and_trigger(
     if not task_run:
         raise RuntimeError("Task.create_and_run did not produce a TaskRun")
     return task, task_run
+
+
+def _refresh_task_run_sync(task_run_id) -> TaskRun:
+    """Fetch a TaskRun by id, recovering once from a dropped Postgres connection.
+
+    Long polls (up to MAX_POLL_SECONDS) hold the activity thread's cached Django
+    connection open across many minutes of idle time, so Postgres/pgbouncer
+    reaps it and the next ``.get()`` raises ``OperationalError: server closed
+    the connection unexpectedly``. ``close_old_connections()`` evicts the dead
+    socket so Django opens a fresh one on the next ORM call.
+    """
+    close_old_connections()
+    try:
+        return TaskRun.objects.get(id=task_run_id)
+    except OperationalError:
+        logger.warning(
+            "custom_prompt - refresh_task_run: OperationalError on TaskRun.objects.get, reconnecting and retrying once",
+            exc_info=True,
+        )
+        close_old_connections()
+        return TaskRun.objects.get(id=task_run_id)
 
 
 async def poll_for_turn(
@@ -173,7 +196,7 @@ async def poll_for_turn(
         # Keep the cursor monotonic — S3 eventual-consistency can briefly return
         # fewer lines than the prior poll; without the clamp we'd re-parse old lines.
         skip_lines = max(skip_lines, total_lines)
-        refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        refreshed = await sync_to_async(_refresh_task_run_sync, thread_sensitive=False)(task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
             TaskRun.Status.FAILED,

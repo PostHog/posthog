@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError
+
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 
@@ -14,6 +16,7 @@ from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
+    _refresh_task_run_sync,
     poll_for_turn,
 )
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
@@ -127,6 +130,90 @@ class TestPollForTurnEmptyEndTurn:
         # Cursors settled on the final (recovered) line count, not the truncated one.
         assert total_lines == len(poll_3_lines)
         assert printed_lines == len(poll_3_lines)
+
+
+class TestRefreshTaskRunReconnect:
+    """The agent poll loop holds an idle Django connection for many minutes, which
+    Postgres/pgbouncer reaps as dead. The next ``TaskRun.objects.get`` then raises
+    ``OperationalError: server closed the connection unexpectedly`` and aborts the
+    whole report. ``_refresh_task_run_sync`` must reconnect and retry once so the
+    poll loop survives transparently."""
+
+    def test_returns_task_run_when_first_call_succeeds(self):
+        fake = FakeTaskRun()
+        with patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake) as mock_get:
+            result = _refresh_task_run_sync("run-1")
+        assert result is fake
+        mock_get.assert_called_once_with(id="run-1")
+
+    def test_retries_once_on_operational_error_and_returns(self):
+        fake = FakeTaskRun()
+        with (
+            patch(
+                "products.tasks.backend.models.TaskRun.objects.get",
+                side_effect=[OperationalError("server closed the connection unexpectedly"), fake],
+            ) as mock_get,
+            patch("products.tasks.backend.services.custom_prompt_internals.close_old_connections") as mock_close,
+        ):
+            result = _refresh_task_run_sync("run-1")
+        assert result is fake
+        assert mock_get.call_count == 2
+        # Reconnects before each attempt: once preemptively, once after the failure.
+        assert mock_close.call_count == 2
+
+    def test_propagates_when_retry_also_fails(self):
+        with (
+            patch(
+                "products.tasks.backend.models.TaskRun.objects.get",
+                side_effect=OperationalError("server closed the connection unexpectedly"),
+            ) as mock_get,
+            patch("products.tasks.backend.services.custom_prompt_internals.close_old_connections"),
+        ):
+            with pytest.raises(OperationalError):
+                _refresh_task_run_sync("run-1")
+        # Tried exactly twice — one initial attempt plus one retry, no further hammering.
+        assert mock_get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_poll_for_turn_survives_connection_drop_on_refresh(self):
+        """End-to-end: a dead connection mid-poll must not kill the whole research run.
+        The TaskRun refresh should reconnect, the run is still in progress, and the
+        next poll surfaces the completed turn."""
+        turn_1 = [_agent_message_line("first"), _end_turn_line()]
+        turn_2_with_end = [
+            _user_message_line("prompt"),
+            _agent_message_line("recovered"),
+            _end_turn_line(),
+        ]
+        # Poll 1 only sees the in-progress turn (no end_turn yet) so we fall through
+        # to the TaskRun.objects.get refresh, which is where the OperationalError fires.
+        logs = [
+            "\n".join(turn_1 + turn_2_with_end[:2]),  # no end_turn yet → triggers refresh
+            "\n".join(turn_1 + turn_2_with_end),  # full turn visible on next poll
+        ]
+        poll_iter = iter(logs)
+
+        def next_log(*_args, **_kwargs):
+            return next(poll_iter)
+
+        fake_task_run = FakeTaskRun()
+        get_calls = MagicMock(
+            side_effect=[OperationalError("server closed the connection unexpectedly"), fake_task_run]
+        )
+
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", get_calls),
+            patch("products.tasks.backend.services.custom_prompt_internals.close_old_connections"),
+        ):
+            last_message, _, total_lines, _ = await poll_for_turn(fake_task_run, skip_lines=len(turn_1))
+
+        assert last_message == "recovered"
+        assert total_lines == len(turn_1) + len(turn_2_with_end)
+        # The drop fired on the first refresh; the helper retried and the loop continued.
+        assert get_calls.call_count == 2
 
 
 class TestMultiTurnSessionRetry:
