@@ -8,6 +8,7 @@ flag off after a deploy also removes the schedule on next init, so we can
 disable the daily path without rolling back code.
 """
 
+import asyncio
 from datetime import timedelta
 
 from django.conf import settings
@@ -65,7 +66,10 @@ async def create_intent_clustering_coordinator_schedule(client: Client) -> None:
     with ``trigger_immediately=False`` to avoid stampeding a worker on first
     deploy.
     """
-    if not _schedule_enabled():
+    # posthoganalytics.feature_enabled() is sync and can block on a network call,
+    # so offload to a thread to keep the asyncio loop responsive — matches the
+    # llm_analytics/team_discovery.py pattern.
+    if not await asyncio.to_thread(_schedule_enabled):
         if await a_schedule_exists(client, COORDINATOR_SCHEDULE_ID):
             logger.info(
                 "mcpa.intent_clustering.schedule.disabled_removing_existing", schedule_id=COORDINATOR_SCHEDULE_ID
