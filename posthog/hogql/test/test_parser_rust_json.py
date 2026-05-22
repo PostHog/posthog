@@ -6,6 +6,9 @@ the `rust-json` backend into that suite and lists the cases the Rust
 parser does not yet match the C++ reference on.
 """
 
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_expr
+
 from ._test_parser import parser_test_factory
 
 # Cases the Rust parser does not yet match C++ on, tracked for follow-up:
@@ -30,3 +33,13 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
         # this test only exists to make pycharm recognise this class as a test class
         # the actual tests are in the parent class
         pass
+
+    def test_invalid_interval_in_block_body_rejected(self):
+        # Once `interval` is followed by a primary value it commits to the INTERVAL
+        # form: a missing / bad unit is a hard error, never a fall-back to
+        # `interval`-as-Field. Inside a Hog `{ … }` block body the fall-back would
+        # strand the string as a second statement, so `x -> { interval 'ln' }` would
+        # parse as `interval; 'ln'` — accepting input the cpp oracle rejects.
+        for backend in ("cpp-json", "rust-json"):
+            with self.assertRaises(BaseHogQLError):
+                parse_expr("x -> { interval 'ln' }", backend=backend)

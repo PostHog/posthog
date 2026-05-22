@@ -80,6 +80,15 @@ impl ParseError {
         }
     }
 
+    /// Mark an existing error fatal so `try_alt` won't roll it back. Used at a
+    /// dispatch site that has committed to a single production (e.g. `INTERVAL`
+    /// followed by a primary value), where any parse failure is a hard error
+    /// rather than a signal to try another alternative.
+    pub fn into_fatal(mut self) -> Self {
+        self.fatal = true;
+        self
+    }
+
     pub fn to_json_string(&self) -> String {
         let value = json!({
             "error": true,

@@ -614,9 +614,28 @@ impl<'a> Parser<'a> {
             // back to identifier and parses as a function call (which also
             // covers `interval(distinct …)`, `interval(a, b) within group …`,
             // `interval(a, b) over …`, and the empty `interval()` no-args
-            // form). Mirror with `try_alt`.
+            // form).
+            //
+            // But once `interval` is followed by a NON-paren primary value
+            // (string / number / identifier), cpp commits to the INTERVAL
+            // form: a missing or bad unit is a hard error, never a fall-back
+            // to `interval`-as-Field. The fall-back matters at statement
+            // level — `{ interval 'ln' }` must reject, not parse as the two
+            // statements `interval` (Field) + `'ln'` (Constant). So mark the
+            // committed parse fatal so no outer `try_alt` (lambda body,
+            // declaration list) rolls the error back. The `interval(...)`
+            // shape keeps the function-call fall-back; operator continuations
+            // like `interval + 1` never reach the commit branch (they aren't
+            // primary-value tokens).
             TokenKind::Keyword(Kw::Interval) if can_start_interval_value(self.peek_next()) => {
-                self.try_alt(&[&Self::parse_interval_expr, &Self::parse_ident_lead])
+                if matches!(
+                    self.peek_next(),
+                    TokenKind::String | TokenKind::Number | TokenKind::Ident | TokenKind::QuotedIdent
+                ) {
+                    self.parse_interval_expr().map_err(ParseError::into_fatal)
+                } else {
+                    self.try_alt(&[&Self::parse_interval_expr, &Self::parse_ident_lead])
+                }
             }
             // Grammar (line 289): LAMBDA identifier (COMMA identifier)* COMMA? COLON columnExpr
             // vs the keyword rule's "LAMBDA as identifier in primary position."
