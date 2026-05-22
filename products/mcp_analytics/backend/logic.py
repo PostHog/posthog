@@ -1,4 +1,3 @@
-import hashlib
 from datetime import timedelta
 from typing import Any
 
@@ -15,6 +14,7 @@ from posthog.models.person import Person
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot
@@ -128,8 +128,8 @@ def _normalise_order_by(order_by: str) -> tuple[str, bool]:
 
 
 def _sessions_cache_key(team_id: int, limit: int, offset: int, search: str, order_by: str) -> str:
-    raw = f"{team_id}|{int(MCP_SESSIONS_LOOKBACK.total_seconds())}|{limit}|{offset}|{search}|{order_by}"
-    return f"mcp_sessions:{hashlib.sha1(raw.encode()).hexdigest()}"
+    payload = f"mcp_sessions_{int(MCP_SESSIONS_LOOKBACK.total_seconds())}_{limit}_{offset}_{search}_{order_by}"
+    return generate_cache_key(team_id, payload)
 
 
 def list_mcp_sessions(
