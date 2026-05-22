@@ -3,6 +3,7 @@ resolver = "2"
 
 members = [
   "property-defs-rs",
+  "opensearch-indexer",
   "batch-import-worker",
   "capture",
   "capture-logs",

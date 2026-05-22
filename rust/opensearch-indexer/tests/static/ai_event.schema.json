@@ -1,0 +1,40 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "AiEventProperties",
+    "description": "Shape of the parsed `properties` blob inside a `clickhouse_events_json` $ai_* event. The 6 heavy props ($ai_input, $ai_output, $ai_output_choices, $ai_input_state, $ai_output_state, $ai_tools) are required so a rename upstream fails this gate before deploy. Heavy-prop value shapes are intentionally permissive — schemas vary across providers and SDK versions.",
+    "type": "object",
+    "required": [
+        "$ai_input",
+        "$ai_output",
+        "$ai_output_choices",
+        "$ai_input_state",
+        "$ai_output_state",
+        "$ai_tools",
+        "$ai_model",
+        "$ai_provider",
+        "$ai_trace_id",
+        "$ai_input_tokens",
+        "$ai_output_tokens",
+        "$ai_total_cost_usd",
+        "$ai_latency",
+        "$ai_is_error"
+    ],
+    "properties": {
+        "$ai_input": {},
+        "$ai_output": {},
+        "$ai_output_choices": {},
+        "$ai_input_state": {},
+        "$ai_output_state": {},
+        "$ai_tools": {},
+        "$ai_model": { "type": "string" },
+        "$ai_provider": { "type": "string" },
+        "$ai_trace_id": { "type": "string" },
+        "$ai_span_id": { "type": "string" },
+        "$ai_input_tokens": { "type": "number" },
+        "$ai_output_tokens": { "type": "number" },
+        "$ai_total_cost_usd": { "type": "number" },
+        "$ai_latency": { "type": "number" },
+        "$ai_is_error": { "type": "boolean" }
+    },
+    "additionalProperties": true
+}
