@@ -1,20 +1,24 @@
+import posixpath
 from typing import Any
-
-from django.db import IntegrityError, transaction
 
 from pydantic import BaseModel, Field
 
+from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.schema import AssistantTool
+from posthog.scopes import APIScopeObject
 
 from posthog.sync import database_sync_to_async
 
 from products.llm_analytics.backend.api.skill_services import (
+    LLMSkillDuplicateNameConflictError,
     LLMSkillEditError,
     LLMSkillFileLimitError,
+    LLMSkillFilePathConflictError,
     LLMSkillNotFoundError,
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
+    create_skill,
     get_latest_skills_queryset,
     get_skill_by_name_from_db,
     publish_skill_version,
@@ -25,10 +29,6 @@ from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolFatalError
 
 MAX_LIST_RESULTS = 50
-
-
-class LLMSkillDuplicateNameError(Exception):
-    """Raised when CreateLLMSkillTool detects an existing skill with the same name."""
 
 
 LIST_SKILLS_DESCRIPTION = """List shared agent skills stored for this team.
@@ -261,7 +261,7 @@ class ListLLMSkillsTool(MaxTool):
     description: str = LIST_SKILLS_DESCRIPTION
     args_schema: type[BaseModel] = ListSkillsArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("llm_skill", "viewer")]
 
     async def _arun_impl(self, search: str | None = None) -> tuple[str, None]:
@@ -272,9 +272,11 @@ class ListLLMSkillsTool(MaxTool):
                 empty_msg = f"No shared skills matched the search query '{search}'."
             return empty_msg, None
 
-        lines = [f"Found {len(skills)} skill(s):", ""]
-        lines.extend(_format_skill_summary(s) for s in skills)
-        if len(skills) == MAX_LIST_RESULTS:
+        truncated = len(skills) > MAX_LIST_RESULTS
+        visible = skills[:MAX_LIST_RESULTS]
+        lines = [f"Found {len(visible)} skill(s):", ""]
+        lines.extend(_format_skill_summary(s) for s in visible)
+        if truncated:
             lines.append("")
             lines.append(
                 f"(Truncated to {MAX_LIST_RESULTS} results — pass a `search` term to narrow the list if needed.)"
@@ -287,7 +289,8 @@ class ListLLMSkillsTool(MaxTool):
             from django.db.models import Q
 
             queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
-        return list(queryset.order_by("name")[:MAX_LIST_RESULTS])
+        # Fetch one extra row so we can distinguish "exactly at the cap" from "truncated".
+        return list(queryset.order_by("name")[: MAX_LIST_RESULTS + 1])
 
 
 class GetLLMSkillTool(MaxTool):
@@ -295,7 +298,7 @@ class GetLLMSkillTool(MaxTool):
     description: str = GET_SKILL_DESCRIPTION
     args_schema: type[BaseModel] = GetSkillArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("llm_skill", "viewer")]
 
     async def _arun_impl(self, skill_name: str, version: int | None = None) -> tuple[str, None]:
@@ -322,7 +325,7 @@ class GetLLMSkillFileTool(MaxTool):
     description: str = GET_SKILL_FILE_DESCRIPTION
     args_schema: type[BaseModel] = GetSkillFileArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("llm_skill", "viewer")]
 
     async def _arun_impl(
@@ -331,8 +334,14 @@ class GetLLMSkillFileTool(MaxTool):
         file_path: str,
         version: int | None = None,
     ) -> tuple[str, None]:
-        normalized = file_path.rstrip("/").replace("\\", "/")
-        if ".." in normalized.split("/") or normalized.startswith("/"):
+        # Normalize so that `scripts/../foo.py` collapses to `foo.py` before we filter on the
+        # exact stored path — the DB lookup itself only matches literal strings, so the guard
+        # has to do the work of resolving `..` segments rather than just checking for them.
+        cleaned = file_path.replace("\\", "/").rstrip("/")
+        if not cleaned:
+            return f"Invalid file path '{file_path}'.", None
+        normalized = posixpath.normpath(cleaned)
+        if posixpath.isabs(normalized) or normalized == ".." or normalized.startswith("../"):
             return f"Invalid file path '{file_path}'.", None
 
         skill_file = await database_sync_to_async(self._fetch_skill_file)(skill_name, normalized, version)
@@ -360,7 +369,7 @@ class CreateLLMSkillTool(MaxTool):
     description: str = CREATE_SKILL_DESCRIPTION
     args_schema: type[BaseModel] = CreateSkillArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("llm_skill", "editor")]
 
     async def _arun_impl(
@@ -375,7 +384,9 @@ class CreateLLMSkillTool(MaxTool):
         files: list[dict[str, str]] | None = None,
     ) -> tuple[str, None]:
         try:
-            skill = await database_sync_to_async(self._create_skill)(
+            skill = await database_sync_to_async(create_skill)(
+                self._team,
+                user=self._user,
                 name=name,
                 description=description,
                 body=body,
@@ -385,58 +396,17 @@ class CreateLLMSkillTool(MaxTool):
                 metadata=metadata,
                 files=files,
             )
-        except LLMSkillDuplicateNameError:
+        except LLMSkillDuplicateNameConflictError:
             raise MaxToolFatalError(f"A skill named '{name}' already exists.")
-        except IntegrityError as err:
-            err_str = str(err)
-            if "unique_skill_file_path" in err_str:
-                raise MaxToolFatalError("Duplicate file paths are not allowed in `files`.")
-            raise MaxToolFatalError(f"Failed to create skill: {err_str}")
+        except LLMSkillFilePathConflictError:
+            raise MaxToolFatalError("Duplicate file paths are not allowed in `files`.")
+        except LLMSkillFileLimitError as err:
+            raise MaxToolFatalError(f"Cannot attach more than {err.max_count} bundled files to a skill.")
 
         return (
             f"Created skill '{skill.name}' at v{skill.version}. It is now discoverable via `list_llm_skills`.",
             None,
         )
-
-    def _create_skill(
-        self,
-        *,
-        name: str,
-        description: str,
-        body: str,
-        license: str | None,
-        compatibility: str | None,
-        allowed_tools: list[str] | None,
-        metadata: dict[str, Any] | None,
-        files: list[dict[str, str]] | None,
-    ) -> LLMSkill:
-        with transaction.atomic():
-            if LLMSkill.objects.filter(team=self._team, name=name, deleted=False).exists():
-                raise LLMSkillDuplicateNameError()
-            skill = LLMSkill.objects.create(
-                team=self._team,
-                name=name,
-                description=description,
-                body=body,
-                license=license or "",
-                compatibility=compatibility or "",
-                allowed_tools=allowed_tools or [],
-                metadata=metadata or {},
-                created_by=self._user,
-            )
-            if files:
-                LLMSkillFile.objects.bulk_create(
-                    [
-                        LLMSkillFile(
-                            skill=skill,
-                            path=item["path"],
-                            content=item.get("content", ""),
-                            content_type=item.get("content_type", "text/plain"),
-                        )
-                        for item in files
-                    ]
-                )
-        return skill
 
 
 class UpdateLLMSkillTool(MaxTool):
@@ -444,7 +414,7 @@ class UpdateLLMSkillTool(MaxTool):
     description: str = UPDATE_SKILL_DESCRIPTION
     args_schema: type[BaseModel] = UpdateSkillArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("llm_skill", "editor")]
 
     async def _arun_impl(
@@ -496,7 +466,7 @@ class ArchiveLLMSkillTool(MaxTool):
     description: str = ARCHIVE_SKILL_DESCRIPTION
     args_schema: type[BaseModel] = ArchiveSkillArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("llm_skill", "editor")]
 
     async def _arun_impl(self, skill_name: str) -> tuple[str, None]:
