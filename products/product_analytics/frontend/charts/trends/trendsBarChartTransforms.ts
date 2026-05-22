@@ -4,9 +4,10 @@ import { hexToRGBA } from 'lib/utils'
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import type { IntervalType } from '~/types'
 
+import { COMPARE_PREVIOUS_DIM_OPACITY } from 'scenes/trends/viz/trendsAdapterConstants'
+
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
-import { COMPARE_PREVIOUS_DIM_OPACITY } from '../trendsAdapterConstants'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsBarResultLike {
