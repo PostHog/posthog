@@ -16,6 +16,10 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import (
+    can_use_lazy_precompute,
+    execute_lazy_precomputed_read,
+)
 from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -75,7 +79,52 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
             logger.exception("Error getting pre-aggregated web_overview", error=e)
             return None
 
+    def get_lazy_precomputed_row(self) -> Optional[list]:
+        if not can_use_lazy_precompute(self):
+            return None
+        return execute_lazy_precomputed_read(self)
+
+    def _build_response_from_row(
+        self,
+        row: list,
+        used_pre_aggregated: bool,
+        used_lazy_precompute: bool = False,
+    ) -> WebOverviewQueryResponse:
+        # Only called from the lazy precompute short-circuit; that path's gate
+        # already rejects conversionGoal, so we don't need a separate branch
+        # here. The v2/raw path builds its response inline in `_calculate`.
+        assert not self.query.conversionGoal, "lazy precompute does not support conversionGoal"
+
+        include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
+
+        def get_prev_val(idx, use_unsample=True):
+            if not include_previous:
+                return None
+            return self._unsample(row[idx]) if use_unsample else row[idx]
+
+        results = [
+            to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
+            to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
+            to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
+            to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
+            to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
+        ]
+
+        return WebOverviewQueryResponse(
+            results=results,
+            samplingRate=self._sample_rate,
+            modifiers=self.modifiers,
+            dateFrom=self.query_date_range.date_from_str,
+            dateTo=self.query_date_range.date_to_str,
+            usedPreAggregatedTables=used_pre_aggregated,
+            usedLazyPrecompute=used_lazy_precompute,
+        )
+
     def _calculate(self) -> WebOverviewQueryResponse:
+        lazy_row = self.get_lazy_precomputed_row()
+        if lazy_row is not None:
+            return self._build_response_from_row(lazy_row, used_pre_aggregated=True, used_lazy_precompute=True)
+
         pre_aggregated_response = self.get_pre_aggregated_response()
 
         response = (

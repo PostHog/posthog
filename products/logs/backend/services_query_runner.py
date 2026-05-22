@@ -1,3 +1,7 @@
+from typing import Any
+
+import re2
+
 from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
 from posthog.hogql import ast
@@ -9,6 +13,132 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
 from products.logs.backend.models import LogsExclusionRule
+
+# Three-valued logic for evaluating a rule's filter_group against a partial record
+# at query time. We only know the row's `service_name`; everything else (severity,
+# attributes) varies per log line. A leaf returning INDETERMINATE means we can't
+# decide without seeing the full row, so the answer at the group level depends on
+# how children combine: AND × INDETERMINATE → INDETERMINATE, OR × INDETERMINATE
+# → INDETERMINATE (unless another child resolves it). The Services page treats
+# INDETERMINATE as "rule might apply, show it" and only excludes when the result
+# is provably FALSE — i.e. the rule cannot match any row from this service.
+_FALSE, _INDETERMINATE, _TRUE = -1, 0, 1
+_SERVICE_NAME_KEYS = {"service_name", "service.name"}
+
+
+def rule_could_apply_to_service(filter_group: Any, service_name: str) -> bool:
+    """
+    Return True iff the rule's `config.filter_group` could match some log line
+    with this `service_name`. Returns True for an absent/empty filter_group
+    (no scoping → applies to everything). Returns False only when the filter
+    group provably cannot match — e.g. an `AND` containing
+    `service.name exact "other"` against `service_name == "api"`.
+
+    Operates on three-valued logic so non-service-name predicates (severity,
+    arbitrary attributes) remain INDETERMINATE and conservatively keep the rule
+    visible in the Services tab. The Node ingestion worker remains the source
+    of truth for per-record drop decisions; this helper only filters the
+    display list of "rules active on each service".
+    """
+    if filter_group is None or not isinstance(filter_group, dict):
+        return True
+    return _evaluate_node(filter_group, service_name) != _FALSE
+
+
+def _evaluate_node(node: Any, service_name: str) -> int:
+    if not isinstance(node, dict):
+        return _INDETERMINATE
+    if _is_group(node):
+        children = node.get("values") or []
+        if not children:
+            # Empty group: conservative — keep the rule visible (mirrors the
+            # ingestion worker's "empty group → no match → don't drop" logic;
+            # for display, "might apply" is the safer default).
+            return _INDETERMINATE
+        results = [_evaluate_node(child, service_name) for child in children]
+        if str(node.get("type", "")).upper() == "OR":
+            if _TRUE in results:
+                return _TRUE
+            if _INDETERMINATE in results:
+                return _INDETERMINATE
+            return _FALSE
+        # AND (default for any unrecognised operator).
+        if _FALSE in results:
+            return _FALSE
+        if _INDETERMINATE in results:
+            return _INDETERMINATE
+        return _TRUE
+    # Property-filter leaf.
+    key = str(node.get("key") or "").lower()
+    if key not in _SERVICE_NAME_KEYS:
+        # Any other key depends on per-row data we don't have at services-tab time.
+        return _INDETERMINATE
+    return _evaluate_service_leaf(node, service_name)
+
+
+def _is_group(node: dict) -> bool:
+    type_ = str(node.get("type", "")).upper()
+    return type_ in ("AND", "OR") and isinstance(node.get("values"), list)
+
+
+def _evaluate_service_leaf(leaf: dict, service_name: str) -> int:
+    operator = str(leaf.get("operator") or "exact").lower()
+    value = leaf.get("value")
+    sn = service_name or ""
+
+    if operator == "is_set":
+        return _TRUE if sn else _FALSE
+    if operator == "is_not_set":
+        return _TRUE if not sn else _FALSE
+    # Every remaining operator requires both an override and a filter value.
+
+    if value is None:
+        return _INDETERMINATE
+    if not sn:
+        # For negation operators, empty string doesn't match non-empty values
+        if operator in ("is_not", "not_in", "not_icontains", "not_regex"):
+            return _TRUE
+        # For positive match operators, empty string can't match
+        return _FALSE
+
+    if operator in ("exact", "in"):
+        return _TRUE if _matches_any(value, sn) else _FALSE
+    if operator in ("is_not", "not_in"):
+        return _FALSE if _matches_any(value, sn) else _TRUE
+    if operator == "icontains":
+        return _TRUE if str(value).lower() in sn.lower() else _FALSE
+    if operator == "not_icontains":
+        return _FALSE if str(value).lower() in sn.lower() else _TRUE
+    if operator in ("regex", "not_regex"):
+        # RE2 (linear-time, no catastrophic backtracking) — same engine the Node
+        # ingestion worker uses via `tracked-re2`. A project member can pick the
+        # regex operator on the drop-rule form, so a pathological pattern run
+        # through Python's backtracking `re` engine here would be a ReDoS vector
+        # on every Services-tab request.
+        try:
+            # `(?is)` inline flags = case-insensitive + DOTALL, matching the worker's
+            # `re.IGNORECASE | re.DOTALL` and `compileLeafRegex`'s `is` flags.
+            matched = re2.compile(f"(?is){str(value)}").search(sn) is not None
+        except re2.error:
+            # Invalid regex: for `regex` it can never match → FALSE.
+            # For `not_regex` it trivially never matches → the "not" condition is
+            # always satisfied → INDETERMINATE (shown on every service row), which
+            # is the conservative choice and consistent with the PR's invariant that
+            # only a provably-FALSE result hides the rule.
+            return _FALSE if operator == "regex" else _INDETERMINATE
+        if operator == "regex":
+            return _TRUE if matched else _FALSE
+        return _FALSE if matched else _TRUE
+    # Numeric / semver / date operators don't apply to service_name strings —
+    # unknown for our purposes, so be conservative and keep the rule visible.
+    return _INDETERMINATE
+
+
+def _matches_any(value: Any, sn: str) -> bool:
+    sn_lower = sn.lower()
+    if isinstance(value, list):
+        return any(str(v).lower() == sn_lower for v in value)
+    return str(value).lower() == sn_lower
 
 
 def _sampling_rule_summary(rule: LogsExclusionRule) -> str:
@@ -69,7 +199,15 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             error_rate = error_count / log_count if log_count > 0 else 0.0
             active_rules = []
             for rule in enabled_rules:
+                # Legacy scope_service column (still honored for rules that predate
+                # the universal filter_group).
                 if rule.scope_service and rule.scope_service != service_name:
+                    continue
+                # Modern: scope via `config.filter_group`. Three-valued evaluation
+                # against the partial record (we only know service_name at this
+                # point); INDETERMINATE keeps the rule visible.
+                filter_group = (rule.config or {}).get("filter_group")
+                if not rule_could_apply_to_service(filter_group, service_name):
                     continue
                 active_rules.append(
                     {

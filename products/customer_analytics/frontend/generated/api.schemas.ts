@@ -39,6 +39,9 @@ export type AccountApiProperties = {
     zendesk_id?: string | null
 } | null
 
+/**
+ * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+ */
 export interface AccountApi {
     readonly id: string
     /**
@@ -57,6 +60,8 @@ export interface AccountApi {
      * @nullable
      */
     properties?: AccountApiProperties
+    /** Tag names attached to the account. Pass a list to replace existing tags. */
+    tags?: string[]
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -105,6 +110,9 @@ export type PatchedAccountApiProperties = {
     zendesk_id?: string | null
 } | null
 
+/**
+ * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+ */
 export interface PatchedAccountApi {
     readonly id?: string
     /**
@@ -123,6 +131,8 @@ export interface PatchedAccountApi {
      * @nullable
      */
     properties?: PatchedAccountApiProperties
+    /** Tag names attached to the account. Pass a list to replace existing tags. */
+    tags?: string[]
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
@@ -339,6 +349,10 @@ export type AccountsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
+     */
+    tags?: string
 }
 
 export type CustomerJourneysListParams = {

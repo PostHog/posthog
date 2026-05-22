@@ -57,10 +57,19 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-docs-check.yml
+
+            - name: Get pnpm store path
+              if: steps.source-check.outputs.changed == 'true'
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+            - name: Restore pnpm cache
+              if: steps.source-check.outputs.changed == 'true'
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: node-cache-${{ runner.os }}-${{ runner.arch }}-pnpm-
 
             - name: Install dependencies
               if: steps.source-check.outputs.changed == 'true'

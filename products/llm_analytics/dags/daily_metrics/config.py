@@ -1,5 +1,5 @@
 """
-Configuration for LLMA (LLM Analytics) metrics aggregation.
+Configuration for LLMA (AI observability) metrics aggregation.
 
 This module defines all parameters and constants used in the LLMA metrics pipeline.
 Modify this file to add new metrics or change aggregation behavior.
@@ -43,6 +43,13 @@ class LLMADailyMetricsConfig:
     # Order matters: more specific patterns should come before general ones
     pageview_mappings: list[tuple[str, str]] = field(
         default_factory=lambda: [
+            ("/ai-observability/traces", "traces"),
+            ("/ai-observability/generations", "generations"),
+            ("/ai-observability/users", "users"),
+            ("/ai-observability/sessions", "sessions"),
+            ("/ai-observability/playground", "playground"),
+            ("/ai-evals/datasets", "datasets"),
+            ("/ai-evals/evaluations", "evaluations"),
             ("/llm-analytics/traces", "traces"),
             ("/llm-analytics/generations", "generations"),
             ("/llm-analytics/users", "users"),

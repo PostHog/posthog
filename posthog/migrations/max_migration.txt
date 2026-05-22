@@ -1,1 +1,1 @@
-1167_remove_alertconfiguration_is_calculating
+1175_drop_alertconfiguration_is_calculating_column

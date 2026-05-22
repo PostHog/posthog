@@ -32,6 +32,7 @@ import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLin
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
+import { RetentionCohortLabelStartIndexPicker } from 'scenes/insights/filters/RetentionCohortLabelStartIndexPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -321,6 +322,17 @@ export function InsightDisplayConfig(): JSX.Element {
                   {
                       title: 'On dashboards',
                       items: [{ label: () => <RetentionDashboardDisplayPicker /> }],
+                  },
+                  {
+                      title: (
+                          <h5 className="mx-2 my-1">
+                              Cohort labels start at{' '}
+                              <Tooltip title="Controls the starting index used to label cohort columns. Display only, does not affect the calculations.">
+                                  <IconInfo className="relative top-0.5 text-lg text-secondary" />
+                              </Tooltip>
+                          </h5>
+                      ),
+                      items: [{ label: () => <RetentionCohortLabelStartIndexPicker /> }],
                   },
               ]
             : []),

@@ -233,7 +233,7 @@ Available features:
 | `hog_functions`          | [CDP function management](https://posthog.com/docs/cdp)                                                   |
 | `hog_function_templates` | CDP function template browsing                                                                            |
 | `insights`               | [Analytics insights](https://posthog.com/docs/product-analytics/insights)                                 |
-| `llm_analytics`          | [LLM analytics evaluations](https://posthog.com/docs/ai-engineering)                                      |
+| `llm_analytics`          | [AI observability evaluations](https://posthog.com/docs/ai-engineering)                                   |
 | `prompts`                | [LLM prompt management](https://posthog.com/docs/ai-engineering)                                          |
 | `logs`                   | [Log querying](https://posthog.com/docs/ai-engineering/observability)                                     |
 | `notebooks`              | [Notebook management](https://posthog.com/docs/notebooks)                                                 |

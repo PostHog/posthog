@@ -1,4 +1,4 @@
-# LLM analytics agent guide
+# AI observability agent guide
 
 Repo-wide conventions live in [`../../AGENTS.md`](../../AGENTS.md) — kea over hooks, generated
 API over `api.get`, `ph_scoped_capture` in Celery, etc. Read that first.

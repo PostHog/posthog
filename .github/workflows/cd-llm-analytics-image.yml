@@ -15,6 +15,7 @@ on:
             - 'products/llm_analytics/**'
             - 'posthog/temporal/common/**'
             - 'posthog/management/commands/start_temporal_worker.py'
+            - 'posthog/clickhouse/migrations/**'
             - 'Dockerfile.llm-analytics'
             - '.github/workflows/cd-llm-analytics-image.yml'
             - 'pyproject.toml'

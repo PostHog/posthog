@@ -73,11 +73,18 @@ select = [
     "I",
     "B",
     "C4",
+    "PLC0415",
     "UP",
 ]
 ignore = [
     "E501",
 ]
+
+# PLC0415 exemptions.
+# Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.
+[tool.ruff.lint.per-file-ignores]
+"src/**" = ["PLC0415"]
+"tests/**" = ["PLC0415"]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -3,8 +3,6 @@ from django.db import models
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
-from .github_sync_config import GitHubSyncConfig
-
 
 class GitHubSyncPlanStatus(models.TextChoices):
     PENDING = "pending"  # plan computed, PR still open
@@ -17,7 +15,7 @@ class GitHubSyncPlan(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     team_id: int
 
-    config = models.ForeignKey(GitHubSyncConfig, on_delete=models.CASCADE, related_name="sync_plans")
+    config = models.ForeignKey("data_modeling.GitHubSyncConfig", on_delete=models.CASCADE, related_name="sync_plans")
     config_id: int
 
     pr_number = models.IntegerField(help_text="GitHub PR number")
