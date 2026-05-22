@@ -1,3 +1,5 @@
+import { reapOrphanedSandboxes } from '@repo/ass-sandbox'
+
 import {
     ApplicationsRepository,
     BundleStore,
@@ -14,6 +16,7 @@ import {
 
 import { AssServerExecutor } from './ass-server-executor'
 import { loadConfig } from './config'
+import { selectToolSandboxKind } from './tool-sandbox'
 import { RunnerWorker } from './worker'
 
 loadDevEnv()
@@ -26,6 +29,18 @@ async function main(): Promise<void> {
         kafkaTopic: config.kafkaLogEntriesTopic,
         hasRedis: Boolean(config.redisUrl),
     })
+
+    // Sweep tool-sandbox containers orphaned by a previous crashed run.
+    try {
+        if (selectToolSandboxKind() === 'docker') {
+            const reaped = await reapOrphanedSandboxes({ log: (line) => logger.info(line) })
+            if (reaped > 0) {
+                logger.info('reaped orphaned tool-sandbox containers', { count: reaped })
+            }
+        }
+    } catch (err) {
+        logger.warn({ err }, 'orphaned-sandbox reap skipped')
+    }
 
     const posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
