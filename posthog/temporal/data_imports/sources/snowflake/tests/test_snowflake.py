@@ -415,4 +415,4 @@ class TestBuildPipeline:
             response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="messages"))
             assert response.primary_keys == ["id"]
             assert response.rows_to_sync == 5
-            assert list(response.items()) == [b"batch-1", b"batch-2"]  # type: ignore[arg-type]
+            assert list(response.items()) == [b"batch-1", b"batch-2"]
