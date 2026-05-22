@@ -150,11 +150,15 @@ pub struct FlagPropertyGroup {
         skip_serializing_if = "Option::is_none"
     )]
     pub aggregation_group_type_index: Option<Option<i32>>,
-    /// Captures unknown JSONB keys so the cache round-trip is identity. Without
-    /// this, frontend leaks (`description`, `sort_key`), runtime annotations
-    /// (`cohort_name`, `group_key_names`), and field typos would be silently
-    /// dropped on round-trip and the Python `verify_flags_cache` verifier would
-    /// report spurious `FIELD_MISMATCH` against the Django JSONB passthrough.
+    /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
+    /// Without this, frontend leaks (`description`, `sort_key`), runtime annotations
+    /// (`cohort_name`, `group_key_names`), and field typos would be silently dropped
+    /// on round-trip and the Python `verify_flags_cache` verifier would report
+    /// spurious `FIELD_MISMATCH` against the Django JSONB passthrough. Only
+    /// unknown-key passthrough is guaranteed here — absent-vs-null normalization for
+    /// known optional fields (e.g. `variant`, `rollout_percentage`) is handled by the
+    /// Python verifier's `_strip_null_values` helper, since those fields lack
+    /// `skip_serializing_if` and will re-emit as `null` on a serialize round-trip.
     /// See plans/verify-flags-cache-loose-comparison.md.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -198,12 +202,15 @@ pub struct FlagFilters {
     /// Defines a set of users intentionally excluded from a test or experiment.
     #[serde(default)]
     pub holdout: Option<Holdout>,
-    /// Captures unknown JSONB keys so the cache round-trip is identity. Without
-    /// this, legacy filter keys (`holdout_groups`), top-level stray keys, and
-    /// field typos (`multivariant` for `multivariate`, `payload` for `payloads`)
-    /// would be silently dropped on round-trip and the Python
+    /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
+    /// Without this, legacy filter keys (`holdout_groups`), top-level stray keys,
+    /// and field typos (`multivariant` for `multivariate`, `payload` for
+    /// `payloads`) would be silently dropped on round-trip and the Python
     /// `verify_flags_cache` verifier would report spurious `FIELD_MISMATCH`
-    /// against the Django JSONB passthrough.
+    /// against the Django JSONB passthrough. Only unknown-key passthrough is
+    /// guaranteed here — absent-vs-null normalization for known optional fields
+    /// (e.g. `multivariate`, `payloads`, `super_groups`) is handled by the
+    /// Python verifier's `_strip_null_values` helper.
     /// See plans/verify-flags-cache-loose-comparison.md.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
