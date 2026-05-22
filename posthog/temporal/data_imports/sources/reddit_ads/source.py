@@ -34,7 +34,12 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
         return ExternalDataSourceType.REDDITADS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {"401 Client Error": None, "404 Client Error": None}
+        return {
+            "401 Client Error": None,
+            "404 Client Error": None,
+            "Integration not found": "The linked Reddit Ads integration no longer exists. Please reconnect your account.",
+            "Missing integration ID": "The Reddit Ads integration is not configured. Please reconnect your account.",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:

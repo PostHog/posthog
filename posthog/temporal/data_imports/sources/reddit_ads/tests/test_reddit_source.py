@@ -110,6 +110,16 @@ class TestRedditAdsSource:
         assert "Integration not found" in error_message
         mock_capture_exception.assert_called_once()
 
+    def test_get_non_retryable_errors_includes_integration_failure(self):
+        """Deleted-integration errors must be marked non-retryable so import
+        retries stop. See ER #019dd535."""
+        errors = self.source.get_non_retryable_errors()
+
+        assert "Integration not found" in errors
+        assert errors["Integration not found"] is not None
+        assert "Missing integration ID" in errors
+        assert errors["Missing integration ID"] is not None
+
     def test_get_schemas(self):
         """Test get_schemas returns all endpoint schemas."""
         schemas = self.source.get_schemas(self.config, self.team_id)

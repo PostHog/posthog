@@ -285,6 +285,53 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
     assert len(all_schemas) == len(STRIPE_ENDPOINTS)
 
 
+@pytest.mark.parametrize(
+    "raised_error,expect_non_retryable",
+    [
+        (ValueError("Integration not found: 154683"), True),
+        (ValueError("Missing integration ID"), True),
+        (ValueError("Some unrelated boom"), False),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_sync_new_schemas_activity_raises_non_retryable_when_integration_missing(
+    activity_environment, team, raised_error, expect_non_retryable, **kwargs
+):
+    """If `get_schemas` raises an error matching a known non-retryable marker (e.g.
+    OAuth integration was deleted), the discover-schemas activity must surface a
+    NonRetryableException so `DiscoverSchemasWorkflow`'s retry policy stops the
+    loop. Without this, Slack-style sources that call `get_oauth_integration`
+    inside `get_schemas` retry indefinitely — see ER #019e4fa0."""
+    from posthog.temporal.data_imports.util import NonRetryableException
+
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Stripe",
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
+    )
+
+    inputs = SyncNewSchemasActivityInputs(source_id=str(new_source.pk), team_id=team.id)
+
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas",
+        side_effect=raised_error,
+    ):
+        if expect_non_retryable:
+            with pytest.raises(NonRetryableException) as exc_info:
+                activity_environment.run(sync_new_schemas_activity, inputs)
+            assert exc_info.value.__cause__ is raised_error
+        else:
+            with pytest.raises(ValueError, match="Some unrelated boom"):
+                activity_environment.run(sync_new_schemas_activity, inputs)
+
+
 @pytest.mark.parametrize("source_state", ["never_existed", "soft_deleted"])
 @pytest.mark.django_db(transaction=True)
 def test_sync_new_schemas_activity_self_destructs_when_source_unavailable(

@@ -33,6 +33,14 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TIKTOKADS
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error": None,
+            "404 Client Error": None,
+            "Integration not found": "The linked TikTok Ads integration no longer exists. Please reconnect your account.",
+            "Missing integration ID": "The TikTok Ads integration is not configured. Please reconnect your account.",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

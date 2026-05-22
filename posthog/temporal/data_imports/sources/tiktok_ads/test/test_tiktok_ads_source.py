@@ -85,6 +85,16 @@ class TestTikTokAdsSource:
             if expected_error:
                 assert expected_error in str(error)
 
+    def test_get_non_retryable_errors_includes_integration_failure(self):
+        """Deleted-integration errors must be marked non-retryable so import
+        retries stop. See ER #019dffc9."""
+        errors = self.source.get_non_retryable_errors()
+
+        assert "Integration not found" in errors
+        assert errors["Integration not found"] is not None
+        assert "Missing integration ID" in errors
+        assert errors["Missing integration ID"] is not None
+
     def test_get_schemas(self):
         """Test schema retrieval."""
         schemas = self.source.get_schemas(self.config, self.team_id)
