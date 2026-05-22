@@ -17,7 +17,7 @@ import type {
     EndpointRunResponseApi,
     EndpointVersionResponseApi,
     EndpointsListParams,
-    EndpointsOpenapiJsonRetrieveParams,
+    EndpointsOpenapiSpecRetrieveParams,
     EndpointsVersionsListParams,
     MaterializationPreviewRequestApi,
     PaginatedEndpointResponseListApi,
@@ -189,10 +189,10 @@ export const endpointsMaterializationStatusRetrieve = async (
     })
 }
 
-export const getEndpointsOpenapiJsonRetrieveUrl = (
+export const getEndpointsOpenapiSpecRetrieveUrl = (
     projectId: string,
     name: string,
-    params?: EndpointsOpenapiJsonRetrieveParams
+    params?: EndpointsOpenapiSpecRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -212,13 +212,13 @@ export const getEndpointsOpenapiJsonRetrieveUrl = (
 /**
  * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
  */
-export const endpointsOpenapiJsonRetrieve = async (
+export const endpointsOpenapiSpecRetrieve = async (
     projectId: string,
     name: string,
-    params?: EndpointsOpenapiJsonRetrieveParams,
+    params?: EndpointsOpenapiSpecRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getEndpointsOpenapiJsonRetrieveUrl(projectId, name, params), {
+    return apiMutator<void>(getEndpointsOpenapiSpecRetrieveUrl(projectId, name, params), {
         ...options,
         method: 'GET',
     })
