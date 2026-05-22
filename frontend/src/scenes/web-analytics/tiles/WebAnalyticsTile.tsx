@@ -328,6 +328,10 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
     }
 }
 
+const UnknownBreakdownLabel = ({ label }: { label: string }): JSX.Element => (
+    <span className="text-secondary italic">({label})</span>
+)
+
 const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     const { value, query } = props
     const { source } = query
@@ -383,7 +387,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                     </>
                 )
             }
-            break
+            return <UnknownBreakdownLabel label="unknown country" />
         case WebStatsBreakdown.Region:
             if (Array.isArray(value)) {
                 const [countryCode, regionCode, regionName] = value
@@ -391,7 +395,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return (
                     <>
                         {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode} -{' '}
-                        {regionLabel ? regionLabel : <span className="text-secondary italic">(unknown region)</span>}
+                        {regionLabel ? regionLabel : <UnknownBreakdownLabel label="unknown region" />}
                     </>
                 )
             }
@@ -402,7 +406,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return (
                     <>
                         {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode} -{' '}
-                        {cityName ? cityName : <span className="text-secondary italic">(unknown city)</span>}
+                        {cityName ? cityName : <UnknownBreakdownLabel label="unknown city" />}
                     </>
                 )
             }
@@ -411,7 +415,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             if (typeof value === 'number') {
                 return <>{toUtcOffsetFormat(value)}</>
             }
-            break
+            return <UnknownBreakdownLabel label="unknown timezone" />
         case WebStatsBreakdown.Language:
             if (typeof value === 'string') {
                 const [languageCode, countryCode] = value.split('-')
@@ -426,23 +430,28 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                     </>
                 )
             }
-            break
+            return <UnknownBreakdownLabel label="unknown language" />
         case WebStatsBreakdown.DeviceType:
             if (typeof value === 'string') {
                 return <PropertyIcon.WithLabel property="$device_type" value={value} />
             }
-            break
+            return <UnknownBreakdownLabel label="unknown device" />
         case WebStatsBreakdown.Browser:
             if (typeof value === 'string') {
                 return <PropertyIcon.WithLabel property="$browser" value={value} />
             }
-            break
+            return <UnknownBreakdownLabel label="unknown browser" />
         case WebStatsBreakdown.OS:
             if (typeof value === 'string') {
                 return <PropertyIcon.WithLabel property="$os" value={value} />
             }
-            break
+            return <UnknownBreakdownLabel label="unknown OS" />
         case WebStatsBreakdown.InitialReferringDomain:
+            // NULL referrer is canonically "Direct" in PostHog (matches the channel-type
+            // bucketing in sessions_v2). Keep that wording to stay consistent across tiles.
+            if (value == null) {
+                return <UnknownBreakdownLabel label="direct" />
+            }
             if (featureFlags[FEATURE_FLAGS.SHOW_REFERRER_FAVICON]) {
                 if (typeof value === 'string') {
                     return (
@@ -465,6 +474,16 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return <>{value.replace(BREAKDOWN_REFERRER_PREFIX, '')}</>
             }
             break
+        case WebStatsBreakdown.InitialUTMSource:
+            return typeof value === 'string' ? <>{value}</> : <UnknownBreakdownLabel label="no UTM source" />
+        case WebStatsBreakdown.InitialUTMMedium:
+            return typeof value === 'string' ? <>{value}</> : <UnknownBreakdownLabel label="no UTM medium" />
+        case WebStatsBreakdown.InitialUTMCampaign:
+            return typeof value === 'string' ? <>{value}</> : <UnknownBreakdownLabel label="no UTM campaign" />
+        case WebStatsBreakdown.InitialUTMTerm:
+            return typeof value === 'string' ? <>{value}</> : <UnknownBreakdownLabel label="no UTM term" />
+        case WebStatsBreakdown.InitialUTMContent:
+            return typeof value === 'string' ? <>{value}</> : <UnknownBreakdownLabel label="no UTM content" />
     }
 
     if (typeof value === 'string') {
