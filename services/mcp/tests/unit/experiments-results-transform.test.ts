@@ -11,6 +11,10 @@
  *  - inline and shared metrics are merged into one ordered result stream,
  *    with `source` tagged so callers can tell them apart
  *  - row order follows `*_metrics_ordered_uuids` (the canonical UI ordering)
+ *  - UI-only bulk fields (`clickhouse_sql`, `hogql`, `insight`, and
+ *    `step_sessions` — including the copies inside each `breakdown_results`
+ *    entry) are stripped from each row's `data`, while statistical fields
+ *    (including per-breakdown stats) are preserved
  */
 import { describe, expect, it } from 'vitest'
 
@@ -248,5 +252,150 @@ describe('transformExperimentResults', () => {
         expect(result.metrics.primary.results[1]?.metric.uuid).toBe('p-2')
         expect(result.metrics.primary.results[1]?.metric.name).toBe('Failed')
         expect(result.metrics.primary.results.map((r) => r.metric.uuid)).toEqual(['p-1', 'p-2', 'p-3'])
+    })
+
+    it('strips UI-only bulk fields (SQL bodies, step_sessions) but keeps statistical data', () => {
+        // step_sessions is only used by the frontend's funnel step-bar, MCP callers can't
+        // act on those event ids. clickhouse_sql / hogql are also debug-only. Strip both,
+        // keep statistical fields intact.
+        const experiment = makeExperiment({
+            metrics: [{ uuid: 'p-1', name: 'Primary', metric_type: 'funnel' }],
+            primary_metrics_ordered_uuids: ['p-1'],
+        })
+        const longSql = 'SELECT * FROM events WHERE 1=1'.repeat(2000)
+        const stepSessions = [
+            Array.from({ length: 100 }, (_, i) => ({ event_uuid: `e-${i}`, session_id: `s-${i}` })),
+            Array.from({ length: 100 }, (_, i) => ({ event_uuid: `e2-${i}`, session_id: `s2-${i}` })),
+        ]
+
+        const result = transformExperimentResults({
+            experiment,
+            exposures: baseExposures,
+            primaryMetricEntries: buildMetricEntries(experiment, 'primary'),
+            secondaryMetricEntries: [],
+            primaryMetricsResults: [
+                {
+                    baseline: {
+                        key: 'control',
+                        sum: 100,
+                        sum_squares: 100,
+                        step_counts: [100, 50],
+                        step_sessions: stepSessions,
+                    },
+                    variant_results: [
+                        {
+                            key: 'test',
+                            sum: 95,
+                            sum_squares: 95,
+                            step_counts: [95, 48],
+                            step_sessions: stepSessions,
+                        },
+                    ],
+                    clickhouse_sql: longSql,
+                    hogql: longSql,
+                },
+            ],
+            secondaryMetricsResults: [],
+        })
+
+        const data = result.metrics.primary.results[0]?.data as Record<string, unknown>
+        expect(data.clickhouse_sql).toBeUndefined()
+        expect(data.hogql).toBeUndefined()
+        const baseline = data.baseline as Record<string, unknown>
+        expect(baseline.step_sessions).toBeUndefined()
+        // Statistical fields must survive — they're what an MCP caller actually needs.
+        expect(baseline.sum).toBe(100)
+        expect(baseline.step_counts).toEqual([100, 50])
+        const variants = data.variant_results as Array<Record<string, unknown>>
+        expect(variants[0]?.step_sessions).toBeUndefined()
+        expect(variants[0]?.sum).toBe(95)
+    })
+
+    it('strips the legacy `insight` visualization payload from each row', () => {
+        // `insight` is a rendered visualization payload (list[dict[str, Any]]) used by
+        // legacy trends/funnels charts
+        const experiment = makeExperiment({
+            metrics: [{ uuid: 'p-1', name: 'Primary', metric_type: 'mean' }],
+            primary_metrics_ordered_uuids: ['p-1'],
+        })
+
+        const result = transformExperimentResults({
+            experiment,
+            exposures: baseExposures,
+            primaryMetricEntries: buildMetricEntries(experiment, 'primary'),
+            secondaryMetricEntries: [],
+            primaryMetricsResults: [
+                {
+                    baseline: { key: 'control', sum: 100, sum_squares: 100 },
+                    insight: [{ breakdown_value: 'control', data: [1, 2, 3] }],
+                },
+            ],
+            secondaryMetricsResults: [],
+        })
+
+        const data = result.metrics.primary.results[0]?.data as Record<string, unknown>
+        expect(data.insight).toBeUndefined()
+        expect((data.baseline as Record<string, unknown>).sum).toBe(100)
+    })
+
+    it('strips step_sessions from inside breakdown_results entries while preserving per-breakdown stats', () => {
+        // breakdown_results carries stats that we keep. But each entry's
+        // baseline/variants embed their own step_sessions which we strip.
+        const experiment = makeExperiment({
+            metrics: [{ uuid: 'p-1', name: 'Primary', metric_type: 'funnel' }],
+            primary_metrics_ordered_uuids: ['p-1'],
+        })
+        const stepSessions = [Array.from({ length: 50 }, (_, i) => ({ event_uuid: `e-${i}` }))]
+
+        const result = transformExperimentResults({
+            experiment,
+            exposures: baseExposures,
+            primaryMetricEntries: buildMetricEntries(experiment, 'primary'),
+            secondaryMetricEntries: [],
+            primaryMetricsResults: [
+                {
+                    baseline: { key: 'control', sum: 100, sum_squares: 100 },
+                    variant_results: [{ key: 'test', sum: 95, sum_squares: 95 }],
+                    breakdown_results: [
+                        {
+                            breakdown_value: ['MacOS'],
+                            baseline: {
+                                key: 'control',
+                                sum: 60,
+                                sum_squares: 60,
+                                step_counts: [60, 30],
+                                step_sessions: stepSessions,
+                            },
+                            variants: [
+                                {
+                                    key: 'test',
+                                    sum: 55,
+                                    sum_squares: 55,
+                                    step_counts: [55, 27],
+                                    step_sessions: stepSessions,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+            secondaryMetricsResults: [],
+        })
+
+        const data = result.metrics.primary.results[0]?.data as Record<string, unknown>
+        const breakdowns = data.breakdown_results as Array<Record<string, unknown>>
+        expect(breakdowns).toHaveLength(1)
+        expect(breakdowns[0]?.breakdown_value).toEqual(['MacOS'])
+
+        const bdBaseline = breakdowns[0]?.baseline as Record<string, unknown>
+        expect(bdBaseline.step_sessions).toBeUndefined()
+        // Per-breakdown stats must survive — they're the whole point of breakdown_results.
+        expect(bdBaseline.sum).toBe(60)
+        expect(bdBaseline.step_counts).toEqual([60, 30])
+
+        const bdVariants = breakdowns[0]?.variants as Array<Record<string, unknown>>
+        expect(bdVariants[0]?.step_sessions).toBeUndefined()
+        expect(bdVariants[0]?.sum).toBe(55)
+        expect(bdVariants[0]?.step_counts).toEqual([55, 27])
     })
 })

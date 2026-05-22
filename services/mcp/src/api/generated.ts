@@ -1468,6 +1468,8 @@ export namespace Schemas {
       CppWithRustShadow: 'cpp_with_rust_shadow',
       RustWithCppShadow: 'rust_with_cpp_shadow',
       RustOnly: 'rust_only',
+      RustPyOnly: 'rust_py_only',
+      RustPyWithCppShadow: 'rust_py_with_cpp_shadow',
     } as const;
 
     export type PersonsArgMaxVersion = typeof PersonsArgMaxVersion[keyof typeof PersonsArgMaxVersion];
@@ -1540,7 +1542,7 @@ export namespace Schemas {
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
-      /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. */
+      /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
@@ -4475,10 +4477,10 @@ export namespace Schemas {
     * `P3` - P3
     * `P4` - P4
      */
-    export type AutostartPriorityEnum = typeof AutostartPriorityEnum[keyof typeof AutostartPriorityEnum];
+    export type AutonomyPriorityEnum = typeof AutonomyPriorityEnum[keyof typeof AutonomyPriorityEnum];
 
 
-    export const AutostartPriorityEnum = {
+    export const AutonomyPriorityEnum = {
       P0: 'P0',
       P1: 'P1',
       P2: 'P2',
@@ -35143,7 +35145,26 @@ export namespace Schemas {
     export interface SignalUserAutonomyConfig {
       readonly id: string;
       readonly user: _User;
-      autostart_priority?: AutostartPriorityEnum | BlankEnum | null;
+      autostart_priority?: AutonomyPriorityEnum | BlankEnum | null;
+      /**
+         * ID of the Slack Integration to deliver inbox-item notifications through, or null when notifications are disabled.
+         * @nullable
+         */
+      readonly slack_notification_integration_id: number | null;
+      /**
+         * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
+         * @maxLength 255
+         * @nullable
+         */
+      slack_notification_channel?: string | null;
+      /** Minimum report priority that triggers a Slack notification. P0 is highest. Null means notify on every priority (and reports without a priority judgment).
+
+      * `P0` - P0
+      * `P1` - P1
+      * `P2` - P2
+      * `P3` - P3
+      * `P4` - P4 */
+      slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -35171,6 +35192,8 @@ export namespace Schemas {
          * @nullable
          */
       lastRefreshedAt?: string | null;
+      /** Whether more channels match the current search beyond this page. */
+      has_more?: boolean;
     }
 
     /**
@@ -39388,6 +39411,24 @@ export namespace Schemas {
       Twilio: 'twilio',
       Vercel: 'vercel',
     } as const;
+
+    export type EnvironmentsIntegrationsChannelsRetrieveParams = {
+    /**
+     * Maximum number of channels to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Number of channels to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string;
+    };
 
     export type EnvironmentsIntegrationsGithubBranchesRetrieveParams = {
     /**
@@ -44641,6 +44682,24 @@ export namespace Schemas {
       Twilio: 'twilio',
       Vercel: 'vercel',
     } as const;
+
+    export type IntegrationsChannelsRetrieveParams = {
+    /**
+     * Maximum number of channels to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Number of channels to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string;
+    };
 
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**
