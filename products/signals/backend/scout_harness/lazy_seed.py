@@ -27,6 +27,18 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # Bundled subdirs (references / scripts) are walked recursively when seeding.
 _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
+# Mirror the per-skill contract limits enforced by the REST API at
+# `products/llm_analytics/backend/api/skill_services.py` (`MAX_SKILL_*`). The seed
+# bypasses the service layer (no "create from scratch with files" helper exists), so
+# these are inlined and checked at parse time. Inlined rather than imported because
+# `skill_services.py` pulls in Django app surface that triggers a circular import
+# from this module's call sites. Keep the values in sync with skill_services.py.
+_MAX_SKILL_BODY_BYTES = 1_000_000
+_MAX_SKILL_FILE_BYTES = 1_000_000
+_MAX_SKILL_FILE_COUNT = 50
+# Matches `LLMSkillFile.path` model `max_length` — checked at parse time so an oversized
+# canonical path fails with a clear error instead of a Postgres `value too long` DataError.
+_MAX_SKILL_FILE_PATH_LENGTH = 500
 
 
 @dataclass(frozen=True)
@@ -98,6 +110,13 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter 'allowed_tools' must be a list of strings: {skill_file}")
 
     body = raw[match.end() :]
+    # Enforce the same per-skill limits the REST API uses (skill_services.py). The seed
+    # bypasses `create_skill_file` (no service-layer "create from scratch with files"
+    # helper exists), so check at parse time — a canonical too big to seed should fail
+    # loudly in CI / local seed runs, not silently exceed the documented capacity.
+    if len(body.encode("utf-8")) > _MAX_SKILL_BODY_BYTES:
+        raise CanonicalSkillParseError(f"SKILL.md body exceeds the {_MAX_SKILL_BODY_BYTES} byte limit: {skill_file}")
+
     files: list[CanonicalSkillFile] = []
     for subdir_name in _ALLOWED_BUNDLE_SUBDIRS:
         subdir = skill_dir / subdir_name
@@ -107,11 +126,24 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
             if not file_path.is_file():
                 continue
             rel_path = file_path.relative_to(skill_dir).as_posix()
+            if len(rel_path) > _MAX_SKILL_FILE_PATH_LENGTH:
+                raise CanonicalSkillParseError(
+                    f"Bundled file path '{rel_path}' exceeds the {_MAX_SKILL_FILE_PATH_LENGTH} char limit: {file_path}"
+                )
             try:
                 content = file_path.read_text(encoding="utf-8")
             except UnicodeDecodeError as e:
                 raise CanonicalSkillParseError(f"Bundled skill file is not UTF-8 text: {file_path}: {e}") from e
+            if len(content.encode("utf-8")) > _MAX_SKILL_FILE_BYTES:
+                raise CanonicalSkillParseError(
+                    f"Bundled file '{rel_path}' exceeds the {_MAX_SKILL_FILE_BYTES} byte limit: {file_path}"
+                )
             files.append(CanonicalSkillFile(path=rel_path, content=content))
+
+    if len(files) > _MAX_SKILL_FILE_COUNT:
+        raise CanonicalSkillParseError(
+            f"Canonical skill has {len(files)} bundled files, exceeding the {_MAX_SKILL_FILE_COUNT} limit: {skill_dir}"
+        )
 
     return CanonicalSkill(
         name=name,
@@ -173,6 +205,11 @@ def seed_canonical_skills(team: Team) -> SeedResult:
 
     created: list[str] = []
     for canonical in canonicals:
+        # Direct ORM path is intentional: there's no `create_skill_from_scratch_with_files`
+        # helper at the service layer — `create_skill_file` is per-file incremental on
+        # existing skills, `publish_skill_version` is new-version-of-existing. The
+        # universal contract limits (file count, body bytes, per-file bytes, path length)
+        # are enforced at parse time in `_parse_canonical_skill` to match the REST API.
         try:
             with transaction.atomic():
                 skill = LLMSkill.objects.create(

@@ -132,6 +132,82 @@ class TestDiscoverCanonicalSkills:
         skills = discover_canonical_skills()
         assert any(s.name == "signals-scout-general" for s in skills)
 
+    def test_oversized_body_raises(self, tmp_path: Path) -> None:
+        # Body byte limit mirrors the REST API contract (MAX_SKILL_BODY_BYTES = 1 MB).
+        # A canonical too big to seed should fail at parse time, not on DB write.
+        body = "x" * (1_000_001)
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-big-body",
+            frontmatter="""
+                ---
+                name: signals-scout-big-body
+                description: oversized body
+                ---
+            """,
+            body=body,
+        )
+        with pytest.raises(CanonicalSkillParseError, match="byte limit"):
+            discover_canonical_skills(tmp_path)
+
+    def test_oversized_bundled_file_raises(self, tmp_path: Path) -> None:
+        # Per-file byte limit mirrors MAX_SKILL_FILE_BYTES (1 MB).
+        oversized = "x" * (1_000_001)
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-big-file",
+            frontmatter="""
+                ---
+                name: signals-scout-big-file
+                description: oversized bundled file
+                ---
+            """,
+            body="# Body\n",
+            bundled_files={"references/huge.md": oversized},
+        )
+        with pytest.raises(CanonicalSkillParseError, match="byte limit"):
+            discover_canonical_skills(tmp_path)
+
+    def test_too_many_bundled_files_raises(self, tmp_path: Path) -> None:
+        # File count limit mirrors MAX_SKILL_FILE_COUNT (50).
+        bundled = {f"references/file_{i:03d}.md": f"# file {i}\n" for i in range(51)}
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-too-many",
+            frontmatter="""
+                ---
+                name: signals-scout-too-many
+                description: too many files
+                ---
+            """,
+            body="# Body\n",
+            bundled_files=bundled,
+        )
+        with pytest.raises(CanonicalSkillParseError, match="exceeding the 50 limit"):
+            discover_canonical_skills(tmp_path)
+
+    def test_overlong_path_raises(self, tmp_path: Path) -> None:
+        # Path length matches LLMSkillFile.path max_length (500). Friendly parse-time
+        # error beats the Postgres `value too long for type character varying(500)`.
+        # Nested-dir construction because macOS rejects single filename segments >255 chars.
+        nested_seg = "a" * 170
+        rel_path = f"references/{nested_seg}/{nested_seg}/{nested_seg}/file.md"
+        assert len(rel_path) > 500
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-long-path",
+            frontmatter="""
+                ---
+                name: signals-scout-long-path
+                description: overlong path
+                ---
+            """,
+            body="# Body\n",
+            bundled_files={rel_path: "x"},
+        )
+        with pytest.raises(CanonicalSkillParseError, match="char limit"):
+            discover_canonical_skills(tmp_path)
+
 
 class TestSeedCanonicalSkills(BaseTest):
     def test_seeds_canonicals_when_team_has_no_signals_scout_skills(self) -> None:
