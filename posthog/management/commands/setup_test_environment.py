@@ -74,9 +74,12 @@ class Command(BaseCommand):
         create_clickhouse_schema_in_parallel(CREATE_MERGETREE_TABLE_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_KAFKA_TABLE_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_DISTRIBUTED_TABLE_QUERIES)
+        # Dictionaries before MVs: the events MV computes dmat_string columns via dictGet on
+        # dmat_slot_assignments_dict, so the dict must exist before the MV is created. Every
+        # dictionary source is a MergeTree table created above, so this ordering is safe.
+        create_clickhouse_schema_in_parallel(CREATE_DICTIONARY_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_MV_TABLE_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_VIEW_QUERIES)
-        create_clickhouse_schema_in_parallel(CREATE_DICTIONARY_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_DATA_QUERIES())
 
 
