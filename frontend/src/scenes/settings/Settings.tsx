@@ -366,17 +366,19 @@ export function Settings({
                 </div>
             )}
 
-            <AuthenticationAreaComponent>
-                <div
-                    className={clsx(
-                        'flex-1 w-full min-w-0 space-y-2 self-start pb-32',
-                        isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
-                    )}
-                >
-                    {headerSlot}
-                    <SettingsRenderer {...props} handleLocally={handleLocally} />
-                </div>
-            </AuthenticationAreaComponent>
+            <div
+                className={clsx(
+                    'flex-1 w-full min-w-0 self-start pb-32',
+                    isFullScene && !hideSections && !isCompact && 'pl-[calc(var(--settings-nav-width)+2rem)]'
+                )}
+            >
+                <AuthenticationAreaComponent>
+                    <div className="space-y-2">
+                        {headerSlot}
+                        <SettingsRenderer {...props} handleLocally={handleLocally} />
+                    </div>
+                </AuthenticationAreaComponent>
+            </div>
         </div>
     )
 }
