@@ -1,16 +1,19 @@
 name: Build and deploy rust container images
 
 # Production build + deploy for Rust services on master.
+# Uses selective builds: only images affected by changed files are built and deployed.
+# workflow_dispatch always builds all images (escape hatch).
 #
 # Image list: .github/rust-images.yml
 # Build steps: .github/workflows/_rust-build-images.yml
-# Deploy matrix below must be updated when adding new services.
+# Affected-set computation: rust/affected-services (Rust binary crate)
 
 on:
     workflow_dispatch:
     push:
         paths:
             - 'rust/**'
+            - 'proto/**'
             - '.github/workflows/rust-docker-build.yml'
             - '.github/workflows/_rust-build-images.yml'
             - '.github/rust-images.yml'
@@ -19,6 +22,7 @@ on:
     pull_request:
         paths:
             - 'rust/**'
+            - 'proto/**'
             - '.github/workflows/rust-docker-build.yml'
             - '.github/workflows/_rust-build-images.yml'
             - '.github/rust-images.yml'
@@ -30,9 +34,79 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+    affected:
+        name: compute affected images
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        # Skip on workflow_dispatch — always build everything (escape hatch)
+        if: github.event_name != 'workflow_dispatch'
+        permissions:
+            contents: read
+        outputs:
+            image-filter: ${{ steps.compute.outputs.images }}
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 0
+                  sparse-checkout: |
+                      rust/
+                      proto/
+                      .github/rust-images.yml
+                      .github/actions/setup-protoc/
+                  sparse-checkout-cone-mode: false
+                  clean: false
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: 1.91.1
+
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+
+            - name: Build affected-services tool
+              working-directory: rust
+              run: cargo build -p affected-services --release --locked
+
+            - name: Compute affected images
+              id: compute
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  PUSH_BEFORE_SHA: ${{ github.event.before }}
+              working-directory: rust
+              run: |
+                  if [ "$EVENT_NAME" = "pull_request" ]; then
+                      base_ref="$PR_BASE_SHA"
+                  else
+                      base_ref="$PUSH_BEFORE_SHA"
+                  fi
+
+                  result=$(./target/release/affected-services --base-ref "$base_ref")
+                  rebuild_all=$(echo "$result" | jq -r '.rebuild_all')
+                  images=$(echo "$result" | jq -r '.images | join(",")')
+
+                  if [ "$rebuild_all" = "true" ]; then
+                      echo "Rebuild all triggered"
+                      echo "images=" >> "$GITHUB_OUTPUT"
+                  elif [ -z "$images" ]; then
+                      echo "No images affected — build will be skipped"
+                      echo "images=none" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Affected images: $images"
+                      echo "images=$images" >> "$GITHUB_OUTPUT"
+                  fi
+
     build-images:
+        needs: affected
+        # Run unless affected explicitly found zero images.
+        # When affected is skipped (workflow_dispatch), filter is empty = build all.
+        if: |
+            always() && !cancelled() &&
+            needs.affected.outputs.image-filter != 'none'
         uses: ./.github/workflows/_rust-build-images.yml
         with:
+            image-filter: ${{ needs.affected.outputs.image-filter || '' }}
             tag-rules: |
                 type=ref,event=pr
                 type=ref,event=branch
@@ -53,6 +127,8 @@ jobs:
         needs: build-images
         if: github.ref == 'refs/heads/master'
         strategy:
+            # fail-fast false so one missing digest doesn't cancel other deploys
+            fail-fast: false
             matrix:
                 include:
                     - release: capture
@@ -122,7 +198,23 @@ jobs:
                       digest_key: hypercache-server
                       values_key: image
         steps:
+            - name: check if image was built
+              id: check
+              env:
+                  DIGESTS: ${{ needs.build-images.outputs.digests }}
+                  KEY: ${{ matrix.digest_key }}
+              run: |
+                  digest=$(echo "$DIGESTS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('$KEY',''))")
+                  if [ -n "$digest" ]; then
+                      echo "skip=false" >> "$GITHUB_OUTPUT"
+                      echo "digest=$digest" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Skipping ${{ matrix.release }} — image not in this build"
+                      echo "skip=true" >> "$GITHUB_OUTPUT"
+                  fi
+
             - name: get deployer token
+              if: steps.check.outputs.skip != 'true'
               id: deployer
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -132,6 +224,7 @@ jobs:
                   repositories: charts
 
             - name: trigger ${{ matrix.release }} deployment
+              if: steps.check.outputs.skip != 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -139,7 +232,7 @@ jobs:
                   event-type: commit_state_update
                   client-payload: |
                       {
-                        "values": {"${{ matrix.values_key }}": {"sha": "${{ fromJson(needs.build-images.outputs.digests)[matrix.digest_key] }}"}},
+                        "values": {"${{ matrix.values_key }}": {"sha": "${{ steps.check.outputs.digest }}"}},
                         "release": "${{ matrix.release }}",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
