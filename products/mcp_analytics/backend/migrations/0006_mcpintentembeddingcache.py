@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
             ],
             options={
                 "db_table": "posthog_mcp_analytics_intent_embedding_cache",
-                "indexes": [models.Index(fields=["team", "created_at"], name="posthog_mcp_team_id_created_idx")],
+                "indexes": [models.Index(fields=["team", "created_at"], name="posthog_mcp_team_id_31d8c1_idx")],
                 "constraints": [
                     models.UniqueConstraint(
                         fields=("team", "content_hash", "model"),
