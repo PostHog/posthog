@@ -122,7 +122,7 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
 }: NotebookNodeAttributeProperties<T> & { tabId: string }): void {
     const code = typeof attributes.code === 'string' ? attributes.code : ''
     const logic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
-    const { queryInput, sourceQuery } = useValues(logic)
+    const { queryInput } = useValues(logic)
     const { initialize, setQueryInput, setSourceQuery } = useActions(logic)
 
     // Tracks the last `code` and `queryInput` we observed in sync. A real attribute change
@@ -154,8 +154,12 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
         }
 
         if (queryInput !== lastQueryRef.current) {
-            // Editor moved — push to Tiptap.
+            // Editor moved — push to Tiptap and keep sourceQuery in step with the new SQL so
+            // "Run query" uses what the user is actually looking at.
             lastQueryRef.current = queryInput
+            if (queryInput !== null) {
+                setSourceQuery(buildSourceQuery(queryInput))
+            }
             updateAttributes({ code: queryInput } as Partial<NotebookNodeAttributes<T>>)
             return
         }
@@ -163,25 +167,6 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
         // Both sides match what we last observed but each other doesn't — Tiptap is still
         // catching up to a push we already made. Do nothing; the next render will reconcile.
     }, [code, queryInput, setQueryInput, setSourceQuery, updateAttributes])
-
-    useEffect(() => {
-        if (queryInput === null) {
-            return
-        }
-
-        const nextSourceQuery = {
-            ...sourceQuery,
-            source: {
-                ...sourceQuery.source,
-                query: queryInput,
-            },
-            display: sourceQuery.display ?? ChartDisplayType.ActionsTable,
-        }
-
-        if (!equal(nextSourceQuery, sourceQuery)) {
-            setSourceQuery(nextSourceQuery)
-        }
-    }, [queryInput, setSourceQuery, sourceQuery])
 }
 
 export function NotebookSQLEditorOutput<T extends { query: QuerySchema }>({
