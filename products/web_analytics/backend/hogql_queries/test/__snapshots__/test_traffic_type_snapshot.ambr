@@ -28,7 +28,7 @@
       events
   
   WHERE
-      and(equals(event, '$pageview'), not(notEquals(dictGetOrDefault('posthog_test.bot_definition_dict', 'traffic_type', ifNull(properties.$user_agent, ''), 'Regular'), 'Regular')))
+      and(equals(event, '$pageview'), not(notEquals(dictGetOrDefault('posthog_test.web_bot_definition_dict', 'traffic_type', ifNull(properties.$user_agent, ''), 'Regular'), 'Regular')))
   ORDER BY
       user_agent ASC
   
@@ -60,7 +60,7 @@
   -- HogQL
   
   SELECT
-      dictGetOrDefault('posthog_test.bot_definition_dict', 'name', ifNull(properties.$user_agent, ''), '') AS bot_name,
+      dictGetOrDefault('posthog_test.web_bot_definition_dict', 'name', ifNull(properties.$user_agent, ''), '') AS bot_name,
       count() AS count
   
   FROM
@@ -102,7 +102,7 @@
   -- HogQL
   
   SELECT
-      dictGetOrDefault('posthog_test.bot_definition_dict', 'category', ifNull(properties.$user_agent, ''), '') AS bot_type,
+      dictGetOrDefault('posthog_test.web_bot_definition_dict', 'category', ifNull(properties.$user_agent, ''), '') AS bot_type,
       count() AS count
   
   FROM
@@ -144,7 +144,7 @@
   -- HogQL
   
   SELECT
-      dictGetOrDefault('posthog_test.bot_definition_dict', 'category', ifNull(properties.$user_agent, ''), 'regular') AS category,
+      dictGetOrDefault('posthog_test.web_bot_definition_dict', 'category', ifNull(properties.$user_agent, ''), 'regular') AS category,
       count() AS count
   
   FROM
@@ -186,7 +186,7 @@
   -- HogQL
   
   SELECT
-      dictGetOrDefault('posthog_test.bot_definition_dict', 'traffic_type', ifNull(properties.$user_agent, ''), 'Regular') AS traffic_type,
+      dictGetOrDefault('posthog_test.web_bot_definition_dict', 'traffic_type', ifNull(properties.$user_agent, ''), 'Regular') AS traffic_type,
       count() AS count
   
   FROM
@@ -228,7 +228,7 @@
   -- HogQL
   
   SELECT
-      notEquals(dictGetOrDefault('posthog_test.bot_definition_dict', 'traffic_type', ifNull(properties.$user_agent, ''), 'Regular'), 'Regular') AS is_bot,
+      notEquals(dictGetOrDefault('posthog_test.web_bot_definition_dict', 'traffic_type', ifNull(properties.$user_agent, ''), 'Regular'), 'Regular') AS is_bot,
       count() AS count
   
   FROM

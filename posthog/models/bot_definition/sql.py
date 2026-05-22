@@ -2,8 +2,8 @@ from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 from posthog.settings import CLICKHOUSE_PASSWORD
 
-BOT_DEFINITION_TABLE_NAME = "bot_definition"
-BOT_DEFINITION_DICTIONARY_NAME = "bot_definition_dict"
+BOT_DEFINITION_TABLE_NAME = "web_bot_definition"
+BOT_DEFINITION_DICTIONARY_NAME = "web_bot_definition_dict"
 
 BOT_DEFINITION_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} (
