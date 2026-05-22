@@ -75,7 +75,10 @@ class MatrixManager:
 
             if self.print_steps:
                 print(f"Creating demo organization, project, and user...")
-            organization_kwargs: dict[str, Any] = {"name": organization_name}
+            organization_kwargs: dict[str, Any] = {
+                "name": organization_name,
+                "is_ai_data_processing_approved": True,
+            }
             if settings.DEMO:
                 organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
             with transaction.atomic():

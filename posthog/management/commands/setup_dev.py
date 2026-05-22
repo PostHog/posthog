@@ -29,6 +29,10 @@ class Command(BaseCommand):
                 password="12345678",
                 first_name="Jane Doe",
                 is_staff=True,
+                organization_fields={
+                    "name": ORGANIZATION_NAME,
+                    "is_ai_data_processing_approved": True,
+                },
                 team_fields={
                     "name": TEAM_NAME,
                     "api_token": "e2e_token_1239",
