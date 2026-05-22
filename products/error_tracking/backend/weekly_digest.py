@@ -1,4 +1,5 @@
 import datetime
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.utils import timezone
@@ -10,6 +11,9 @@ from posthog.schema import HogQLFilters, ProductKey
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
 from posthog.tasks.email_utils import compute_week_over_week_change
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -65,7 +69,7 @@ def get_exception_summary_for_team(team: Team) -> dict:
 ELIGIBLE_ROLES_FOR_AUTO_DIGEST = {"engineering", "data", "founder"}
 
 
-def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[int, dict]) -> bool:
+def auto_select_project_for_user(user: "User", org_id: int, team_exception_counts: dict[int, dict]) -> bool:
     """For first-time users who have no ET digest project settings, auto-select the project with the most exceptions
     and persist the selection to their notification settings.
 
