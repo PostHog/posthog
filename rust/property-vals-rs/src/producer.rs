@@ -18,6 +18,7 @@ struct Outgoing<'a> {
     property_type: PropertyType,
     property_key: &'a str,
     property_value: &'a str,
+    event_name: &'a str,
     property_count: u64,
 }
 
@@ -80,6 +81,7 @@ impl Producer for AggregatedProducer {
                 property_type: tuple.property_type,
                 property_key: &tuple.property_key,
                 property_value: &tuple.property_value,
+                event_name: &tuple.event_name,
                 property_count: *count,
             })
             .collect();

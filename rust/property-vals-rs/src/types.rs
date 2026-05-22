@@ -9,6 +9,8 @@ pub struct Event {
     pub team_id: i64,
 
     #[serde(default)]
+    pub event: String,
+    #[serde(default)]
     pub properties: Option<String>,
     #[serde(default)]
     pub person_properties: Option<String>,
@@ -40,6 +42,7 @@ pub struct TupleKey {
     pub property_type: PropertyType,
     pub property_key: String,
     pub property_value: String,
+    pub event_name: String,
 }
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]

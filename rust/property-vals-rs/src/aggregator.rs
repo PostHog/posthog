@@ -48,6 +48,7 @@ mod tests {
             property_type: PropertyType::Event,
             property_key: key.to_string(),
             property_value: value.to_string(),
+            event_name: "$pageview".to_string(),
         }
     }
 
@@ -65,8 +66,9 @@ mod tests {
             property_type in arb_property_type(),
             property_key in "[a-c]{1,3}",
             property_value in "[x-z]{1,3}",
+            event_name in prop_oneof!["[a-c]{1,3}", Just("$pageview".to_string())],
         ) -> TupleKey {
-            TupleKey { team_id, property_type, property_key, property_value }
+            TupleKey { team_id, property_type, property_key, property_value, event_name }
         }
     }
 

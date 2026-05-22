@@ -5,14 +5,28 @@ use crate::types::{Event, GroupIdentify, PropertyType, TupleKey};
 pub const MAX_PROPERTY_KEY_LEN: usize = 400;
 pub const MAX_PROPERTY_VALUE_LEN: usize = 255;
 
+pub const GROUP_IDENTIFY_EVENT_NAME: &str = "$groupidentify";
+
 pub fn fan_out(event: &Event) -> Vec<TupleKey> {
     let mut out = Vec::new();
 
     if let Some(raw) = &event.properties {
-        emit_from_blob(event.team_id, PropertyType::Event, raw, &mut out);
+        emit_from_blob(
+            event.team_id,
+            PropertyType::Event,
+            &event.event,
+            raw,
+            &mut out,
+        );
     }
     if let Some(raw) = &event.person_properties {
-        emit_from_blob(event.team_id, PropertyType::Person, raw, &mut out);
+        emit_from_blob(
+            event.team_id,
+            PropertyType::Person,
+            &event.event,
+            raw,
+            &mut out,
+        );
     }
 
     out
@@ -24,6 +38,7 @@ pub fn fan_out_group(event: &GroupIdentify) -> Vec<TupleKey> {
         emit_from_blob(
             event.team_id,
             PropertyType::Group(event.group_type_index),
+            GROUP_IDENTIFY_EVENT_NAME,
             raw,
             &mut out,
         );
@@ -31,7 +46,13 @@ pub fn fan_out_group(event: &GroupIdentify) -> Vec<TupleKey> {
     out
 }
 
-fn emit_from_blob(team_id: i64, property_type: PropertyType, raw: &str, out: &mut Vec<TupleKey>) {
+fn emit_from_blob(
+    team_id: i64,
+    property_type: PropertyType,
+    event_name: &str,
+    raw: &str,
+    out: &mut Vec<TupleKey>,
+) {
     let parsed: Value = match serde_json::from_str(raw) {
         Ok(v) => v,
         Err(_) => return,
@@ -61,6 +82,7 @@ fn emit_from_blob(team_id: i64, property_type: PropertyType, raw: &str, out: &mu
             property_type,
             property_key: key.clone(),
             property_value,
+            event_name: event_name.to_string(),
         });
     }
 }
@@ -81,6 +103,7 @@ mod tests {
     fn event(properties: &str) -> Event {
         Event {
             team_id: 2,
+            event: "$pageview".to_string(),
             properties: Some(properties.to_string()),
             person_properties: None,
         }
@@ -116,13 +139,23 @@ mod tests {
         }
     }
 
+    fn arb_event_name() -> impl Strategy<Value = String> {
+        prop_oneof![
+            Just("$pageview".to_string()),
+            Just("$autocapture".to_string()),
+            Just("$identify".to_string()),
+            "[a-z_]{1,20}",
+        ]
+    }
+
     prop_compose! {
         fn arb_event()(
             team_id: i64,
+            event in arb_event_name(),
             properties in prop::option::of(arb_blob()),
             person_properties in prop::option::of(arb_blob()),
         ) -> Event {
-            Event { team_id, properties, person_properties }
+            Event { team_id, event, properties, person_properties }
         }
     }
 
@@ -202,6 +235,7 @@ mod tests {
     fn person_properties_emit_person_type() {
         let ev = Event {
             team_id: 2,
+            event: "$identify".to_string(),
             properties: None,
             person_properties: Some(r#"{"email":"foo@bar.com"}"#.to_string()),
         };
@@ -210,6 +244,20 @@ mod tests {
         assert_eq!(tuples[0].property_type, PropertyType::Person);
         assert_eq!(tuples[0].property_key, "email");
         assert_eq!(tuples[0].property_value, "foo@bar.com");
+        assert_eq!(tuples[0].event_name, "$identify");
+    }
+
+    #[test]
+    fn event_property_carries_event_name() {
+        let tuples = fan_out(&event(r#"{"$browser":"Chrome"}"#));
+        assert_eq!(tuples[0].event_name, "$pageview");
+    }
+
+    #[test]
+    fn group_identify_emits_groupidentify_event_name() {
+        let tuples = fan_out_group(&group_identify(0, r#"{"plan":"enterprise"}"#));
+        assert_eq!(tuples.len(), 1);
+        assert_eq!(tuples[0].event_name, GROUP_IDENTIFY_EVENT_NAME);
     }
 
     #[test]
