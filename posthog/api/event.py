@@ -6,7 +6,7 @@ import urllib
 import builtins
 import dataclasses
 from datetime import datetime
-from typing import Any, Iterator, Optional, Union, cast  # noqa: UP035
+from typing import Any, Iterator, List, Optional, Union, cast  # noqa: UP035
 
 from django.conf import settings
 from django.core.cache import cache
@@ -415,7 +415,7 @@ class EventViewSet(
             capture_exception(ex)
             raise
 
-    def _get_people(self, query_result: list[dict], team: Team) -> "dict[str, Person]":
+    def _get_people(self, query_result: List[dict], team: Team) -> "dict[str, Person]":  # noqa: UP006
         distinct_ids = list({event["distinct_id"] for event in query_result})
         return get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
