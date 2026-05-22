@@ -317,9 +317,7 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
             (30, ["old intent"]),
         ],
     )
-    def test_lookback_days_argument_is_respected(
-        self, lookback_days: int, expected_intents: list[str]
-    ) -> None:
+    def test_lookback_days_argument_is_respected(self, lookback_days: int, expected_intents: list[str]) -> None:
         # Session ends 10 days ago: excluded at 7 days, included at 30.
         self._seed_session("old", "old intent", session_end_offset=timedelta(days=-10))
 
