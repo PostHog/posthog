@@ -44,8 +44,23 @@ export function isReadOnly(): boolean {
     return getter?.() ?? false
 }
 
-export function assertNotReadOnly(method: 'PATCH' | 'PUT' | 'POST' | 'DELETE'): void {
+// URLs that look like writes but are actually reads. The query endpoint is the
+// obvious one — it serves HogQL / trends / funnels / retention via POST because
+// the payload is too large for a query string. Block-listing these would make
+// the entire app unusable in read-only mode.
+const READ_ONLY_ALLOWED_PATTERNS = [
+    /\/query(?:\/|$|\?)/, // /api/environments/:team_id/query, /api/environments/:team_id/query/:queryId/log, etc.
+]
+
+function isReadDisguisedAsWrite(url: string): boolean {
+    return READ_ONLY_ALLOWED_PATTERNS.some((pattern) => pattern.test(url))
+}
+
+export function assertNotReadOnly(method: 'PATCH' | 'PUT' | 'POST' | 'DELETE', url: string): void {
     if (!isReadOnly()) {
+        return
+    }
+    if (isReadDisguisedAsWrite(url)) {
         return
     }
     notifier?.(method)
