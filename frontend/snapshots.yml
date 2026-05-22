@@ -1864,6 +1864,18 @@ snapshots:
         hash: v1.k794b7964.85a7028e6729988dedf767a52640b16c94aa48baf0ab9c89b1085c38d4e8cc8e.wDERvaZQvyEVwZsoj2q7nTwZSDswGOq-6dnRNcvuRpw
     insights-funnelcorrelationtable--default--light:
         hash: v1.k794b7964.a5ccf40b74b63001bb7383ff53cb81b8f4f4a07308e0b6a2ad590ff821efc3ee.wCJ8wpYAyHJfnQB7k7qNZZKqiPtIq2sppx3qVS4IGQQ
+    insights-funnellinechart--default--dark:
+        hash: v1.k794b7964.88b532c89fa992eac628ca0a779b0889d74e00e650284960e1d935f5e7e8704c.9XjpRbnpuvI56K35oITlbW-Z4_d8VXboPy03ork9yaY
+    insights-funnellinechart--default--light:
+        hash: v1.k794b7964.bc3e2e9caee13301c07d79564d2c7e01a29c748a1f382496585f58f2ac283389.SDhk8kXtp9imHhdiYpRwgQfwSXvcH_oeQ8m1K729q0Q
+    insights-funnellinechart--goal-line--dark:
+        hash: v1.k794b7964.bda4551694dc54902b3e46ffb327e0d713af760b1a53ae7b7453779fa1e26bbf.pFfUWaxERw1KCaA9ZcqwB0R8TKC4CDiD5ift8kApZM4
+    insights-funnellinechart--goal-line--light:
+        hash: v1.k794b7964.35b2f6e08b22e8b95c561f10f4a3eeee0ec5355d91aa166db2cc3595f2acc4ae.iqDGpipKH0res85GZFCYszkpygWdzEM7lweEmg62j6M
+    insights-funnellinechart--value-labels--dark:
+        hash: v1.k794b7964.0c55587cfcea1fc34a6aede2eccbaac54ac296aa405d1272fc3c09efc1d02a6b.7kVLiv-W7Mk_5t8YKcXB2IM_ikwvMm5ssyT_uxoJvfw
+    insights-funnellinechart--value-labels--light:
+        hash: v1.k794b7964.746ea8a29d8e924baa6e7384d7a3a4a357727d37877668d15caae4fe2fcb4398.NoQWMVJ_C7Tw-ejmNiYdWnToUC5v0SdTi7OL5e6TrIo
     insights-funnelpropertycorrelationtable--default--dark:
         hash: v1.k794b7964.49a465be8c619b1b05298a08904f554cb8636e8080dece84b8a37f85e1fefa8f.XYyBv_BrMjUV6Vqt_JHcot038t7pXgyS7FSXNBV7wJs
     insights-funnelpropertycorrelationtable--default--light:
