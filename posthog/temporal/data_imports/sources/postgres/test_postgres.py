@@ -158,7 +158,8 @@ class TestIsConnectionDroppedError:
         [
             psycopg.errors.ProtocolViolation("server conn crashed?"),
             psycopg.OperationalError("server closed the connection unexpectedly"),
-            psycopg.OperationalError('connection to server at "10.0.0.1" failed'),
+            psycopg.OperationalError("connection to server was lost"),
+            psycopg.OperationalError("connection to server was closed unexpectedly"),
             psycopg.OperationalError("consuming input failed: EOF detected"),
             psycopg.OperationalError("terminating connection due to administrator command"),
             psycopg.errors.ProtocolViolation("SERVER CONN CRASHED?"),
@@ -173,6 +174,11 @@ class TestIsConnectionDroppedError:
             psycopg.errors.SerializationFailure("could not serialize access due to conflict with recovery"),
             psycopg.errors.QueryCanceled("statement timeout"),
             psycopg.OperationalError("password authentication failed for user"),
+            # Initial-connect failures embed "connection to server …" but are
+            # permanent — they must not be misclassified as a recoverable drop.
+            psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            ),
             psycopg.errors.UniqueViolation("duplicate key value violates unique constraint"),
             ValueError("server conn crashed?"),
             Exception("server conn crashed?"),

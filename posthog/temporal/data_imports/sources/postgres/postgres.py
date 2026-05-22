@@ -99,11 +99,32 @@ class SSLRequiredError(Exception):
 _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "server conn crashed",
     "server closed the connection unexpectedly",
-    "connection to server",
+    # Narrow "connection to server …" variants only — a bare "connection to server"
+    # would also match initial-connect failures like "connection to server at
+    # \"host\" failed: FATAL: password authentication failed", which are permanent
+    # and must not be retried.
+    "connection to server was lost",
+    "connection to server was closed",
     "consuming input failed",
     "no connection to the server",
     "terminating connection due to",
 )
+
+
+def _safe_close_connection(connection: psycopg.Connection) -> None:
+    """Close a connection without raising.
+
+    Prefer this over Connection.__exit__ for teardown in exception handlers:
+    __exit__ attempts a commit/rollback first, which can itself raise on a
+    broken connection and mask the original error. close() just releases the
+    socket.
+    """
+    if connection.closed:
+        return
+    try:
+        connection.close()
+    except Exception:
+        pass
 
 
 def _is_connection_dropped_error(error: BaseException) -> bool:
@@ -1799,6 +1820,13 @@ def postgres_source(
                         )
                 except Exception as e:
                     logger.debug(f"Failed to set statement_timeout on sync connection: {e}")
+                # The SET above opens an implicit transaction in psycopg's default
+                # non-autocommit mode, leaving the connection INTRANS. Commit so the
+                # connection is returned IDLE: callers that flip on autocommit (offset
+                # chunking) would otherwise hit "can't change autocommit state:
+                # connection in transaction". SET statement_timeout has session scope,
+                # so committing preserves it.
+                connection.commit()
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):
@@ -1868,8 +1896,7 @@ def postgres_source(
                         successive_errors += 1
                         if successive_errors >= 30:
                             # The connection should be closed here, but want to double check to make sure
-                            if connection.closed is False:
-                                connection.__exit__(type(e), e, None)
+                            _safe_close_connection(connection)
 
                             raise Exception(
                                 f"Hit {successive_errors} successive SerializationFailure errors. Aborting."
@@ -1883,16 +1910,14 @@ def postgres_source(
                             time.sleep(2 * successive_errors)
                     except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
                         if not _is_connection_dropped_error(e):
-                            if connection.closed is False:
-                                connection.__exit__(type(e), e, None)
+                            _safe_close_connection(connection)
                             raise
 
                         # The upstream connection died (idle cull, failover, etc.).
                         # offset only advances after a fully fetched+yielded chunk,
                         # so reopening and retrying the same offset resumes cleanly.
                         successive_conn_errors += 1
-                        if connection.closed is False:
-                            connection.__exit__(type(e), e, None)
+                        _safe_close_connection(connection)
                         if successive_conn_errors >= 10:
                             raise Exception(
                                 f"Hit {successive_conn_errors} successive connection-dropped errors. Aborting."
@@ -1904,13 +1929,11 @@ def postgres_source(
                         time.sleep(min(2 * successive_conn_errors, 30))
                         connection = get_connection()
                         connection.autocommit = True
-                    except Exception as e:
-                        if connection.closed is False:
-                            connection.__exit__(type(e), e, None)
+                    except Exception:
+                        _safe_close_connection(connection)
                         raise
 
-                if connection.closed is False:
-                    connection.__exit__(None, None, None)
+                _safe_close_connection(connection)
 
             if use_per_partition_chunking and incremental_field is not None and incremental_field_type is not None:
 
