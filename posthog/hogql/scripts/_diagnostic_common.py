@@ -275,14 +275,22 @@ def _shape_for(
     candidate_backend: str,
 ) -> DivergenceShape | None:
     """Determine the divergence shape of `query`, or None if there's no
-    divergence to track. Returns None when the oracle doesn't cleanly
-    accept (reject or crash — nothing to compare against) and when the
-    candidate crashes (a crash isn't a stable `DivergenceShape`, so the
-    shrinker simply won't reduce toward one)."""
+    divergence to track. Returns None when the oracle crashes (nothing
+    to compare against) and when the candidate crashes (a crash isn't a
+    stable `DivergenceShape`, so the shrinker won't reduce toward one).
+
+    Two-sided contract: when the oracle *rejects*, a candidate that
+    *accepts* is the divergence (the candidate took an invalid query) —
+    shape `candidate_accepts_oracle_reject`. Both rejecting is agreement,
+    so there's nothing to shrink toward."""
     o_status, o_ast, _ = _safe_parse(query, rule, oracle_backend)
-    if o_status != "ok":
+    if o_status == "crash":
         return None
     c_status, c_ast, c_detail = _safe_parse(query, rule, candidate_backend)
+    if o_status == "reject":
+        if c_status == "ok":
+            return DivergenceShape(kind="candidate_accepts_oracle_reject")
+        return None
     if c_status == "reject":
         return DivergenceShape(kind="candidate_reject", reject_signature=c_detail)
     if c_status == "crash":

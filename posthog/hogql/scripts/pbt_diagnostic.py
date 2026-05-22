@@ -258,6 +258,10 @@ def main() -> int:
     # different "minimal" repros for the same bug.
     mismatch_buckets: dict[tuple[str, str], list[tuple[str, str | None, list]]] = {}
     reject_buckets: dict[str, list[tuple[str, str | None]]] = {}
+    # Two-sided contract: the oracle rejected but the candidate accepted —
+    # the candidate took an invalid query. Bucketed by the candidate AST's
+    # root node type so the dominant over-acceptance shapes surface.
+    accept_reject_buckets: dict[str, list[tuple[str, str | None]]] = {}
     # A candidate that raises a non-HogQL exception (RecursionError, a
     # half-built backend's RuntimeError, …) is a finding in its own
     # right — `_safe_parse` catches it so one crashing query can't
@@ -299,19 +303,58 @@ def main() -> int:
         counts["total"] += 1
 
         o_status, o_ast, _ = _safe_parse(query, args.rule, oracle)
-        if o_status == "reject":
-            counts["oracle_reject"] += 1
-            # `--accepted-only`: discard so this doesn't count toward
-            # `max_examples` — Hypothesis regenerates until `--n`
-            # oracle-accepted examples land.
-            if args.accepted_only:
-                assume(False)
-            return
         if o_status == "crash":
             # The oracle (source of truth) crashing is its own kind of
             # finding — count it, but with no oracle AST there's
             # nothing to compare the candidate against, so stop here.
             counts["oracle_crash"] += 1
+            if args.accepted_only:
+                assume(False)
+            return
+        if o_status == "reject":
+            # Two-sided contract: the oracle rejected, so the candidate
+            # must reject too. A candidate that *accepts* took an invalid
+            # query — the headline failure this contract exists to catch.
+            counts["oracle_reject"] += 1
+            rc_status, rc_ast, rc_detail = _safe_parse(query, args.rule, candidate)
+            if rc_status == "ok":
+                counts["candidate_accepts_oracle_reject"] += 1
+                bucket = _node_type(rc_ast)
+                shape = DivergenceShape(kind="candidate_accepts_oracle_reject")
+                shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
+                accept_reject_buckets.setdefault(bucket, []).append((query, shrunk))
+                write_record(
+                    {
+                        "kind": "candidate_accepts_oracle_reject",
+                        "rule": args.rule,
+                        "oracle": oracle,
+                        "candidate": candidate,
+                        "query": query,
+                        "candidate_root": bucket,
+                    },
+                    shrunk,
+                )
+            elif rc_status == "crash":
+                counts["candidate_crash"] += 1
+                sig = rc_detail or "<no message>"
+                crash_buckets.setdefault(sig, []).append(query)
+                write_record(
+                    {
+                        "kind": "candidate_crash",
+                        "rule": args.rule,
+                        "oracle": oracle,
+                        "candidate": candidate,
+                        "query": query,
+                        "crash_signature": sig,
+                    },
+                    None,
+                )
+            else:
+                # Both rejected — the contract is satisfied.
+                counts["both_reject"] += 1
+            # `--accepted-only`: discard so this doesn't count toward
+            # `max_examples` — Hypothesis regenerates until `--n`
+            # oracle-accepted examples land.
             if args.accepted_only:
                 assume(False)
             return
@@ -404,6 +447,25 @@ def main() -> int:
     )
     for k, v in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
         print(f"  {k:32s} {v}")
+
+    # ---- rejection-parity: candidate accepted what the oracle rejected ----
+    # The headline failure of the two-sided contract — a candidate that
+    # parses an invalid query. Printed first (and samples shown by default,
+    # not gated behind `--print-rejects`) because it's a correctness bug,
+    # not the noisier "candidate is stricter than the oracle" reject class.
+    if accept_reject_buckets:
+        total = sum(len(v) for v in accept_reject_buckets.values())
+        print()
+        print(f"=== candidate_accepts_oracle_reject ({total} total — candidate took an INVALID query) ===")
+        sorted_ar_buckets = sorted(accept_reject_buckets.items(), key=lambda kv: -len(kv[1]))
+        for root, queries in sorted_ar_buckets:
+            print(f"  candidate root {root}: {len(queries)}")
+        print()
+        print(f"=== Sample candidate_accepts_oracle_reject (up to {args.max_mismatch_samples} per root) ===")
+        for root, queries in sorted_ar_buckets:
+            print(f"\n--- candidate root {root} ({len(queries)} total) ---")
+            for query, shrunk in queries[: args.max_mismatch_samples]:
+                _print_failure_sample(query, shrunk, args.rule, oracle, candidate)
 
     # ---- ast_mismatch categorization + samples ----------------------------
     if mismatch_buckets:
