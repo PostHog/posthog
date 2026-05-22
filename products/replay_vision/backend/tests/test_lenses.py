@@ -10,6 +10,7 @@ from products.replay_vision.backend.temporal.lenses import (
     IndexerLens,
     IndexerOutput,
     MonitorLens,
+    MonitorLlmResponse,
     MonitorOutput,
     ScorerLens,
     ScorerOutput,
@@ -65,7 +66,7 @@ class TestMonitorLens:
         assert isinstance(lens, MonitorLens)
         assert lens.prompt == "did the user export?"
         assert lens.emits_signals is False
-        assert lens.llm_response_schema is MonitorOutput
+        assert lens.llm_response_schema is MonitorLlmResponse
 
     def test_lens_from_db_raises_on_missing_prompt(self) -> None:
         with pytest.raises(ApplicationError, match="prompt"):
@@ -79,9 +80,28 @@ class TestMonitorLens:
         )
         assert "session from Acme" in rendered
         assert "did the user complete checkout?" in rendered
-        assert "Decide whether the condition" in rendered
+        assert "Decide whether the following condition" in rendered
         assert '"event":"$pageview"' in rendered
         assert '"$current_url":"/cart"' in rendered
+
+    def test_build_prompt_drops_null_and_empty_fields_per_event(self) -> None:
+        lens = lens_from_db(_build_replay_lens())
+        rendered = lens.build_prompt(
+            team_name="Acme",
+            events=EventTable(
+                columns=["event", "$current_url", "$exception_types", "elements_chain_texts", "$event_type"],
+                rows=[
+                    ["$pageview", "/cart", None, [], None],
+                    ["$autocapture", "/cart", None, ["Add to cart"], "click"],
+                ],
+            ),
+        )
+        assert '"$exception_types"' not in rendered
+        assert '"elements_chain_texts":[]' not in rendered
+        assert '"$event_type":null' not in rendered
+        assert '"event":"$pageview"' in rendered
+        assert '"elements_chain_texts":["Add to cart"]' in rendered
+        assert '"$event_type":"click"' in rendered
 
     def test_build_prompt_escapes_left_angle_to_block_tag_injection(self) -> None:
         lens = lens_from_db(_build_replay_lens())
@@ -135,10 +155,15 @@ class TestMonitorLens:
         assert "<session_metadata>" in rendered
         assert '"active_seconds":180' in rendered
 
-    def test_finalize_is_identity_for_monitor(self) -> None:
+    def test_finalize_stamps_lens_type_onto_llm_response(self) -> None:
         lens = lens_from_db(_build_replay_lens())
-        llm_output = MonitorOutput(verdict=True, reasoning="user clicked Export at 0:42", confidence=0.9)
-        assert lens.finalize(llm_output) is llm_output
+        llm_response = MonitorLlmResponse(verdict=True, reasoning="user clicked Export at 0:42", confidence=0.9)
+        finalized = lens.finalize(llm_response)
+        assert isinstance(finalized, MonitorOutput)
+        assert finalized.lens_type == LensType.MONITOR
+        assert finalized.verdict is True
+        assert finalized.reasoning == "user clicked Export at 0:42"
+        assert finalized.confidence == 0.9
 
     def test_validate_semantics_passes_for_well_formed_output(self) -> None:
         lens = lens_from_db(_build_replay_lens())
@@ -261,6 +286,78 @@ class TestClassifierLens:
         ok = schema_class(tags=["a"], reasoning="r", confidence=0.9)
         assert ok.tags == ["a"]  # type: ignore[attr-defined]
 
+    def test_freeform_default_off_rejects_freeform_in_validate(self) -> None:
+        lens = lens_from_db(
+            _build_replay_lens(lens_type=LensType.CLASSIFIER, lens_config={"prompt": "x", "tags": ["a", "b"]})
+        )
+        assert isinstance(lens, ClassifierLens)
+        assert lens.allow_freeform_tags is False
+        out = ClassifierOutput(tags=["a"], tags_freeform=["sneaky"], reasoning="r", confidence=0.9)
+        error = lens.validate_semantics(out)
+        assert error is not None
+        assert "allow_freeform_tags=False" in error
+
+    def test_freeform_on_admits_field_in_schema(self) -> None:
+        lens = lens_from_db(
+            _build_replay_lens(
+                lens_type=LensType.CLASSIFIER,
+                lens_config={"prompt": "x", "tags": ["a", "b"], "allow_freeform_tags": True},
+            )
+        )
+        schema_class = lens.llm_response_schema
+        ok = schema_class(tags=["a"], tags_freeform=["custom_one", "custom_two"], reasoning="r", confidence=0.9)
+        assert ok.tags_freeform == ["custom_one", "custom_two"]  # type: ignore[attr-defined]
+        with pytest.raises(ValidationError):
+            schema_class(tags=["a"], tags_freeform=[f"t{i}" for i in range(6)], reasoning="r", confidence=0.9)
+
+    def test_freeform_prompt_block_only_when_enabled(self) -> None:
+        on = lens_from_db(
+            _build_replay_lens(
+                lens_type=LensType.CLASSIFIER,
+                lens_config={"prompt": "x", "tags": ["a"], "allow_freeform_tags": True},
+            )
+        )
+        off = lens_from_db(
+            _build_replay_lens(lens_type=LensType.CLASSIFIER, lens_config={"prompt": "x", "tags": ["a"]})
+        )
+        events = EventTable(columns=[], rows=[])
+        assert "tags_freeform" in on.build_prompt(team_name="Acme", events=events)
+        assert "tags_freeform" not in off.build_prompt(team_name="Acme", events=events)
+
+    def test_finalize_strips_overlap_with_fixed_vocab_case_insensitive(self) -> None:
+        lens = lens_from_db(
+            _build_replay_lens(
+                lens_type=LensType.CLASSIFIER,
+                lens_config={"prompt": "x", "tags": ["LoginFailure", "Onboarding"], "allow_freeform_tags": True},
+            )
+        )
+        llm_response = lens.llm_response_schema(
+            tags=["LoginFailure"],
+            tags_freeform=["loginfailure", "ONBOARDING", "billing"],
+            reasoning="r",
+            confidence=0.9,
+        )
+        finalized = lens.finalize(llm_response)
+        assert isinstance(finalized, ClassifierOutput)
+        assert finalized.tags_freeform == ["billing"]
+
+    def test_finalize_normalizes_freeform_to_snake_case(self) -> None:
+        lens = lens_from_db(
+            _build_replay_lens(
+                lens_type=LensType.CLASSIFIER,
+                lens_config={"prompt": "x", "tags": ["a"], "allow_freeform_tags": True},
+            )
+        )
+        llm_response = lens.llm_response_schema(
+            tags=["a"],
+            tags_freeform=["Password Reset", "PASSWORD reset", "  rate-limit  ", "Slow Checkout!"],
+            reasoning="r",
+            confidence=0.9,
+        )
+        finalized = lens.finalize(llm_response)
+        assert isinstance(finalized, ClassifierOutput)
+        assert finalized.tags_freeform == ["password_reset", "rate-limit", "slow_checkout"]
+
 
 class TestScorerLens:
     def test_lens_from_db_picks_scorer_subclass(self) -> None:
@@ -369,14 +466,19 @@ class TestSummarizerLens:
 
 class TestIndexerLens:
     def test_lens_from_db_picks_indexer_subclass(self) -> None:
-        lens = lens_from_db(_build_replay_lens(lens_type=LensType.INDEXER, lens_config={"prompt": "index"}))
+        lens = lens_from_db(_build_replay_lens(lens_type=LensType.INDEXER, lens_config={}))
         assert isinstance(lens, IndexerLens)
+
+    def test_lens_from_db_rejects_prompt_on_indexer(self) -> None:
+        with pytest.raises(ApplicationError, match="prompt"):
+            lens_from_db(_build_replay_lens(lens_type=LensType.INDEXER, lens_config={"prompt": "x"}))
 
     def test_output_round_trip_includes_all_facets(self) -> None:
         out = IndexerOutput(
+            intent="File a regression report",
             summary="Bug report",
-            user_type="Power user filing a regression",
             outcome="Submitted ticket",
+            friction_points=["upload failure"],
             keywords=["bug", "regression", "ticket"],
             confidence=0.8,
         )
@@ -385,7 +487,24 @@ class TestIndexerLens:
 
     def test_output_rejects_empty_keywords(self) -> None:
         with pytest.raises(ValidationError):
-            IndexerOutput(summary="x", user_type="x", outcome="x", keywords=[], confidence=0.8)
+            IndexerOutput(intent="x", summary="x", outcome="x", keywords=[], confidence=0.8)
+
+    def test_finalize_lowercases_keywords_and_friction_points(self) -> None:
+        lens = lens_from_db(_build_replay_lens(lens_type=LensType.INDEXER, lens_config={}))
+        from products.replay_vision.backend.temporal.lenses import IndexerLlmResponse
+
+        response = IndexerLlmResponse(
+            intent="Authenticate",
+            summary="Tried to log in",
+            outcome="Reached reset page",
+            friction_points=["Invalid Password Error", "Buffering Page"],
+            keywords=["Login", "Failed Attempt", "Reset"],
+            confidence=0.9,
+        )
+        finalized = lens.finalize(response)
+        assert isinstance(finalized, IndexerOutput)
+        assert finalized.friction_points == ["invalid password error", "buffering page"]
+        assert finalized.keywords == ["login", "failed attempt", "reset"]
 
 
 class TestToEventProperties:

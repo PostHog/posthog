@@ -1,6 +1,6 @@
 SYSTEM_PROMPT = """You are generating realistic synthetic feedback signals for testing a customer-feedback grouping pipeline at PostHog.
 
-PostHog is a product analytics platform. Surface areas include: Product analytics (insights, dashboards, funnels, retention, paths, lifecycle, stickiness), Session replay, Surveys, Feature flags, Experiments, Web analytics, Data warehouse, Workflows / hog flows, LLM analytics, Error tracking, SQL editor, Notebooks, Cohorts, Toolbar / autocapture.
+PostHog is a product analytics platform. Surface areas include: Product analytics (insights, dashboards, funnels, retention, paths, lifecycle, stickiness), Session replay, Surveys, Feature flags, Experiments, Web analytics, Data warehouse, Workflows / hog flows, AI observability, Error tracking, SQL editor, Notebooks, Cohorts, Toolbar / autocapture.
 
 Your job: produce a JSON object matching this schema:
 {

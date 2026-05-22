@@ -18,8 +18,8 @@ class LensProvider(models.TextChoices):
 
 
 class LensModel(models.TextChoices):
-    GEMINI_3_FLASH = "gemini-3-flash", "Gemini 3 Flash"
-    GEMINI_3_FLASH_LITE = "gemini-3-flash-lite", "Gemini 3 Flash Lite"
+    GEMINI_3_FLASH = "gemini-3-flash-preview", "Gemini 3 Flash"
+    GEMINI_3_FLASH_LITE = "gemini-3.1-flash-lite-preview", "Gemini 3 Flash Lite"
 
 
 class ReplayLens(UUIDModel):

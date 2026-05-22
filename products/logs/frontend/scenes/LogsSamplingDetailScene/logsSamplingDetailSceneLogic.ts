@@ -13,7 +13,10 @@ import {
     buildSamplingFormDefaults,
     logsSamplingFormLogic,
 } from 'products/logs/frontend/components/LogsSampling/logsSamplingFormLogic'
-import { fetchSamplingRuleDropTotalsLast24h } from 'products/logs/frontend/components/LogsSampling/samplingRuleDropImpact'
+import {
+    type SamplingRuleDropTotals,
+    fetchSamplingRuleDropTotalsLast24h,
+} from 'products/logs/frontend/components/LogsSampling/samplingRuleDropImpact'
 import { logsSamplingRulesDestroy, logsSamplingRulesRetrieve } from 'products/logs/frontend/generated/api'
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSettingsUrl'
@@ -54,12 +57,12 @@ export const logsSamplingDetailSceneLogic = kea<logsSamplingDetailSceneLogicType
             },
         ],
         ruleDropImpact24h: [
-            null as number | null,
+            null as SamplingRuleDropTotals | null,
             {
                 loadRuleDropImpact24h: async (_, breakpoint) => {
                     await breakpoint(1)
                     const map = await fetchSamplingRuleDropTotalsLast24h([props.id])
-                    return map[props.id] ?? 0
+                    return map[props.id] ?? { records: 0, bytes: 0 }
                 },
             },
         ],
