@@ -25,8 +25,8 @@ from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
 
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):

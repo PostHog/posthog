@@ -5,7 +5,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Insight
+from posthog.models import Insight, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -487,6 +487,56 @@ class TestAccountViewSet(APIBaseTest):
         # nosemgrep: idor-lookup-without-team (test assertion)
         self.assertFalse(Account.objects.unscoped().filter(id=account_id).exists())
 
+    _EXTERNAL_IDENTIFIER_PROPERTIES = {
+        "stripe_customer_id": "cus_123",
+        "hubspot_deal_id": "deal_456",
+        "billing_id": "bill_789",
+        "sfdc_id": "001A000000DUMMY",
+        "zendesk_id": "zd_42",
+    }
+
+    def _assert_external_identifiers(self, properties_payload):
+        for key, value in self._EXTERNAL_IDENTIFIER_PROPERTIES.items():
+            self.assertEqual(properties_payload[key], value)
+
+    def test_create_with_external_identifier_properties(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"name": "Acme", "properties": self._EXTERNAL_IDENTIFIER_PROPERTIES},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        self._assert_external_identifiers(response.json()["properties"])
+
+    def test_update_with_external_identifier_properties(self):
+        account = self._create_account()
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{account.id}/",
+            {"properties": self._EXTERNAL_IDENTIFIER_PROPERTIES},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self._assert_external_identifiers(response.json()["properties"])
+
+    def test_retrieve_returns_external_identifier_properties(self):
+        account = self._create_account(properties=self._EXTERNAL_IDENTIFIER_PROPERTIES)
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self._assert_external_identifiers(response.json()["properties"])
+
+    def test_list_returns_external_identifier_properties(self):
+        self._create_account(properties=self._EXTERNAL_IDENTIFIER_PROPERTIES)
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self._assert_external_identifiers(response.json()["results"][0]["properties"])
+
     @parameterized.expand(
         [
             (
@@ -588,6 +638,159 @@ class TestAccountViewSet(APIBaseTest):
             with self.subTest(method=method, url=url):
                 response = getattr(self.client, method.lower())(url, format="json")
                 self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_create_with_tags(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"name": "Tagged Account", "tags": ["enterprise", "priority"]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        self.assertEqual(sorted(response.json()["tags"]), ["enterprise", "priority"])
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        account = Account.objects.unscoped().get(id=response.json()["id"])
+        self.assertEqual(
+            sorted(Tag.objects.filter(team=self.team).values_list("name", flat=True)),
+            ["enterprise", "priority"],
+        )
+        self.assertEqual(
+            sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)),
+            ["enterprise", "priority"],
+        )
+
+    def test_retrieve_returns_tags(self):
+        account = self._create_account()
+        tag = Tag.objects.create(name="vip", team=self.team)
+        account.tagged_items.create(tag=tag)
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["tags"], ["vip"])
+
+    def test_list_returns_tags(self):
+        account = self._create_account()
+        for name in ("alpha", "beta"):
+            account.tagged_items.create(tag=Tag.objects.create(name=name, team=self.team))
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        results = {r["id"]: r for r in response.json()["results"]}
+        self.assertEqual(sorted(results[str(account.id)]["tags"]), ["alpha", "beta"])
+
+    def test_update_replaces_tags(self):
+        account = self._create_account()
+        account.tagged_items.create(tag=Tag.objects.create(name="old", team=self.team))
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{account.id}/",
+            {"tags": ["new"]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["tags"], ["new"])
+        self.assertEqual(list(account.tagged_items.values_list("tag__name", flat=True)), ["new"])
+
+    def test_update_with_empty_tags_clears_them(self):
+        account = self._create_account()
+        account.tagged_items.create(tag=Tag.objects.create(name="stale", team=self.team))
+
+        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"tags": []}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertFalse(account.tagged_items.exists())
+
+    def test_list_filters_by_tags(self):
+        billing_tag = Tag.objects.create(name="billing", team=self.team)
+        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
+        churn_tag = Tag.objects.create(name="churn", team=self.team)
+
+        billing = self._create_account(name="Billing Co")
+        billing.tagged_items.create(tag=billing_tag)
+        urgent = self._create_account(name="Urgent Co")
+        urgent.tagged_items.create(tag=urgent_tag)
+        churn = self._create_account(name="Churn Co")
+        churn.tagged_items.create(tag=churn_tag)
+        self._create_account(name="Untagged Co")
+
+        response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        names = {r["name"] for r in response.json()["results"]}
+        self.assertEqual(names, {"Billing Co", "Urgent Co"})
+
+    def test_list_tags_filter_returns_each_account_once_when_multiple_tags_match(self):
+        billing_tag = Tag.objects.create(name="billing", team=self.team)
+        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
+        account = self._create_account(name="Double Tagged")
+        account.tagged_items.create(tag=billing_tag)
+        account.tagged_items.create(tag=urgent_tag)
+
+        response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 1)
+
+    def test_list_ignores_malformed_tags_param(self):
+        Tag.objects.create(name="billing", team=self.team)
+        self._create_account(name="Account A")
+        self._create_account(name="Account B")
+
+        response = self.client.get(f"{self.endpoint_base}?tags=not-json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_list_ignores_empty_tags_array(self):
+        self._create_account(name="Account A")
+        self._create_account(name="Account B")
+
+        response = self.client.get(f"{self.endpoint_base}?tags=[]")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_list_with_tags_filter_does_not_n_plus_one(self):
+        billing_tag = Tag.objects.create(name="billing", team=self.team)
+        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
+        for i in range(10):
+            account = self._create_account(name=f"Acct {i}")
+            account.tagged_items.create(tag=billing_tag)
+            account.tagged_items.create(tag=urgent_tag)
+
+        with self.assertNumQueries(11):
+            # Query budget for a tag-filtered account list. Constant regardless of result count
+            # because tagged_items is prefetched once. If a query is added, please confirm it
+            # does not scale with the number of accounts before raising the limit:
+            # 1: load Django session
+            # 2: load authenticated user
+            # 3: load user's current organization
+            # 4: load team for the requested project
+            # 5: load org membership for permission checks
+            # 6: load RBAC access controls for customer_analytics
+            # 7: load org membership again for role inheritance
+            # 8: load constance instance setting (rate limit config)
+            # 9: COUNT(*) for pagination
+            # 10: SELECT page of accounts filtered by tag name
+            # 11: prefetch tagged_items + tag for the page (the prefetch that prevents N+1)
+            response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 10)
+
+    def test_tag_change_logs_to_account_activity_stream(self):
+        account = self._create_account()
+        initial_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
+
+        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"tags": ["audit"]}, format="json")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        new_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
+        self.assertGreater(new_logs, initial_logs)
 
 
 @pytest.mark.ee

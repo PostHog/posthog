@@ -18,11 +18,11 @@ from posthog.schema import EventsNode, ExperimentMetric
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
@@ -3056,6 +3056,74 @@ class TestExperimentService(APIBaseTest):
 
         assert result["status"] == "completed"
         assert result["computed_at"] is not None
+
+    def test_get_timeseries_results_strips_step_sessions_and_emits_formatted_results(self):
+        self._create_flag(key="ts-strip")
+        service = self._service()
+        now = timezone.now()
+        start_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        end_midnight = start_midnight + timedelta(days=1)
+        experiment = service.create_experiment(
+            name="Strip",
+            feature_flag_key="ts-strip",
+            start_date=start_midnight,
+            end_date=end_midnight,
+        )
+
+        session = {"event_uuid": "u", "person_id": "p", "session_id": "s", "timestamp": "t"}
+        stored_payload = {
+            "baseline": {
+                "key": "control",
+                "number_of_samples": 100,
+                "sum": 5,
+                "sum_squares": 5,
+                "step_sessions": [[session]],
+            },
+            "variant_results": [
+                {
+                    "key": "test",
+                    "method": "bayesian",
+                    "number_of_samples": 110,
+                    "sum": 8,
+                    "sum_squares": 8,
+                    "chance_to_win": 0.9,
+                    "credible_interval": [0.01, 0.05],
+                    "significant": True,
+                    "step_sessions": [[session, session]],
+                }
+            ],
+        }
+        for day_offset in range(2):
+            ExperimentMetricResult.objects.create(
+                experiment=experiment,
+                metric_uuid="m1",
+                fingerprint="fp1",
+                query_from=start_midnight + timedelta(days=day_offset),
+                query_to=start_midnight + timedelta(days=day_offset + 1),
+                status="completed",
+                result=stored_payload,
+                completed_at=now,
+            )
+
+        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+
+        for day_payload in result["timeseries"].values():
+            if day_payload is None:
+                continue
+            assert "step_sessions" not in day_payload["baseline"]
+            for variant in day_payload["variant_results"]:
+                assert "step_sessions" not in variant
+
+        # Stored row is untouched — stripping happens on read.
+        stored = ExperimentMetricResult.objects.first()
+        assert stored is not None
+        assert stored.result is not None
+        assert "step_sessions" in stored.result["baseline"]
+
+        formatted = result["formatted_results"]
+        assert "Method: bayesian" in formatted
+        assert "Variants: control (baseline), test" in formatted
+        assert "step_sessions" not in formatted
 
     # ------------------------------------------------------------------
     # Timeseries recalculation

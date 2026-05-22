@@ -11,7 +11,6 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -38,8 +37,6 @@ import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
     getNextDeliveryDate,
-    hourlyFrequencyOptionPlural,
-    hourlyFrequencyOptionSingular,
     intervalOptions,
     monthlyWeekdayOptions,
     targetTypeOptions,
@@ -84,17 +81,10 @@ export function EditSubscription({
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const hourlySubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_HOURLY_FREQUENCY')
 
     const emailDisabled = !preflight?.email_service_available
 
-    // Show the hourly option whenever the feature flag is on for this user/org, OR
-    // when the subscription being edited is already hourly (so the user can read /
-    // modify a value that was created when the flag was on).
-    const showHourlyOption = hourlySubscriptionsEnabled || subscription?.frequency === 'hourly'
-    const frequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
-    const hourlyOption = subscription?.interval === 1 ? hourlyFrequencyOptionSingular : hourlyFrequencyOptionPlural
-    const availableFrequencyOptions = showHourlyOption ? [...hourlyOption, ...frequencyOptions] : frequencyOptions
+    const availableFrequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
 
     // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
     // For editing, wait until subscription data has loaded from API (target_type exists)
@@ -422,7 +412,7 @@ export function EditSubscription({
                                         </LemonField>
                                     </>
                                 )}
-                                <span>{subscription.frequency === 'hourly' ? 'starting at' : 'by'}</span>
+                                <span>by</span>
                                 <LemonField name="start_date">
                                     {({ value, onChange }) => (
                                         <LemonSelect

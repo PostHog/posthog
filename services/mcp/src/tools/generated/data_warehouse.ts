@@ -108,6 +108,9 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/cancel/`,
@@ -168,6 +171,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         }
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
+        }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -238,6 +244,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
+        }
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/`,
@@ -281,6 +290,9 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/reload/`,
@@ -323,6 +335,9 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         }
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
+        }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -798,9 +813,6 @@ const ViewCreateSchema = WarehouseSavedQueriesCreateBody.extend({
     name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
         'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
     ),
-    query: WarehouseSavedQueriesCreateBody.shape['query'].describe(
-        'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
-    ),
 })
 
 const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
@@ -1050,9 +1062,6 @@ const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project
     .extend({
         name: WarehouseSavedQueriesPartialUpdateBody.shape['name'].describe(
             'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
-        ),
-        query: WarehouseSavedQueriesPartialUpdateBody.shape['query'].describe(
-            'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
         ),
         edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe(
             'Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.'

@@ -20,6 +20,7 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (
     filter_mysql_incremental_fields,
@@ -134,6 +135,12 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
             # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying
             # won't help.
             "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
+            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # when an integer column's source type was widened (e.g. `INT` → `BIGINT`) after the
+            # destination table was created with the narrower type. Delta Lake can't widen an
+            # existing column in place, so retrying won't help — the table must be reset and
+            # fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
     def get_schemas(
@@ -205,8 +212,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                     supports_append=len(incremental_fields) > 0,
                     incremental_fields=incremental_fields,
                     columns=columns,
-                    detected_primary_keys=detected_pks.get(table_name)
-                    or (["id"] if any(col[0] == "id" for col in columns) else None),
+                    detected_primary_keys=resolve_detected_primary_keys(detected_pks.get(table_name), columns),
                 )
             )
 

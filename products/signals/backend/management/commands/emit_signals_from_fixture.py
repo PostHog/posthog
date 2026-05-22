@@ -16,6 +16,7 @@ _SOURCES = {
     "github": ("Github", "issues", "github_issues.json"),
     "linear": ("Linear", "issues", "linear_issues.json"),
     "conversations": ("conversations", "tickets", "conversations_tickets.json"),
+    "pganalyze": ("PgAnalyze", "issues", "pganalyze_issues.json"),
 }
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[3] / "eval" / "fixtures"

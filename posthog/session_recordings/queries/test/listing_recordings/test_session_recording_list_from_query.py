@@ -32,7 +32,6 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import Person
-from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
@@ -48,6 +47,8 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.actions.backend.models.action import Action
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id

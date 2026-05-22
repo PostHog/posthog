@@ -371,7 +371,8 @@
                 "research",
                 "flags",
                 "llm_analytics",
-                "sandbox"
+                "sandbox",
+                "user_interview"
             ],
             "type": "string"
         },
@@ -421,7 +422,7 @@
             "type": "string"
         },
         "AlertCalculationInterval": {
-            "enum": ["hourly", "daily", "weekly", "monthly"],
+            "enum": ["every_15_minutes", "hourly", "daily", "weekly", "monthly"],
             "type": "string"
         },
         "AlertCondition": {
@@ -3512,6 +3513,7 @@
                 "search_session_recordings",
                 "fix_hogql_query",
                 "analyze_user_interviews",
+                "create_user_interview_topic",
                 "create_hog_transformation_function",
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
@@ -9800,6 +9802,9 @@
                     },
                     "type": "array"
                 },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
+                },
                 "usedPreAggregatedTables": {
                     "type": "boolean"
                 }
@@ -11876,6 +11881,9 @@
                                         "$ref": "#/definitions/QueryTiming"
                                     },
                                     "type": "array"
+                                },
+                                "usedLazyPrecompute": {
+                                    "type": "boolean"
                                 },
                                 "usedPreAggregatedTables": {
                                     "type": "boolean"
@@ -17252,7 +17260,13 @@
             "type": "object"
         },
         "ExperimentFunnelMetricStep": {
-            "anyOf": [
+            "$ref": "#/definitions/ExperimentFunnelMetricStepUnion"
+        },
+        "ExperimentFunnelMetricStepUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/EventsNode"
                 },
@@ -17262,7 +17276,9 @@
                 {
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 }
-            ]
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "ExperimentFunnelMetricTypeProps": {
             "additionalProperties": false,
@@ -17648,7 +17664,13 @@
             "type": "object"
         },
         "ExperimentMetricSource": {
-            "anyOf": [
+            "$ref": "#/definitions/ExperimentMetricSourceUnion"
+        },
+        "ExperimentMetricSourceUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
                 {
                     "$ref": "#/definitions/EventsNode"
                 },
@@ -17658,7 +17680,9 @@
                 {
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
                 }
-            ]
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "ExperimentMetricTimeseries": {
             "additionalProperties": false,
@@ -18701,7 +18725,8 @@
                 "Convex",
                 "ClickHouse",
                 "Plain",
-                "Resend"
+                "Resend",
+                "PgAnalyze"
             ],
             "type": "string"
         },
@@ -20962,6 +20987,11 @@
                 },
                 "optimizeProjections": {
                     "type": "boolean"
+                },
+                "parserMode": {
+                    "description": "HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request.",
+                    "enum": ["cpp_only", "cpp_with_rust_shadow", "rust_with_cpp_shadow", "rust_only"],
+                    "type": "string"
                 },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
@@ -27126,6 +27156,80 @@
             "required": ["kind"],
             "type": "object"
         },
+        "PgAnalyzeIssueReference": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "type": ["string", "null"]
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "queryText": {
+                    "type": ["string", "null"]
+                },
+                "url": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["kind", "name", "url", "queryText"],
+            "type": "object"
+        },
+        "PgAnalyzeIssueSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "database_id": {
+                    "type": ["string", "null"]
+                },
+                "references": {
+                    "items": {
+                        "$ref": "#/definitions/PgAnalyzeIssueReference"
+                    },
+                    "type": "array"
+                },
+                "server_human_id": {
+                    "type": ["string", "null"]
+                },
+                "server_name": {
+                    "type": ["string", "null"]
+                },
+                "severity": {
+                    "type": ["string", "null"]
+                },
+                "synced_at": {
+                    "type": "string"
+                }
+            },
+            "required": ["severity", "references", "database_id", "server_human_id", "server_name", "synced_at"],
+            "type": "object"
+        },
+        "PgAnalyzeIssueSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/PgAnalyzeIssueSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "pganalyze",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "PinterestAdsDefaultSources": {
             "enum": ["pinterest"],
             "type": "string"
@@ -29077,6 +29181,9 @@
                             },
                             "type": "array"
                         },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
+                        },
                         "usedPreAggregatedTables": {
                             "type": "boolean"
                         }
@@ -30110,6 +30217,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
                         },
                         "usedPreAggregatedTables": {
                             "type": "boolean"
@@ -33340,6 +33450,11 @@
                     "enum": ["count", "sum", "avg"],
                     "type": "string"
                 },
+                "cohortLabelStartIndex": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations."
+                },
                 "cumulative": {
                     "type": "boolean"
                 },
@@ -35865,6 +35980,9 @@
                 },
                 {
                     "$ref": "#/definitions/EndpointExecutionFailedSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/PgAnalyzeIssueSignalInput"
                 }
             ]
         },
@@ -35899,7 +36017,8 @@
                 "zendesk",
                 "conversations",
                 "error_tracking",
-                "endpoints"
+                "endpoints",
+                "pganalyze"
             ],
             "type": "string"
         },
@@ -39979,6 +40098,10 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
+                "useWebAnalyticsPrecompute": {
+                    "description": "Opt this specific query into the web_overview_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. *",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -40031,6 +40154,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
                 },
                 "usedPreAggregatedTables": {
                     "type": "boolean"

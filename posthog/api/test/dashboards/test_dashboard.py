@@ -1290,7 +1290,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "dashboard_id": None,
                 "duplicated": False,
                 "from_template": True,
-                "has_description": False,
+                "has_description": True,
                 "is_shared": False,
                 "item_count": 6,
                 "pinned": False,
@@ -3031,7 +3031,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Verify dashboard was created with unlisted mode
         self.assertEqual(dashboard.creation_mode, "unlisted")
-        self.assertEqual(dashboard.name, "LLM Analytics Default")
+        self.assertEqual(dashboard.name, "AI observability default")
 
         # Verify tags were created
         tags = list(dashboard.tagged_items.values_list("tag__name", flat=True))

@@ -648,6 +648,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!evaluation || !isTrialLimitReached) {
                     return true
                 }
+                // Hog evals don't call an LLM and never consume trial quota
+                if (evaluation.evaluation_type === 'hog') {
+                    return true
+                }
                 // Can enable if the evaluation has a BYOK key
                 return !!evaluation.model_configuration?.provider_key_id
             },
@@ -685,7 +689,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (runs): Record<string, EvaluationRun> => {
                 const lookup: Record<string, EvaluationRun> = {}
                 for (const run of runs) {
-                    lookup[run.generation_id] = run
+                    if (run.generation_id) {
+                        lookup[run.generation_id] = run
+                    }
                 }
                 return lookup
             },
@@ -782,7 +788,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, props }) => ({
-        '/llm-analytics/evaluations/:id': ({ id }, _, __, { method }) => {
+        '/ai-evals/evaluations/:id': ({ id }, _, __, { method }) => {
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
             const newEvaluationId = id && id !== 'new' ? id : 'new'
             if (method === 'PUSH' && newEvaluationId !== props.evaluationId) {

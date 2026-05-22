@@ -97,7 +97,7 @@ services:
             RECORDING_API_URL: http://recording-api:6738
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             POSTHOG_SKIP_MIGRATION_CHECKS: '1'
-            PERSONHOG_ADDR: 'http://personhog-router:50052'
+            PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
             PERSONHOG_ROLLOUT_PERCENTAGE: '100'
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
@@ -142,7 +142,7 @@ services:
             OTEL_SDK_DISABLED: 'true'
             OPT_OUT_CAPTURE: ${OPT_OUT_CAPTURE:-false}
             DEPLOYMENT: 'hobby'
-            PERSONHOG_ADDR: 'http://personhog-router:50052'
+            PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
             PERSONHOG_ROLLOUT_PERCENTAGE: '100'
         depends_on:

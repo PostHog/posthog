@@ -34,6 +34,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
+import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
@@ -399,27 +400,27 @@ function LLMAnalyticsGenerations(): JSX.Element {
     )
 }
 
-const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
+const DEFAULT_DOCS_URL = 'https://posthog.com/docs/ai-observability/installation'
 const DOCS_URLS_BY_TAB: Record<string, string> = {
-    traces: 'https://posthog.com/docs/llm-analytics/traces',
-    reviews: 'https://posthog.com/docs/llm-analytics/trace-reviews',
-    generations: 'https://posthog.com/docs/llm-analytics/generations',
-    sessions: 'https://posthog.com/docs/llm-analytics/sessions',
-    errors: 'https://posthog.com/docs/llm-analytics/errors',
-    tools: 'https://posthog.com/docs/llm-analytics',
-    sentiment: 'https://posthog.com/docs/llm-analytics',
+    traces: 'https://posthog.com/docs/ai-observability/traces',
+    reviews: 'https://posthog.com/docs/ai-observability/trace-reviews',
+    generations: 'https://posthog.com/docs/ai-observability/generations',
+    sessions: 'https://posthog.com/docs/ai-observability/sessions',
+    errors: 'https://posthog.com/docs/ai-observability/errors',
+    tools: 'https://posthog.com/docs/ai-observability/tools',
+    sentiment: 'https://posthog.com/docs/ai-observability/sentiment',
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
-    dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
+    dashboard: 'Overview of your AI usage, costs, and performance metrics.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
     reviews: 'Browse reviews, organize queues, and manage the scoring setup.',
-    generations: 'View individual LLM generations and their details.',
-    users: 'Understand how users are interacting with your LLM features.',
-    errors: 'Monitor and debug errors in your LLM pipeline.',
+    generations: 'View individual AI generations and their details.',
+    users: 'Understand how users are interacting with your AI features.',
+    errors: 'Monitor and debug errors in your AI pipeline.',
     tools: 'See which tools your LLMs are calling and how often.',
     sentiment: 'Scan user messages by sentiment to spot frustration or satisfaction.',
-    sessions: 'Analyze user sessions containing LLM interactions.',
+    sessions: 'Analyze user sessions containing AI interactions.',
 }
 
 export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
@@ -658,6 +659,8 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     </>
                 }
             />
+
+            <AIObservabilityRenameBanner />
 
             <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
         </SceneContent>
