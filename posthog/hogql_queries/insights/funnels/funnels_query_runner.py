@@ -18,6 +18,8 @@ from posthog.schema import (
     ResolvedDateRangeResponse,
 )
 
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
 from posthog.hogql.printer import to_printed_hogql
@@ -159,8 +161,12 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         errors: list[Exception] = []
         funnels = [self.funnel_class, previous_funnel]
 
-        def run(index: int) -> None:
+        def run(index: int, query_tags: Optional[QueryTags] = None) -> None:
             try:
+                # Worker threads start with an empty QueryTags ContextVar — restore the parent's
+                # snapshot so execute_hogql_query has the required feature/product tags.
+                if query_tags is not None:
+                    query_tagging.update_tags(query_tags)
                 responses[index] = self._calculate_single_period(funnels[index])
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
@@ -176,7 +182,10 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             for index in range(len(funnels)):
                 run(index)
         else:
-            jobs = [threading.Thread(target=run, args=(index,)) for index in range(len(funnels))]
+            parent_tags = query_tagging.get_query_tags().model_copy(deep=True)
+            jobs = [
+                threading.Thread(target=run, args=(index, parent_tags)) for index in range(len(funnels))
+            ]
             for job in jobs:
                 job.start()
             for job in jobs:
