@@ -16,7 +16,7 @@ class TestNotebookCollab(BaseTest):
             "client1",
             [{"stepType": "replace", "from": 0, "to": 0}],
             5,
-            postgres_version=5,
+            last_saved_version=5,
         )
         assert result.status == "accepted"
         assert result.version == 6
@@ -28,7 +28,7 @@ class TestNotebookCollab(BaseTest):
             "client1",
             [{"stepType": "replace", "from": 0, "to": 0}],
             0,
-            postgres_version=0,
+            last_saved_version=0,
         )
         assert result.status == "accepted"
         assert result.version == 1
@@ -40,7 +40,7 @@ class TestNotebookCollab(BaseTest):
             "client1",
             [{"stepType": "replace", "from": 0, "to": 0}],
             0,
-            postgres_version=0,
+            last_saved_version=0,
         )
         result = submit_steps(
             self.team.pk,
@@ -48,7 +48,7 @@ class TestNotebookCollab(BaseTest):
             "client2",
             [{"stepType": "replace", "from": 1, "to": 1}],
             0,
-            postgres_version=1,
+            last_saved_version=1,
         )
         assert result.status == "conflict"
         assert result.version == 1
@@ -62,7 +62,7 @@ class TestNotebookCollab(BaseTest):
             {"stepType": "replace", "from": 1, "to": 1},
             {"stepType": "replace", "from": 2, "to": 2},
         ]
-        result = submit_steps(self.team.pk, "nb5", "client1", steps, 0, postgres_version=0)
+        result = submit_steps(self.team.pk, "nb5", "client1", steps, 0, last_saved_version=0)
         assert result.status == "accepted"
         assert result.version == 3
 
@@ -81,7 +81,7 @@ class TestNotebookCollab(BaseTest):
                 f"client{i}",
                 [{"stepType": "replace", "from": i, "to": i}],
                 expected_version,
-                postgres_version=expected_version,
+                last_saved_version=expected_version,
             )
             assert result.status == "accepted"
             expected_version += 1
@@ -95,7 +95,7 @@ class TestNotebookCollab(BaseTest):
             "client1",
             [{"stepType": "replace", "from": 0, "to": 0}],
             0,
-            postgres_version=0,
+            last_saved_version=0,
         )
         submit_steps(
             self.team.pk,
@@ -103,7 +103,7 @@ class TestNotebookCollab(BaseTest):
             "client1",
             [{"stepType": "replace", "from": 1, "to": 1}],
             1,
-            postgres_version=1,
+            last_saved_version=1,
         )
 
         client = redis.get_client()
@@ -119,7 +119,7 @@ class TestNotebookCollab(BaseTest):
             "client2",
             [{"stepType": "replace", "from": 2, "to": 2}],
             0,
-            postgres_version=2,
+            last_saved_version=2,
         )
         assert result.status == "stale"
         assert result.version == 2
@@ -135,7 +135,7 @@ class TestNotebookCollab(BaseTest):
             "client_stale",
             [{"stepType": "replace", "from": 0, "to": 0}],
             last_seen_version=937,
-            postgres_version=946,
+            last_saved_version=946,
         )
         assert result.status == "stale"
         assert result.version == 946
@@ -150,7 +150,7 @@ class TestNotebookCollab(BaseTest):
             "client_ahead",
             [{"stepType": "replace", "from": 0, "to": 0}],
             last_seen_version=946,
-            postgres_version=937,
+            last_saved_version=937,
         )
         assert result.status == "stale"
         assert result.version == 937
@@ -165,7 +165,7 @@ class TestNotebookCollab(BaseTest):
             "client1",
             [{"stepType": "replace", "from": 0, "to": 0}],
             last_seen_version=946,
-            postgres_version=946,
+            last_saved_version=946,
         )
         assert result.status == "accepted"
         assert result.version == 947
