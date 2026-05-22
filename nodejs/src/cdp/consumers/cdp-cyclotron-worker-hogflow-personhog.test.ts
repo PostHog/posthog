@@ -1,3 +1,5 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/schema/hogflow'
@@ -113,12 +115,15 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
             postgresPersonRepo,
             failingGrpc as unknown as PersonHogClient,
             100,
+            new Set(),
             'test'
         )
-        const processor = new CdpCyclotronWorkerHogFlow(hub, {
-            ...createCdpConsumerDeps(hub),
-            personRepository: personhogRepo,
-        })
+        const mockJobQueue = createMockJobQueue()
+        const processor = new CdpCyclotronWorkerHogFlow(
+            hub,
+            { ...createCdpConsumerDeps(hub), personRepository: personhogRepo },
+            mockJobQueue
+        )
 
         const invocations = [
             createSerializedHogFlowInvocation(hogFlow, {
@@ -160,12 +165,15 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
             postgresPersonRepo,
             failingGrpc as unknown as PersonHogClient,
             100,
+            new Set(),
             'test'
         )
-        const processor = new CdpCyclotronWorkerHogFlow(hub, {
-            ...createCdpConsumerDeps(hub),
-            personRepository: personhogRepo,
-        })
+        const mockJobQueue2 = createMockJobQueue()
+        const processor = new CdpCyclotronWorkerHogFlow(
+            hub,
+            { ...createCdpConsumerDeps(hub), personRepository: personhogRepo },
+            mockJobQueue2
+        )
 
         const invocations = [
             createSerializedHogFlowInvocation(hogFlow, {

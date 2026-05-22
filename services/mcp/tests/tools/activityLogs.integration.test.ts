@@ -9,7 +9,7 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import { GENERATED_TOOLS } from '@/tools/generated/activity_logs'
+import { GENERATED_TOOLS } from '@/tools/generated/platform_features'
 import type { Context } from '@/tools/types'
 
 describe('Activity Logs', { concurrent: false }, () => {
@@ -22,8 +22,8 @@ describe('Activity Logs', { concurrent: false }, () => {
         await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
     })
 
-    describe('activity-logs-list tool', () => {
-        const listTool = GENERATED_TOOLS['activity-logs-list']!()
+    describe('activity-log-list tool', () => {
+        const listTool = GENERATED_TOOLS['activity-log-list']!()
 
         it('should list activity logs with default parameters', async () => {
             const result = await listTool.handler(context, {})
@@ -40,13 +40,12 @@ describe('Activity Logs', { concurrent: false }, () => {
 
             expect(Array.isArray(response.results)).toBe(true)
 
-            if (response.results.length > 0) {
-                const log = response.results[0]
+            for (const log of response.results) {
                 expect(log).toHaveProperty('id')
                 expect(log).toHaveProperty('activity')
                 expect(log).toHaveProperty('scope')
                 expect(log).toHaveProperty('created_at')
-                expect(log).toHaveProperty('user')
+                // user can be null for system-generated activity entries
             }
         })
 

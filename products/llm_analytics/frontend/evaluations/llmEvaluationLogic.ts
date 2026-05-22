@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { signalSourcesLogic } from 'scenes/inbox/signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
@@ -17,7 +18,9 @@ import { parseTrialProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
+import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
+import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
@@ -94,6 +97,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Evaluation management actions
         saveEvaluation: true,
         saveEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
+        saveEvaluationFailure: (error: string) => ({ error }),
         loadEvaluation: true,
         loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => ({ evaluation }),
         resetEvaluation: true,
@@ -134,6 +138,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         const conditions = evaluation.conditions
                             .filter((c) => c.properties && c.properties.length > 0)
                             .map((c) => ({ properties: c.properties }))
+                        // nosemgrep: prefer-codegen-api
                         const response = await api.create(`/api/environments/${teamId}/evaluations/test_hog/`, {
                             source: evaluation.evaluation_config.source,
                             sample_count: 5,
@@ -185,6 +190,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     const requestFilter = values.evaluationSummaryFilter
 
                     // Backend fetches data server-side by ID - we just pass the filter
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.create(`/api/environments/${teamId}/llm_analytics/evaluation_summary/`, {
                         evaluation_id: props.evaluationId,
                         filter: requestFilter,
@@ -292,6 +298,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 saveEvaluation: () => true,
                 saveEvaluationSuccess: () => false,
+                saveEvaluationFailure: () => false,
             },
         ],
         signalEmissionOptimistic: [
@@ -364,6 +371,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         return
                     }
 
+                    // nosemgrep: prefer-codegen-api
                     const evaluation = await api.get(`/api/environments/${teamId}/evaluations/${props.evaluationId}/`)
                     actions.loadEvaluationSuccess(evaluation)
                 } catch (error) {
@@ -382,6 +390,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     name: template?.name || '',
                     description: template?.description || '',
                     enabled: true,
+                    status: 'active' as const,
+                    status_reason: null,
                     output_type: 'boolean' as const,
                     output_config: {},
                     conditions: [
@@ -448,12 +458,26 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         },
 
         resetEvaluation: () => {
+            // Reset any pending report-config draft alongside the evaluation so
+            // Cancel/Back clears both forms (the report draft lives in a separate
+            // keyed logic — see evaluationReportLogic).
+            const reportLogicKey = props.evaluationId === 'new' ? 'new' : props.evaluationId
+            const reportLogic = evaluationReportLogic({ evaluationId: reportLogicKey })
+            if (reportLogic.isMounted()) {
+                if (reportLogic.values.activeReport) {
+                    reportLogic.actions.seedDraftFromReport(reportLogic.values.activeReport)
+                } else {
+                    reportLogic.actions.resetDraft()
+                }
+            }
             if (props.evaluationId === 'new') {
                 const newEvaluation: EvaluationConfig = {
                     id: '',
                     name: '',
                     description: '',
                     enabled: true,
+                    status: 'active',
+                    status_reason: null,
                     evaluation_type: 'llm_judge',
                     evaluation_config: {
                         prompt: '',
@@ -506,19 +530,45 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     return
                 }
 
-                if (props.evaluationId === 'new') {
-                    const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
-                    actions.saveEvaluationSuccess(response)
-                } else {
-                    const response = await api.update(
-                        `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
-                        values.evaluation!
-                    )
-                    actions.saveEvaluationSuccess(response)
+                const isNew = props.evaluationId === 'new'
+                const response = isNew
+                    ? // nosemgrep: prefer-codegen-api
+                      await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
+                    : // nosemgrep: prefer-codegen-api
+                      await api.update(
+                          `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
+                          values.evaluation!
+                      )
+                actions.saveEvaluationSuccess(response)
+
+                // Piggyback the scheduled-report draft onto the main save so the single
+                // "Save changes" button at the top of the page commits both forms. The
+                // evaluationReportLogic is only mounted when EvaluationReportConfig is
+                // rendered (gated on the reports feature flag), so skip when it isn't —
+                // reading .values on an unmounted keyed logic would throw.
+                const reportLogicKey = isNew ? 'new' : props.evaluationId
+                const reportLogic = evaluationReportLogic({ evaluationId: reportLogicKey })
+                if (response?.id && reportLogic.isMounted()) {
+                    try {
+                        await persistReportDraft(
+                            teamId,
+                            response.id,
+                            reportLogic.values.configDraft,
+                            reportLogic.values.activeReport
+                        )
+                    } catch (reportError) {
+                        // Don't block navigation if the (optional) report save fails —
+                        // the eval itself already saved successfully.
+                        posthog.captureException(reportError, { tag: 'eval-report-persist-on-eval-save' })
+                        lemonToast.error('Evaluation saved, but scheduled report changes could not be saved.')
+                    }
                 }
+
                 router.actions.push(urls.llmAnalyticsEvaluations(), router.values.searchParams)
             } catch (error) {
-                console.error('Failed to save evaluation:', error)
+                const message = evaluationErrorMessage(error, 'Failed to save evaluation')
+                lemonToast.error(message)
+                actions.saveEvaluationFailure(message)
             }
         },
 
@@ -577,7 +627,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const hasValidName = evaluation.name.length > 0
                 const hasValidConditions =
                     evaluation.conditions.length > 0 &&
-                    evaluation.conditions.every((c) => c.rollout_percentage > 0 && c.rollout_percentage <= 100)
+                    evaluation.conditions.every(
+                        (c) => (c.rollout_percentage ?? 0) > 0 && (c.rollout_percentage ?? 0) <= 100
+                    )
 
                 let hasValidConfig = false
                 if (evaluation.evaluation_type === 'hog') {
@@ -594,6 +646,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (s) => [s.evaluation, s.isTrialLimitReached],
             (evaluation: EvaluationConfig | null, isTrialLimitReached: boolean): boolean => {
                 if (!evaluation || !isTrialLimitReached) {
+                    return true
+                }
+                // Hog evals don't call an LLM and never consume trial quota
+                if (evaluation.evaluation_type === 'hog') {
                     return true
                 }
                 // Can enable if the evaluation has a BYOK key
@@ -633,7 +689,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             (runs): Record<string, EvaluationRun> => {
                 const lookup: Record<string, EvaluationRun> = {}
                 for (const run of runs) {
-                    lookup[run.generation_id] = run
+                    if (run.generation_id) {
+                        lookup[run.generation_id] = run
+                    }
                 }
                 return lookup
             },
@@ -730,7 +788,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, props }) => ({
-        '/llm-analytics/evaluations/:id': ({ id }, _, __, { method }) => {
+        '/ai-evals/evaluations/:id': ({ id }, _, __, { method }) => {
             // Only reload when navigating to a different evaluation, not on search param changes (e.g., pagination)
             const newEvaluationId = id && id !== 'new' ? id : 'new'
             if (method === 'PUSH' && newEvaluationId !== props.evaluationId) {

@@ -1,5 +1,6 @@
 import io
 import time
+from typing import cast
 
 from django.http import HttpRequest
 from django.test import TestCase, override_settings
@@ -8,7 +9,11 @@ from parameterized import parameterized
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 
-from ee.api.agentic_provisioning.signature import _parse_signature_header, compute_signature, verify_stripe_signature
+from ee.api.agentic_provisioning.signature import (
+    _parse_signature_header,
+    compute_signature,
+    verify_provisioning_signature,
+)
 
 HMAC_SECRET = "test_hmac_secret"
 
@@ -30,7 +35,7 @@ class TestParseSignatureHeader(TestCase):
         assert _parse_signature_header(header) == expected
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestComputeSignature(TestCase):
     @parameterized.expand(
         [
@@ -63,7 +68,7 @@ class TestComputeSignature(TestCase):
         assert sig1 != sig2
 
 
-@override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestVerifySignatureAfterDRFParsing(TestCase):
     def _make_drf_request_with_consumed_stream(self, body: bytes) -> Request:
         django_request = HttpRequest()
@@ -80,7 +85,7 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         drf_request = Request(django_request, parsers=[JSONParser()])
         _ = drf_request.data
 
-        return drf_request
+        return cast(Request, drf_request)
 
     def test_returns_400_when_stream_consumed(self):
         body = b'{"email":"test@example.com"}'
@@ -90,7 +95,7 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         drf_request = self._make_drf_request_with_consumed_stream(body)
         drf_request.META["HTTP_STRIPE_SIGNATURE"] = f"t={ts},v1={sig}"
 
-        result = verify_stripe_signature(drf_request)
+        result = verify_provisioning_signature(drf_request)
         assert result is not None, "Body was consumed so signature can't be verified"
         assert result.status_code == 400
         assert result.data["error"]["code"] == "body_not_readable"
@@ -113,7 +118,7 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         django_request._read_started = False  # type: ignore[attr-defined]
 
         drf_request = Request(django_request, parsers=[JSONParser()])
-        result = verify_stripe_signature(drf_request)
+        result = verify_provisioning_signature(drf_request)
         assert result is None
 
     def test_succeeds_when_body_cached_despite_stream_consumed(self):
@@ -135,5 +140,5 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         django_request._read_started = True  # type: ignore[attr-defined]
 
         drf_request = Request(django_request, parsers=[JSONParser()])
-        result = verify_stripe_signature(drf_request)
+        result = verify_provisioning_signature(drf_request)
         assert result is None

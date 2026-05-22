@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -14,10 +15,11 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
+import { evaluationErrorMessage } from './apiErrors'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
-const INITIAL_DATE_FROM = '-1h' as string | null
+const INITIAL_DATE_FROM = '-24h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export interface LLMEvaluationsLogicProps {
@@ -59,6 +61,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         duplicateEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
         toggleEvaluationEnabled: (id: string) => ({ id }),
         toggleEvaluationEnabledSuccess: (id: string) => ({ id }),
+        toggleEvaluationEnabledFailure: (id: string, error: string) => ({ id, error }),
         setEvaluationsFilter: (filter: string) => ({ filter }),
     }),
 
@@ -85,7 +88,17 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 deleteEvaluationSuccess: (state, { id }) => state.filter((e: EvaluationConfig) => e.id !== id),
                 duplicateEvaluationSuccess: (state, { evaluation }) => [...state, evaluation],
                 toggleEvaluationEnabledSuccess: (state, { id }) =>
-                    state.map((e: EvaluationConfig) => (e.id === id ? { ...e, enabled: !e.enabled } : e)),
+                    state.map((e: EvaluationConfig) =>
+                        e.id === id
+                            ? {
+                                  ...e,
+                                  enabled: !e.enabled,
+                                  // Keep status in sync so the list-column pill updates optimistically.
+                                  status: !e.enabled ? 'active' : 'paused',
+                                  status_reason: null,
+                              }
+                            : e
+                    ),
             },
         ],
         evaluationsLoading: [
@@ -111,6 +124,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     return
                 }
 
+                // nosemgrep: prefer-codegen-api
                 const response = await api.get(`/api/environments/${teamId}/evaluations/`)
                 actions.loadEvaluationsSuccess(response.results)
             } catch (error) {
@@ -126,6 +140,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     return
                 }
 
+                // nosemgrep: prefer-codegen-api
                 const response = await api.create(`/api/environments/${teamId}/evaluations/`, evaluation)
                 actions.createEvaluationSuccess(response)
 
@@ -147,6 +162,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     return
                 }
 
+                // nosemgrep: prefer-codegen-api
                 const response = await api.update(`/api/environments/${teamId}/evaluations/${id}/`, evaluation)
                 actions.updateEvaluationSuccess(id, response)
             } catch (error) {
@@ -160,6 +176,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 if (!teamId) {
                     return
                 }
+                // nosemgrep: prefer-codegen-api
                 await api.update(`/api/environments/${teamId}/evaluations/${id}/`, { deleted: true })
                 actions.deleteEvaluationSuccess(id)
             } catch (error) {
@@ -190,6 +207,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     return
                 }
 
+                // nosemgrep: prefer-codegen-api
                 const response = await api.create(`/api/environments/${teamId}/evaluations/`, duplicate)
                 actions.duplicateEvaluationSuccess(response)
             } catch (error) {
@@ -198,23 +216,27 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         },
 
         toggleEvaluationEnabled: async ({ id }) => {
+            const evaluation = values.evaluations.find((e: EvaluationConfig) => e.id === id)
+            if (!evaluation) {
+                return
+            }
+
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+
             try {
-                const evaluation = values.evaluations.find((e: EvaluationConfig) => e.id === id)
-                if (!evaluation) {
-                    return
-                }
-
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return
-                }
-
+                // nosemgrep: prefer-codegen-api
                 await api.update(`/api/environments/${teamId}/evaluations/${id}/`, {
                     enabled: !evaluation.enabled,
                 })
                 actions.toggleEvaluationEnabledSuccess(id)
             } catch (error) {
-                console.error('Failed to toggle evaluation enabled:', error)
+                const action = evaluation.enabled ? 'disable' : 'enable'
+                const message = evaluationErrorMessage(error, `Failed to ${action} evaluation`)
+                lemonToast.error(message)
+                actions.toggleEvaluationEnabledFailure(id, message)
             }
         },
     })),
@@ -242,6 +264,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             (isTrialLimitReached: boolean) => {
                 return (evaluation: EvaluationConfig): boolean => {
                     if (!isTrialLimitReached) {
+                        return true
+                    }
+                    // Hog evals don't call an LLM and never consume trial quota
+                    if (evaluation.evaluation_type === 'hog') {
                         return true
                     }
                     return !!evaluation.model_configuration?.provider_key_id
@@ -286,7 +312,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             }
 
             if (searchParams.tab === 'settings') {
-                router.actions.replace(urls.settings('environment-llm-analytics', 'llm-analytics-byok'))
+                router.actions.replace(urls.settings('project-ai-observability', 'ai-observability-byok'))
                 return
             }
 

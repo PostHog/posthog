@@ -6,7 +6,7 @@ import { Group, GroupTypeIndex, ProjectId, PropertiesLastOperation, PropertiesLa
 import { logger } from '../../utils/logger'
 import { GroupRepositoryTransaction } from '../../worker/ingestion/groups/repositories/group-repository-transaction.interface'
 import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
-import { PersonHogClient, shouldUseGrpc } from './client'
+import { PersonHogClient, shouldUseGrpc, shouldUseGrpcForTeam, shouldUseGrpcForTeams } from './client'
 import { timedGrpc, timedPostgres } from './metrics'
 
 export class PersonHogGroupRepository implements GroupRepository {
@@ -14,6 +14,7 @@ export class PersonHogGroupRepository implements GroupRepository {
         private postgres: GroupRepository,
         private grpcClient: PersonHogClient,
         private grpcPercentage: number,
+        private rolloutTeamIds: ReadonlySet<number>,
         private clientLabel: string
     ) {}
 
@@ -25,7 +26,11 @@ export class PersonHogGroupRepository implements GroupRepository {
     ): Promise<Group | undefined> {
         // Only route to gRPC for eventually-consistent replica reads (useReadReplica: true)
         // where no row-level lock is needed (forUpdate: false/unset).
-        if (options?.forUpdate || !options?.useReadReplica || !shouldUseGrpc(this.grpcPercentage)) {
+        if (
+            options?.forUpdate ||
+            !options?.useReadReplica ||
+            !shouldUseGrpcForTeam(this.rolloutTeamIds, teamId, this.grpcPercentage)
+        ) {
             return timedPostgres(this.clientLabel, 'fetchGroup', () =>
                 this.postgres.fetchGroup(teamId, groupTypeIndex, groupKey, options)
             )
@@ -59,7 +64,7 @@ export class PersonHogGroupRepository implements GroupRepository {
             group_properties: Record<string, any>
         }[]
     > {
-        if (!shouldUseGrpc(this.grpcPercentage)) {
+        if (!shouldUseGrpcForTeams(this.rolloutTeamIds, teamIds, this.grpcPercentage)) {
             return timedPostgres(this.clientLabel, 'fetchGroupsByKeys', () =>
                 this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
             )
@@ -83,7 +88,7 @@ export class PersonHogGroupRepository implements GroupRepository {
     async fetchGroupTypesByTeamIds(
         teamIds: TeamId[]
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
-        if (!shouldUseGrpc(this.grpcPercentage)) {
+        if (!shouldUseGrpcForTeams(this.rolloutTeamIds, teamIds, this.grpcPercentage)) {
             return timedPostgres(this.clientLabel, 'fetchGroupTypesByTeamIds', () =>
                 this.postgres.fetchGroupTypesByTeamIds(teamIds)
             )

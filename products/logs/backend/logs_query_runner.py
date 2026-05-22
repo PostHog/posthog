@@ -31,6 +31,49 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
+def _trace_id_normalise_to_base64(value: str) -> str:
+    """Accept either hex or base64 encoded trace_id/span_id values.
+
+    The `trace_id` and `span_id` columns store base64-encoded bytes. Hex input (32-char for
+    trace_id, 16-char for span_id) is the form users normally see in trace UIs, so we accept
+    it and convert. Values that aren't valid hex are passed through as-is (assumed base64).
+    """
+    try:
+        int(value, 16)
+        return base64.b64encode(bytes.fromhex(value)).decode()
+    except ValueError:
+        return value
+
+
+def _normalise_trace_id_filter(log_filter: LogPropertyFilter) -> None:
+    """In-place: normalize trace_id/span_id filter values to base64 to match column storage."""
+    if isinstance(log_filter.value, list):
+        log_filter.value = [_trace_id_normalise_to_base64(str(v)) for v in log_filter.value]
+    elif log_filter.value is not None:
+        log_filter.value = _trace_id_normalise_to_base64(str(log_filter.value))
+
+
+def _severity_level_to_expr(log_filter: LogPropertyFilter) -> ast.Expr:
+    """Translate a `severity_level` log property filter to a HogQL expression on `severity_text`.
+
+    Only equality operators (Exact/IsNot) are exposed in the UI.
+    """
+    values: list[str]
+    if isinstance(log_filter.value, list):
+        values = [str(v) for v in log_filter.value]
+    elif log_filter.value is None:
+        values = []
+    else:
+        values = [str(log_filter.value)]
+
+    op = ast.CompareOperationOp.NotIn if log_filter.operator == PropertyOperator.IS_NOT else ast.CompareOperationOp.In
+    return ast.CompareOperation(
+        op=op,
+        left=ast.Field(chain=["severity_text"]),
+        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in values]),
+    )
+
+
 def _generate_resource_attribute_filters(
     resource_attribute_filters, *, existing_filters, query_date_range, team, is_negative_filter
 ):
@@ -93,11 +136,16 @@ def _generate_resource_attribute_filters(
         converted_exprs.append(converted_expr)
 
     IN_ = "NOT IN" if is_negative_filter else "IN"
+    # For positive filters we want resources that match ALL filters (arrayAll), then keep them via IN.
+    # For negative filters we want to exclude resources that match ANY of the inverted filters
+    # (arrayExists), then drop them via NOT IN — otherwise multiple negatives would only exclude
+    # resources that match every one of them, instead of any one of them.
+    array_fn = "arrayExists" if is_negative_filter else "arrayAll"
 
     # this query fetches all resource fingerprints that match at least one resource attribute filter
-    # then does a secondary filter for those that match every filter
+    # then does a secondary filter for those that match every filter (positive) or any filter (negative)
     # this sounds over complicated but it's because each row in the table is a single attribute - so we need to first group
-    # them to collapse the rows into a single row per resource fingerprint, _then_ check every filter is met
+    # them to collapse the rows into a single row per resource fingerprint, _then_ check the per-filter match counts
     return parse_expr(
         f"""
         (resource_fingerprint) {IN_}
@@ -110,7 +158,7 @@ def _generate_resource_attribute_filters(
                 AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
                 AND {{resource_attribute_filters}} AND {{existing_filters}}
             GROUP BY resource_fingerprint
-            HAVING arrayAll(x -> x > 0, sumForEach({{ops}}))
+            HAVING {array_fn}(x -> x > 0, sumForEach({{ops}}))
         )
     """,
         placeholders={
@@ -241,6 +289,12 @@ class LogsFilterBuilder:
 
             if self.log_filters:
                 for log_filter in self.log_filters:
+                    if log_filter.key == "severity_level":
+                        exprs.append(_severity_level_to_expr(log_filter))
+                        continue
+                    if log_filter.key in ("trace_id", "span_id"):
+                        log_filter = log_filter.copy(deep=True)
+                        _normalise_trace_id_filter(log_filter)
                     if log_filter.key == "message":
                         exprs.append(get_lowercase_index_hint(log_filter, team=self.team))
                     exprs.append(property_to_expr(log_filter, team=self.team))
@@ -352,6 +406,10 @@ class LogsFilterBuilder:
 
 
 class LogsQueryRunnerMixin(QueryRunner):
+    # Target bucket count for the adaptive interval picker in `query_date_range`.
+    # Subclasses can override per-instance to request a different resolution.
+    BUCKET_TARGET: int = 50
+
     @cached_property
     def settings(self):
         return HogQLGlobalSettings(
@@ -385,7 +443,7 @@ class LogsQueryRunnerMixin(QueryRunner):
             now=dt.datetime.now(),
         )
 
-        _step = (qdr.date_to() - qdr.date_from()) / 50
+        _step = (qdr.date_to() - qdr.date_from()) / self.BUCKET_TARGET
         interval_type = IntervalType.SECOND
 
         def find_closest(target, arr):
@@ -526,7 +584,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
             transform_null_in=False,
-            enable_analyzer=True,
             max_bytes_to_read=None,
             read_overflow_mode=None,
         )

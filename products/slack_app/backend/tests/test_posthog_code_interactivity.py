@@ -1,7 +1,5 @@
-import hmac
 import json
 import time
-import hashlib
 from types import SimpleNamespace
 from typing import Any
 
@@ -17,12 +15,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-
-def _sign_request(body: bytes, secret: str) -> tuple[str, str]:
-    ts = str(int(time.time()))
-    sig_basestring = f"v0:{ts}:{body.decode('utf-8')}"
-    signature = "v0=" + hmac.new(secret.encode(), sig_basestring.encode(), hashlib.sha256).hexdigest()
-    return signature, ts
+from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
 class TestPostHogCodeInteractivityHandler(TestCase):
@@ -34,9 +27,9 @@ class TestPostHogCodeInteractivityHandler(TestCase):
         payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        signature, ts = _sign_request(body, self.signing_secret)
+        signature, ts = sign_slack_request(body, self.signing_secret)
         return self.client.post(
-            "/slack/posthog-code-interactivity-callback/",
+            "/slack/interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
             HTTP_X_SLACK_SIGNATURE=signature,
@@ -45,12 +38,12 @@ class TestPostHogCodeInteractivityHandler(TestCase):
         )
 
     def test_get_method_returns_405(self):
-        response = self.client.get("/slack/posthog-code-interactivity-callback/")
+        response = self.client.get("/slack/interactivity-callback/")
         assert response.status_code == 405
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_invalid_signature_returns_403(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": "different-secret"}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": "different-secret"}
         response = self._post_interactivity({"type": "block_suggestion"})
         assert response.status_code == 403
 
@@ -67,7 +60,7 @@ class TestRepoPickerOptions(TestCase):
         OrganizationMembership.objects.create(user=self.user, organization=self.organization)
         self.posthog_code_integration = Integration.objects.create(
             team=self.team,
-            kind="slack-posthog-code",
+            kind="slack",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
@@ -94,19 +87,18 @@ class TestRepoPickerOptions(TestCase):
         payload = {"team": {"id": "T12345"}, **payload}
         body_str = f"payload={json.dumps(payload)}"
         body = body_str.encode()
-        signature, ts = _sign_request(body, self.signing_secret)
+        signature, ts = sign_slack_request(body, self.signing_secret)
         return self.client.post(
-            "/slack/posthog-code-interactivity-callback/",
+            "/slack/interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts},
         )
 
     @patch("products.slack_app.backend.api._get_full_repo_names")
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_options_returns_filtered_repos(self, mock_config, mock_get_repos):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_get_repos.return_value = ["posthog/posthog", "posthog/posthog-js", "posthog/hogvm"]
 
         payload = {
@@ -123,9 +115,9 @@ class TestRepoPickerOptions(TestCase):
         assert options[0]["value"] == "posthog/posthog-js"
 
     @patch("products.slack_app.backend.api._get_full_repo_names")
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_options_empty_query_returns_all(self, mock_config, mock_get_repos):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_get_repos.return_value = ["posthog/posthog", "posthog/posthog-js"]
 
         payload = {
@@ -139,9 +131,9 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         assert len(response.json()["options"]) == 2
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_options_wrong_user_returns_empty(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
 
         payload = {
             "type": "block_suggestion",
@@ -154,9 +146,9 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         assert response.json()["options"] == []
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_options_expired_token_returns_empty(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         cache.delete(f"posthog_code_repo_picker_ctx:{self.context_token}")
 
         payload = {
@@ -173,11 +165,11 @@ class TestRepoPickerOptions(TestCase):
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_submit_signals_temporal_workflow(
         self, mock_config, mock_sync_connect, mock_asyncio_run, mock_webclient_class
     ):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_webclient_class.return_value = MagicMock()
         self.context_payload["workflow_id"] = "posthog-code-mention-T12345:C001:1234.5678"
         cache.set(f"posthog_code_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
@@ -205,9 +197,45 @@ class TestRepoPickerOptions(TestCase):
         mock_webclient_class.return_value.chat_update.assert_called_once()
 
     @patch("posthog.models.integration.WebClient")
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_no_repo_button_signals_temporal_workflow(
+        self, mock_config, mock_sync_connect, mock_asyncio_run, mock_webclient_class
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_webclient_class.return_value = MagicMock()
+        self.context_payload["workflow_id"] = "posthog-code-mention-T12345:C001:1234.5678"
+        cache.set(f"posthog_code_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U123"},
+            "actions": [
+                {
+                    "action_id": "posthog_code_repo_none",
+                    "block_id": f"posthog_code_repo_picker_v2:{self.posthog_code_integration.id}:U123:{self.context_token}:actions",
+                    "value": "no_repo_needed",
+                    "action_ts": "1700000000.123",
+                }
+            ],
+            "message": {"ts": "1234.9999"},
+        }
+        response = self._post_interactivity(payload)
+        assert response.status_code == 200
+        mock_sync_connect.assert_called_once()
+        mock_sync_connect.return_value.get_workflow_handle.assert_called_once_with(
+            "posthog-code-mention-T12345:C001:1234.5678"
+        )
+        mock_asyncio_run.assert_called_once()
+        mock_webclient_class.return_value.chat_update.assert_called_once()
+        update_call = mock_webclient_class.return_value.chat_update.call_args.kwargs
+        assert "without a repository" in update_call["text"].lower()
+
+    @patch("posthog.models.integration.WebClient")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_submit_without_workflow_id_posts_expired(self, mock_config, mock_webclient_class):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         self.context_payload.pop("workflow_id", None)
@@ -230,11 +258,12 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         mock_client.chat_postMessage.assert_called_once()
         assert "selection expired" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
+        assert "posthog again" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
 
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_submit_signal_failure_posts_expired(
         self,
         mock_config,
@@ -242,7 +271,7 @@ class TestRepoPickerOptions(TestCase):
         mock_asyncio_run,
         mock_webclient_class,
     ):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         self.context_payload["workflow_id"] = "posthog-code-mention-T12345:C001:1234.5678"
@@ -267,12 +296,13 @@ class TestRepoPickerOptions(TestCase):
         mock_sync_connect.assert_called_once()
         mock_client.chat_postMessage.assert_called_once()
         assert "selection expired" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
+        assert "posthog again" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_terminate_action_starts_temporal_workflow(self, mock_config, mock_sync_connect, mock_asyncio_run):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
 
         payload = {
             "type": "block_actions",

@@ -4,19 +4,24 @@ from uuid import uuid4
 import pytest
 from posthog.test.base import BaseTest, _create_event, flush_persons_and_events
 
-from posthog.hogql.functions.bot_ua_fixtures import (
+from posthog.hogql.query import execute_hogql_query
+
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+from products.web_analytics.backend.hogql_queries.bot_ua_fixtures import (
     BOT_USER_AGENTS,
     CATEGORY_TO_TRAFFIC_CATEGORY,
     CATEGORY_TO_TRAFFIC_TYPE,
 )
-from posthog.hogql.functions.traffic_type import BOT_DEFINITIONS
-from posthog.hogql.query import execute_hogql_query
 
 
 def _find_matching_pattern(ua: str) -> str | None:
-    """Simulate multiMatchAnyIndex: find first BOT_DEFINITIONS pattern that matches."""
+    """Simulate multiMatchAnyIndex: find first BOT_DEFINITIONS pattern that matches.
+
+    Patterns are evaluated as regex by ClickHouse multiMatchAnyIndex at runtime,
+    so we mirror that here (no `re.escape`).
+    """
     for pattern in BOT_DEFINITIONS:
-        if re.search(re.escape(pattern), ua):
+        if re.search(pattern, ua):
             return pattern
     return None
 
@@ -65,7 +70,7 @@ class TestBotClassificationRealUA:
     def test_all_bot_definitions_have_matching_ua_fixture(self):
         # Patterns that are substrings of other patterns can't have standalone UA fixtures
         # because multiMatchAnyIndex may match the shorter pattern first
-        KNOWN_SUBSTRING_PATTERNS = {"Applebot-Extended"}
+        KNOWN_SUBSTRING_PATTERNS: set[str] = set()
 
         all_bot_uas = []
         for category, ua_list in BOT_USER_AGENTS.items():

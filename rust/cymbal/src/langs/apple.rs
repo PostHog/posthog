@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 use crate::{
     config::FRAME_CONTEXT_LINES,
     error::{AppleError, FrameError, ResolveError, UnhandledError},
-    frames::Frame,
+    frames::{record_frame_resolution_failure, Frame},
     langs::utils::{add_raw_to_junk, get_context_lines},
     langs::CommonFrameMetadata,
     symbol_store::{
@@ -135,7 +135,10 @@ impl RawAppleFrame {
                 ))])
             }
             Err(ResolveError::ResolutionError(e)) => {
-                unreachable!("Should not have received error {:?}", e)
+                tracing::warn!("Unexpected Apple symbol resolution error: {:?}", e);
+                Ok(vec![self.handle_resolution_error(AppleError::ParseError(
+                    e.to_string(),
+                ))])
             }
             Err(ResolveError::UnhandledError(e)) => {
                 tracing::error!("[apple-debug] resolve() unhandled error: {:?}", e);
@@ -340,6 +343,8 @@ impl RawAppleFrame {
     }
 
     fn handle_resolution_error(&self, err: AppleError) -> Frame {
+        record_frame_resolution_failure("apple", err.metric_reason(), &err);
+
         // Demangle the raw function name if present
         let mangled = self.function.clone().unwrap_or_default();
         let resolved_name = if !mangled.is_empty() {
@@ -391,7 +396,7 @@ impl RawAppleFrame {
             resolved_name,
             lang: lang_from_filename(self.filename.as_deref()).to_string(),
             resolved: false,
-            resolve_failure: Some(FrameError::from(err)),
+            resolve_failure: Some(err.to_string()),
             junk_drawer: None,
             release: None,
             synthetic: self.meta.synthetic,
@@ -707,7 +712,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()),
             )
-            .returning(|_, _| Ok(Some(get_dsym_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_dsym_bytes()))));
 
         let client = Arc::new(client);
 
@@ -868,7 +873,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()),
             )
-            .returning(|_, _| Ok(Some(get_inline_dsym_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_inline_dsym_bytes()))));
         let client = Arc::new(client);
 
         let catalog = Catalog::new(

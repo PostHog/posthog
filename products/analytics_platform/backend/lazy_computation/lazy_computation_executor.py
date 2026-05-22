@@ -16,6 +16,7 @@ from django.utils import timezone as django_timezone
 import redis as redis_lib
 import structlog
 from clickhouse_driver.errors import ServerException
+from prometheus_client import Counter
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global_settings
@@ -28,7 +29,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.team import Team
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
+from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -67,9 +68,27 @@ DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 # Quorum for INSERT queries. "auto" = majority of replicas must acknowledge writes before
 # the INSERT returns. This ensures data is replicated before the subsequent SELECT reads it,
 # preventing stale reads from hitting a replica that hasn't received the data yet.
-# Disabled in tests to avoid quorum behavior (tests usually run against a single-node or simplified
-# ClickHouse setup and we want them to remain fast and deterministic).
-PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST else "auto"
+# Disabled in tests AND local dev (DEBUG) — both run against a single-node ClickHouse
+# where `insert_quorum=auto` waits 600s for an acknowledgement that never comes (the local
+# replica writes immediately but ClickHouse still blocks on the quorum protocol).
+PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
+
+
+# Mirrors the `lazy_computation.executed` structured log so the same outcomes
+# (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
+# countable in Prometheus without log-based aggregation.
+#
+# `cache_state` values:
+#   - `hit`         → the request did no new work (no jobs created, no waits).
+#   - `partial_hit` → the request had to do work but found pre-existing READY data.
+#   - `miss`        → the request had to do work and found no pre-existing data.
+#
+# See README.md § Observability for example PromQL queries.
+LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
+    "lazy_computation_executions_total",
+    "Lazy computation executor invocations, labeled by outcome / cache_state / table.",
+    ["outcome", "cache_state", "table"],
+)
 
 
 def _get_insert_settings(team_id: int) -> dict:
@@ -256,6 +275,8 @@ class LazyComputationTable(StrEnum):
 
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
+    EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
+    WEB_OVERVIEW_PREAGGREGATED = "web_overview_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -263,6 +284,7 @@ class LazyComputationTable(StrEnum):
 # job expires. We add an extra day of buffer for these tables.
 _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+    LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
 }
 
 
@@ -624,7 +646,7 @@ class LazyComputationExecutor:
         ttl_schedule: TtlSchedule = DEFAULT_TTL_SCHEDULE,
         stale_pending_threshold_seconds: float = DEFAULT_STALE_PENDING_THRESHOLD_SECONDS,
         ch_start_grace_period_seconds: float = DEFAULT_CH_START_GRACE_PERIOD_SECONDS,
-    ):
+    ) -> None:
         self.wait_timeout_seconds = wait_timeout_seconds
         self.poll_interval_seconds = poll_interval_seconds
         self.max_poll_interval_seconds = max_poll_interval_seconds
@@ -667,12 +689,26 @@ class LazyComputationExecutor:
         jobs_created = 0
         waited_job_ids: set[uuid.UUID] = set()
 
+        had_ready_at_start: bool | None = None
+
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
+            if jobs_created == 0 and not waited_job_ids:
+                cache_state = "hit"
+            elif had_ready_at_start:
+                cache_state = "partial_hit"
+            else:
+                cache_state = "miss"
+            LAZY_COMPUTATION_EXECUTIONS_TOTAL.labels(
+                outcome=outcome,
+                cache_state=cache_state,
+                table=str(query_info.table),
+            ).inc()
             logger.info(
                 "lazy_computation.executed",
                 query_hash=query_hash,
                 table=str(query_info.table),
                 outcome=outcome,
+                cache_state=cache_state,
                 total_duration_ms=round((time.monotonic() - start_time) * 1000),
                 jobs_created=jobs_created,
                 jobs_waited_for=len(waited_job_ids),
@@ -697,6 +733,9 @@ class LazyComputationExecutor:
                 # Step 2: Find missing ranges, split at TTL boundaries
                 missing_ranges = find_missing_contiguous_windows(fresh_jobs, start, end)
                 ttl_ranges = split_ranges_by_ttl(missing_ranges, self.ttl_schedule)
+
+                if had_ready_at_start is None:
+                    had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in fresh_jobs)
 
                 # Step 3: Insert missing ranges
                 did_work = False
@@ -892,6 +931,8 @@ def ensure_precomputed(
     ttl_seconds: int | dict[str, int] = DEFAULT_TTL_SECONDS,
     table: LazyComputationTable = LazyComputationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
+    sentinel_placeholders: set[str] | None = None,
+    query_type: str | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -925,6 +966,10 @@ def ensure_precomputed(
         table: The target computation table (default "preaggregation_results")
         placeholders: Additional placeholder values to substitute into the query.
                       time_window_min and time_window_max are added automatically.
+        sentinel_placeholders: Placeholder names to replace with fixed sentinel values
+                      for hashing. Use this for placeholders whose values change between
+                      requests (e.g. datetime.now()) but shouldn't invalidate the cache.
+                      The real values are still used at INSERT time.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -957,11 +1002,25 @@ def ensure_precomputed(
     base_placeholders = placeholders or {}
     _validate_no_reserved_placeholders(base_placeholders)
 
-    # Parse the query template with sentinel time placeholders for stable hashing
-    hash_placeholders = {
+    if sentinel_placeholders:
+        missing = sentinel_placeholders - set(base_placeholders)
+        if missing:
+            raise ValueError(
+                f"sentinel_placeholders {missing} must also be present in placeholders "
+                "so real values are available at INSERT time."
+            )
+
+    # Parse the query template with sentinel placeholders for stable hashing.
+    # time_window_min/max are always sentinelized (managed by the executor).
+    # Callers can opt additional placeholders into sentinelization via sentinel_placeholders.
+    caller_sentinels: dict[str, ast.Expr] = {
+        name: ast.Constant(value=f"__{name.upper()}__") for name in (sentinel_placeholders or set())
+    }
+    hash_placeholders: dict[str, ast.Expr] = {
         **base_placeholders,
         "time_window_min": ast.Constant(value="__TIME_WINDOW_MIN__"),
         "time_window_max": ast.Constant(value="__TIME_WINDOW_MAX__"),
+        **caller_sentinels,
     }
     parsed_for_hash = parse_select(insert_query, placeholders=hash_placeholders)
     assert isinstance(parsed_for_hash, ast.SelectQuery)
@@ -981,7 +1040,10 @@ def ensure_precomputed(
             base_placeholders=base_placeholders,
         )
         set_ch_query_started(job.id)
-        with tags_context(client_query_id=str(job.id), team_id=t.id):
+        tag_kwargs: dict = {"client_query_id": str(job.id), "team_id": t.id}
+        if query_type:
+            tag_kwargs["query_type"] = query_type
+        with tags_context(**tag_kwargs):
             sync_execute(
                 insert_sql,
                 values,

@@ -18,22 +18,23 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.hogql_queries.insights.paths_query_runner import PathsQueryRunner
-from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
-from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
+from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.types import InsightActorsQueryNode
+
+from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
+from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
 
 
 class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -61,6 +62,10 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     @cached_property
     def source_runner(self) -> QueryRunner:
         return get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers)
+
+    def validate(self) -> None:
+        super().validate()
+        self.source_runner.validate()
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if isinstance(self.source_runner, TrendsQueryRunner):
@@ -184,13 +189,6 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return False
 
     def _calculate(self) -> HogQLQueryResponse:
-        settings = None
-
-        # Funnel queries require the experimental analyzer to run correctly
-        # Can remove once clickhouse moves to version 24.3 or above
-        if isinstance(self.source_runner, FunnelsQueryRunner):
-            settings = HogQLGlobalSettings(enable_analyzer=True)
-
         return execute_hogql_query(
             query_type="InsightActorsQuery",
             query=self.to_query(),
@@ -198,5 +196,4 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
-            settings=settings,
         )

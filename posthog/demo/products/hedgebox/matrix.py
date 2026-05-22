@@ -4,7 +4,7 @@ import datetime as dt
 from collections.abc import Callable
 from dataclasses import dataclass
 from io import StringIO
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -50,16 +50,22 @@ from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Action, Cohort, FeatureFlag, Insight, InsightViewed
+from posthog.models import Cohort, FeatureFlag, Insight, InsightViewed
+from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
 from posthog.storage import object_storage
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingStackFrame,
+    sync_issues_to_clickhouse,
+)
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.event_definitions.backend.models.schema import (
@@ -68,6 +74,8 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroupProperty,
 )
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.warehouse_sources.backend.models.credential import get_or_create_datawarehouse_credential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (
@@ -81,6 +89,7 @@ from .taxonomy import (
     EVENT_SIGNED_UP,
     EVENT_UPGRADED_PLAN,
     EVENT_UPLOADED_FILE,
+    FLAG_BIAS_WARNING_DEMO_EXPERIMENT,
     FLAG_FILE_ENGAGEMENT_EXPERIMENT,
     FLAG_FILE_PREVIEWS,
     FLAG_ONBOARDING_EXPERIMENT,
@@ -110,6 +119,33 @@ class DemoDataWarehouseTableSpec:
     columns: dict[str, str]
     source_events: tuple[str, ...]
     row_builder: Callable[[SimEvent, int], tuple[Any, ...]]
+
+
+class ErrorTrackingDemoFrame(TypedDict):
+    raw_id: str
+    mangled_name: str
+    source: str
+    in_app: bool
+    resolved_name: str
+    lang: str
+    resolved: bool
+    synthetic: bool
+    suspicious: bool
+    line: int
+    column: int
+    pre_context: list[str]
+    context_line: str
+    post_context: list[str]
+
+
+class ErrorTrackingDemoIssueSpec(TypedDict):
+    name: str
+    description: str
+    fingerprint: str
+    type: str
+    value: str
+    frames: list[ErrorTrackingDemoFrame]
+    days_ago: list[int]
 
 
 class HedgeboxCluster(Cluster):
@@ -161,6 +197,8 @@ class HedgeboxMatrix(Matrix):
     upgrade_prompt_experiment_start: dt.datetime
     team_collab_experiment_start: dt.datetime
     team_collab_experiment_end: dt.datetime
+    bias_warning_experiment_start: dt.datetime
+    bias_warning_experiment_flip_time: dt.datetime
     extended_end: dt.datetime
 
     def __init__(self, *args, **kwargs):
@@ -188,6 +226,10 @@ class HedgeboxMatrix(Matrix):
         # Team collaboration boost (stopped early) - 50% to 70%
         self.team_collab_experiment_start = self.start + elapsed * 0.5
         self.team_collab_experiment_end = self.start + elapsed * 0.7
+
+        # Bias warning demo (running) - 60% onward, ~2% of users flip variants halfway through
+        self.bias_warning_experiment_start = self.start + elapsed * 0.6
+        self.bias_warning_experiment_flip_time = self.start + elapsed * 0.8
 
         # Extended simulation for running experiment
         self.extended_end = self.now + dt.timedelta(days=30)
@@ -965,6 +1007,12 @@ class HedgeboxMatrix(Matrix):
                 [("control", 50), ("test", 50)],
                 self.team_collab_experiment_start - dt.timedelta(hours=1),
             )
+            bias_warning_flag = create_experiment_flag(
+                FLAG_BIAS_WARNING_DEMO_EXPERIMENT,
+                "Bias warning demo: uneven split with multi-variant",
+                [("control", 90), ("test", 10)],
+                self.bias_warning_experiment_start - dt.timedelta(hours=1),
+            )
         except IntegrityError:
             # Flags already exist, fetch them
             onboarding_flag = FeatureFlag.objects.get(team=team, key=FLAG_ONBOARDING_EXPERIMENT)
@@ -974,6 +1022,7 @@ class HedgeboxMatrix(Matrix):
             upgrade_prompt_flag = FeatureFlag.objects.get(team=team, key=FLAG_UPGRADE_PROMPT_EXPERIMENT)
             retention_nudge_flag = FeatureFlag.objects.get(team=team, key=FLAG_RETENTION_NUDGE_EXPERIMENT)
             team_collab_flag = FeatureFlag.objects.get(team=team, key=FLAG_TEAM_COLLAB_EXPERIMENT)
+            bias_warning_flag = FeatureFlag.objects.get(team=team, key=FLAG_BIAS_WARNING_DEMO_EXPERIMENT)
 
         # Experiments and shared metrics
 
@@ -1288,6 +1337,7 @@ class HedgeboxMatrix(Matrix):
         # --- Additional experiments for coverage of various states ---
 
         # Pricing page redesign (inconclusive) — uses high-volume pageview→signup funnel
+        pricing_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Pricing page redesign",
@@ -1298,7 +1348,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": pricing_metric_uuids[0],
                     "name": "Pricing page to signup",
                     "series": [
                         {"kind": "EventsNode", "event": "$pageview"},
@@ -1311,13 +1361,14 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": pricing_metric_uuids[1],
                     "name": "Pageviews per user",
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                     "goal": "increase",
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=pricing_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1334,6 +1385,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # File sharing incentive (lost) — uses upload→download funnel and upload mean
+        sharing_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="File sharing incentive",
@@ -1344,7 +1396,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": sharing_metric_uuids[0],
                     "name": "Uploads per user",
                     "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
                     "goal": "increase",
@@ -1352,7 +1404,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": sharing_metric_uuids[1],
                     "name": "Upload to download",
                     "series": [
                         {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
@@ -1364,6 +1416,7 @@ class HedgeboxMatrix(Matrix):
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=sharing_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1380,6 +1433,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Upgrade prompt experiment (running, recently started) — uses high-volume events
+        upgrade_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Upgrade prompt experiment",
@@ -1390,7 +1444,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": upgrade_metric_uuids[0],
                     "name": "Login to upload",
                     "series": [
                         {"kind": "EventsNode", "event": EVENT_LOGGED_IN},
@@ -1403,13 +1457,14 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": upgrade_metric_uuids[1],
                     "name": "Downloads per user",
                     "source": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
                     "goal": "increase",
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=upgrade_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 34},
@@ -1425,6 +1480,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Retention nudge (draft - not yet started)
+        retention_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Retention nudge",
@@ -1435,7 +1491,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "retention",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": retention_metric_uuids[0],
                     "name": "7-day login retention",
                     "goal": "increase",
                     "start_event": {"kind": "EventsNode", "event": EVENT_LOGGED_IN},
@@ -1448,13 +1504,14 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": retention_metric_uuids[1],
                     "name": "Downloads per user",
                     "source": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
                     "goal": "increase",
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=retention_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1469,6 +1526,7 @@ class HedgeboxMatrix(Matrix):
         )
 
         # Team collaboration boost (stopped early) — uses high-volume events
+        team_collab_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
         Experiment.objects.create(
             team=team,
             name="Team collaboration boost",
@@ -1479,7 +1537,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": team_collab_metric_uuids[0],
                     "name": "Files uploaded per user",
                     "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
                     "goal": "increase",
@@ -1487,7 +1545,7 @@ class HedgeboxMatrix(Matrix):
                 {
                     "kind": "ExperimentMetric",
                     "metric_type": "funnel",
-                    "uuid": str(uuid.uuid4()),
+                    "uuid": team_collab_metric_uuids[1],
                     "name": "Signup to upload",
                     "series": [
                         {"kind": "EventsNode", "event": EVENT_SIGNED_UP},
@@ -1499,6 +1557,7 @@ class HedgeboxMatrix(Matrix):
                 },
             ],
             metrics_secondary=[],
+            primary_metrics_ordered_uuids=team_collab_metric_uuids,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1512,6 +1571,54 @@ class HedgeboxMatrix(Matrix):
             conclusion="stopped_early",
             conclusion_comment="Stopped early due to a bug in the activity feed causing excessive notifications. Need to fix the notification throttling before re-running.",
             created_at=team_collab_flag.created_at,
+        )
+
+        # Bias warning demo (running) — intentionally configured to trigger the
+        # multi-variant exclusion bias warning: 90/10 uneven split, default EXCLUDE
+        # handling, and ~2% of users exposed to multiple variants over time.
+        bias_warning_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
+        Experiment.objects.create(
+            team=team,
+            name="Bias warning demo: uneven split with multi-variant",
+            description="Demo experiment intentionally configured to trigger the multi-variant exclusion bias warning (90/10 split, ~2% of users exposed to multiple variants).",
+            feature_flag=bias_warning_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "uuid": bias_warning_metric_uuids[0],
+                    "name": "Pageview to upload",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                    ],
+                    "goal": "increase",
+                    "conversion_window": 7,
+                    "conversion_window_unit": "day",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": bias_warning_metric_uuids[1],
+                    "name": "Pageviews per user",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                    "goal": "increase",
+                },
+            ],
+            metrics_secondary=[],
+            primary_metrics_ordered_uuids=bias_warning_metric_uuids,
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 90},
+                    {"key": "test", "rollout_percentage": 10},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.30),
+                "minimum_detectable_effect": 10,
+            },
+            start_date=self.bias_warning_experiment_start,
+            end_date=None,
+            created_at=bias_warning_flag.created_at,
         )
 
         self._set_up_demo_data_warehouse_tables(team, user)
@@ -1609,41 +1716,6 @@ class HedgeboxMatrix(Matrix):
                 description="Daily active users (unique pageview persons) over the last 30 days",
                 created_by=user,
             )
-
-            activation_funnel_endpoint = Endpoint.objects.create(
-                name="activation-funnel",
-                team=team,
-                created_by=user,
-                is_active=True,
-                current_version=1,
-            )
-            EndpointVersion.objects.create(
-                endpoint=activation_funnel_endpoint,
-                version=1,
-                query=FunnelsQuery(
-                    series=[
-                        EventsNode(
-                            event=EVENT_SIGNED_UP,
-                            name=EVENT_SIGNED_UP,
-                            custom_name="Signed up",
-                        ),
-                        EventsNode(
-                            event=EVENT_UPLOADED_FILE,
-                            name=EVENT_UPLOADED_FILE,
-                            custom_name="Uploaded file",
-                        ),
-                        EventsNode(
-                            event=EVENT_UPGRADED_PLAN,
-                            name=EVENT_UPGRADED_PLAN,
-                            custom_name="Upgraded plan",
-                        ),
-                    ],
-                    funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.STEPS),
-                    dateRange=DateRange(date_from="-30d"),
-                ).model_dump(),
-                description="Activation funnel from signup through file upload to plan upgrade",
-                created_by=user,
-            )
         except IntegrityError:
             pass
 
@@ -1700,6 +1772,8 @@ class HedgeboxMatrix(Matrix):
         except IntegrityError:
             pass
 
+        self._set_up_error_tracking_demo_data(team)
+
         if settings.OIDC_RSA_PRIVATE_KEY:
             try:
                 OAuthApplication.objects.create(
@@ -1715,6 +1789,309 @@ class HedgeboxMatrix(Matrix):
                 )
             except (IntegrityError, ValidationError):
                 pass
+
+    def _set_up_error_tracking_demo_data(self, team: "Team") -> None:
+        issue_specs: list[ErrorTrackingDemoIssueSpec] = [
+            {
+                "name": "Checkout API timeout",
+                "description": "Checkout requests occasionally time out while creating a payment session, preventing upgrades from completing.",
+                "fingerprint": "5f51cbfd904b08d668e02eb1cda7e4a822b8fe640135f94aa0eb20c7a8553cda74a1e9fac8c9fa23f1e0df72f7f6c9b3d7cb3b8337dfebf6d7eb0b9d89d2d1d",
+                "type": "TimeoutError",
+                "value": "Request timed out while creating checkout session",
+                "frames": [
+                    {
+                        "raw_id": "hedgebox-checkout-submit-payment/0",
+                        "mangled_name": "submitPayment",
+                        "source": "https://app.hedgebox.test/static/js/checkout.js",
+                        "in_app": True,
+                        "resolved_name": "submitPayment",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 128,
+                        "column": 24,
+                        "pre_context": [
+                            "    setIsSubmitting(true)",
+                            "    setError(undefined)",
+                            "    const plan = selectedPlan?.id",
+                        ],
+                        "context_line": "    const response = await submitPayment(plan)",
+                        "post_context": [
+                            "    setCheckoutResponse(response)",
+                            "    navigate(response.redirectUrl)",
+                            "}",
+                        ],
+                    },
+                    {
+                        "raw_id": "hedgebox-checkout-create-session/0",
+                        "mangled_name": "createCheckoutSession",
+                        "source": "https://app.hedgebox.test/static/js/api.js",
+                        "in_app": True,
+                        "resolved_name": "createCheckoutSession",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 87,
+                        "column": 18,
+                        "pre_context": [
+                            "export async function createCheckoutSession(plan) {",
+                            "    const payload = { plan }",
+                            "    const timeout = 8000",
+                        ],
+                        "context_line": "    return api.post('/api/billing/checkout', payload, { timeout })",
+                        "post_context": [
+                            "}",
+                        ],
+                    },
+                ],
+                "days_ago": [2, 5, 11, 18],
+            },
+            {
+                "name": "File preview render failure",
+                "description": "Preview rendering fails for some uploaded PDFs, leaving customers unable to inspect files before sharing them.",
+                "fingerprint": "8f2c90d4c59cc4b379ae67dfc7b1f0f381d6ad55f24f4df9d0f5269a3ad991fe3f6e0db3af6c48b6d1c57f0ea01c6cb4f88d7836d4426437a6d8f0f66d8a92a6",
+                "type": "RenderError",
+                "value": "Failed to render PDF preview",
+                "frames": [
+                    {
+                        "raw_id": "hedgebox-preview-render-pdf/0",
+                        "mangled_name": "renderPdfPreview",
+                        "source": "https://app.hedgebox.test/static/js/file-preview.js",
+                        "in_app": True,
+                        "resolved_name": "renderPdfPreview",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 203,
+                        "column": 12,
+                        "pre_context": [
+                            "    const page = await pdf.getPage(pageNumber)",
+                            "    const viewport = page.getViewport({ scale: 1.25 })",
+                            "    canvas.width = viewport.width",
+                        ],
+                        "context_line": "    await page.render({ canvasContext: context, viewport }).promise",
+                        "post_context": [
+                            "    return canvas.toDataURL('image/png')",
+                            "}",
+                        ],
+                    },
+                    {
+                        "raw_id": "hedgebox-preview-load-document/0",
+                        "mangled_name": "loadDocument",
+                        "source": "https://app.hedgebox.test/static/js/workers/pdf.js",
+                        "in_app": True,
+                        "resolved_name": "loadDocument",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 61,
+                        "column": 9,
+                        "pre_context": [
+                            "export async function loadDocument(fileUrl) {",
+                            "    const task = pdfjsLib.getDocument(fileUrl)",
+                        ],
+                        "context_line": "    return await task.promise",
+                        "post_context": [
+                            "}",
+                        ],
+                    },
+                ],
+                "days_ago": [1, 4, 9],
+            },
+            {
+                "name": "Team invite rejected",
+                "description": "Inviting teammates can fail when the invite form submits incomplete recipient data.",
+                "fingerprint": "2c6be0b6f6a0ea0ed8c6c0dfcfb2b1b6f3f6906b6e5c4f6440af14bb22e3f7457d515c8a1b5ed662fb6921fb3c5257f7e7cbff5bc0f5efc6f7a1f7df9f988b92",
+                "type": "TypeError",
+                "value": "Cannot read properties of undefined (reading 'email')",
+                "frames": [
+                    {
+                        "raw_id": "hedgebox-invite-submit/0",
+                        "mangled_name": "submitInvite",
+                        "source": "https://app.hedgebox.test/static/js/team-settings.js",
+                        "in_app": True,
+                        "resolved_name": "submitInvite",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 94,
+                        "column": 31,
+                        "pre_context": [
+                            "    const payload = buildInvitePayload(form.values)",
+                            "    setSubmitting(true)",
+                        ],
+                        "context_line": "    return client.team.invites.create(payload)",
+                        "post_context": [
+                            "}",
+                        ],
+                    },
+                    {
+                        "raw_id": "hedgebox-invite-on-submit/0",
+                        "mangled_name": "onSubmit",
+                        "source": "https://app.hedgebox.test/static/js/forms/invite-form.js",
+                        "in_app": True,
+                        "resolved_name": "onSubmit",
+                        "lang": "javascript",
+                        "resolved": True,
+                        "synthetic": False,
+                        "suspicious": False,
+                        "line": 42,
+                        "column": 17,
+                        "pre_context": [
+                            "export function onSubmit(values) {",
+                            "    const normalizedValues = normalizeInviteValues(values)",
+                        ],
+                        "context_line": "    return submitInvite(normalizedValues)",
+                        "post_context": [
+                            "}",
+                        ],
+                    },
+                ],
+                "days_ago": [3, 7],
+            },
+        ]
+
+        people = [
+            person for person in cast(list[HedgeboxPerson], self.people) if person.past_events and person.in_posthog_id
+        ]
+        if not people:
+            return
+
+        selected_people = sorted(people, key=lambda person: person.in_product_id)[:6]
+        self._upsert_error_tracking_stack_frames(team, issue_specs)
+
+        created_issue_ids: list = []
+        for issue_spec in issue_specs:
+            if ErrorTrackingIssueFingerprintV2.objects.filter(
+                team=team, fingerprint=issue_spec["fingerprint"]
+            ).exists():
+                continue
+
+            issue = ErrorTrackingIssue.objects.create(
+                team=team,
+                name=issue_spec["name"],
+                description=issue_spec["description"],
+            )
+            ErrorTrackingIssueFingerprintV2.objects.create(
+                team=team,
+                issue=issue,
+                fingerprint=issue_spec["fingerprint"],
+            )
+            created_issue_ids.append(issue.id)
+
+            for index, days_ago in enumerate(issue_spec["days_ago"]):
+                person = selected_people[index % len(selected_people)]
+                if not hasattr(person, "properties_at_now"):
+                    person.take_snapshot_at_now()
+
+                distinct_id = (
+                    sorted(person.distinct_ids_at_now)[0] if person.distinct_ids_at_now else person.in_product_id
+                )
+                timestamp = self.now - dt.timedelta(days=days_ago, hours=index % 5)
+                frames = issue_spec["frames"]
+                event_frames = [self._stack_frame_contents(frame) for frame in frames]
+                exception_type = issue_spec["type"]
+                exception_value = issue_spec["value"]
+                handled = False
+
+                create_event(
+                    event_uuid=uuid.uuid4(),
+                    event="$exception",
+                    team=team,
+                    distinct_id=distinct_id,
+                    timestamp=timestamp,
+                    properties={
+                        "$lib": "web",
+                        "$lib_version": "1.298.0",
+                        "$host": "app.hedgebox.test",
+                        "$pathname": "/app/files",
+                        "$current_url": "https://app.hedgebox.test/app/files",
+                        "$session_id": str(uuid.uuid4()),
+                        "$exception_level": "error",
+                        "$exception_handled": handled,
+                        "$exception_issue_id": str(issue.id),
+                        "$exception_fingerprint": issue_spec["fingerprint"],
+                        "$exception_proposed_fingerprint": issue_spec["fingerprint"],
+                        "$exception_fingerprint_record": [
+                            {
+                                "type": "manual",
+                            }
+                        ],
+                        "$exception_types": [exception_type],
+                        "$exception_values": [exception_value],
+                        "$exception_sources": [frame["source"] for frame in frames],
+                        "$exception_functions": [frame["resolved_name"] for frame in frames],
+                        "$exception_list": [
+                            {
+                                "type": exception_type,
+                                "value": exception_value,
+                                "mechanism": {
+                                    "handled": handled,
+                                    "synthetic": False,
+                                },
+                                "stacktrace": {
+                                    "type": "resolved",
+                                    "frames": event_frames,
+                                },
+                            }
+                        ],
+                    },
+                    person_id=person.in_posthog_id,
+                    person_properties=person.properties_at_now,
+                    person_created_at=person.first_seen_at or timestamp,
+                )
+
+        if created_issue_ids:
+            sync_issues_to_clickhouse(issue_ids=created_issue_ids, team_id=team.pk)
+
+    def _upsert_error_tracking_stack_frames(self, team: "Team", issue_specs: list[ErrorTrackingDemoIssueSpec]) -> None:
+        for issue_spec in issue_specs:
+            for frame in issue_spec["frames"]:
+                raw_id, part = self._split_frame_raw_id(str(frame["raw_id"]))
+                ErrorTrackingStackFrame.objects.update_or_create(
+                    team=team,
+                    raw_id=raw_id,
+                    part=part,
+                    defaults={
+                        "resolved": True,
+                        "contents": self._stack_frame_contents(frame),
+                        "context": self._stack_frame_context(frame),
+                    },
+                )
+
+    @staticmethod
+    def _split_frame_raw_id(raw_id: str) -> tuple[str, int]:
+        if "/" not in raw_id:
+            return raw_id, 0
+        hash_id, part = raw_id.rsplit("/", 1)
+        return hash_id, int(part)
+
+    @staticmethod
+    def _stack_frame_contents(frame: ErrorTrackingDemoFrame) -> dict[str, Any]:
+        return {
+            key: value for key, value in frame.items() if key not in {"pre_context", "context_line", "post_context"}
+        }
+
+    @staticmethod
+    def _stack_frame_context(frame: ErrorTrackingDemoFrame) -> dict[str, Any]:
+        context_line = frame["context_line"]
+        line_number = frame["line"]
+        pre_context = frame["pre_context"]
+        post_context = frame["post_context"]
+
+        return {
+            "before": [
+                {"number": line_number - len(pre_context) + index, "line": line}
+                for index, line in enumerate(pre_context)
+            ],
+            "line": {"number": line_number, "line": context_line},
+            "after": [{"number": line_number + index + 1, "line": line} for index, line in enumerate(post_context)],
+        }
 
     def _set_up_demo_data_warehouse_tables(self, team: "Team", user: "User") -> None:
         if settings.TEST or not settings.OBJECT_STORAGE_ENABLED:

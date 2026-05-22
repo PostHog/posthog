@@ -1,6 +1,8 @@
 import json
 
 from django.contrib import admin
+from django.db.models import Model
+from django.http import HttpRequest
 from django.utils.html import format_html
 
 from posthog.models import PluginAttachment
@@ -31,16 +33,16 @@ class PluginAttachmentInline(admin.StackedInline):
                     f"file size {attachment.file_size} is larger than {ATTACHMENT_PREVIEW_SIZE_LIMIT_BYTES} bytes"
                 )
 
-            response = json.dumps(json.loads(attachment.contents), sort_keys=True, indent=4)
+            response = json.dumps(json.loads(bytes(attachment.contents)), sort_keys=True, indent=4)
             return format_html("<pre>{}</pre>", response)
         except Exception as err:
             return format_html("cannot preview: {}", err)
 
-    def has_add_permission(self, request, obj):
+    def has_add_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         return False
 
-    def has_change_permission(self, request, obj):
+    def has_change_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj):
+    def has_delete_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         return False

@@ -1,16 +1,14 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use aws_config::{BehaviorVersion, Region};
 use common_continuous_profiling::ContinuousProfilingConfig;
-use common_kafka::config::{ConsumerConfig, KafkaConfig};
+use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 use tracing::{info, warn};
 
 // TODO - I'm just too lazy to pipe this all the way through the resolve call stack
 pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);
+pub static BATCH_APPLY_CONCURRENCY: AtomicUsize = AtomicUsize::new(64);
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
@@ -31,29 +29,30 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
+    // Optional override for the brokers used to produce `cdp_internal_events`. When set,
+    // cymbal opens a second producer pointed at this host list (used for the warpstream-cyclotron
+    // VC, where the hog-functions consumer reads). When unset, internal events go through the
+    // primary `kafka` producer like everything else.
+    #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_HOSTS")]
+    pub cyclotron_kafka_hosts: Option<String>,
+
+    // Optional TLS override for the cyclotron producer. When unset, the cyclotron producer
+    // inherits `KAFKA_TLS` from the primary kafka config; set this to flip TLS independently
+    // (e.g. primary on plaintext warpstream-shared, secondary on SSL MSK).
+    #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_TLS")]
+    pub cyclotron_kafka_tls: Option<bool>,
+
     #[envconfig(default = "cdp_internal_events")]
     pub internal_events_topic: String,
 
-    #[envconfig(default = "clickhouse_events_json")]
-    pub events_topic: String,
-
-    #[envconfig(default = "clickhouse_error_tracking_issue_fingerprint")]
-    pub issue_overrides_topic: String,
-
-    #[envconfig(default = "clickhouse_ingestion_warnings")]
-    pub ingestion_warnings_topic: String,
+    #[envconfig(default = "clickhouse_error_tracking_fingerprint_issue_state")]
+    pub fingerprint_issue_state_topic: String,
 
     #[envconfig(default = "document_embeddings_input")]
     pub embedding_worker_topic: String,
 
-    #[envconfig(nested = true)]
-    pub consumer: ConsumerConfig,
-
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
-
-    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
-    pub persons_url: String,
 
     // Rust service connect directly to postgres, not via pgbouncer, so we keep this low
     #[envconfig(default = "4")]
@@ -114,11 +113,23 @@ pub struct Config {
     #[envconfig(default = "15")]
     pub context_line_count: usize,
 
-    #[envconfig(default = "1000")]
-    pub max_events_per_batch: usize,
+    // Maximum number of in-flight futures for a single `Batch::apply_func` call.
+    // This is a per-call-site limit, not a global pipeline-wide concurrency cap.
+    #[envconfig(default = "64")]
+    pub batch_apply_concurrency: usize,
 
-    #[envconfig(default = "10")]
-    pub max_event_batch_wait_seconds: u64,
+    // Global maximum number of concurrent symbol resolution operations.
+    // This limiter is shared across frame and exception symbol resolution paths.
+    #[envconfig(default = "64")]
+    pub symbol_resolution_concurrency: usize,
+
+    // Maximum number of in-flight /process requests accepted by the API.
+    // Requests above this limit are rejected with 429 to apply backpressure.
+    #[envconfig(default = "128")]
+    pub process_max_in_flight_requests: usize,
+
+    #[envconfig(default = "60000")]
+    pub process_slow_log_threshold_ms: u64,
 
     #[envconfig(default = "300")]
     pub team_cache_ttl_secs: u64,
@@ -147,12 +158,6 @@ pub struct Config {
     // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
     pub max_suppression_rule_cache_size: u64,
 
-    #[envconfig(from = "MAXMIND_DB_PATH")]
-    pub maxmind_db_path: PathBuf,
-
-    #[envconfig(default = "redis://localhost:6379/")]
-    pub redis_url: String,
-
     #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
 
@@ -161,15 +166,6 @@ pub struct Config {
 
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
-
-    #[envconfig(default = "")]
-    pub filtered_teams: String, // Comma seperated list of teams to either filter in (process) or filter out (ignore)
-
-    #[envconfig(default = "out")]
-    pub filter_mode: String, // in/out - in means drop all teams not in the list, out means drop all teams in the list
-
-    #[envconfig(default = "false")]
-    pub auto_assignment_enabled: bool, // Comma seperated list of users to either filter in (process) or filter out (ignore)
 
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts
@@ -186,16 +182,6 @@ pub struct Config {
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        // Our consumer is used in a transaction, so we disable offset commits.
-        ConsumerConfig::set_defaults("error-tracking-rs", "exceptions_ingestion", false);
-
-        if std::env::var("MAXMIND_DB_PATH").is_err() {
-            std::env::set_var(
-                "MAXMIND_DB_PATH",
-                default_maxmind_db_path().to_string_lossy().to_string(),
-            );
-        }
-
         let res = Self::init_from_env()?;
         init_global_state(&res);
         Ok(res)
@@ -204,16 +190,7 @@ impl Config {
 
 pub fn init_global_state(config: &Config) {
     FRAME_CONTEXT_LINES.store(config.context_line_count, Ordering::Relaxed);
-}
-
-fn default_maxmind_db_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("share")
-        .join("GeoLite2-City.mmdb")
+    BATCH_APPLY_CONCURRENCY.store(config.batch_apply_concurrency.max(1), Ordering::Relaxed);
 }
 
 pub async fn get_aws_config(config: &Config) -> aws_sdk_s3::Config {

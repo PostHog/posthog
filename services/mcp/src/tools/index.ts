@@ -2,43 +2,28 @@ import { hasScopes } from '@/lib/api'
 
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
-// Documentation
-import searchDocs from './documentation/searchDocs'
-// Experiments
-import createExperiment from './experiments/create'
-import deleteExperiment from './experiments/delete'
-import getExperiment from './experiments/get'
-import getAllExperiments from './experiments/getAll'
+// Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import getExperimentResults from './experiments/getResults'
-import updateExperiment from './experiments/update'
+import experimentListDeprecated from './experiments/listDeprecated'
+// Feedback
+import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
-import createInsight from './insights/create'
-import deleteInsight from './insights/delete'
-import getInsight from './insights/get'
-import getAllInsights from './insights/getAll'
 import queryInsight from './insights/query'
-import updateInsight from './insights/update'
-// LLM Analytics
-import evaluationCreate from './llmAnalytics/evaluations/create'
-import evaluationDelete from './llmAnalytics/evaluations/delete'
-import evaluationGet from './llmAnalytics/evaluations/get'
-import evaluationsGet from './llmAnalytics/evaluations/getAll'
-import evaluationRun from './llmAnalytics/evaluations/run'
-import evaluationTestHog from './llmAnalytics/evaluations/testHog'
-import evaluationUpdate from './llmAnalytics/evaluations/update'
+// AI observability
 import getLLMCosts from './llmAnalytics/getLLMCosts'
-import logsListAttributes from './logs/listAttributes'
-import logsListAttributeValues from './logs/listAttributeValues'
-// Logs
-import logsQuery from './logs/query'
 // Organizations
-import getOrganizationDetails from './organizations/getDetails'
-import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
-import { executeSql, readDataSchema, readDataWarehouseSchema } from './posthogAiTools'
+import {
+    executeSql,
+    externalDataSourcesDbSchema,
+    externalDataSourcesJobs,
+    externalDataSyncLogs,
+    readDataSchema,
+    readDataWarehouseSchema,
+} from './posthogAiTools'
 // Projects
 import eventDefinitions from './projects/eventDefinitions'
 import getProjects from './projects/getProjects'
@@ -48,6 +33,10 @@ import updateEventDefinition from './projects/updateEventDefinition'
 // Query
 import generateHogQLFromQuestion from './query/generateHogQLFromQuestion'
 import queryRun from './query/run'
+import hogqlSchema from './query/schema'
+import queryValidate from './query/validate'
+// Replay
+import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Search
 import entitySearch from './search/entitySearch'
 // Misc
@@ -61,9 +50,7 @@ import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
-    'organizations-get': getOrganizations,
     'switch-organization': setActiveOrganization,
-    'organization-details-get': getOrganizationDetails,
 
     // Projects
     'projects-get': getProjects,
@@ -72,43 +59,22 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'event-definition-update': updateEventDefinition,
     'properties-list': getProperties,
 
-    // Documentation - handled separately due to env check
-    // "docs-search": searchDocs,
-
-    // Logs
-    'logs-query': logsQuery,
-    'logs-list-attributes': logsListAttributes,
-    'logs-list-attribute-values': logsListAttributeValues,
-
-    // Experiments
-    'experiment-get-all': getAllExperiments,
-    'experiment-get': getExperiment,
+    // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
-    'experiment-create': createExperiment,
-    'experiment-delete': deleteExperiment,
-    'experiment-update': updateExperiment,
+    // Deprecated alias for experiment-list — forwards and annotates the response.
+    'experiment-get-all': experimentListDeprecated,
 
     // Insights
-    'insights-get-all': getAllInsights,
-    'insight-get': getInsight,
-    'insight-create-from-query': createInsight,
-    'insight-update': updateInsight,
-    'insight-delete': deleteInsight,
     'insight-query': queryInsight,
 
     // Queries
     'query-generate-hogql-from-question': generateHogQLFromQuestion,
     'query-run': queryRun,
+    'query-validate': queryValidate,
+    'hogql-schema': hogqlSchema,
 
-    // LLM Analytics
+    // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,
-    'evaluations-get': evaluationsGet,
-    'evaluation-get': evaluationGet,
-    'evaluation-create': evaluationCreate,
-    'evaluation-update': evaluationUpdate,
-    'evaluation-delete': evaluationDelete,
-    'evaluation-run': evaluationRun,
-    'evaluation-test-hog': evaluationTestHog,
 
     // Search
     'entity-search': entitySearch,
@@ -116,10 +82,21 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,
 
+    // Feedback
+    'agent-feedback': submitFeedback,
+
     // PostHog AI tools
     'execute-sql': executeSql,
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,
+
+    // Replay
+    'session-recording-summarize': sessionRecordingSummarize,
+
+    // Data warehouse (custom handlers for non-standard request shapes)
+    'external-data-sources-db-schema': externalDataSourcesDbSchema,
+    'external-data-sources-jobs': externalDataSourcesJobs,
+    'external-data-sync-logs': externalDataSyncLogs,
 }
 
 export const getToolsFromContext = async (
@@ -135,18 +112,17 @@ export const getToolsFromContext = async (
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {
-        // Special handling for docs-search which requires API key
-        if (toolName === 'docs-search' && context.env.INKEEP_API_KEY) {
-            toolBases.push(searchDocs())
-        } else {
-            const toolFactory = effectiveMap[toolName]
-            if (toolFactory) {
-                toolBases.push(toolFactory())
-            }
+        const toolFactory = effectiveMap[toolName]
+        if (toolFactory) {
+            toolBases.push(toolFactory())
         }
     }
 
-    const tools: Tool<ZodObjectAny>[] = toolBases.map((toolBase) => {
+    // Filter tools by mcpVersion — when set, the tool is exclusive to that version
+    const effectiveVersion = options?.version ?? 1
+    const filteredBases = toolBases.filter((tb) => tb.mcpVersion === undefined || tb.mcpVersion === effectiveVersion)
+
+    const tools: Tool<ZodObjectAny>[] = filteredBases.map((toolBase) => {
         const definition = getToolDefinition(toolBase.name, options?.version)
         return {
             ...toolBase,

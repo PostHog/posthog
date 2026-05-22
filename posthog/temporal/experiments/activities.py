@@ -45,17 +45,19 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
     experiment_metrics: list[ExperimentRegularMetricInput] = []
 
     # Build time filter - teams with NULL recalculation_time default to hour 2 (02:00 UTC)
+    # The filter traverses Experiment -> Team -> TeamExperimentsConfig via Django's reverse relation
     if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
-        time_filter = Q(team__experiment_recalculation_time__hour=hour) | Q(
-            team__experiment_recalculation_time__isnull=True
+        time_filter = (
+            Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
+            | Q(team__teamexperimentsconfig__experiment_recalculation_time__isnull=True)
+            | Q(team__teamexperimentsconfig__isnull=True)
         )
     else:
-        time_filter = Q(team__experiment_recalculation_time__hour=hour)
+        time_filter = Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
 
     experiments = Experiment.objects.filter(
         time_filter,
         deleted=False,
-        scheduling_config__timeseries=True,
         status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
     ).exclude(
@@ -296,16 +298,17 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
     experiment_metrics: list[ExperimentSavedMetricInput] = []
 
     if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
-        time_filter = Q(team__experiment_recalculation_time__hour=hour) | Q(
-            team__experiment_recalculation_time__isnull=True
+        time_filter = (
+            Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
+            | Q(team__teamexperimentsconfig__experiment_recalculation_time__isnull=True)
+            | Q(team__teamexperimentsconfig__isnull=True)
         )
     else:
-        time_filter = Q(team__experiment_recalculation_time__hour=hour)
+        time_filter = Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
 
     experiments = Experiment.objects.filter(
         time_filter,
         deleted=False,
-        scheduling_config__timeseries=True,
         status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=30),
     ).prefetch_related("experimenttosavedmetric_set__saved_metric")

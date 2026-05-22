@@ -15,9 +15,10 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
@@ -25,7 +26,9 @@ from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.data_warehouse.backend.models.external_data_source import get_direct_external_data_source_for_connection
+from products.warehouse_sources.backend.models.external_data_source import (
+    get_direct_external_data_source_for_connection,
+)
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -39,7 +42,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         settings: Optional[HogQLGlobalSettings] = None,
         **kwargs,
     ):
-        self.settings = settings or HogQLGlobalSettings(enable_analyzer=True)
+        self.settings = settings or HogQLGlobalSettings()
         super().__init__(*args, **kwargs)
 
     # Treat SQL query caching like day insight
@@ -58,7 +61,12 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
-            parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
+            parsed_select = parse_select(
+                self.query.query,
+                timings=self.timings,
+                placeholders=values,
+                cache_origin=CacheOrigin.USER,
+            )
 
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
@@ -73,7 +81,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 var_values: dict[str, Any] = {"variables": var_dict, **values} if values else {"variables": var_dict}
                 if self.query.variables:
                     for var in list(self.query.variables.values()):
-                        var_values["variables"][var.code_name] = var.value
+                        var_dict[var.code_name] = var.value
                     parsed_select = cast(ast.SelectQuery, replace_placeholders(parsed_select, var_values))
 
         return parsed_select
@@ -118,6 +126,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             )
 
         query = self.to_query()
+
+        if self.is_query_service:
+            validate_user_query(query, team=self.team)
+
         paginator = None
         if isinstance(query, ast.SelectQuery) and not query.limit:
             paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)

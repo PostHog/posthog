@@ -1,13 +1,13 @@
 import { useActions } from 'kea'
 import { useState } from 'react'
 
-import { IconCopy, IconPencil, IconStack } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDropdown, LemonTag } from '@posthog/lemon-ui'
+import { IconCopy, IconEllipsis, IconPencil, IconStack, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonDropdown, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
-import { sharedMetricModalLogic } from 'scenes/experiments/Metrics/sharedMetricModalLogic'
+import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { isEventExposureConfig } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
@@ -18,6 +18,8 @@ import type { Experiment } from '~/types'
 
 import { MetricTitle } from './MetricTitle'
 import { getMetricTag } from './utils'
+
+const MAX_BREAKDOWNS = 3
 
 // Helper function to get the exposure event from experiment
 const getExposureEvent = (experiment: Experiment): string => {
@@ -32,37 +34,25 @@ const getExposureEvent = (experiment: Experiment): string => {
     return '$feature_flag_called'
 }
 
-// AddBreakdownButton component for event and person property breakdowns
-const AddBreakdownButton = ({
+const AddBreakdownMenuItem = ({
     experiment,
     onChange,
 }: {
     experiment: Experiment
     onChange: (breakdown: Breakdown) => void
-}): JSX.Element | null => {
+}): JSX.Element => {
     const [dropdownOpen, setDropdownOpen] = useState(false)
 
-    /**
-     * bail if we don't have an experiment
-     * this could happen if the experiment has not been loaded yet
-     * or if we are in the legacy experiment view
-     */
-    if (!experiment) {
-        return null
-    }
-
-    // Create metadata source for the exposure event to filter properties
     const exposureEvent = getExposureEvent(experiment)
     const metadataSource: EventsNode = {
         kind: NodeKind.EventsNode,
         event: exposureEvent,
     }
-
-    // Allow both event and person properties for all metric types
     const taxonomicGroupTypes = [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]
 
     return (
         <LemonDropdown
+            placement="left-start"
             overlay={
                 <TaxonomicFilter
                     onChange={(group, value) => {
@@ -78,13 +68,8 @@ const AddBreakdownButton = ({
             visible={dropdownOpen}
             onClickOutside={() => setDropdownOpen(false)}
         >
-            <LemonButton
-                tooltip="Add breakdown"
-                type="secondary"
-                size="xsmall"
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-            >
-                <IconStack />
+            <LemonButton size="small" fullWidth icon={<IconStack />} onClick={() => setDropdownOpen(!dropdownOpen)}>
+                Add breakdown
             </LemonButton>
         </LemonDropdown>
     )
@@ -98,15 +83,17 @@ export const MetricHeader = ({
     experiment,
     onDuplicateMetricClick,
     onBreakdownChange,
+    onDeleteMetricClick,
     readOnly,
 }: {
     displayOrder?: number
-    metric: any
+    metric: ExperimentMetric
     metricType: any
     isPrimaryMetric: boolean
     experiment: Experiment
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
     onBreakdownChange: (breakdown: Breakdown) => void
+    onDeleteMetricClick?: (metric: ExperimentMetric) => void
     readOnly?: boolean
 }): JSX.Element => {
     /**
@@ -120,7 +107,99 @@ export const MetricHeader = ({
     } = useActions(modalsLogic)
 
     const { openExperimentMetricModal } = useActions(experimentMetricModalLogic)
-    const { openSharedMetricModal } = useActions(sharedMetricModalLogic)
+    const { openSharedMetricDetailModal } = useActions(sharedMetricDetailsModalLogic)
+
+    const [menuVisible, setMenuVisible] = useState(false)
+    const closeMenu = (): void => setMenuVisible(false)
+
+    const isSharedMetric = !!metric.isSharedMetric && !!metric.sharedMetricId
+
+    const openEditModal = (): void => {
+        if (isSharedMetric) {
+            /**
+             * this is for legacy experiments support
+             */
+            const openSharedModal = isPrimaryMetric ? openPrimarySharedMetricModal : openSecondarySharedMetricModal
+            openSharedModal(metric.sharedMetricId!)
+
+            openSharedMetricDetailModal(metric, METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'])
+            return
+        }
+
+        /**
+         * this is for legacy experiments support
+         */
+        const openMetricModal = isPrimaryMetric ? openPrimaryMetricModal : openSecondaryMetricModal
+        if (metric.uuid) {
+            openMetricModal(metric.uuid)
+        }
+        openExperimentMetricModal(METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'], metric)
+    }
+
+    const handleDuplicate = (): void => {
+        /**
+         * For shared metrics we open the duplicate form
+         * after a confirmation.
+         */
+        if (isSharedMetric) {
+            LemonDialog.open({
+                title: 'Duplicate this shared metric?',
+                content: (
+                    <div className="text-sm text-secondary max-w-lg">
+                        <p>
+                            We'll take you to the form to customize and save this metric. Your new version will appear
+                            in your shared metrics, ready to be added to your experiment.
+                        </p>
+                    </div>
+                ),
+                primaryButton: {
+                    children: 'Duplicate metric',
+                    to: urls.experimentsSharedMetric(metric.sharedMetricId!, 'duplicate'),
+                    type: 'primary',
+                    size: 'small',
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                    type: 'tertiary',
+                    size: 'small',
+                },
+            })
+            return
+        }
+
+        // regular metrics just get duplicated
+        onDuplicateMetricClick(metric)
+    }
+
+    const handleDelete = (): void => {
+        if (!onDeleteMetricClick) {
+            return
+        }
+
+        const deleteLabel = isSharedMetric ? 'Remove from experiment' : 'Delete metric'
+        const description = isSharedMetric
+            ? 'This will remove the shared metric from this experiment. The shared metric itself will not be deleted.'
+            : 'This will permanently remove this metric from the experiment. This action cannot be undone.'
+
+        LemonDialog.open({
+            title: isSharedMetric ? 'Remove this metric from the experiment?' : 'Delete this metric?',
+            content: <div className="text-sm text-secondary max-w-lg">{description}</div>,
+            primaryButton: {
+                children: deleteLabel,
+                status: 'danger',
+                type: 'primary',
+                size: 'small',
+                onClick: () => onDeleteMetricClick(metric),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
+    const canAddBreakdown = (metric.breakdownFilter?.breakdowns || []).length < MAX_BREAKDOWNS
 
     return (
         <div className="text-xs font-semibold flex flex-col justify-between h-full">
@@ -133,93 +212,70 @@ export const MetricHeader = ({
                         </div>
                     </div>
                     {!readOnly && (
-                        <div className="flex flex-col gap-1 flex-shrink-0 items-end">
-                            <div className="flex gap-1">
-                                <LemonButton
-                                    className="flex-shrink-0"
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={<IconPencil fontSize="12" />}
-                                    tooltip="Edit"
-                                    onClick={() => {
-                                        if (metric.isSharedMetric) {
-                                            /**
-                                             * this is for legacy experiments support
-                                             */
-                                            const openSharedModal = isPrimaryMetric
-                                                ? openPrimarySharedMetricModal
-                                                : openSecondarySharedMetricModal
-                                            openSharedModal(metric.sharedMetricId)
-
-                                            openSharedMetricModal(
-                                                METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'],
-                                                metric.sharedMetricId
-                                            )
-                                        } else {
-                                            /**
-                                             * this is for legacy experiments support
-                                             */
-                                            const openMetricModal = isPrimaryMetric
-                                                ? openPrimaryMetricModal
-                                                : openSecondaryMetricModal
-                                            if (metric.uuid) {
-                                                openMetricModal(metric.uuid)
-                                            }
-
-                                            openExperimentMetricModal(
-                                                METRIC_CONTEXTS[isPrimaryMetric ? 'primary' : 'secondary'],
-                                                metric
-                                            )
-                                        }
-                                    }}
-                                />
-                                <LemonButton
-                                    className="flex-shrink-0"
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={<IconCopy fontSize="12" />}
-                                    tooltip="Duplicate"
-                                    onClick={() => {
-                                        /**
-                                         * For shared metrics we open the duplicate form
-                                         * after a confirmation.
-                                         */
-                                        if (metric.isSharedMetric) {
-                                            LemonDialog.open({
-                                                title: 'Duplicate this shared metric?',
-                                                content: (
-                                                    <div className="text-sm text-secondary max-w-lg">
-                                                        <p>
-                                                            We'll take you to the form to customize and save this
-                                                            metric. Your new version will appear in your shared metrics,
-                                                            ready to be added to your experiment.
-                                                        </p>
-                                                    </div>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Duplicate metric',
-                                                    to: urls.experimentsSharedMetric(
-                                                        metric.sharedMetricId,
-                                                        'duplicate'
+                        <div className="flex flex-shrink-0 gap-1">
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                icon={<IconPencil />}
+                                tooltip="Edit"
+                                aria-label="Edit metric"
+                                onClick={openEditModal}
+                            />
+                            <LemonMenu
+                                placement="bottom-end"
+                                visible={menuVisible}
+                                onVisibilityChange={setMenuVisible}
+                                closeOnClickInside={false}
+                                items={
+                                    [
+                                        {
+                                            items: [
+                                                canAddBreakdown && {
+                                                    label: () => (
+                                                        <AddBreakdownMenuItem
+                                                            experiment={experiment}
+                                                            onChange={(breakdown) => {
+                                                                onBreakdownChange(breakdown)
+                                                                closeMenu()
+                                                            }}
+                                                        />
                                                     ),
-                                                    type: 'primary',
-                                                    size: 'small',
+                                                    custom: true,
                                                 },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                    type: 'tertiary',
-                                                    size: 'small',
+                                                {
+                                                    label: 'Duplicate',
+                                                    icon: <IconCopy />,
+                                                    onClick: () => {
+                                                        closeMenu()
+                                                        handleDuplicate()
+                                                    },
                                                 },
-                                            })
-
-                                            return
-                                        }
-
-                                        // regular metrics just get duplicated
-                                        onDuplicateMetricClick(metric)
-                                    }}
+                                            ].filter(Boolean) as any,
+                                        },
+                                        onDeleteMetricClick && {
+                                            items: [
+                                                {
+                                                    label: isSharedMetric ? 'Remove from experiment' : 'Delete',
+                                                    icon: <IconTrash />,
+                                                    status: 'danger',
+                                                    onClick: () => {
+                                                        closeMenu()
+                                                        handleDelete()
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                    ].filter(Boolean) as any
+                                }
+                            >
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    icon={<IconEllipsis />}
+                                    tooltip="More actions"
+                                    aria-label="More actions"
                                 />
-                            </div>
+                            </LemonMenu>
                         </div>
                     )}
                 </div>
@@ -227,6 +283,11 @@ export const MetricHeader = ({
                     <LemonTag type="muted" size="small">
                         {getMetricTag(metric)}
                     </LemonTag>
+                    {experiment.parameters?.prompt_metadata && (
+                        <LemonTag type="completion" size="small">
+                            LLM
+                        </LemonTag>
+                    )}
                     {metric.goal === 'decrease' && (
                         <LemonTag type="highlight" size="small">
                             Goal: Decrease
@@ -239,11 +300,6 @@ export const MetricHeader = ({
                     )}
                 </div>
             </div>
-            {!readOnly && (metric.breakdownFilter?.breakdowns || []).length < 3 && (
-                <div className="flex justify-end items-end">
-                    <AddBreakdownButton experiment={experiment} onChange={onBreakdownChange} />
-                </div>
-            )}
         </div>
     )
 }

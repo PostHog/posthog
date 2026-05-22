@@ -1,15 +1,18 @@
+from typing import Any, cast
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Action, Insight, Project, Team
+from posthog.models import Insight, Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.surveys.backend.models import Survey
@@ -373,9 +376,11 @@ class TestResourceTransferTransfer(APIBaseTest):
         log = dest_logs.first()
         assert log is not None
         assert log.user == self.user
-        assert log.detail["name"] == "My insight"
-        assert log.detail["changes"][0]["type"] == "Insight"
-        assert log.detail["changes"][0]["action"] == "created"
+        detail = cast(dict[str, Any], log.detail)
+        changes = cast(list[dict[str, Any]], detail["changes"])
+        assert detail["name"] == "My insight"
+        assert changes[0]["type"] == "Insight"
+        assert changes[0]["action"] == "created"
 
     def test_transfer_logs_created_activity_in_destination_for_dashboard_via_signal(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
@@ -416,9 +421,11 @@ class TestResourceTransferTransfer(APIBaseTest):
         assert log is not None
         assert log.user == self.user
         assert log.item_id == str(insight.pk)
-        assert log.detail["name"] == "My insight"
-        assert log.detail["changes"][0]["type"] == "Insight"
-        assert log.detail["changes"][0]["action"] == "copied"
+        detail = cast(dict[str, Any], log.detail)
+        changes = cast(list[dict[str, Any]], detail["changes"])
+        assert detail["name"] == "My insight"
+        assert changes[0]["type"] == "Insight"
+        assert changes[0]["action"] == "copied"
 
     def test_transfer_dashboard_logs_activity_for_user_facing_resources_only(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
@@ -493,7 +500,9 @@ class TestResourceTransferTransfer(APIBaseTest):
 
         source_logs = ActivityLog.objects.filter(team_id=self.team.pk, activity="copied_to_project")
         assert source_logs.count() == 1
-        assert source_logs.first().scope == "Dashboard"
+        log = source_logs.first()
+        assert log is not None
+        assert log.scope == "Dashboard"
 
 
 class TestResourceTransferSearch(APIBaseTest):

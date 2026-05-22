@@ -2,12 +2,11 @@ from typing import TYPE_CHECKING
 
 from django.db import models
 
-import tiktoken
-
+from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
-    from kafka.producer.kafka import FutureRecordMetadata
+    from posthog.kafka_client.client import ProduceResult
 
 EMBEDDING_MODEL_TOKEN_LIMIT = 8192
 
@@ -35,8 +34,8 @@ class AgentMemory(UUIDModel):
             models.Index(fields=["team", "id"]),
         ]
 
-    def embed(self, model_name: str) -> "FutureRecordMetadata":
-        enc = tiktoken.get_encoding("cl100k_base")
+    def embed(self, model_name: str) -> "ProduceResult":
+        enc = get_tiktoken_encoding_for_model(TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL)
         token_count = len(enc.encode(self.contents))
         if token_count > EMBEDDING_MODEL_TOKEN_LIMIT:
             raise ValueError(

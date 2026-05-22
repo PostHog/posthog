@@ -42,13 +42,17 @@ impl BackoffPolicy {
 
 /// Build operator/developer status_message and user-facing display message.
 /// If a date range is provided, include it in the display message.
-pub fn format_backoff_messages(date_range: Option<&str>, delay: Duration) -> (String, String) {
+/// `reason` describes why we're backing off (e.g. "Rate limited (429)", "Request timed out").
+pub fn format_backoff_messages(
+    date_range: Option<&str>,
+    delay: Duration,
+    reason: &str,
+) -> (String, String) {
     let secs = delay.as_secs();
-    let status =
-        format!("Rate limited (429). Scheduling retry in {secs}s. Waiting before next attempt.");
+    let status = format!("{reason}. Scheduling retry in {secs}s. Waiting before next attempt.");
     let display = match date_range {
-        Some(dr) => format!("Rate limit hit. Will retry in {secs}s. Date range: {dr}"),
-        None => format!("Rate limit hit. Will retry in {secs}s."),
+        Some(dr) => format!("{reason}. Will retry in {secs}s. Date range: {dr}"),
+        None => format!("{reason}. Will retry in {secs}s."),
     };
     (status, display)
 }
@@ -97,15 +101,33 @@ mod tests {
     }
 
     #[test]
-    fn test_format_backoff_messages() {
-        let (s1, d1) = format_backoff_messages(None, Duration::from_secs(90));
+    fn test_format_backoff_messages_rate_limit() {
+        let (s1, d1) = format_backoff_messages(None, Duration::from_secs(90), "Rate limited (429)");
         assert!(s1.contains("90s"));
+        assert!(s1.contains("Rate limited (429)"));
         assert!(d1.contains("90s"));
         let (s2, d2) = format_backoff_messages(
             Some("2023-01-01 00:00 UTC to 01:00 UTC"),
             Duration::from_secs(30),
+            "Rate limited (429)",
         );
         assert!(s2.contains("30s"));
         assert!(d2.contains("Date range"));
+    }
+
+    #[test]
+    fn test_format_backoff_messages_timeout() {
+        let (s1, d1) = format_backoff_messages(None, Duration::from_secs(60), "Request timed out");
+        assert!(s1.contains("60s"));
+        assert!(s1.contains("Request timed out"));
+        assert!(d1.contains("Request timed out"));
+        let (s2, d2) = format_backoff_messages(
+            Some("2026-01-01 10:00 UTC to 2026-01-01 11:00 UTC"),
+            Duration::from_secs(120),
+            "Request timed out",
+        );
+        assert!(s2.contains("120s"));
+        assert!(d2.contains("Date range"));
+        assert!(d2.contains("Request timed out"));
     }
 }

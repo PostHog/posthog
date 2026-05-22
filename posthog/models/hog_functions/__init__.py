@@ -1,1 +1,3 @@
-from .hog_function import *
+from .hog_function import HogFunction
+
+__all__ = ["HogFunction"]

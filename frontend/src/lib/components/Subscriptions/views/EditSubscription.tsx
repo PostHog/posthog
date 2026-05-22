@@ -2,11 +2,14 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconChevronLeft } from '@posthog/icons'
-import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
@@ -18,8 +21,11 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { DashboardType, InsightShortId } from '~/types'
 
@@ -30,11 +36,13 @@ import {
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
+    getNextDeliveryDate,
     intervalOptions,
     monthlyWeekdayOptions,
     targetTypeOptions,
     timeOptions,
     weekdayOptions,
+    WEEKDAYS,
 } from '../utils'
 
 interface EditSubscriptionProps {
@@ -65,14 +73,18 @@ export function EditSubscription({
     })
 
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
-    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged } = useValues(logic)
+    const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
+        useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
     const { resetSubscription, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     const emailDisabled = !preflight?.email_service_available
+
+    const availableFrequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
 
     // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
     // For editing, wait until subscription data has loaded from API (target_type exists)
@@ -92,6 +104,7 @@ export function EditSubscription({
     const formatter = new Intl.DateTimeFormat('en-US', { timeZoneName: 'shortGeneric' })
     const parts = formatter.formatToParts(new Date())
     const currentTimezone = parts?.find((part) => part.type === 'timeZoneName')?.value
+    const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription) : null
 
     return (
         <Form
@@ -163,9 +176,21 @@ export function EditSubscription({
                             </LemonBanner>
                         )}
 
-                        <LemonField name="title" label="Name">
-                            <LemonInput placeholder="e.g. Weekly team report" />
-                        </LemonField>
+                        <div className="flex gap-4 items-end">
+                            <LemonField className="flex-auto" name="title" label="Name">
+                                <LemonInput placeholder="e.g. Weekly team report" />
+                            </LemonField>
+                            <LemonField name="enabled" className="pb-2">
+                                {({ value, onChange }) => (
+                                    <LemonCheckbox
+                                        checked={value !== false}
+                                        onChange={onChange}
+                                        data-attr="subscription-enabled"
+                                        label="Enabled"
+                                    />
+                                )}
+                            </LemonField>
+                        </div>
 
                         {dashboard?.tiles && selectionReady && (
                             <LemonField name="dashboard_export_insights" label="Insights to include">
@@ -323,13 +348,7 @@ export function EditSubscription({
                                     <LemonSelect options={intervalOptions} />
                                 </LemonField>
                                 <LemonField name="frequency">
-                                    <LemonSelect
-                                        options={
-                                            subscription.interval === 1
-                                                ? frequencyOptionsSingular
-                                                : frequencyOptionsPlural
-                                        }
-                                    />
+                                    <LemonSelect options={availableFrequencyOptions} />
                                 </LemonField>
 
                                 {subscription.frequency === 'weekly' && (
@@ -362,21 +381,34 @@ export function EditSubscription({
                                             )}
                                         </LemonField>
                                         <LemonField name="byweekday">
-                                            {({ value, onChange }) => (
-                                                <LemonSelect
-                                                    dropdownMatchSelectWidth={false}
-                                                    options={monthlyWeekdayOptions}
-                                                    // "day" is a special case where it is a list of all available days
-                                                    value={value ? (value.length === 1 ? value[0] : 'day') : null}
-                                                    onChange={(val) =>
-                                                        onChange(
-                                                            val === 'day'
-                                                                ? Object.values(weekdayOptions).map((v) => v.value)
-                                                                : [val]
-                                                        )
-                                                    }
-                                                />
-                                            )}
+                                            {({ value, onChange }) => {
+                                                const isWeekday =
+                                                    value?.length === 5 && value.every((d: string) => WEEKDAYS.has(d))
+                                                const displayValue = value
+                                                    ? isWeekday
+                                                        ? 'weekday'
+                                                        : value.length === 1
+                                                          ? value[0]
+                                                          : 'day'
+                                                    : null
+
+                                                return (
+                                                    <LemonSelect
+                                                        dropdownMatchSelectWidth={false}
+                                                        options={monthlyWeekdayOptions}
+                                                        value={displayValue}
+                                                        onChange={(val) =>
+                                                            onChange(
+                                                                val === 'day'
+                                                                    ? Object.values(weekdayOptions).map((v) => v.value)
+                                                                    : val === 'weekday'
+                                                                      ? [...WEEKDAYS]
+                                                                      : [val]
+                                                            )
+                                                        }
+                                                    />
+                                                )
+                                            }}
                                         </LemonField>
                                     </>
                                 )}
@@ -399,7 +431,60 @@ export function EditSubscription({
                                     )}
                                 </LemonField>
                             </div>
+                            {nextDeliveryDate && (
+                                <div className="text-xs text-secondary mt-1">
+                                    Next delivery: {dayjs(nextDeliveryDate).format('ddd, MMM D [at] HH:mm')}
+                                </div>
+                            )}
                         </div>
+
+                        <FlaggedFeature flag={FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS}>
+                            <LemonField name="summary_enabled">
+                                {({ value, onChange }) => (
+                                    <AIConsentPopoverWrapper>
+                                        <LemonSwitch
+                                            checked={value}
+                                            onChange={onChange}
+                                            bordered
+                                            label="Include an automatic AI summary"
+                                            fullWidth
+                                            disabledReason={
+                                                !dataProcessingAccepted && !value
+                                                    ? 'Your organization needs to approve AI data processing before enabling AI summaries'
+                                                    : summaryQuota?.at_limit && !value
+                                                      ? `Plan limit reached (${summaryQuota.limit} active AI summaries). See details below.`
+                                                      : undefined
+                                            }
+                                        />
+                                    </AIConsentPopoverWrapper>
+                                )}
+                            </LemonField>
+
+                            {summaryQuota?.at_limit && !subscription.summary_enabled && summaryQuota.limit !== null && (
+                                <UsageLimitPaywall
+                                    title="AI summary limit reached"
+                                    description="Disable an existing AI summary or upgrade your plan to add more."
+                                    limit={summaryQuota.limit}
+                                    currentUsage={summaryQuota.active_count}
+                                    unit="active AI summaries on your plan"
+                                />
+                            )}
+
+                            {subscription.summary_enabled && (
+                                <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>
+                                    <LemonField
+                                        name="summary_prompt_guide"
+                                        label="Context for the AI summary"
+                                        showOptional
+                                    >
+                                        <LemonTextArea
+                                            placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                            maxLength={500}
+                                        />
+                                    </LemonField>
+                                </FlaggedFeature>
+                            )}
+                        </FlaggedFeature>
 
                         {insightShortId && (
                             <div>

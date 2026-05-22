@@ -2,19 +2,25 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
 import {
+    costContextFromProperties,
+    costContextFromTrace,
+    formatAiErrorForDisplay,
     formatLLMEventTitle,
     getSessionID,
     getSessionStartTimestamp,
+    hasCostBreakdown,
+    isEmptyJSONStructure,
     isLangChainMessage,
     looksLikeXml,
     normalizeMessage,
     normalizeMessages,
     parseOpenAIToolCalls,
     parsePartialJSON,
+    parseToolArgumentsForDisplay,
     sanitizeTraceUrlSearchParams,
 } from './utils'
 
-describe('LLM Analytics utils', () => {
+describe('AI observability utils', () => {
     beforeEach(() => {
         console.warn = jest.fn()
     })
@@ -425,26 +431,292 @@ describe('LLM Analytics utils', () => {
             ])
         })
 
-        it.each([
-            ['web_search_call', 'ws_123', { type: 'web_search_call', id: 'ws_123', status: 'completed' }],
-            [
-                'code_interpreter_call',
-                'ci_123',
-                { type: 'code_interpreter_call', id: 'ci_123', status: 'completed', code: 'print("hello")' },
-            ],
-            ['image_generation_call', 'ig_123', { type: 'image_generation_call', id: 'ig_123', status: 'completed' }],
-            ['mcp_call', 'mcp_123', { type: 'mcp_call', id: 'mcp_123', status: 'completed' }],
-            ['file_search_call', 'fs_123', { type: 'file_search_call', id: 'fs_123', status: 'completed' }],
-            ['computer_call', 'cc_123', { type: 'computer_call', id: 'cc_123', status: 'completed' }],
-        ])('parses %s as an assistant tool call', (toolType, toolId, message) => {
+        it('handles Vercel AI SDK reasoning with text field', () => {
+            const message = {
+                type: 'reasoning',
+                text: 'Let me think about this step by step.',
+            }
+
             expect(normalizeMessage(message, 'user')).toEqual([
                 {
-                    role: 'assistant',
-                    content: JSON.stringify(message),
-                    tool_calls: [{ type: 'function', id: toolId, function: { name: toolType, arguments: {} } }],
+                    role: 'assistant (thinking)',
+                    content: 'Let me think about this step by step.',
                 },
             ])
         })
+
+        it.each([
+            [
+                'string arguments (posthog-node format)',
+                {
+                    type: 'tool-call',
+                    id: 'toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov',
+                    function: { name: 'queryModel', arguments: '{"query": "relevant data"}' },
+                },
+                'toolu_vrtx_01CTHfH7tfd2vNWSWJhKzfov',
+                'queryModel',
+                { query: 'relevant data' },
+            ],
+            [
+                'object arguments (posthog-node format)',
+                {
+                    type: 'tool-call',
+                    id: 'call_123',
+                    function: { name: 'get_weather', arguments: { location: 'NYC' } },
+                },
+                'call_123',
+                'get_weather',
+                { location: 'NYC' },
+            ],
+            [
+                'native Vercel SDK format (toolName/input/toolCallId)',
+                { type: 'tool-call', toolCallId: 'tc_native_123', toolName: 'get_weather', input: { location: 'NYC' } },
+                'tc_native_123',
+                'get_weather',
+                { location: 'NYC' },
+            ],
+        ])('handles Vercel AI SDK tool-call with %s', (_label, message, expectedId, expectedName, expectedArgs) => {
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: expectedId,
+                            function: { name: expectedName, arguments: expectedArgs },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it.each([
+            [
+                'object output',
+                {
+                    type: 'tool-result',
+                    toolCallId: 'tc_123',
+                    toolName: 'get_weather',
+                    output: { temperature: 72, unit: 'F' },
+                },
+                '{"temperature":72,"unit":"F"}',
+                'tc_123',
+            ],
+            [
+                'string output',
+                { type: 'tool-result', toolCallId: 'tc_456', toolName: 'search', output: 'Found 3 results' },
+                'Found 3 results',
+                'tc_456',
+            ],
+        ])('handles Vercel AI SDK tool-result with %s', (_label, message, expectedContent, expectedToolCallId) => {
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: expectedContent,
+                    tool_call_id: expectedToolCallId,
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK toolName variant with string input', () => {
+            const message = { type: 'tool-call', toolCallId: 'tc_1', toolName: 'run_code', input: 'print("hi")' }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'tc_1',
+                            function: { name: 'run_code', arguments: 'print("hi")' },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK toolName variant with missing input', () => {
+            const message = { type: 'tool-call', toolCallId: 'tc_2', toolName: 'no_args_tool' }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'tc_2',
+                            function: { name: 'no_args_tool', arguments: {} },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('prefers function variant when both function and toolName are present', () => {
+            const message = {
+                type: 'tool-call',
+                id: 'func_id',
+                function: { name: 'from_function', arguments: '{"a":1}' },
+                toolCallId: 'tool_id',
+                toolName: 'from_toolName',
+                input: { b: 2 },
+            }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'func_id',
+                            function: { name: 'from_function', arguments: { a: 1 } },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK tool-result with undefined output', () => {
+            const message = { type: 'tool-result', toolCallId: 'tc_empty', toolName: 'void_tool' }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: '',
+                    tool_call_id: 'tc_empty',
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK tool-result with non-serializable output', () => {
+            const circular: Record<string, unknown> = { key: 'value' }
+            circular.self = circular
+            const message = { type: 'tool-result', toolCallId: 'tc_circ', toolName: 'bad_tool', output: circular }
+            const result = normalizeMessage(message, 'assistant')
+            expect(result).toEqual([
+                {
+                    role: 'assistant (tool result)',
+                    content: '[object Object]',
+                    tool_call_id: 'tc_circ',
+                },
+            ])
+        })
+
+        it('handles Vercel AI SDK mixed content array with reasoning + text + tool-call', () => {
+            const message = {
+                role: 'assistant',
+                content: [
+                    { type: 'reasoning', text: 'I should use a tool to look up the data.' },
+                    { type: 'text', text: 'Let me check that for you.' },
+                    {
+                        type: 'tool-call',
+                        id: 'toolu_vrtx_abc',
+                        function: { name: 'queryModel', arguments: '{"query":"data"}' },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant (thinking)',
+                    content: 'I should use a tool to look up the data.',
+                },
+                {
+                    role: 'assistant',
+                    content: 'Let me check that for you.',
+                },
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'toolu_vrtx_abc',
+                            function: { name: 'queryModel', arguments: { query: 'data' } },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it.each([
+            [
+                'web_search_call',
+                'ws_123',
+                'web_search_call',
+                { action: { type: 'search', query: 'weather today' } },
+                {
+                    type: 'web_search_call',
+                    id: 'ws_123',
+                    status: 'completed',
+                    action: { type: 'search', query: 'weather today' },
+                },
+            ],
+            [
+                'code_interpreter_call',
+                'ci_123',
+                'code_interpreter_call',
+                { code: 'print("hello")' },
+                { type: 'code_interpreter_call', id: 'ci_123', status: 'completed', code: 'print("hello")' },
+            ],
+            [
+                'image_generation_call',
+                'ig_123',
+                'image_generation_call',
+                { prompt: 'a red cat' },
+                { type: 'image_generation_call', id: 'ig_123', status: 'completed', prompt: 'a red cat' },
+            ],
+            [
+                'mcp_call',
+                'mcp_123',
+                'search_docs',
+                { query: 'pricing' },
+                {
+                    type: 'mcp_call',
+                    id: 'mcp_123',
+                    status: 'completed',
+                    name: 'search_docs',
+                    server_label: 'docs',
+                    arguments: '{"query":"pricing"}',
+                },
+            ],
+            [
+                'file_search_call',
+                'fs_123',
+                'file_search_call',
+                { queries: ['q1', 'q2'] },
+                { type: 'file_search_call', id: 'fs_123', status: 'completed', queries: ['q1', 'q2'] },
+            ],
+            [
+                'computer_call',
+                'cc_123',
+                'computer_call',
+                { action: { type: 'click', x: 10, y: 20 } },
+                {
+                    type: 'computer_call',
+                    id: 'cc_123',
+                    status: 'completed',
+                    action: { type: 'click', x: 10, y: 20 },
+                },
+            ],
+        ])(
+            'parses %s as an assistant tool call preserving metadata',
+            (_toolType, toolId, expectedName, expectedArguments, message) => {
+                expect(normalizeMessage(message, 'user')).toEqual([
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            {
+                                type: 'function',
+                                id: toolId,
+                                function: { name: expectedName, arguments: expectedArguments },
+                            },
+                        ],
+                    },
+                ])
+            }
+        )
 
         it('handles function_call with unparseable arguments', () => {
             const message = {
@@ -473,7 +745,7 @@ describe('LLM Analytics utils', () => {
         })
     })
 
-    it('normalizeMessage: handles new array-based content format', () => {
+    it('normalizeMessage: lifts function items out of array-based content into tool_calls', () => {
         const message = {
             role: 'assistant',
             content: [
@@ -500,6 +772,8 @@ describe('LLM Analytics utils', () => {
                         type: 'text',
                         text: "I'll check the weather for you.",
                     },
+                ],
+                tool_calls: [
                     {
                         type: 'function',
                         id: 'call_123',
@@ -511,6 +785,129 @@ describe('LLM Analytics utils', () => {
                 ],
             },
         ])
+    })
+
+    describe('normalizeMessage: array-based content with function items', () => {
+        it('leaves content empty when every item is a function', () => {
+            const message = {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'function',
+                        id: 'call_1',
+                        function: { name: 'get_weather', arguments: { location: 'Berlin' } },
+                    },
+                    {
+                        type: 'function',
+                        id: 'call_2',
+                        function: { name: 'search_docs', arguments: { query: 'foo' } },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_1',
+                            function: { name: 'get_weather', arguments: { location: 'Berlin' } },
+                        },
+                        {
+                            type: 'function',
+                            id: 'call_2',
+                            function: { name: 'search_docs', arguments: { query: 'foo' } },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it.each([
+            ['pre-parsed object', { location: 'Berlin', unit: 'celsius' }, { location: 'Berlin', unit: 'celsius' }],
+            ['JSON-encoded string', '{"location":"Berlin","unit":"celsius"}', { location: 'Berlin', unit: 'celsius' }],
+        ])('parses function arguments provided as %s', (_label, rawArguments, expectedArguments) => {
+            const message = {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'function',
+                        id: 'call_1',
+                        function: { name: 'get_weather', arguments: rawArguments },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_1',
+                            function: { name: 'get_weather', arguments: expectedArguments },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('lifts function items into tool_calls and keeps non-function items as content', () => {
+            const message = {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'function',
+                        id: 'fs_1',
+                        function: { name: 'file_search', arguments: { queries: ['q'] } },
+                    },
+                    { type: 'text', text: 'hi' },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'hi' }],
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'fs_1',
+                            function: { name: 'file_search', arguments: { queries: ['q'] } },
+                        },
+                    ],
+                },
+            ])
+        })
+    })
+
+    describe('normalizeMessage: built-in tool call with explicit name', () => {
+        it('uses rawMessage.name for mcp_call, not the "mcp_call" type string', () => {
+            const message = {
+                type: 'mcp_call',
+                id: 'mcp_123',
+                name: 'search_docs',
+                server_label: 'docs',
+                arguments: '{"query":"pricing"}',
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'mcp_123',
+                            function: { name: 'search_docs', arguments: { query: 'pricing' } },
+                        },
+                    ],
+                },
+            ])
+        })
     })
 
     describe('role preservation in nested content', () => {
@@ -1600,6 +1997,195 @@ describe('LLM Analytics utils', () => {
             const trace = baseTrace(childEvents)
 
             expect(getSessionID(trace)).toBeNull()
+        })
+    })
+
+    describe('costContextFromProperties', () => {
+        it('returns undefined when $ai_total_cost_usd is absent', () => {
+            expect(costContextFromProperties({})).toBeUndefined()
+        })
+
+        it('returns undefined when $ai_total_cost_usd is not a number', () => {
+            expect(costContextFromProperties({ $ai_total_cost_usd: 'invalid' })).toBeUndefined()
+        })
+
+        it('maps all cost properties', () => {
+            const props = {
+                $ai_input_cost_usd: 0.01,
+                $ai_output_cost_usd: 0.02,
+                $ai_request_cost_usd: 0.003,
+                $ai_web_search_cost_usd: 0.015,
+                $ai_total_cost_usd: 0.048,
+            }
+            expect(costContextFromProperties(props)).toEqual({
+                inputCost: 0.01,
+                outputCost: 0.02,
+                requestCost: 0.003,
+                webSearchCost: 0.015,
+                totalCost: 0.048,
+            })
+        })
+
+        it('leaves optional cost fields as undefined when absent', () => {
+            const props = { $ai_total_cost_usd: 0.05 }
+            const ctx = costContextFromProperties(props)
+            expect(ctx).not.toBeUndefined()
+            expect(ctx && ctx.totalCost).toBe(0.05)
+            expect(ctx && ctx.inputCost).toBeUndefined()
+            expect(ctx && ctx.outputCost).toBeUndefined()
+            expect(ctx && ctx.requestCost).toBeUndefined()
+            expect(ctx && ctx.webSearchCost).toBeUndefined()
+        })
+    })
+
+    describe('costContextFromTrace', () => {
+        it('returns undefined when totalCost is undefined', () => {
+            expect(costContextFromTrace({})).toBeUndefined()
+        })
+
+        it('maps all trace cost fields', () => {
+            const trace = {
+                inputCost: 0.01,
+                outputCost: 0.02,
+                requestCost: 0.003,
+                webSearchCost: 0.015,
+                totalCost: 0.048,
+            }
+            expect(costContextFromTrace(trace)).toEqual({
+                inputCost: 0.01,
+                outputCost: 0.02,
+                requestCost: 0.003,
+                webSearchCost: 0.015,
+                totalCost: 0.048,
+            })
+        })
+
+        it('handles trace with only totalCost', () => {
+            const trace = { totalCost: 0.05 }
+            const ctx = costContextFromTrace(trace)
+            expect(ctx).not.toBeUndefined()
+            expect(ctx && ctx.totalCost).toBe(0.05)
+            expect(ctx && ctx.inputCost).toBeUndefined()
+        })
+    })
+
+    describe('hasCostBreakdown', () => {
+        it('returns false when only totalCost is set', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05 })).toBe(false)
+        })
+
+        it('returns true when inputCost is present', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, inputCost: 0.01 })).toBe(true)
+        })
+
+        it('returns true when outputCost is present', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, outputCost: 0.02 })).toBe(true)
+        })
+
+        it('returns true when requestCost is positive', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, requestCost: 0.003 })).toBe(true)
+        })
+
+        it('returns false when requestCost is zero', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, requestCost: 0 })).toBe(false)
+        })
+
+        it('returns true when webSearchCost is positive', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, webSearchCost: 0.01 })).toBe(true)
+        })
+
+        it('returns false when webSearchCost is zero', () => {
+            expect(hasCostBreakdown({ totalCost: 0.05, webSearchCost: 0 })).toBe(false)
+        })
+
+        it('returns true when inputCost is zero (zero is still a valid breakdown)', () => {
+            expect(hasCostBreakdown({ totalCost: 0, inputCost: 0 })).toBe(true)
+        })
+    })
+
+    describe('isEmptyJSONStructure', () => {
+        it.each<[string, unknown, boolean]>([
+            ['empty object', {}, true],
+            ['empty array', [], true],
+            ['non-empty object', { a: 1 }, false],
+            ['non-empty array', [1], false],
+            ['string', 'hi', false],
+            ['number', 0, false],
+            ['null', null, false],
+            ['undefined', undefined, false],
+        ])('returns %s -> %s', (_label, value, expected) => {
+            expect(isEmptyJSONStructure(value)).toBe(expected)
+        })
+    })
+
+    describe('parseToolArgumentsForDisplay', () => {
+        it('returns empty for null, undefined, and empty string', () => {
+            expect(parseToolArgumentsForDisplay(null)).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay(undefined)).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay('')).toEqual({ kind: 'empty' })
+        })
+
+        it('returns empty for empty object and empty array (object form)', () => {
+            expect(parseToolArgumentsForDisplay({})).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay([])).toEqual({ kind: 'empty' })
+        })
+
+        it('returns empty for stringified empty object/array', () => {
+            expect(parseToolArgumentsForDisplay('{}')).toEqual({ kind: 'empty' })
+            expect(parseToolArgumentsForDisplay('[]')).toEqual({ kind: 'empty' })
+        })
+
+        it('returns parsed object for an object input', () => {
+            expect(parseToolArgumentsForDisplay({ location: 'SF' })).toEqual({
+                kind: 'parsed',
+                value: { location: 'SF' },
+            })
+        })
+
+        it('returns parsed object for stringified JSON object', () => {
+            expect(parseToolArgumentsForDisplay('{"location": "Berlin"}')).toEqual({
+                kind: 'parsed',
+                value: { location: 'Berlin' },
+            })
+        })
+
+        it('returns raw string when JSON is unparseable', () => {
+            expect(parseToolArgumentsForDisplay('{not valid json')).toEqual({
+                kind: 'raw',
+                value: '{not valid json',
+            })
+        })
+
+        it('returns raw string when stringified value parses to a non-object scalar', () => {
+            // partial-json may parse `"hello"` to the string "hello" — that's not a structured arg payload, fall back.
+            expect(parseToolArgumentsForDisplay('"hello"')).toEqual({ kind: 'raw', value: '"hello"' })
+        })
+    })
+
+    describe('formatAiErrorForDisplay', () => {
+        it.each<[string, unknown, string]>([
+            ['string passes through', 'rate limit exceeded', 'rate limit exceeded'],
+            ['empty string falls back to Unknown error', '', 'Unknown error'],
+            ['null falls back to Unknown error', null, 'Unknown error'],
+            ['undefined falls back to Unknown error', undefined, 'Unknown error'],
+            [
+                'plain object is JSON-stringified',
+                { message: 'boom', name: 'Error' },
+                '{"message":"boom","name":"Error"}',
+            ],
+            ['array is JSON-stringified', ['a', 'b'], '["a","b"]'],
+            ['number is JSON-stringified', 500, '500'],
+            ['boolean is JSON-stringified', true, 'true'],
+        ])('%s', (_, input, expected) => {
+            expect(formatAiErrorForDisplay(input)).toBe(expected)
+        })
+
+        it('falls back to String() when JSON.stringify throws (e.g. circular refs)', () => {
+            const circular: Record<string, unknown> = {}
+            circular.self = circular
+            // JSON.stringify throws on circular refs; helper should fall back to String() and not throw.
+            expect(() => formatAiErrorForDisplay(circular)).not.toThrow()
+            expect(formatAiErrorForDisplay(circular)).toBe('[object Object]')
         })
     })
 })

@@ -7,20 +7,30 @@ Called by facade/api.py.
 
 import json
 import base64
+import decimal
 import datetime as dt
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
+    CachedTraceSpansAggregationQueryResponse,
     CachedTraceSpansQueryResponse,
+    CachedTraceSpansTreeQueryResponse,
+    CompareFilter,
     DateRange,
     HogQLFilters,
+    HogQLQueryModifiers,
     IntervalType,
+    PropertyGroupFilter,
     PropertyGroupsMode,
     SpanPropertyFilter,
     SpanPropertyFilterType,
+    TraceSpansAggregationQuery,
+    TraceSpansAggregationQueryResponse,
     TraceSpansQuery,
     TraceSpansQueryResponse,
+    TraceSpansTreeQuery,
+    TraceSpansTreeQueryResponse,
 )
 
 from posthog.hogql import ast
@@ -31,7 +41,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -39,10 +49,92 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
+def _normalise_to_base64(value: str) -> str:
+    try:
+        int(value, 16)
+        return base64.b64encode(bytes.fromhex(value)).decode()
+    except ValueError:
+        return value
+
+
+def _is_number(value: str) -> bool:
+    try:
+        float(value)
+        return True
+    except ValueError:
+        return False
+
+
+# OTel span.kind enum labels sent from the filter UI, mapped to their wire integer values.
+_SPAN_KIND_LABEL_TO_INT: dict[str, int] = {
+    "Unspecified": 0,
+    "Internal": 1,
+    "Server": 2,
+    "Client": 3,
+    "Producer": 4,
+    "Consumer": 5,
+}
+
+# OTel status_code label → int. 'OK' expands to {0, 1} so 'unset' spans match 'ok' filters.
+_STATUS_CODE_LABEL_TO_INTS: dict[str, list[int]] = {
+    "OK": [0, 1],
+    "Error": [2],
+}
+
+
+def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
+    """Translate UI/API filter values into ClickHouse column representations, in place.
+
+    The filter UI stores human-readable forms — hex ids, seconds for duration, label
+    strings for `kind`/`status_code` — but the ClickHouse columns are base64 bytes,
+    nanoseconds, and integers. Every code path that turns a `SpanPropertyFilter` into
+    a WHERE clause must apply this translation before calling `property_to_expr`,
+    otherwise filters like `{key: "kind", value: "Server"}` silently match zero rows.
+
+    Idempotent — safe to call repeatedly on the same filter. Compare-mode invokes
+    `_where_without_date_range()` once per window on the same `SpanPropertyFilter`
+    instances; without the post-translation guards on `kind`/`status_code` the second
+    pass would map the already-translated integers back to `[]` and silently drop the
+    filter for the compare window.
+    """
+    if span_filter.key in ("trace_id", "span_id"):
+        # `_normalise_to_base64` is a no-op on already-base64 values (16/8-byte ids
+        # always encode to padding-suffixed strings that fail `int(_, 16)`).
+        if isinstance(span_filter.value, list):
+            span_filter.value = [_normalise_to_base64(str(v)) for v in span_filter.value]
+        else:
+            span_filter.value = _normalise_to_base64(str(span_filter.value))
+
+    if span_filter.key == "duration":
+        # Key flips to `duration_nano` after first pass, so this block is unreachable
+        # on subsequent invocations.
+        span_filter.key = "duration_nano"
+        if isinstance(span_filter.value, list):
+            span_filter.value = [
+                str(decimal.Decimal(str(v)) * 1000000) for v in span_filter.value if _is_number(str(v))
+            ]
+        elif _is_number(str(span_filter.value)):
+            span_filter.value = str(decimal.Decimal(str(span_filter.value)) * 1000000)
+
+    if span_filter.key == "kind" and span_filter.value is not None:
+        values: list = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
+        if not all(isinstance(v, int) for v in values):
+            span_filter.value = [_SPAN_KIND_LABEL_TO_INT[str(v)] for v in values if str(v) in _SPAN_KIND_LABEL_TO_INT]
+
+    if span_filter.key == "status_code" and span_filter.value is not None:
+        values = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
+        if not all(isinstance(v, str) and v.isdigit() for v in values):
+            expanded: list[int] = []
+            for v in values:
+                if str(v) in _STATUS_CODE_LABEL_TO_INTS:
+                    expanded.extend(_STATUS_CODE_LABEL_TO_INTS[str(v)])
+            span_filter.value = [str(v) for v in expanded]
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
-    def __init__(self, query, *args, **kwargs):
+    def __init__(self, query: TraceSpansQuery, *args, **kwargs) -> None:
         super().__init__(query, *args, **kwargs)
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
@@ -54,7 +146,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
-        def get_property_type(value):
+        def get_property_type(value: str | float | bool) -> str:
             try:
                 float(value)
                 return "float"
@@ -62,6 +154,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                 pass
             return "str"
 
+        self.span_filters: list[SpanPropertyFilter] = []
         self.span_attribute_filters: list[SpanPropertyFilter] = []
         self.resource_attribute_filters: list[SpanPropertyFilter] = []
         if self.query.filterGroup and self.query.filterGroup.values:
@@ -70,6 +163,8 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     prop_type = getattr(prop, "type", None)
                     if prop_type == SpanPropertyFilterType.SPAN_RESOURCE_ATTRIBUTE:
                         self.resource_attribute_filters.append(prop)
+                    if prop_type == SpanPropertyFilterType.SPAN:
+                        self.span_filters.append(prop)
                     elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
                         if isinstance(prop, SpanPropertyFilter) and prop.value:
                             property_type = "str"
@@ -118,6 +213,11 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     },
                 )
             )
+
+        if self.span_filters:
+            for span_filter in self.span_filters:
+                translate_span_filter(span_filter)
+                exprs.append(property_to_expr(span_filter, team=self.team))
 
         if self.span_attribute_filters:
             exprs.append(property_to_expr(self.span_attribute_filters, team=self.team))
@@ -174,7 +274,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
-        return QueryDateRange(
+        qdr = QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=IntervalType.MINUTE,
@@ -182,8 +282,40 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
             now=dt.datetime.now(),
         )
 
+        _step = (qdr.date_to() - qdr.date_from()) / 50
+        interval_type = IntervalType.SECOND
+
+        def find_closest(target: float, arr: list[int]) -> int:
+            if not arr:
+                raise ValueError("Input array cannot be empty")
+            closest_number = min(arr, key=lambda x: (abs(x - target), x))
+
+            return closest_number
+
+        # set the number of intervals to a "round" number of minutes
+        # it's hard to reason about the rate of logs on e.g. 13 minute intervals
+        # the min interval is 1 minute and max interval is 1 day
+        interval_count = find_closest(
+            _step.total_seconds(),
+            [1, 5, 10] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
+        )
+
+        if _step >= dt.timedelta(minutes=1):
+            interval_type = IntervalType.MINUTE
+            interval_count //= 60
+
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=interval_type,
+            interval_count=int(interval_count),
+            now=dt.datetime.now(),
+            timezone_info=ZoneInfo("UTC"),
+            exact_timerange=True,
+        )
+
     @cached_property
-    def settings(self):
+    def settings(self) -> HogQLGlobalSettings:
         return HogQLGlobalSettings(
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
@@ -239,6 +371,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "end_time": result[9].replace(tzinfo=ZoneInfo("UTC")),
                 "duration_nano": result[10],
                 "is_root_span": result[11],
+                "matched_filter": result[12],
             }
             results.append(row)
 
@@ -259,7 +392,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             SELECT
                 trace_id
             FROM posthog.trace_spans
-            WHERE {where} AND is_root_span = 1
+            WHERE {where}
+            LIMIT 1 by trace_id
             LIMIT {limit}
         """,
                 placeholders={
@@ -288,19 +422,23 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 timestamp,
                 end_time,
                 duration_nano,
-                is_root_span
+                is_root_span,
+                {where} as matched_filter
             FROM posthog.trace_spans
-            WHERE {where} AND trace_id IN ({trace_id_query}) LIMIT {limit}
+            WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
         """,
             placeholders={
                 "where": self.where(),
                 "trace_id_query": trace_id_query,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
+                "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
             },
         )
         assert isinstance(query, ast.SelectQuery)
 
         query.order_by = [
+            parse_order_expr("is_root_span DESC"),
+            parse_order_expr("matched_filter DESC"),
             parse_order_expr(f"timestamp {order_dir}"),
         ]
 
@@ -360,6 +498,7 @@ def run_service_names_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             allow_experimental_object_type=False,
             allow_experimental_join_condition=False,
@@ -375,7 +514,7 @@ def run_service_names_query(
 def run_attribute_names_query(
     team: "Team",
     date_range: DateRange,
-    attribute_type: str = "span",
+    attribute_type: str = "span_attribute",
     search: str = "",
     limit: int = 100,
     offset: int = 0,
@@ -390,7 +529,9 @@ def run_attribute_names_query(
         timezone_info=ZoneInfo("UTC"),
     )
 
-    property_filter_type = "span_resource_attribute" if attribute_type == "resource" else "span_attribute"
+    property_filter_type = (
+        attribute_type if attribute_type in ("span_attribute", "span_resource_attribute") else "span_attribute"
+    )
 
     query = parse_select(
         """
@@ -426,6 +567,7 @@ def run_attribute_names_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
             max_bytes_to_read=5_000_000_000,
@@ -445,7 +587,7 @@ def run_attribute_names_query(
 def run_attribute_values_query(
     team: "Team",
     date_range: DateRange,
-    attribute_type: str = "span",
+    attribute_type: str = "span_attribute",
     attribute_key: str = "",
     search: str = "",
     limit: int = 100,
@@ -497,6 +639,7 @@ def run_attribute_values_query(
         team=team,
         workload=Workload.LOGS,
         filters=HogQLFilters(dateRange=date_range),
+        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(
             read_overflow_mode="break",
             max_bytes_to_read=5_000_000_000,
@@ -509,3 +652,55 @@ def run_attribute_values_query(
             results.append({"id": value, "name": value})
 
     return results
+
+
+# Imported below the helpers above (and `translate_span_filter`) because the runners
+# import `translate_span_filter` from this module. Keeping this import at the bottom
+# avoids a partial-load circular import.
+from .aggregation_query_runner import TraceSpansAggregationQueryRunner, TraceSpansTreeQueryRunner  # noqa: E402
+
+
+def run_aggregation_query(
+    *,
+    team: "Team",
+    date_range: DateRange,
+    compare_filter: CompareFilter | None = None,
+    filter_group: PropertyGroupFilter | None = None,
+    service_names: list[str] | None = None,
+) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
+    """Facade-friendly entry point for running a flat span aggregation query."""
+    query = TraceSpansAggregationQuery(
+        dateRange=date_range,
+        compareFilter=compare_filter,
+        filterGroup=filter_group,
+        serviceNames=service_names,
+    )
+    runner = TraceSpansAggregationQueryRunner(query, team)
+    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+    assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
+    return response
+
+
+def run_tree_query(
+    *,
+    team: "Team",
+    date_range: DateRange,
+    span_name: str,
+    service_name: str,
+    compare_filter: CompareFilter | None = None,
+    filter_group: PropertyGroupFilter | None = None,
+    service_names: list[str] | None = None,
+) -> TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse:
+    """Facade-friendly entry point for running a span call-tree aggregation query."""
+    query = TraceSpansTreeQuery(
+        dateRange=date_range,
+        spanName=span_name,
+        serviceName=service_name,
+        compareFilter=compare_filter,
+        filterGroup=filter_group,
+        serviceNames=service_names,
+    )
+    runner = TraceSpansTreeQueryRunner(query, team)
+    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+    assert isinstance(response, TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse)
+    return response

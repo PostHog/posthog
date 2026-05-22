@@ -1,3 +1,4 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
@@ -58,7 +59,10 @@ describe('BatchExportHogFunctionService', () => {
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
         team = await getFirstTeam(hub.postgres)
 
-        api = new CdpApi(hub, createCdpConsumerDeps(hub))
+        api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createMockJobQueue(),
+        })
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
@@ -470,6 +474,7 @@ describe('BatchExportHogFunctionService', () => {
                 hub.groupRepository,
                 mockGrpc as unknown as PersonHogClient,
                 100,
+                new Set(),
                 'test'
             )
             const personhogGroupsManager = new GroupsManagerService(hub.teamManager, personhogRepo)

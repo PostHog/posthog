@@ -3,11 +3,15 @@ import { Redis } from 'ioredis'
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge } from 'prom-client'
 
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
+import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent } from '~/plugin-scaffold'
+import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 
 import { TransformationResult } from '../../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, IngestionLane, PluginServerService } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { logger } from '../../utils/logger'
@@ -26,9 +30,11 @@ import { CymbalClient } from './cymbal'
 import {
     ErrorTrackingOutputs,
     ErrorTrackingPipelineOutput,
+    PreCymbalRateLimiterInput,
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
+import { KeyedRateLimiterStepOptions } from './keyed-rate-limiter-step'
 
 /**
  * Configuration values for ErrorTrackingConsumer.
@@ -37,19 +43,34 @@ import {
 export interface ErrorTrackingConsumerOptions {
     groupId: string
     topic: string
-    dlqTopic: string
-    overflowTopic: string
-    outputTopic: string
     cymbalBaseUrl: string
     cymbalTimeoutMs: number
     cymbalMaxBodyBytes: number
     lane: IngestionLane
+    overflowEnabled: boolean
     overflowBucketCapacity: number
     overflowBucketReplenishRate: number
     statefulOverflowEnabled: boolean
     statefulOverflowRedisTTLSeconds: number
     statefulOverflowLocalCacheTTLSeconds: number
+    /**
+     * When true, overflow redirects keep the original partition key. When
+     * false (default), the overflow producer emits with a null key. Applies
+     * to both restriction-driven force-overflow and rate-limit-to-overflow.
+     */
+    preservePartitionLocality: boolean
     pipeline: string
+    rateLimiterEnabled: boolean
+    rateLimiterReportingMode: boolean
+    rateLimiterRedisHost: string
+    rateLimiterRedisPort: number
+    rateLimiterRedisTls: boolean
+    rateLimiterTtlSeconds: number
+    /** Fallback Redis URL when no dedicated host is configured. Required when rateLimiterEnabled. */
+    fallbackRedisUrl?: string
+    /** Pool sizing for the dedicated rate limiter Redis pool. */
+    rateLimiterRedisPoolMinSize?: number
+    rateLimiterRedisPoolMaxSize?: number
 }
 
 /**
@@ -70,6 +91,8 @@ export interface ErrorTrackingHogTransformer {
 export interface ErrorTrackingConsumerDeps {
     outputs: ErrorTrackingOutputs
     teamManager: TeamManager
+    /** Only required when the rate limiter is enabled; constructed alongside it. */
+    errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     hogTransformer: ErrorTrackingHogTransformer
     groupTypeManager: GroupTypeManager
     redisPool: GenericPool<Redis>
@@ -93,7 +116,7 @@ const latestOffsetTimestampGauge = new Gauge({
 
 export class ErrorTrackingConsumer {
     protected name = 'error-tracking-consumer'
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     protected pipeline!: BatchPipelineUnwrapper<
         { message: Message },
         ErrorTrackingPipelineOutput,
@@ -106,12 +129,15 @@ export class ErrorTrackingConsumer {
     protected overflowRedirectService?: OverflowRedirectService
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
+    protected rateLimiter?: KeyedRateLimiterService
+    protected rateLimiterAppMetricsAggregator?: AppMetricsAggregator
+    protected rateLimiterRedis?: RedisV2
 
     constructor(
         private config: ErrorTrackingConsumerOptions,
         private deps: ErrorTrackingConsumerDeps
     ) {
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: config.groupId,
             topic: config.topic,
         })
@@ -125,7 +151,7 @@ export class ErrorTrackingConsumer {
         this.promiseScheduler = new PromiseScheduler()
 
         this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
-            pipeline: 'error_tracking',
+            pipeline: 'errortracking',
         })
 
         // Create shared Redis repository for overflow redirect services
@@ -135,7 +161,7 @@ export class ErrorTrackingConsumer {
         })
 
         // Create overflow redirect service for main lane (rate limiting)
-        if (this.overflowEnabled() && config.lane === 'main') {
+        if (config.overflowEnabled && config.lane === 'main') {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: config.statefulOverflowLocalCacheTTLSeconds,
@@ -151,6 +177,39 @@ export class ErrorTrackingConsumer {
                 redisRepository: overflowRedisRepository,
             })
         }
+
+        // Optional keyed rate limiter — dedicated Redis pool, only built when explicitly enabled.
+        // When the master switch is off, no pool/service exists at all (the pipeline step is a no-op).
+        if (config.rateLimiterEnabled) {
+            const dedicatedHost = config.rateLimiterRedisHost
+            this.rateLimiterRedis = createRedisV2PoolFromConfig({
+                connection: dedicatedHost
+                    ? {
+                          url: dedicatedHost,
+                          options: {
+                              port: config.rateLimiterRedisPort,
+                              tls: config.rateLimiterRedisTls ? {} : undefined,
+                          },
+                          name: 'error-tracking-rate-limiter-redis',
+                      }
+                    : {
+                          url: config.fallbackRedisUrl ?? '',
+                          name: 'error-tracking-rate-limiter-redis-fallback',
+                      },
+                poolMinSize: config.rateLimiterRedisPoolMinSize ?? 1,
+                poolMaxSize: config.rateLimiterRedisPoolMaxSize ?? 3,
+            })
+            this.rateLimiter = new KeyedRateLimiterService(
+                {
+                    name: 'error-tracking-rate-limiter',
+                    // bucketSize/refillRate are intentionally omitted — every request supplies
+                    // them via getBucketConfig (per-team), so service-level defaults are unused.
+                    ttlSeconds: config.rateLimiterTtlSeconds,
+                },
+                this.rateLimiterRedis
+            )
+            this.rateLimiterAppMetricsAggregator = new AppMetricsAggregator(deps.outputs)
+        }
     }
 
     public get service(): PluginServerService {
@@ -165,10 +224,7 @@ export class ErrorTrackingConsumer {
         logger.info('🚀', `${this.name} - starting`, {
             groupId: this.config.groupId,
             topic: this.config.topic,
-            outputTopic: this.config.outputTopic,
-            dlqTopic: this.config.dlqTopic,
-            overflowTopic: this.config.overflowTopic,
-            overflowEnabled: this.overflowEnabled(),
+            overflowEnabled: this.config.overflowEnabled,
             lane: this.config.lane,
             statefulOverflowEnabled: this.config.statefulOverflowEnabled,
             cymbalUrl: this.config.cymbalBaseUrl,
@@ -208,9 +264,12 @@ export class ErrorTrackingConsumer {
             cymbalClient: this.cymbalClient,
             groupTypeManager: this.deps.groupTypeManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowEnabled: this.overflowEnabled(),
+            overflowEnabled: this.config.overflowEnabled,
+            preservePartitionLocality: this.config.preservePartitionLocality,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
+            preCymbalRateLimiters: this.buildPreCymbalRateLimiterSpecs(),
+            errorTrackingSettingsManager: this.rateLimiter ? this.deps.errorTrackingSettingsManager : undefined,
             topHog: this.topHog,
         })
 
@@ -218,11 +277,67 @@ export class ErrorTrackingConsumer {
     }
 
     /**
-     * Overflow is enabled when the overflow topic is configured and different from the consume topic.
-     * When consuming from the overflow topic itself, overflow is disabled to prevent redirect loops.
+     * Construct the pre-Cymbal rate limiter spec list. Add new specs here as
+     * we extend rate limiting beyond the team-global limit (per-hash, per-event-name etc).
      */
-    private overflowEnabled(): boolean {
-        return !!this.config.overflowTopic && this.config.overflowTopic !== this.config.topic
+    private buildPreCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] {
+        if (!this.rateLimiter) {
+            return []
+        }
+
+        const specs: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] = [
+            // Team-global cap: every $exception event for a team consumes one token
+            // from a per-team bucket.
+            {
+                rateLimiter: this.rateLimiter,
+                appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+                appSource: 'exceptions',
+                // Skip rate limiting when the team hasn't opted in (no row or null value).
+                // Returning null makes the rate-limiter step pass the input through as `ok()`.
+                // The serializer enforces min_value=1, so a non-null value is always positive.
+                getKey: (input) =>
+                    input.errorTrackingSettings?.projectRateLimitValue == null
+                        ? null
+                        : `${input.team.id}:exceptions:global`,
+                getTeamId: (input) => input.team.id,
+                reportingMode: this.config.rateLimiterReportingMode,
+                dropReason: 'rate_limited:team_global',
+                getBucketConfig: (input) => {
+                    // User model: "N events per M minutes".
+                    // Token bucket: bucketSize=N (max burst), refillRate=N/(M*60) per second.
+                    const settings = input.errorTrackingSettings!
+                    const value = settings.projectRateLimitValue!
+                    const minutes = settings.projectRateLimitBucketSizeMinutes ?? 60
+                    return {
+                        bucketSize: value,
+                        refillRate: value / (minutes * 60),
+                    }
+                },
+            },
+            // TODO: Per-exception-hash limit using a coarse pre-Cymbal fingerprint
+            // (Cymbal's proper fingerprint is post-symbolication, so we accept a
+            // weaker-but-cheaper bucket here). Wiring would look like:
+            // {
+            //     rateLimiter: this.rateLimiter,
+            //     appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+            //     appSource: 'exceptions',
+            //     getKey: (input) => {
+            //         const first = input.event.properties?.$exception_list?.[0]
+            //         if (!first?.type && !first?.value) return null
+            //         const hash = createHash('sha1')
+            //             .update(`${first?.type ?? ''}|${first?.value ?? ''}`)
+            //             .digest('hex')
+            //             .slice(0, 16)
+            //         return `${input.team.id}:exceptions:hash:${hash}`
+            //     },
+            //     getTeamId: (input) => input.team.id,
+            //     reportingMode: this.config.rateLimiterReportingMode,
+            //     dropReason: 'rate_limited:per_hash',
+            //     // getBucketConfig: ... (see TODO above)
+            // },
+        ]
+
+        return specs
     }
 
     public async stop(): Promise<void> {
@@ -230,6 +345,17 @@ export class ErrorTrackingConsumer {
 
         // Wait for any pending side effects
         await this.promiseScheduler.waitForAll()
+
+        // Drain any pending rate-limiter outcome metrics before output producers go away.
+        if (this.rateLimiterAppMetricsAggregator) {
+            try {
+                await this.rateLimiterAppMetricsAggregator.flush()
+            } catch (error) {
+                logger.error('⚠️', `${this.name} - failed to flush rate limiter app metrics on stop`, {
+                    error: error instanceof Error ? error.message : String(error),
+                })
+            }
+        }
 
         // Shutdown overflow services
         await this.overflowRedirectService?.shutdown()
@@ -272,7 +398,16 @@ export class ErrorTrackingConsumer {
             throw error
         } finally {
             // Flush scheduled work and invocation results to prevent memory accumulation
-            await Promise.all([this.promiseScheduler.waitForAll(), this.deps.hogTransformer.processInvocationResults()])
+            await Promise.all([
+                this.promiseScheduler.waitForAll(),
+                this.deps.hogTransformer.processInvocationResults(),
+                // Best-effort: failures here must not break ingestion.
+                this.rateLimiterAppMetricsAggregator?.flush().catch((error) => {
+                    logger.error('⚠️', `${this.name} - failed to flush rate limiter app metrics`, {
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                }),
+            ])
         }
     }
 }

@@ -26,6 +26,7 @@ from .chargebee.source import ChargebeeSource
 from .chartmogul.source import ChartMogulSource
 from .circleci.source import CircleCISource
 from .clerk.source import ClerkSource
+from .clickhouse.source import ClickHouseSource
 from .clickup.source import ClickUpSource
 from .close.source import CloseSource
 from .cockroachdb.source import CockroachDBSource
@@ -92,9 +93,11 @@ from .pagerduty.source import PagerDutySource
 from .pardot.source import PardotSource
 from .paypal.source import PayPalSource
 from .pendo.source import PendoSource
+from .pganalyze.source import PgAnalyzeSource
 from .pinterest_ads.source import PinterestAdsSource
 from .pipedrive.source import PipedriveSource
 from .plaid.source import PlaidSource
+from .plain.source import PlainSource
 from .polar.source import PolarSource
 from .postgres.source import PostgresSource
 from .postmark.source import PostmarkSource
@@ -104,6 +107,7 @@ from .recharge.source import RechargeSource
 from .recurly.source import RecurlySource
 from .reddit_ads.source import RedditAdsSource
 from .redshift.source import RedshiftSource
+from .resend.source import ResendSource
 from .revenuecat.source import RevenueCatSource
 from .ringcentral.source import RingCentralSource
 from .salesforce.source import SalesforceSource
@@ -170,6 +174,7 @@ __all__ = [
     "ChartMogulSource",
     "CircleCISource",
     "ClerkSource",
+    "ClickHouseSource",
     "ClickUpSource",
     "CloseSource",
     "CockroachDBSource",
@@ -235,9 +240,11 @@ __all__ = [
     "PardotSource",
     "PayPalSource",
     "PendoSource",
+    "PgAnalyzeSource",
     "PinterestAdsSource",
     "PipedriveSource",
     "PlaidSource",
+    "PlainSource",
     "PolarSource",
     "PostmarkSource",
     "PostgresSource",
@@ -247,6 +254,7 @@ __all__ = [
     "RecurlySource",
     "RedditAdsSource",
     "RedshiftSource",
+    "ResendSource",
     "RevenueCatSource",
     "RingCentralSource",
     "SalesforceSource",

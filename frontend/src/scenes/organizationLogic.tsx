@@ -23,11 +23,11 @@ export type OrganizationUpdatePayload = Partial<
         OrganizationType,
         | 'name'
         | 'logo_media_id'
-        | 'is_member_join_email_enabled'
         | 'enforce_2fa'
         | 'members_can_invite'
         | 'members_can_use_personal_api_keys'
         | 'is_ai_data_processing_approved'
+        | 'is_ai_training_opted_in'
         | 'default_experiment_stats_method'
         | 'allow_publicly_shared_resources'
         | 'default_role_id'
@@ -167,6 +167,11 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         locationChanged: ({ pathname }) => {
+            // Redirect to pending deletion page if organization deletion is in progress
+            if (values.currentOrganization?.is_pending_deletion && pathname !== urls.organizationPendingDeletion()) {
+                router.actions.replace(urls.organizationPendingDeletion())
+                return
+            }
             // Redirect to deactivated page if organization is inactive (client-side navigation)
             if (values.currentOrganization?.is_active === false && pathname !== urls.organizationDeactivated()) {
                 router.actions.replace(urls.organizationDeactivated())
@@ -189,7 +194,7 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         deleteOrganizationSuccess: ({ redirectPath }) => {
-            lemonToast.success('Organization has been deleted', {
+            lemonToast.success('Organization deletion has been initiated', {
                 toastId: 'deleteOrganization',
             })
 
@@ -200,10 +205,7 @@ export const organizationLogic = kea<organizationLogicType>([
                 return
             }
 
-            router.actions.replace(redirectPath ?? router.values.currentLocation.pathname, {
-                ...router.values.searchParams,
-                organizationDeleted: true,
-            })
+            // Reload the page — the middleware will redirect to the pending deletion screen
             location.reload()
         },
         deleteOrganizationFailure: ({ error }) => {

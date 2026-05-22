@@ -6,8 +6,9 @@ from posthog.test.base import ClickhouseTestMixin
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
-from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
+
+from products.actions.backend.models.action import Action
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from ee.api.hooks import create_zapier_hog_function, valid_domain
@@ -104,7 +105,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
         hog_functions = []
         for hook_id in [uuid.uuid4(), uuid.uuid4()]:
             hook = Hook.objects.create(
-                id=hook_id,
+                id=str(hook_id),
                 user=self.user,
                 team=self.team,
                 resource_id=self.action.id,

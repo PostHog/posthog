@@ -5,7 +5,7 @@ import { base64ArrayBuffer } from '../utils'
 
 type GLVarMap = Map<string, any[]>
 type CanvasContexts = CanvasRenderingContext2D | WebGLRenderingContext | WebGL2RenderingContext
-const webGLVarMap: Map<CanvasContexts, GLVarMap> = new Map()
+const webGLVarMap: WeakMap<CanvasContexts, GLVarMap> = new WeakMap()
 
 const variableListFor = (ctx: CanvasContexts, ctor: string): any[] => {
     let contextMap = webGLVarMap.get(ctx)

@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { isObject } from 'lib/utils'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
@@ -38,6 +39,10 @@ import {
     VercelSDKInputImageMessage,
     VercelSDKInputTextMessage,
     VercelSDKTextMessage,
+    VercelSDKToolCallFunctionMessage,
+    VercelSDKToolCallMessage,
+    VercelSDKToolCallToolNameMessage,
+    VercelSDKToolResultMessage,
     MultiModalContentItem,
 } from './types'
 
@@ -45,6 +50,27 @@ export interface PagedSearchOrderFilters {
     page: number
     search: string
     order_by: string
+}
+
+// Runs an async worker across `items` with at most `limit` promises in flight.
+// Intended for lazy loaders that otherwise fan out enough parallel requests to
+// starve the browser's per-origin connection pool.
+export async function runWithConcurrency<T>(
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<void>
+): Promise<void> {
+    if (items.length === 0) {
+        return
+    }
+    let cursor = 0
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (cursor < items.length) {
+            const index = cursor++
+            await worker(items[index])
+        }
+    })
+    await Promise.all(runners)
 }
 
 export interface SanitizeTraceUrlSearchParamsOptions {
@@ -117,6 +143,8 @@ export function formatLLMUsage(
     return null
 }
 
+export const LLM_TRACES_PAGE_SIZE = 50
+
 export const LATENCY_MINUTES_DISPLAY_THRESHOLD_SECONDS = 90
 
 export function formatLLMLatency(latency: number, showMinutes?: boolean): string {
@@ -126,6 +154,51 @@ export function formatLLMLatency(latency: number, showMinutes?: boolean): string
         return `${roundedLatency} s (${minutes} m)`
     }
     return `${roundedLatency} s`
+}
+
+export interface CostContext {
+    inputCost?: number
+    outputCost?: number
+    requestCost?: number
+    webSearchCost?: number
+    totalCost: number
+}
+
+export function costContextFromProperties(props: Record<string, any>): CostContext | undefined {
+    if (typeof props.$ai_total_cost_usd !== 'number') {
+        return undefined
+    }
+    return {
+        inputCost: props.$ai_input_cost_usd,
+        outputCost: props.$ai_output_cost_usd,
+        requestCost: props.$ai_request_cost_usd,
+        webSearchCost: props.$ai_web_search_cost_usd,
+        totalCost: props.$ai_total_cost_usd,
+    }
+}
+
+export function costContextFromTrace(
+    trace: Pick<LLMTrace, 'inputCost' | 'outputCost' | 'requestCost' | 'webSearchCost' | 'totalCost'>
+): CostContext | undefined {
+    if (typeof trace.totalCost !== 'number') {
+        return undefined
+    }
+    return {
+        inputCost: trace.inputCost,
+        outputCost: trace.outputCost,
+        requestCost: trace.requestCost,
+        webSearchCost: trace.webSearchCost,
+        totalCost: trace.totalCost,
+    }
+}
+
+export function hasCostBreakdown(ctx: CostContext): boolean {
+    return (
+        typeof ctx.inputCost === 'number' ||
+        typeof ctx.outputCost === 'number' ||
+        (typeof ctx.requestCost === 'number' && ctx.requestCost > 0) ||
+        (typeof ctx.webSearchCost === 'number' && ctx.webSearchCost > 0)
+    )
 }
 
 const usdFormatter = new Intl.NumberFormat('en-US', {
@@ -146,6 +219,20 @@ export function formatTokens(tokens: number): string {
         return `${(tokens / 1000).toFixed(1)}k`
     }
     return tokens.toFixed(0)
+}
+
+export function formatAiErrorForDisplay(value: unknown): string {
+    if (typeof value === 'string') {
+        return value || 'Unknown error'
+    }
+    if (value == null) {
+        return 'Unknown error'
+    }
+    try {
+        return JSON.stringify(value)
+    } catch {
+        return String(value)
+    }
 }
 
 export function formatErrorRate(errorRate: number): string {
@@ -260,6 +347,17 @@ export function isOpenAICompatMessage(output: unknown): output is OpenAICompleti
         'content' in output &&
         (typeof output.content === 'string' || output.content === null)
     )
+}
+
+function parseToolArguments(args: string | Record<string, unknown>): Record<string, unknown> | string {
+    if (typeof args === 'string') {
+        try {
+            return JSON.parse(args)
+        } catch {
+            return args
+        }
+    }
+    return args
 }
 
 export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCall[] {
@@ -428,6 +526,45 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
         input.type === 'input_text' &&
         'text' in input &&
         typeof input.text === 'string'
+    )
+}
+
+function isVercelSDKToolCallFunctionMessage(input: unknown): input is VercelSDKToolCallFunctionMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'tool-call' &&
+        'function' in input &&
+        typeof input.function === 'object' &&
+        input.function !== null
+    )
+}
+
+function isVercelSDKToolCallToolNameMessage(input: unknown): input is VercelSDKToolCallToolNameMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'tool-call' &&
+        'toolName' in input &&
+        typeof input.toolName === 'string' &&
+        !('function' in input && typeof input.function === 'object' && input.function !== null)
+    )
+}
+
+export function isVercelSDKToolCallMessage(input: unknown): input is VercelSDKToolCallMessage {
+    return isVercelSDKToolCallFunctionMessage(input) || isVercelSDKToolCallToolNameMessage(input)
+}
+
+export function isVercelSDKToolResultMessage(input: unknown): input is VercelSDKToolResultMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'tool-result' &&
+        'toolName' in input &&
+        typeof input.toolName === 'string'
     )
 }
 
@@ -760,7 +897,7 @@ function parseStringifiedStructuredContent(content: string): string | MultiModal
 }
 
 /**
- * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Analytics schema.
+ * Normalizes a message from an LLM provider into a format that is compatible with the PostHog AI observability schema.
  *
  * @param rawMessage - Original message from an LLM provider.
  * @param defaultRole - The default role to use if the message doesn't have one.
@@ -808,6 +945,44 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                     item.type === 'document')
         )
     ) {
+        const toolCalls: CompatToolCall[] = []
+        const remainingContent: MultiModalContentItem[] = []
+        for (const item of rawMessage.content) {
+            if (
+                item &&
+                typeof item === 'object' &&
+                'type' in item &&
+                item.type === 'function' &&
+                'function' in item &&
+                item.function &&
+                typeof item.function === 'object' &&
+                'name' in item.function &&
+                typeof item.function.name === 'string'
+            ) {
+                const fn = item.function as { name: string; arguments?: string | Record<string, unknown> }
+                toolCalls.push({
+                    type: 'function',
+                    id: 'id' in item && typeof item.id === 'string' ? item.id : undefined,
+                    function: {
+                        name: fn.name,
+                        arguments: parseToolArguments(fn.arguments ?? {}),
+                    },
+                })
+            } else {
+                remainingContent.push(item as MultiModalContentItem)
+            }
+        }
+
+        if (toolCalls.length > 0) {
+            return [
+                {
+                    role: roleToUse,
+                    content: remainingContent.length > 0 ? remainingContent : '',
+                    tool_calls: toolCalls,
+                },
+            ]
+        }
+
         return [
             {
                 role: roleToUse,
@@ -935,14 +1110,6 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     // OpenAI Responses API
     // Function call (role-less, uses `type` instead)
     if (isOpenAIResponsesFunctionCall(rawMessage)) {
-        let parsedArguments: Record<string, any> | string = rawMessage.arguments
-        if (typeof rawMessage.arguments === 'string') {
-            try {
-                parsedArguments = JSON.parse(rawMessage.arguments)
-            } catch {
-                parsedArguments = rawMessage.arguments
-            }
-        }
         return [
             {
                 role: 'assistant',
@@ -953,7 +1120,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
                         id: rawMessage.call_id,
                         function: {
                             name: rawMessage.name,
-                            arguments: parsedArguments,
+                            arguments: parseToolArguments(rawMessage.arguments),
                         },
                     },
                 ],
@@ -972,7 +1139,12 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     }
     // Reasoning
     if (isOpenAIResponsesReasoning(rawMessage)) {
-        const summaryText = Array.isArray(rawMessage.summary) ? rawMessage.summary.map((s) => s.text).join('\n') : ''
+        let summaryText = ''
+        if (Array.isArray(rawMessage.summary)) {
+            summaryText = rawMessage.summary.map((s) => s.text).join('\n')
+        } else if (typeof rawMessage.text === 'string') {
+            summaryText = rawMessage.text
+        }
         return [
             {
                 role: normalizeRole('assistant (thinking)', roleToUse),
@@ -980,19 +1152,97 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
             },
         ]
     }
-    // Built-in tool calls (web_search_call, code_interpreter_call, etc.)
-    if (isOpenAIResponsesBuiltinToolCall(rawMessage)) {
+    // Vercel AI SDK tool call (function variant)
+    if (isVercelSDKToolCallFunctionMessage(rawMessage)) {
         return [
             {
-                role: 'assistant',
-                content: JSON.stringify(rawMessage),
+                role: roleToUse,
+                content: '',
                 tool_calls: [
                     {
                         type: 'function',
                         id: rawMessage.id,
                         function: {
-                            name: rawMessage.type,
-                            arguments: {},
+                            name: rawMessage.function.name,
+                            arguments: parseToolArguments(rawMessage.function.arguments),
+                        },
+                    },
+                ],
+            },
+        ]
+    }
+    // Vercel AI SDK tool call (toolName variant)
+    if (isVercelSDKToolCallToolNameMessage(rawMessage)) {
+        return [
+            {
+                role: roleToUse,
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: rawMessage.toolCallId,
+                        function: {
+                            name: rawMessage.toolName,
+                            arguments: parseToolArguments(rawMessage.input ?? {}),
+                        },
+                    },
+                ],
+            },
+        ]
+    }
+    // Vercel AI SDK tool result
+    if (isVercelSDKToolResultMessage(rawMessage)) {
+        let content = ''
+        if (typeof rawMessage.output === 'string') {
+            content = rawMessage.output
+        } else if (rawMessage.output !== undefined) {
+            try {
+                content = JSON.stringify(rawMessage.output)
+            } catch {
+                content = String(rawMessage.output)
+            }
+        }
+        return [
+            {
+                role: normalizeRole('assistant (tool result)', roleToUse),
+                content,
+                tool_call_id: rawMessage.toolCallId,
+            },
+        ]
+    }
+    // Built-in tool calls (web_search_call, code_interpreter_call, etc.)
+    if (isOpenAIResponsesBuiltinToolCall(rawMessage)) {
+        // Prefer an explicit name (e.g. mcp_call.name), fall back to the item type.
+        const name =
+            'name' in rawMessage && typeof rawMessage.name === 'string' && rawMessage.name
+                ? rawMessage.name
+                : rawMessage.type
+
+        let functionArguments: Record<string, unknown> | string
+        if ('arguments' in rawMessage && rawMessage.arguments !== undefined && rawMessage.arguments !== null) {
+            const rawArgs = rawMessage.arguments
+            if (typeof rawArgs === 'string' || (typeof rawArgs === 'object' && !Array.isArray(rawArgs))) {
+                functionArguments = parseToolArguments(rawArgs as string | Record<string, unknown>)
+            } else {
+                functionArguments = { arguments: rawArgs }
+            }
+        } else {
+            // Strip `arguments` too in case it's explicitly null — it would otherwise leak into rest.
+            const { id: _id, type: _type, status: _status, name: _name, arguments: _args, ...rest } = rawMessage
+            functionArguments = rest
+        }
+
+        return [
+            {
+                role: 'assistant',
+                content: '',
+                tool_calls: [
+                    {
+                        type: 'function',
+                        id: rawMessage.id,
+                        function: {
+                            name,
+                            arguments: functionArguments,
                         },
                     },
                 ],
@@ -1126,9 +1376,68 @@ export function parsePartialJSON(json: string): unknown {
     return PartialJSON.parse(json, flags)
 }
 
+export function isEmptyJSONStructure(value: unknown): boolean {
+    return (
+        (Array.isArray(value) && value.length === 0) ||
+        (isObject(value) && Object.keys(value as Record<string, unknown>).length === 0)
+    )
+}
+
+export type ToolArgumentsForDisplay =
+    | { kind: 'empty' }
+    | { kind: 'parsed'; value: object }
+    | { kind: 'raw'; value: string }
+
+/**
+ * Tool-call arguments arrive in a few shapes: a JSON-stringified string (raw OpenAI),
+ * a parsed object (post-normalization or hand-authored), null/undefined (no args),
+ * or an empty container. Normalizes them into a tagged union for rendering.
+ */
+export function parseToolArgumentsForDisplay(rawArgs: unknown): ToolArgumentsForDisplay {
+    if (rawArgs === null || rawArgs === undefined || rawArgs === '') {
+        return { kind: 'empty' }
+    }
+    if (typeof rawArgs === 'string') {
+        // Treat literal empty containers as intentional "no args". Anything else that
+        // happens to parse to an empty object (e.g. partial-json salvaging broken input)
+        // falls through to raw, so the user still sees what they sent.
+        const trimmed = rawArgs.trim()
+        if (trimmed === '{}' || trimmed === '[]') {
+            return { kind: 'empty' }
+        }
+        try {
+            const parsed = parsePartialJSON(rawArgs)
+            if (typeof parsed === 'object' && parsed !== null && !isEmptyJSONStructure(parsed)) {
+                return { kind: 'parsed', value: parsed }
+            }
+            return { kind: 'raw', value: rawArgs }
+        } catch {
+            return { kind: 'raw', value: rawArgs }
+        }
+    }
+    if (typeof rawArgs === 'object') {
+        if (isEmptyJSONStructure(rawArgs)) {
+            return { kind: 'empty' }
+        }
+        return { kind: 'parsed', value: rawArgs as object }
+    }
+    return { kind: 'raw', value: String(rawArgs) }
+}
+
 export function parseJSONPreview(raw: unknown): unknown {
     const truncated = simulateNaiveTruncation(raw)
     return parsePartialJSON(truncated)
+}
+
+// `JSON.stringify` throws on circular references and BigInt values. When rendering LLM trace data
+// in the UI we don't want a malformed payload to crash the component, so wrap it in try/catch with
+// a `String(value)` fallback that always produces something.
+export function safeStringify(value: unknown, indent: number = 2): string {
+    try {
+        return JSON.stringify(value, null, indent) ?? String(value)
+    } catch {
+        return String(value)
+    }
 }
 
 export function removeMilliseconds(timestamp: string): string {

@@ -10,7 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { VariantTag } from 'scenes/experiments/ExperimentView/components'
+import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 
 import {
@@ -71,8 +71,12 @@ function convertExperimentResultToFunnelSteps(
                 const series = metric.series[stepIndex - 1]
                 if (series.kind === NodeKind.EventsNode) {
                     stepName = series.custom_name || series.name || series.event || `Step ${stepIndex}`
-                } else {
+                } else if (series.kind === NodeKind.ActionsNode) {
                     stepName = series.custom_name || series.name || `Action ${series.id}`
+                } else if (series.kind === NodeKind.ExperimentDataWarehouseNode) {
+                    stepName = series.custom_name || series.name || series.table_name || `Step ${stepIndex}`
+                } else {
+                    stepName = `Step ${stepIndex}`
                 }
             } else {
                 stepName = `Step ${stepIndex}`

@@ -259,6 +259,37 @@ class TestQueryDateRange(APIBaseTest):
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2025-09-21T00:00:00Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2025-09-27T23:59:59.999999Z"))
 
+    def test_pin_now_overrides_initial_now_before_cache(self):
+        initial_now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        pinned_now = parser.isoparse("2021-07-01T00:00:00.000Z")
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="-7d"),
+            interval=IntervalType.DAY,
+            now=initial_now,
+        )
+
+        query_date_range.pin_now(pinned_now)
+
+        # date_to / date_from must reflect pinned_now, not initial_now
+        self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-07-01T23:59:59.999999Z"))
+        self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-06-24T00:00:00Z"))
+
+    def test_pin_now_raises_after_derived_property_cached(self):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        query_date_range = QueryDateRange(
+            team=self.team,
+            date_range=DateRange(date_from="-7d"),
+            interval=IntervalType.DAY,
+            now=now,
+        )
+        # Trigger the cached_property chain
+        _ = query_date_range.date_from()
+
+        with self.assertRaises(RuntimeError) as cm:
+            query_date_range.pin_now(parser.isoparse("2021-07-01T00:00:00.000Z"))
+        self.assertIn("now_with_timezone", str(cm.exception))
+
 
 class TestExactTimerange(APIBaseTest):
     INTERVALS = [
@@ -454,6 +485,17 @@ class TestQueryDateRangeWithIntervals(APIBaseTest):
     def test_constructor_initialization(self):
         query = QueryDateRangeWithIntervals(None, self.lookahead, self.team, IntervalType.DAY, self.now)
         self.assertEqual(query.lookahead, self.lookahead)
+
+    def test_pin_now_works_on_subclass(self):
+        initial_now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        pinned_now = parser.isoparse("2021-07-01T00:00:00.000Z")
+        query = QueryDateRangeWithIntervals(None, 7, self.team, IntervalType.DAY, initial_now)
+
+        query.pin_now(pinned_now)
+
+        # date_to should reflect pinned_now (the subclass's date_to adds one interval
+        # and truncates to start of interval, so 2021-07-01 00:00:00 UTC becomes 2021-07-02 00:00:00 UTC)
+        self.assertEqual(query.date_to(), parser.isoparse("2021-07-02T00:00:00Z"))
 
     def test_determine_time_delta_valid(self):
         delta = QueryDateRangeWithIntervals.determine_time_delta(5, "day")

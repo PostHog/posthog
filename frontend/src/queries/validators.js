@@ -22,6 +22,7 @@ const schema12 = {
         { $ref: '#/definitions/LogPropertyFilter' },
         { $ref: '#/definitions/SpanPropertyFilter' },
         { $ref: '#/definitions/RevenueAnalyticsPropertyFilter' },
+        { $ref: '#/definitions/WorkflowVariablePropertyFilter' },
     ],
 }
 const schema37 = {
@@ -4545,6 +4546,244 @@ function validate60(data, { instancePath = '', parentData, parentDataProperty, r
     validate60.errors = vErrors
     return errors === 0
 }
+const schema54 = {
+    additionalProperties: false,
+    properties: {
+        key: { type: 'string' },
+        label: { type: 'string' },
+        operator: { $ref: '#/definitions/PropertyOperator' },
+        type: { const: 'workflow_variable', type: 'string' },
+        value: { $ref: '#/definitions/PropertyFilterValue' },
+    },
+    required: ['key', 'operator', 'type'],
+    type: 'object',
+}
+function validate63(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+    let vErrors = null
+    let errors = 0
+    if (errors === 0) {
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+            let missing0
+            if (
+                (data.key === undefined && (missing0 = 'key')) ||
+                (data.operator === undefined && (missing0 = 'operator')) ||
+                (data.type === undefined && (missing0 = 'type'))
+            ) {
+                validate63.errors = [
+                    {
+                        instancePath,
+                        schemaPath: '#/required',
+                        keyword: 'required',
+                        params: { missingProperty: missing0 },
+                        message: "must have required property '" + missing0 + "'",
+                    },
+                ]
+                return false
+            } else {
+                const _errs1 = errors
+                for (const key0 in data) {
+                    if (
+                        !(
+                            key0 === 'key' ||
+                            key0 === 'label' ||
+                            key0 === 'operator' ||
+                            key0 === 'type' ||
+                            key0 === 'value'
+                        )
+                    ) {
+                        validate63.errors = [
+                            {
+                                instancePath,
+                                schemaPath: '#/additionalProperties',
+                                keyword: 'additionalProperties',
+                                params: { additionalProperty: key0 },
+                                message: 'must NOT have additional properties',
+                            },
+                        ]
+                        return false
+                        break
+                    }
+                }
+                if (_errs1 === errors) {
+                    if (data.key !== undefined) {
+                        const _errs2 = errors
+                        if (typeof data.key !== 'string') {
+                            validate63.errors = [
+                                {
+                                    instancePath: instancePath + '/key',
+                                    schemaPath: '#/properties/key/type',
+                                    keyword: 'type',
+                                    params: { type: 'string' },
+                                    message: 'must be string',
+                                },
+                            ]
+                            return false
+                        }
+                        var valid0 = _errs2 === errors
+                    } else {
+                        var valid0 = true
+                    }
+                    if (valid0) {
+                        if (data.label !== undefined) {
+                            const _errs4 = errors
+                            if (typeof data.label !== 'string') {
+                                validate63.errors = [
+                                    {
+                                        instancePath: instancePath + '/label',
+                                        schemaPath: '#/properties/label/type',
+                                        keyword: 'type',
+                                        params: { type: 'string' },
+                                        message: 'must be string',
+                                    },
+                                ]
+                                return false
+                            }
+                            var valid0 = _errs4 === errors
+                        } else {
+                            var valid0 = true
+                        }
+                        if (valid0) {
+                            if (data.operator !== undefined) {
+                                let data2 = data.operator
+                                const _errs6 = errors
+                                if (typeof data2 !== 'string') {
+                                    validate63.errors = [
+                                        {
+                                            instancePath: instancePath + '/operator',
+                                            schemaPath: '#/definitions/PropertyOperator/type',
+                                            keyword: 'type',
+                                            params: { type: 'string' },
+                                            message: 'must be string',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                if (
+                                    !(
+                                        data2 === 'exact' ||
+                                        data2 === 'is_not' ||
+                                        data2 === 'icontains' ||
+                                        data2 === 'not_icontains' ||
+                                        data2 === 'regex' ||
+                                        data2 === 'not_regex' ||
+                                        data2 === 'gt' ||
+                                        data2 === 'gte' ||
+                                        data2 === 'lt' ||
+                                        data2 === 'lte' ||
+                                        data2 === 'is_set' ||
+                                        data2 === 'is_not_set' ||
+                                        data2 === 'is_date_exact' ||
+                                        data2 === 'is_date_before' ||
+                                        data2 === 'is_date_after' ||
+                                        data2 === 'between' ||
+                                        data2 === 'not_between' ||
+                                        data2 === 'min' ||
+                                        data2 === 'max' ||
+                                        data2 === 'in' ||
+                                        data2 === 'not_in' ||
+                                        data2 === 'is_cleaned_path_exact' ||
+                                        data2 === 'flag_evaluates_to' ||
+                                        data2 === 'semver_eq' ||
+                                        data2 === 'semver_neq' ||
+                                        data2 === 'semver_gt' ||
+                                        data2 === 'semver_gte' ||
+                                        data2 === 'semver_lt' ||
+                                        data2 === 'semver_lte' ||
+                                        data2 === 'semver_tilde' ||
+                                        data2 === 'semver_caret' ||
+                                        data2 === 'semver_wildcard' ||
+                                        data2 === 'icontains_multi' ||
+                                        data2 === 'not_icontains_multi'
+                                    )
+                                ) {
+                                    validate63.errors = [
+                                        {
+                                            instancePath: instancePath + '/operator',
+                                            schemaPath: '#/definitions/PropertyOperator/enum',
+                                            keyword: 'enum',
+                                            params: { allowedValues: schema14.enum },
+                                            message: 'must be equal to one of the allowed values',
+                                        },
+                                    ]
+                                    return false
+                                }
+                                var valid0 = _errs6 === errors
+                            } else {
+                                var valid0 = true
+                            }
+                            if (valid0) {
+                                if (data.type !== undefined) {
+                                    let data3 = data.type
+                                    const _errs9 = errors
+                                    if (typeof data3 !== 'string') {
+                                        validate63.errors = [
+                                            {
+                                                instancePath: instancePath + '/type',
+                                                schemaPath: '#/properties/type/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    if ('workflow_variable' !== data3) {
+                                        validate63.errors = [
+                                            {
+                                                instancePath: instancePath + '/type',
+                                                schemaPath: '#/properties/type/const',
+                                                keyword: 'const',
+                                                params: { allowedValue: 'workflow_variable' },
+                                                message: 'must be equal to constant',
+                                            },
+                                        ]
+                                        return false
+                                    }
+                                    var valid0 = _errs9 === errors
+                                } else {
+                                    var valid0 = true
+                                }
+                                if (valid0) {
+                                    if (data.value !== undefined) {
+                                        const _errs11 = errors
+                                        if (
+                                            !validate13(data.value, {
+                                                instancePath: instancePath + '/value',
+                                                parentData: data,
+                                                parentDataProperty: 'value',
+                                                rootData,
+                                            })
+                                        ) {
+                                            vErrors =
+                                                vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
+                                            errors = vErrors.length
+                                        }
+                                        var valid0 = _errs11 === errors
+                                    } else {
+                                        var valid0 = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            validate63.errors = [
+                {
+                    instancePath,
+                    schemaPath: '#/type',
+                    keyword: 'type',
+                    params: { type: 'object' },
+                    message: 'must be object',
+                },
+            ]
+            return false
+        }
+    }
+    validate63.errors = vErrors
+    return errors === 0
+}
 function validate11(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
@@ -5089,6 +5328,27 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
                                                                             }
                                                                             var _valid0 = _errs37 === errors
                                                                             valid0 = valid0 || _valid0
+                                                                            if (!valid0) {
+                                                                                const _errs38 = errors
+                                                                                if (
+                                                                                    !validate63(data, {
+                                                                                        instancePath,
+                                                                                        parentData,
+                                                                                        parentDataProperty,
+                                                                                        rootData,
+                                                                                    })
+                                                                                ) {
+                                                                                    vErrors =
+                                                                                        vErrors === null
+                                                                                            ? validate63.errors
+                                                                                            : vErrors.concat(
+                                                                                                  validate63.errors
+                                                                                              )
+                                                                                    errors = vErrors.length
+                                                                                }
+                                                                                var _valid0 = _errs38 === errors
+                                                                                valid0 = valid0 || _valid0
+                                                                            }
                                                                         }
                                                                     }
                                                                 }
@@ -5136,9 +5396,9 @@ function validate11(data, { instancePath = '', parentData, parentDataProperty, r
     validate11.errors = vErrors
     return errors === 0
 }
-export const WebAnalyticsPropertyFilters = validate63
-const schema54 = { items: { $ref: '#/definitions/WebAnalyticsPropertyFilter' }, type: 'array' }
-const schema55 = {
+export const WebAnalyticsPropertyFilters = validate66
+const schema56 = { items: { $ref: '#/definitions/WebAnalyticsPropertyFilter' }, type: 'array' }
+const schema57 = {
     anyOf: [
         { $ref: '#/definitions/EventPropertyFilter' },
         { $ref: '#/definitions/PersonPropertyFilter' },
@@ -5146,7 +5406,7 @@ const schema55 = {
         { $ref: '#/definitions/CohortPropertyFilter' },
     ],
 }
-function validate64(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate67(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     const _errs0 = errors
@@ -5199,7 +5459,7 @@ function validate64(data, { instancePath = '', parentData, parentDataProperty, r
             vErrors.push(err0)
         }
         errors++
-        validate64.errors = vErrors
+        validate67.errors = vErrors
         return false
     } else {
         errors = _errs0
@@ -5211,10 +5471,10 @@ function validate64(data, { instancePath = '', parentData, parentDataProperty, r
             }
         }
     }
-    validate64.errors = vErrors
+    validate67.errors = vErrors
     return errors === 0
 }
-function validate63(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate66(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -5224,14 +5484,14 @@ function validate63(data, { instancePath = '', parentData, parentDataProperty, r
             for (let i0 = 0; i0 < len0; i0++) {
                 const _errs1 = errors
                 if (
-                    !validate64(data[i0], {
+                    !validate67(data[i0], {
                         instancePath: instancePath + '/' + i0,
                         parentData: data,
                         parentDataProperty: i0,
                         rootData,
                     })
                 ) {
-                    vErrors = vErrors === null ? validate64.errors : vErrors.concat(validate64.errors)
+                    vErrors = vErrors === null ? validate67.errors : vErrors.concat(validate67.errors)
                     errors = vErrors.length
                 }
                 var valid0 = _errs1 === errors
@@ -5240,7 +5500,7 @@ function validate63(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate63.errors = [
+            validate66.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -5252,12 +5512,12 @@ function validate63(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate63.errors = vErrors
+    validate66.errors = vErrors
     return errors === 0
 }
-export const RevenueAnalyticsPropertyFilters = validate70
-const schema56 = { items: { $ref: '#/definitions/RevenueAnalyticsPropertyFilter' }, type: 'array' }
-function validate70(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+export const RevenueAnalyticsPropertyFilters = validate73
+const schema58 = { items: { $ref: '#/definitions/RevenueAnalyticsPropertyFilter' }, type: 'array' }
+function validate73(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -5283,7 +5543,7 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate70.errors = [
+            validate73.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -5295,11 +5555,11 @@ function validate70(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate70.errors = vErrors
+    validate73.errors = vErrors
     return errors === 0
 }
-export const SessionPropertyFilter = validate72
-function validate72(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+export const SessionPropertyFilter = validate75
+function validate75(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -5310,7 +5570,7 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                 (data.operator === undefined && (missing0 = 'operator')) ||
                 (data.type === undefined && (missing0 = 'type'))
             ) {
-                validate72.errors = [
+                validate75.errors = [
                     {
                         instancePath,
                         schemaPath: '#/required',
@@ -5332,7 +5592,7 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                             key0 === 'value'
                         )
                     ) {
-                        validate72.errors = [
+                        validate75.errors = [
                             {
                                 instancePath,
                                 schemaPath: '#/additionalProperties',
@@ -5349,7 +5609,7 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                     if (data.key !== undefined) {
                         const _errs2 = errors
                         if (typeof data.key !== 'string') {
-                            validate72.errors = [
+                            validate75.errors = [
                                 {
                                     instancePath: instancePath + '/key',
                                     schemaPath: '#/properties/key/type',
@@ -5368,7 +5628,7 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                         if (data.label !== undefined) {
                             const _errs4 = errors
                             if (typeof data.label !== 'string') {
-                                validate72.errors = [
+                                validate75.errors = [
                                     {
                                         instancePath: instancePath + '/label',
                                         schemaPath: '#/properties/label/type',
@@ -5388,7 +5648,7 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                                 let data2 = data.operator
                                 const _errs6 = errors
                                 if (typeof data2 !== 'string') {
-                                    validate72.errors = [
+                                    validate75.errors = [
                                         {
                                             instancePath: instancePath + '/operator',
                                             schemaPath: '#/definitions/PropertyOperator/type',
@@ -5437,7 +5697,7 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'not_icontains_multi'
                                     )
                                 ) {
-                                    validate72.errors = [
+                                    validate75.errors = [
                                         {
                                             instancePath: instancePath + '/operator',
                                             schemaPath: '#/definitions/PropertyOperator/enum',
@@ -5457,7 +5717,7 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                                     let data3 = data.type
                                     const _errs9 = errors
                                     if (typeof data3 !== 'string') {
-                                        validate72.errors = [
+                                        validate75.errors = [
                                             {
                                                 instancePath: instancePath + '/type',
                                                 schemaPath: '#/properties/type/type',
@@ -5469,7 +5729,7 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                                         return false
                                     }
                                     if ('session' !== data3) {
-                                        validate72.errors = [
+                                        validate75.errors = [
                                             {
                                                 instancePath: instancePath + '/type',
                                                 schemaPath: '#/properties/type/const',
@@ -5510,7 +5770,7 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate72.errors = [
+            validate75.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -5522,11 +5782,11 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate72.errors = vErrors
+    validate75.errors = vErrors
     return errors === 0
 }
-export const CompareFilter = validate74
-const schema59 = {
+export const CompareFilter = validate77
+const schema61 = {
     additionalProperties: false,
     properties: {
         compare: {
@@ -5542,7 +5802,7 @@ const schema59 = {
     },
     type: 'object',
 }
-function validate74(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate77(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -5550,7 +5810,7 @@ function validate74(data, { instancePath = '', parentData, parentDataProperty, r
             const _errs1 = errors
             for (const key0 in data) {
                 if (!(key0 === 'compare' || key0 === 'compare_to')) {
-                    validate74.errors = [
+                    validate77.errors = [
                         {
                             instancePath,
                             schemaPath: '#/additionalProperties',
@@ -5567,7 +5827,7 @@ function validate74(data, { instancePath = '', parentData, parentDataProperty, r
                 if (data.compare !== undefined) {
                     const _errs2 = errors
                     if (typeof data.compare !== 'boolean') {
-                        validate74.errors = [
+                        validate77.errors = [
                             {
                                 instancePath: instancePath + '/compare',
                                 schemaPath: '#/properties/compare/type',
@@ -5586,7 +5846,7 @@ function validate74(data, { instancePath = '', parentData, parentDataProperty, r
                     if (data.compare_to !== undefined) {
                         const _errs4 = errors
                         if (typeof data.compare_to !== 'string') {
-                            validate74.errors = [
+                            validate77.errors = [
                                 {
                                     instancePath: instancePath + '/compare_to',
                                     schemaPath: '#/properties/compare_to/type',
@@ -5604,7 +5864,7 @@ function validate74(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate74.errors = [
+            validate77.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -5616,19 +5876,22 @@ function validate74(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate74.errors = vErrors
+    validate77.errors = vErrors
     return errors === 0
 }
-export const ExperimentMetric = validate75
-const schema60 = {
-    anyOf: [
+export const ExperimentMetric = validate78
+const schema62 = {
+    discriminator: { propertyName: 'metric_type' },
+    oneOf: [
         { $ref: '#/definitions/ExperimentMeanMetric' },
         { $ref: '#/definitions/ExperimentFunnelMetric' },
         { $ref: '#/definitions/ExperimentRatioMetric' },
         { $ref: '#/definitions/ExperimentRetentionMetric' },
     ],
+    required: ['metric_type'],
+    type: 'object',
 }
-const schema61 = {
+const schema63 = {
     additionalProperties: false,
     properties: {
         breakdownFilter: { $ref: '#/definitions/BreakdownFilter' },
@@ -5652,11 +5915,11 @@ const schema61 = {
     required: ['kind', 'metric_type', 'source'],
     type: 'object',
 }
-const schema63 = { type: 'integer' }
-const schema75 = { enum: ['second', 'minute', 'hour', 'day', 'week', 'month'], type: 'string' }
-const schema76 = { enum: ['increase', 'decrease'], type: 'string' }
+const schema65 = { type: 'integer' }
+const schema77 = { enum: ['second', 'minute', 'hour', 'day', 'week', 'month'], type: 'string' }
+const schema78 = { enum: ['increase', 'decrease'], type: 'string' }
 const func2 = Object.prototype.hasOwnProperty
-const schema62 = {
+const schema64 = {
     additionalProperties: false,
     properties: {
         breakdown: {
@@ -5678,7 +5941,7 @@ const schema62 = {
     },
     type: 'object',
 }
-const schema68 = {
+const schema70 = {
     enum: [
         'cohort',
         'person',
@@ -5693,7 +5956,7 @@ const schema68 = {
     ],
     type: 'string',
 }
-const schema69 = {
+const schema71 = {
     additionalProperties: false,
     properties: {
         group_type_index: { anyOf: [{ $ref: '#/definitions/integer' }, { type: 'null' }] },
@@ -5705,28 +5968,29 @@ const schema69 = {
     required: ['property'],
     type: 'object',
 }
-const schema73 = {
+const schema75 = {
     enum: [
-        'cohort',
         'person',
         'event',
         'event_metadata',
         'group',
         'session',
         'hogql',
-        'data_warehouse_person_property',
+        'cohort',
         'revenue_analytics',
+        'data_warehouse',
+        'data_warehouse_person_property',
     ],
     type: 'string',
 }
-function validate78(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate81(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
         if (data && typeof data == 'object' && !Array.isArray(data)) {
             let missing0
             if (data.property === undefined && (missing0 = 'property')) {
-                validate78.errors = [
+                validate81.errors = [
                     {
                         instancePath,
                         schemaPath: '#/required',
@@ -5748,7 +6012,7 @@ function validate78(data, { instancePath = '', parentData, parentDataProperty, r
                             key0 === 'type'
                         )
                     ) {
-                        validate78.errors = [
+                        validate81.errors = [
                             {
                                 instancePath,
                                 schemaPath: '#/additionalProperties',
@@ -5819,7 +6083,7 @@ function validate78(data, { instancePath = '', parentData, parentDataProperty, r
                                 vErrors.push(err2)
                             }
                             errors++
-                            validate78.errors = vErrors
+                            validate81.errors = vErrors
                             return false
                         } else {
                             errors = _errs3
@@ -5840,7 +6104,7 @@ function validate78(data, { instancePath = '', parentData, parentDataProperty, r
                             let data1 = data.histogram_bin_count
                             const _errs9 = errors
                             if (!(typeof data1 == 'number' && !(data1 % 1) && !isNaN(data1) && isFinite(data1))) {
-                                validate78.errors = [
+                                validate81.errors = [
                                     {
                                         instancePath: instancePath + '/histogram_bin_count',
                                         schemaPath: '#/definitions/integer/type',
@@ -5859,7 +6123,7 @@ function validate78(data, { instancePath = '', parentData, parentDataProperty, r
                             if (data.normalize_url !== undefined) {
                                 const _errs12 = errors
                                 if (typeof data.normalize_url !== 'boolean') {
-                                    validate78.errors = [
+                                    validate81.errors = [
                                         {
                                             instancePath: instancePath + '/normalize_url',
                                             schemaPath: '#/properties/normalize_url/type',
@@ -5939,7 +6203,7 @@ function validate78(data, { instancePath = '', parentData, parentDataProperty, r
                                             vErrors.push(err5)
                                         }
                                         errors++
-                                        validate78.errors = vErrors
+                                        validate81.errors = vErrors
                                         return false
                                     } else {
                                         errors = _errs15
@@ -5979,22 +6243,23 @@ function validate78(data, { instancePath = '', parentData, parentDataProperty, r
                                         }
                                         if (
                                             !(
-                                                data4 === 'cohort' ||
                                                 data4 === 'person' ||
                                                 data4 === 'event' ||
                                                 data4 === 'event_metadata' ||
                                                 data4 === 'group' ||
                                                 data4 === 'session' ||
                                                 data4 === 'hogql' ||
-                                                data4 === 'data_warehouse_person_property' ||
-                                                data4 === 'revenue_analytics'
+                                                data4 === 'cohort' ||
+                                                data4 === 'revenue_analytics' ||
+                                                data4 === 'data_warehouse' ||
+                                                data4 === 'data_warehouse_person_property'
                                             )
                                         ) {
                                             const err7 = {
                                                 instancePath: instancePath + '/type',
                                                 schemaPath: '#/definitions/MultipleBreakdownType/enum',
                                                 keyword: 'enum',
-                                                params: { allowedValues: schema73.enum },
+                                                params: { allowedValues: schema75.enum },
                                                 message: 'must be equal to one of the allowed values',
                                             }
                                             if (vErrors === null) {
@@ -6040,7 +6305,7 @@ function validate78(data, { instancePath = '', parentData, parentDataProperty, r
                                                 vErrors.push(err9)
                                             }
                                             errors++
-                                            validate78.errors = vErrors
+                                            validate81.errors = vErrors
                                             return false
                                         } else {
                                             errors = _errs22
@@ -6063,7 +6328,7 @@ function validate78(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate78.errors = [
+            validate81.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -6075,18 +6340,18 @@ function validate78(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate78.errors = vErrors
+    validate81.errors = vErrors
     return errors === 0
 }
-function validate77(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate80(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
         if (data && typeof data == 'object' && !Array.isArray(data)) {
             const _errs1 = errors
             for (const key0 in data) {
-                if (!func2.call(schema62.properties, key0)) {
-                    validate77.errors = [
+                if (!func2.call(schema64.properties, key0)) {
+                    validate80.errors = [
                         {
                             instancePath,
                             schemaPath: '#/additionalProperties',
@@ -6281,7 +6546,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                             vErrors.push(err7)
                         }
                         errors++
-                        validate77.errors = vErrors
+                        validate80.errors = vErrors
                         return false
                     } else {
                         errors = _errs3
@@ -6355,7 +6620,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                                 vErrors.push(err10)
                             }
                             errors++
-                            validate77.errors = vErrors
+                            validate80.errors = vErrors
                             return false
                         } else {
                             errors = _errs21
@@ -6376,12 +6641,12 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                             let data3 = data.breakdown_hide_other_aggregation
                             const _errs27 = errors
                             if (typeof data3 !== 'boolean' && data3 !== null) {
-                                validate77.errors = [
+                                validate80.errors = [
                                     {
                                         instancePath: instancePath + '/breakdown_hide_other_aggregation',
                                         schemaPath: '#/properties/breakdown_hide_other_aggregation/type',
                                         keyword: 'type',
-                                        params: { type: schema62.properties.breakdown_hide_other_aggregation.type },
+                                        params: { type: schema64.properties.breakdown_hide_other_aggregation.type },
                                         message: 'must be boolean,null',
                                     },
                                 ]
@@ -6396,7 +6661,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                                 let data4 = data.breakdown_histogram_bin_count
                                 const _errs29 = errors
                                 if (!(typeof data4 == 'number' && !(data4 % 1) && !isNaN(data4) && isFinite(data4))) {
-                                    validate77.errors = [
+                                    validate80.errors = [
                                         {
                                             instancePath: instancePath + '/breakdown_histogram_bin_count',
                                             schemaPath: '#/definitions/integer/type',
@@ -6418,7 +6683,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                                     if (
                                         !(typeof data5 == 'number' && !(data5 % 1) && !isNaN(data5) && isFinite(data5))
                                     ) {
-                                        validate77.errors = [
+                                        validate80.errors = [
                                             {
                                                 instancePath: instancePath + '/breakdown_limit',
                                                 schemaPath: '#/definitions/integer/type',
@@ -6437,7 +6702,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                                     if (data.breakdown_normalize_url !== undefined) {
                                         const _errs35 = errors
                                         if (typeof data.breakdown_normalize_url !== 'boolean') {
-                                            validate77.errors = [
+                                            validate80.errors = [
                                                 {
                                                     instancePath: instancePath + '/breakdown_normalize_url',
                                                     schemaPath: '#/properties/breakdown_normalize_url/type',
@@ -6456,7 +6721,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                                         if (data.breakdown_path_cleaning !== undefined) {
                                             const _errs37 = errors
                                             if (typeof data.breakdown_path_cleaning !== 'boolean') {
-                                                validate77.errors = [
+                                                validate80.errors = [
                                                     {
                                                         instancePath: instancePath + '/breakdown_path_cleaning',
                                                         schemaPath: '#/properties/breakdown_path_cleaning/type',
@@ -6511,7 +6776,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                                                         instancePath: instancePath + '/breakdown_type',
                                                         schemaPath: '#/definitions/BreakdownType/enum',
                                                         keyword: 'enum',
-                                                        params: { allowedValues: schema68.enum },
+                                                        params: { allowedValues: schema70.enum },
                                                         message: 'must be equal to one of the allowed values',
                                                     }
                                                     if (vErrors === null) {
@@ -6557,7 +6822,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                                                         vErrors.push(err14)
                                                     }
                                                     errors++
-                                                    validate77.errors = vErrors
+                                                    validate80.errors = vErrors
                                                     return false
                                                 } else {
                                                     errors = _errs40
@@ -6580,7 +6845,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                                                     if (errors === _errs46) {
                                                         if (Array.isArray(data9)) {
                                                             if (data9.length > 3) {
-                                                                validate77.errors = [
+                                                                validate80.errors = [
                                                                     {
                                                                         instancePath: instancePath + '/breakdowns',
                                                                         schemaPath: '#/properties/breakdowns/maxItems',
@@ -6596,7 +6861,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                                                                 for (let i1 = 0; i1 < len1; i1++) {
                                                                     const _errs48 = errors
                                                                     if (
-                                                                        !validate78(data9[i1], {
+                                                                        !validate81(data9[i1], {
                                                                             instancePath:
                                                                                 instancePath + '/breakdowns/' + i1,
                                                                             parentData: data9,
@@ -6606,8 +6871,8 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                                                                     ) {
                                                                         vErrors =
                                                                             vErrors === null
-                                                                                ? validate78.errors
-                                                                                : vErrors.concat(validate78.errors)
+                                                                                ? validate81.errors
+                                                                                : vErrors.concat(validate81.errors)
                                                                         errors = vErrors.length
                                                                     }
                                                                     var valid12 = _errs48 === errors
@@ -6617,7 +6882,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                                                                 }
                                                             }
                                                         } else {
-                                                            validate77.errors = [
+                                                            validate80.errors = [
                                                                 {
                                                                     instancePath: instancePath + '/breakdowns',
                                                                     schemaPath: '#/properties/breakdowns/type',
@@ -6643,7 +6908,7 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate77.errors = [
+            validate80.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -6655,17 +6920,20 @@ function validate77(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate77.errors = vErrors
+    validate80.errors = vErrors
     return errors === 0
 }
-const schema77 = {
-    anyOf: [
+const schema79 = {
+    discriminator: { propertyName: 'kind' },
+    oneOf: [
         { $ref: '#/definitions/EventsNode' },
         { $ref: '#/definitions/ActionsNode' },
         { $ref: '#/definitions/ExperimentDataWarehouseNode' },
     ],
+    required: ['kind'],
+    type: 'object',
 }
-const schema78 = {
+const schema80 = {
     additionalProperties: false,
     properties: {
         custom_name: { type: 'string' },
@@ -6699,7 +6967,7 @@ const schema78 = {
     required: ['kind'],
     type: 'object',
 }
-const schema80 = {
+const schema82 = {
     anyOf: [
         { $ref: '#/definitions/BaseMathType' },
         { $ref: '#/definitions/FunnelMathType' },
@@ -6711,7 +6979,7 @@ const schema80 = {
         { $ref: '#/definitions/CalendarHeatmapMathType' },
     ],
 }
-const schema81 = {
+const schema83 = {
     enum: [
         'total',
         'dau',
@@ -6723,9 +6991,9 @@ const schema81 = {
     ],
     type: 'string',
 }
-const schema82 = { enum: ['total', 'first_time_for_user', 'first_time_for_user_with_filters'], type: 'string' }
-const schema83 = { enum: ['avg', 'sum', 'min', 'max', 'median', 'p75', 'p90', 'p95', 'p99'], type: 'string' }
-const schema84 = {
+const schema84 = { enum: ['total', 'first_time_for_user', 'first_time_for_user_with_filters'], type: 'string' }
+const schema85 = { enum: ['avg', 'sum', 'min', 'max', 'median', 'p75', 'p90', 'p95', 'p99'], type: 'string' }
+const schema86 = {
     enum: [
         'avg_count_per_actor',
         'min_count_per_actor',
@@ -6738,14 +7006,14 @@ const schema84 = {
     ],
     type: 'string',
 }
-const schema85 = { const: 'unique_group', type: 'string' }
-const schema86 = { const: 'hogql', type: 'string' }
-const schema87 = {
+const schema87 = { const: 'unique_group', type: 'string' }
+const schema88 = { const: 'hogql', type: 'string' }
+const schema89 = {
     enum: ['total', 'sum', 'unique_session', 'min', 'max', 'avg', 'dau', 'unique_group', 'hogql'],
     type: 'string',
 }
-const schema88 = { enum: ['total', 'dau'], type: 'string' }
-function validate84(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+const schema90 = { enum: ['total', 'dau'], type: 'string' }
+function validate87(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     const _errs0 = errors
@@ -6781,7 +7049,7 @@ function validate84(data, { instancePath = '', parentData, parentDataProperty, r
             instancePath,
             schemaPath: '#/definitions/BaseMathType/enum',
             keyword: 'enum',
-            params: { allowedValues: schema81.enum },
+            params: { allowedValues: schema83.enum },
             message: 'must be equal to one of the allowed values',
         }
         if (vErrors === null) {
@@ -6815,7 +7083,7 @@ function validate84(data, { instancePath = '', parentData, parentDataProperty, r
                 instancePath,
                 schemaPath: '#/definitions/FunnelMathType/enum',
                 keyword: 'enum',
-                params: { allowedValues: schema82.enum },
+                params: { allowedValues: schema84.enum },
                 message: 'must be equal to one of the allowed values',
             }
             if (vErrors === null) {
@@ -6861,7 +7129,7 @@ function validate84(data, { instancePath = '', parentData, parentDataProperty, r
                     instancePath,
                     schemaPath: '#/definitions/PropertyMathType/enum',
                     keyword: 'enum',
-                    params: { allowedValues: schema83.enum },
+                    params: { allowedValues: schema85.enum },
                     message: 'must be equal to one of the allowed values',
                 }
                 if (vErrors === null) {
@@ -6906,7 +7174,7 @@ function validate84(data, { instancePath = '', parentData, parentDataProperty, r
                         instancePath,
                         schemaPath: '#/definitions/CountPerActorMathType/enum',
                         keyword: 'enum',
-                        params: { allowedValues: schema84.enum },
+                        params: { allowedValues: schema86.enum },
                         message: 'must be equal to one of the allowed values',
                     }
                     if (vErrors === null) {
@@ -7020,7 +7288,7 @@ function validate84(data, { instancePath = '', parentData, parentDataProperty, r
                                     instancePath,
                                     schemaPath: '#/definitions/ExperimentMetricMathType/enum',
                                     keyword: 'enum',
-                                    params: { allowedValues: schema87.enum },
+                                    params: { allowedValues: schema89.enum },
                                     message: 'must be equal to one of the allowed values',
                                 }
                                 if (vErrors === null) {
@@ -7054,7 +7322,7 @@ function validate84(data, { instancePath = '', parentData, parentDataProperty, r
                                         instancePath,
                                         schemaPath: '#/definitions/CalendarHeatmapMathType/enum',
                                         keyword: 'enum',
-                                        params: { allowedValues: schema88.enum },
+                                        params: { allowedValues: schema90.enum },
                                         message: 'must be equal to one of the allowed values',
                                     }
                                     if (vErrors === null) {
@@ -7087,7 +7355,7 @@ function validate84(data, { instancePath = '', parentData, parentDataProperty, r
             vErrors.push(err16)
         }
         errors++
-        validate84.errors = vErrors
+        validate87.errors = vErrors
         return false
     } else {
         errors = _errs0
@@ -7099,15 +7367,15 @@ function validate84(data, { instancePath = '', parentData, parentDataProperty, r
             }
         }
     }
-    validate84.errors = vErrors
+    validate87.errors = vErrors
     return errors === 0
 }
-const schema89 = {
+const schema91 = {
     additionalProperties: false,
     properties: { property: { type: 'string' }, static: { $ref: '#/definitions/CurrencyCode' } },
     type: 'object',
 }
-const schema90 = {
+const schema92 = {
     enum: [
         'AED',
         'AFN',
@@ -7264,7 +7532,7 @@ const schema90 = {
     ],
     type: 'string',
 }
-function validate86(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate89(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -7272,7 +7540,7 @@ function validate86(data, { instancePath = '', parentData, parentDataProperty, r
             const _errs1 = errors
             for (const key0 in data) {
                 if (!(key0 === 'property' || key0 === 'static')) {
-                    validate86.errors = [
+                    validate89.errors = [
                         {
                             instancePath,
                             schemaPath: '#/additionalProperties',
@@ -7289,7 +7557,7 @@ function validate86(data, { instancePath = '', parentData, parentDataProperty, r
                 if (data.property !== undefined) {
                     const _errs2 = errors
                     if (typeof data.property !== 'string') {
-                        validate86.errors = [
+                        validate89.errors = [
                             {
                                 instancePath: instancePath + '/property',
                                 schemaPath: '#/properties/property/type',
@@ -7309,7 +7577,7 @@ function validate86(data, { instancePath = '', parentData, parentDataProperty, r
                         let data1 = data.static
                         const _errs4 = errors
                         if (typeof data1 !== 'string') {
-                            validate86.errors = [
+                            validate89.errors = [
                                 {
                                     instancePath: instancePath + '/static',
                                     schemaPath: '#/definitions/CurrencyCode/type',
@@ -7476,12 +7744,12 @@ function validate86(data, { instancePath = '', parentData, parentDataProperty, r
                                 data1 === 'ZMW'
                             )
                         ) {
-                            validate86.errors = [
+                            validate89.errors = [
                                 {
                                     instancePath: instancePath + '/static',
                                     schemaPath: '#/definitions/CurrencyCode/enum',
                                     keyword: 'enum',
-                                    params: { allowedValues: schema90.enum },
+                                    params: { allowedValues: schema92.enum },
                                     message: 'must be equal to one of the allowed values',
                                 },
                             ]
@@ -7494,7 +7762,7 @@ function validate86(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate86.errors = [
+            validate89.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -7506,17 +7774,17 @@ function validate86(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate86.errors = vErrors
+    validate89.errors = vErrors
     return errors === 0
 }
-function validate82(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate85(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
         if (data && typeof data == 'object' && !Array.isArray(data)) {
             let missing0
             if (data.kind === undefined && (missing0 = 'kind')) {
-                validate82.errors = [
+                validate85.errors = [
                     {
                         instancePath,
                         schemaPath: '#/required',
@@ -7529,8 +7797,8 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema78.properties, key0)) {
-                        validate82.errors = [
+                    if (!func2.call(schema80.properties, key0)) {
+                        validate85.errors = [
                             {
                                 instancePath,
                                 schemaPath: '#/additionalProperties',
@@ -7547,7 +7815,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                     if (data.custom_name !== undefined) {
                         const _errs2 = errors
                         if (typeof data.custom_name !== 'string') {
-                            validate82.errors = [
+                            validate85.errors = [
                                 {
                                     instancePath: instancePath + '/custom_name',
                                     schemaPath: '#/properties/custom_name/type',
@@ -7567,12 +7835,12 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                             let data1 = data.event
                             const _errs4 = errors
                             if (typeof data1 !== 'string' && data1 !== null) {
-                                validate82.errors = [
+                                validate85.errors = [
                                     {
                                         instancePath: instancePath + '/event',
                                         schemaPath: '#/properties/event/type',
                                         keyword: 'type',
-                                        params: { type: schema78.properties.event.type },
+                                        params: { type: schema80.properties.event.type },
                                         message: 'must be string,null',
                                     },
                                 ]
@@ -7612,7 +7880,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                             }
                                         }
                                     } else {
-                                        validate82.errors = [
+                                        validate85.errors = [
                                             {
                                                 instancePath: instancePath + '/fixedProperties',
                                                 schemaPath: '#/properties/fixedProperties/type',
@@ -7633,7 +7901,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                     let data4 = data.kind
                                     const _errs9 = errors
                                     if (typeof data4 !== 'string') {
-                                        validate82.errors = [
+                                        validate85.errors = [
                                             {
                                                 instancePath: instancePath + '/kind',
                                                 schemaPath: '#/properties/kind/type',
@@ -7645,7 +7913,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                         return false
                                     }
                                     if ('EventsNode' !== data4) {
-                                        validate82.errors = [
+                                        validate85.errors = [
                                             {
                                                 instancePath: instancePath + '/kind',
                                                 schemaPath: '#/properties/kind/const',
@@ -7672,7 +7940,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                 isFinite(data5)
                                             )
                                         ) {
-                                            validate82.errors = [
+                                            validate85.errors = [
                                                 {
                                                     instancePath: instancePath + '/limit',
                                                     schemaPath: '#/definitions/integer/type',
@@ -7691,7 +7959,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                         if (data.math !== undefined) {
                                             const _errs14 = errors
                                             if (
-                                                !validate84(data.math, {
+                                                !validate87(data.math, {
                                                     instancePath: instancePath + '/math',
                                                     parentData: data,
                                                     parentDataProperty: 'math',
@@ -7700,8 +7968,8 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                             ) {
                                                 vErrors =
                                                     vErrors === null
-                                                        ? validate84.errors
-                                                        : vErrors.concat(validate84.errors)
+                                                        ? validate87.errors
+                                                        : vErrors.concat(validate87.errors)
                                                 errors = vErrors.length
                                             }
                                             var valid0 = _errs14 === errors
@@ -7713,7 +7981,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                 let data7 = data.math_group_type_index
                                                 const _errs15 = errors
                                                 if (!(typeof data7 == 'number' && isFinite(data7))) {
-                                                    validate82.errors = [
+                                                    validate85.errors = [
                                                         {
                                                             instancePath: instancePath + '/math_group_type_index',
                                                             schemaPath: '#/properties/math_group_type_index/type',
@@ -7733,14 +8001,14 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                         data7 === 4
                                                     )
                                                 ) {
-                                                    validate82.errors = [
+                                                    validate85.errors = [
                                                         {
                                                             instancePath: instancePath + '/math_group_type_index',
                                                             schemaPath: '#/properties/math_group_type_index/enum',
                                                             keyword: 'enum',
                                                             params: {
                                                                 allowedValues:
-                                                                    schema78.properties.math_group_type_index.enum,
+                                                                    schema80.properties.math_group_type_index.enum,
                                                             },
                                                             message: 'must be equal to one of the allowed values',
                                                         },
@@ -7755,7 +8023,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                 if (data.math_hogql !== undefined) {
                                                     const _errs17 = errors
                                                     if (typeof data.math_hogql !== 'string') {
-                                                        validate82.errors = [
+                                                        validate85.errors = [
                                                             {
                                                                 instancePath: instancePath + '/math_hogql',
                                                                 schemaPath: '#/properties/math_hogql/type',
@@ -7775,7 +8043,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                         let data9 = data.math_multiplier
                                                         const _errs19 = errors
                                                         if (!(typeof data9 == 'number' && isFinite(data9))) {
-                                                            validate82.errors = [
+                                                            validate85.errors = [
                                                                 {
                                                                     instancePath: instancePath + '/math_multiplier',
                                                                     schemaPath: '#/properties/math_multiplier/type',
@@ -7794,7 +8062,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                         if (data.math_property !== undefined) {
                                                             const _errs21 = errors
                                                             if (typeof data.math_property !== 'string') {
-                                                                validate82.errors = [
+                                                                validate85.errors = [
                                                                     {
                                                                         instancePath: instancePath + '/math_property',
                                                                         schemaPath: '#/properties/math_property/type',
@@ -7813,7 +8081,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                             if (data.math_property_revenue_currency !== undefined) {
                                                                 const _errs23 = errors
                                                                 if (
-                                                                    !validate86(data.math_property_revenue_currency, {
+                                                                    !validate89(data.math_property_revenue_currency, {
                                                                         instancePath:
                                                                             instancePath +
                                                                             '/math_property_revenue_currency',
@@ -7825,8 +8093,8 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                                 ) {
                                                                     vErrors =
                                                                         vErrors === null
-                                                                            ? validate86.errors
-                                                                            : vErrors.concat(validate86.errors)
+                                                                            ? validate89.errors
+                                                                            : vErrors.concat(validate89.errors)
                                                                     errors = vErrors.length
                                                                 }
                                                                 var valid0 = _errs23 === errors
@@ -7837,7 +8105,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                                 if (data.math_property_type !== undefined) {
                                                                     const _errs24 = errors
                                                                     if (typeof data.math_property_type !== 'string') {
-                                                                        validate82.errors = [
+                                                                        validate85.errors = [
                                                                             {
                                                                                 instancePath:
                                                                                     instancePath +
@@ -7859,7 +8127,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                                     if (data.name !== undefined) {
                                                                         const _errs26 = errors
                                                                         if (typeof data.name !== 'string') {
-                                                                            validate82.errors = [
+                                                                            validate85.errors = [
                                                                                 {
                                                                                     instancePath:
                                                                                         instancePath + '/name',
@@ -7883,7 +8151,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                 typeof data.optionalInFunnel !==
                                                                                 'boolean'
                                                                             ) {
-                                                                                validate82.errors = [
+                                                                                validate85.errors = [
                                                                                     {
                                                                                         instancePath:
                                                                                             instancePath +
@@ -7919,7 +8187,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                 typeof data15[i1] !==
                                                                                                 'string'
                                                                                             ) {
-                                                                                                validate82.errors = [
+                                                                                                validate85.errors = [
                                                                                                     {
                                                                                                         instancePath:
                                                                                                             instancePath +
@@ -7944,7 +8212,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                             }
                                                                                         }
                                                                                     } else {
-                                                                                        validate82.errors = [
+                                                                                        validate85.errors = [
                                                                                             {
                                                                                                 instancePath:
                                                                                                     instancePath +
@@ -8012,7 +8280,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                 }
                                                                                             }
                                                                                         } else {
-                                                                                            validate82.errors = [
+                                                                                            validate85.errors = [
                                                                                                 {
                                                                                                     instancePath:
                                                                                                         instancePath +
@@ -8046,7 +8314,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                 !Array.isArray(data19)
                                                                                             )
                                                                                         ) {
-                                                                                            validate82.errors = [
+                                                                                            validate85.errors = [
                                                                                                 {
                                                                                                     instancePath:
                                                                                                         instancePath +
@@ -8080,7 +8348,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                     isFinite(data20)
                                                                                                 )
                                                                                             ) {
-                                                                                                validate82.errors = [
+                                                                                                validate85.errors = [
                                                                                                     {
                                                                                                         instancePath:
                                                                                                             instancePath +
@@ -8122,7 +8390,7 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate82.errors = [
+            validate85.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -8134,10 +8402,10 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate82.errors = vErrors
+    validate85.errors = vErrors
     return errors === 0
 }
-const schema91 = {
+const schema93 = {
     additionalProperties: false,
     properties: {
         custom_name: { type: 'string' },
@@ -8169,14 +8437,14 @@ const schema91 = {
     required: ['id', 'kind'],
     type: 'object',
 }
-function validate90(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate93(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
         if (data && typeof data == 'object' && !Array.isArray(data)) {
             let missing0
             if ((data.id === undefined && (missing0 = 'id')) || (data.kind === undefined && (missing0 = 'kind'))) {
-                validate90.errors = [
+                validate93.errors = [
                     {
                         instancePath,
                         schemaPath: '#/required',
@@ -8189,8 +8457,8 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema91.properties, key0)) {
-                        validate90.errors = [
+                    if (!func2.call(schema93.properties, key0)) {
+                        validate93.errors = [
                             {
                                 instancePath,
                                 schemaPath: '#/additionalProperties',
@@ -8207,7 +8475,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                     if (data.custom_name !== undefined) {
                         const _errs2 = errors
                         if (typeof data.custom_name !== 'string') {
-                            validate90.errors = [
+                            validate93.errors = [
                                 {
                                     instancePath: instancePath + '/custom_name',
                                     schemaPath: '#/properties/custom_name/type',
@@ -8250,7 +8518,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                         }
                                     }
                                 } else {
-                                    validate90.errors = [
+                                    validate93.errors = [
                                         {
                                             instancePath: instancePath + '/fixedProperties',
                                             schemaPath: '#/properties/fixedProperties/type',
@@ -8271,7 +8539,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                 let data3 = data.id
                                 const _errs7 = errors
                                 if (!(typeof data3 == 'number' && !(data3 % 1) && !isNaN(data3) && isFinite(data3))) {
-                                    validate90.errors = [
+                                    validate93.errors = [
                                         {
                                             instancePath: instancePath + '/id',
                                             schemaPath: '#/definitions/integer/type',
@@ -8291,7 +8559,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                     let data4 = data.kind
                                     const _errs10 = errors
                                     if (typeof data4 !== 'string') {
-                                        validate90.errors = [
+                                        validate93.errors = [
                                             {
                                                 instancePath: instancePath + '/kind',
                                                 schemaPath: '#/properties/kind/type',
@@ -8303,7 +8571,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                         return false
                                     }
                                     if ('ActionsNode' !== data4) {
-                                        validate90.errors = [
+                                        validate93.errors = [
                                             {
                                                 instancePath: instancePath + '/kind',
                                                 schemaPath: '#/properties/kind/const',
@@ -8322,7 +8590,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                     if (data.math !== undefined) {
                                         const _errs12 = errors
                                         if (
-                                            !validate84(data.math, {
+                                            !validate87(data.math, {
                                                 instancePath: instancePath + '/math',
                                                 parentData: data,
                                                 parentDataProperty: 'math',
@@ -8330,7 +8598,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                             })
                                         ) {
                                             vErrors =
-                                                vErrors === null ? validate84.errors : vErrors.concat(validate84.errors)
+                                                vErrors === null ? validate87.errors : vErrors.concat(validate87.errors)
                                             errors = vErrors.length
                                         }
                                         var valid0 = _errs12 === errors
@@ -8342,7 +8610,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                             let data6 = data.math_group_type_index
                                             const _errs13 = errors
                                             if (!(typeof data6 == 'number' && isFinite(data6))) {
-                                                validate90.errors = [
+                                                validate93.errors = [
                                                     {
                                                         instancePath: instancePath + '/math_group_type_index',
                                                         schemaPath: '#/properties/math_group_type_index/type',
@@ -8362,14 +8630,14 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                                     data6 === 4
                                                 )
                                             ) {
-                                                validate90.errors = [
+                                                validate93.errors = [
                                                     {
                                                         instancePath: instancePath + '/math_group_type_index',
                                                         schemaPath: '#/properties/math_group_type_index/enum',
                                                         keyword: 'enum',
                                                         params: {
                                                             allowedValues:
-                                                                schema91.properties.math_group_type_index.enum,
+                                                                schema93.properties.math_group_type_index.enum,
                                                         },
                                                         message: 'must be equal to one of the allowed values',
                                                     },
@@ -8384,7 +8652,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                             if (data.math_hogql !== undefined) {
                                                 const _errs15 = errors
                                                 if (typeof data.math_hogql !== 'string') {
-                                                    validate90.errors = [
+                                                    validate93.errors = [
                                                         {
                                                             instancePath: instancePath + '/math_hogql',
                                                             schemaPath: '#/properties/math_hogql/type',
@@ -8404,7 +8672,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                                     let data8 = data.math_multiplier
                                                     const _errs17 = errors
                                                     if (!(typeof data8 == 'number' && isFinite(data8))) {
-                                                        validate90.errors = [
+                                                        validate93.errors = [
                                                             {
                                                                 instancePath: instancePath + '/math_multiplier',
                                                                 schemaPath: '#/properties/math_multiplier/type',
@@ -8423,7 +8691,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                                     if (data.math_property !== undefined) {
                                                         const _errs19 = errors
                                                         if (typeof data.math_property !== 'string') {
-                                                            validate90.errors = [
+                                                            validate93.errors = [
                                                                 {
                                                                     instancePath: instancePath + '/math_property',
                                                                     schemaPath: '#/properties/math_property/type',
@@ -8442,7 +8710,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                                         if (data.math_property_revenue_currency !== undefined) {
                                                             const _errs21 = errors
                                                             if (
-                                                                !validate86(data.math_property_revenue_currency, {
+                                                                !validate89(data.math_property_revenue_currency, {
                                                                     instancePath:
                                                                         instancePath +
                                                                         '/math_property_revenue_currency',
@@ -8454,8 +8722,8 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                                             ) {
                                                                 vErrors =
                                                                     vErrors === null
-                                                                        ? validate86.errors
-                                                                        : vErrors.concat(validate86.errors)
+                                                                        ? validate89.errors
+                                                                        : vErrors.concat(validate89.errors)
                                                                 errors = vErrors.length
                                                             }
                                                             var valid0 = _errs21 === errors
@@ -8466,7 +8734,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                                             if (data.math_property_type !== undefined) {
                                                                 const _errs22 = errors
                                                                 if (typeof data.math_property_type !== 'string') {
-                                                                    validate90.errors = [
+                                                                    validate93.errors = [
                                                                         {
                                                                             instancePath:
                                                                                 instancePath + '/math_property_type',
@@ -8487,7 +8755,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                                                 if (data.name !== undefined) {
                                                                     const _errs24 = errors
                                                                     if (typeof data.name !== 'string') {
-                                                                        validate90.errors = [
+                                                                        validate93.errors = [
                                                                             {
                                                                                 instancePath: instancePath + '/name',
                                                                                 schemaPath: '#/properties/name/type',
@@ -8508,7 +8776,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                                                         if (
                                                                             typeof data.optionalInFunnel !== 'boolean'
                                                                         ) {
-                                                                            validate90.errors = [
+                                                                            validate93.errors = [
                                                                                 {
                                                                                     instancePath:
                                                                                         instancePath +
@@ -8561,7 +8829,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                         }
                                                                                     }
                                                                                 } else {
-                                                                                    validate90.errors = [
+                                                                                    validate93.errors = [
                                                                                         {
                                                                                             instancePath:
                                                                                                 instancePath +
@@ -8591,7 +8859,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                         !Array.isArray(data16)
                                                                                     )
                                                                                 ) {
-                                                                                    validate90.errors = [
+                                                                                    validate93.errors = [
                                                                                         {
                                                                                             instancePath:
                                                                                                 instancePath +
@@ -8619,7 +8887,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                             isFinite(data17)
                                                                                         )
                                                                                     ) {
-                                                                                        validate90.errors = [
+                                                                                        validate93.errors = [
                                                                                             {
                                                                                                 instancePath:
                                                                                                     instancePath +
@@ -8658,7 +8926,7 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate90.errors = [
+            validate93.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -8670,10 +8938,10 @@ function validate90(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate90.errors = vErrors
+    validate93.errors = vErrors
     return errors === 0
 }
-const schema93 = {
+const schema95 = {
     additionalProperties: false,
     properties: {
         custom_name: { type: 'string' },
@@ -8708,7 +8976,7 @@ const schema93 = {
     required: ['data_warehouse_join_key', 'events_join_key', 'kind', 'table_name', 'timestamp_field'],
     type: 'object',
 }
-function validate96(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate99(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -8721,7 +8989,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                 (data.table_name === undefined && (missing0 = 'table_name')) ||
                 (data.timestamp_field === undefined && (missing0 = 'timestamp_field'))
             ) {
-                validate96.errors = [
+                validate99.errors = [
                     {
                         instancePath,
                         schemaPath: '#/required',
@@ -8734,8 +9002,8 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema93.properties, key0)) {
-                        validate96.errors = [
+                    if (!func2.call(schema95.properties, key0)) {
+                        validate99.errors = [
                             {
                                 instancePath,
                                 schemaPath: '#/additionalProperties',
@@ -8752,7 +9020,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                     if (data.custom_name !== undefined) {
                         const _errs2 = errors
                         if (typeof data.custom_name !== 'string') {
-                            validate96.errors = [
+                            validate99.errors = [
                                 {
                                     instancePath: instancePath + '/custom_name',
                                     schemaPath: '#/properties/custom_name/type',
@@ -8771,7 +9039,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                         if (data.data_warehouse_join_key !== undefined) {
                             const _errs4 = errors
                             if (typeof data.data_warehouse_join_key !== 'string') {
-                                validate96.errors = [
+                                validate99.errors = [
                                     {
                                         instancePath: instancePath + '/data_warehouse_join_key',
                                         schemaPath: '#/properties/data_warehouse_join_key/type',
@@ -8790,7 +9058,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                             if (data.events_join_key !== undefined) {
                                 const _errs6 = errors
                                 if (typeof data.events_join_key !== 'string') {
-                                    validate96.errors = [
+                                    validate99.errors = [
                                         {
                                             instancePath: instancePath + '/events_join_key',
                                             schemaPath: '#/properties/events_join_key/type',
@@ -8835,7 +9103,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                 }
                                             }
                                         } else {
-                                            validate96.errors = [
+                                            validate99.errors = [
                                                 {
                                                     instancePath: instancePath + '/fixedProperties',
                                                     schemaPath: '#/properties/fixedProperties/type',
@@ -8856,7 +9124,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                         let data5 = data.kind
                                         const _errs11 = errors
                                         if (typeof data5 !== 'string') {
-                                            validate96.errors = [
+                                            validate99.errors = [
                                                 {
                                                     instancePath: instancePath + '/kind',
                                                     schemaPath: '#/properties/kind/type',
@@ -8868,7 +9136,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                             return false
                                         }
                                         if ('ExperimentDataWarehouseNode' !== data5) {
-                                            validate96.errors = [
+                                            validate99.errors = [
                                                 {
                                                     instancePath: instancePath + '/kind',
                                                     schemaPath: '#/properties/kind/const',
@@ -8887,7 +9155,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                         if (data.math !== undefined) {
                                             const _errs13 = errors
                                             if (
-                                                !validate84(data.math, {
+                                                !validate87(data.math, {
                                                     instancePath: instancePath + '/math',
                                                     parentData: data,
                                                     parentDataProperty: 'math',
@@ -8896,8 +9164,8 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                             ) {
                                                 vErrors =
                                                     vErrors === null
-                                                        ? validate84.errors
-                                                        : vErrors.concat(validate84.errors)
+                                                        ? validate87.errors
+                                                        : vErrors.concat(validate87.errors)
                                                 errors = vErrors.length
                                             }
                                             var valid0 = _errs13 === errors
@@ -8909,7 +9177,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                 let data7 = data.math_group_type_index
                                                 const _errs14 = errors
                                                 if (!(typeof data7 == 'number' && isFinite(data7))) {
-                                                    validate96.errors = [
+                                                    validate99.errors = [
                                                         {
                                                             instancePath: instancePath + '/math_group_type_index',
                                                             schemaPath: '#/properties/math_group_type_index/type',
@@ -8929,14 +9197,14 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                         data7 === 4
                                                     )
                                                 ) {
-                                                    validate96.errors = [
+                                                    validate99.errors = [
                                                         {
                                                             instancePath: instancePath + '/math_group_type_index',
                                                             schemaPath: '#/properties/math_group_type_index/enum',
                                                             keyword: 'enum',
                                                             params: {
                                                                 allowedValues:
-                                                                    schema93.properties.math_group_type_index.enum,
+                                                                    schema95.properties.math_group_type_index.enum,
                                                             },
                                                             message: 'must be equal to one of the allowed values',
                                                         },
@@ -8951,7 +9219,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                 if (data.math_hogql !== undefined) {
                                                     const _errs16 = errors
                                                     if (typeof data.math_hogql !== 'string') {
-                                                        validate96.errors = [
+                                                        validate99.errors = [
                                                             {
                                                                 instancePath: instancePath + '/math_hogql',
                                                                 schemaPath: '#/properties/math_hogql/type',
@@ -8971,7 +9239,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                         let data9 = data.math_multiplier
                                                         const _errs18 = errors
                                                         if (!(typeof data9 == 'number' && isFinite(data9))) {
-                                                            validate96.errors = [
+                                                            validate99.errors = [
                                                                 {
                                                                     instancePath: instancePath + '/math_multiplier',
                                                                     schemaPath: '#/properties/math_multiplier/type',
@@ -8990,7 +9258,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                         if (data.math_property !== undefined) {
                                                             const _errs20 = errors
                                                             if (typeof data.math_property !== 'string') {
-                                                                validate96.errors = [
+                                                                validate99.errors = [
                                                                     {
                                                                         instancePath: instancePath + '/math_property',
                                                                         schemaPath: '#/properties/math_property/type',
@@ -9009,7 +9277,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                             if (data.math_property_revenue_currency !== undefined) {
                                                                 const _errs22 = errors
                                                                 if (
-                                                                    !validate86(data.math_property_revenue_currency, {
+                                                                    !validate89(data.math_property_revenue_currency, {
                                                                         instancePath:
                                                                             instancePath +
                                                                             '/math_property_revenue_currency',
@@ -9021,8 +9289,8 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                                 ) {
                                                                     vErrors =
                                                                         vErrors === null
-                                                                            ? validate86.errors
-                                                                            : vErrors.concat(validate86.errors)
+                                                                            ? validate89.errors
+                                                                            : vErrors.concat(validate89.errors)
                                                                     errors = vErrors.length
                                                                 }
                                                                 var valid0 = _errs22 === errors
@@ -9033,7 +9301,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                                 if (data.math_property_type !== undefined) {
                                                                     const _errs23 = errors
                                                                     if (typeof data.math_property_type !== 'string') {
-                                                                        validate96.errors = [
+                                                                        validate99.errors = [
                                                                             {
                                                                                 instancePath:
                                                                                     instancePath +
@@ -9055,7 +9323,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                                     if (data.name !== undefined) {
                                                                         const _errs25 = errors
                                                                         if (typeof data.name !== 'string') {
-                                                                            validate96.errors = [
+                                                                            validate99.errors = [
                                                                                 {
                                                                                     instancePath:
                                                                                         instancePath + '/name',
@@ -9079,7 +9347,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                 typeof data.optionalInFunnel !==
                                                                                 'boolean'
                                                                             ) {
-                                                                                validate96.errors = [
+                                                                                validate99.errors = [
                                                                                     {
                                                                                         instancePath:
                                                                                             instancePath +
@@ -9142,7 +9410,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                             }
                                                                                         }
                                                                                     } else {
-                                                                                        validate96.errors = [
+                                                                                        validate99.errors = [
                                                                                             {
                                                                                                 instancePath:
                                                                                                     instancePath +
@@ -9175,7 +9443,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                             !Array.isArray(data17)
                                                                                         )
                                                                                     ) {
-                                                                                        validate96.errors = [
+                                                                                        validate99.errors = [
                                                                                             {
                                                                                                 instancePath:
                                                                                                     instancePath +
@@ -9203,7 +9471,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                             typeof data.table_name !==
                                                                                             'string'
                                                                                         ) {
-                                                                                            validate96.errors = [
+                                                                                            validate99.errors = [
                                                                                                 {
                                                                                                     instancePath:
                                                                                                         instancePath +
@@ -9234,7 +9502,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                 typeof data.timestamp_field !==
                                                                                                 'string'
                                                                                             ) {
-                                                                                                validate96.errors = [
+                                                                                                validate99.errors = [
                                                                                                     {
                                                                                                         instancePath:
                                                                                                             instancePath +
@@ -9271,7 +9539,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                         isFinite(data20)
                                                                                                     )
                                                                                                 ) {
-                                                                                                    validate96.errors =
+                                                                                                    validate99.errors =
                                                                                                         [
                                                                                                             {
                                                                                                                 instancePath:
@@ -9316,7 +9584,7 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate96.errors = [
+            validate99.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -9328,46 +9596,62 @@ function validate96(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate96.errors = vErrors
+    validate99.errors = vErrors
     return errors === 0
 }
-function validate81(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate84(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
-    const _errs0 = errors
-    let valid0 = false
     const _errs1 = errors
-    if (!validate82(data, { instancePath, parentData, parentDataProperty, rootData })) {
-        vErrors = vErrors === null ? validate82.errors : vErrors.concat(validate82.errors)
+    let valid0 = false
+    let passing0 = null
+    const _errs2 = errors
+    if (!validate85(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate85.errors : vErrors.concat(validate85.errors)
         errors = vErrors.length
     }
-    var _valid0 = _errs1 === errors
-    valid0 = valid0 || _valid0
-    if (!valid0) {
-        const _errs2 = errors
-        if (!validate90(data, { instancePath, parentData, parentDataProperty, rootData })) {
-            vErrors = vErrors === null ? validate90.errors : vErrors.concat(validate90.errors)
+    var _valid0 = _errs2 === errors
+    if (_valid0) {
+        valid0 = true
+        passing0 = 0
+    }
+    const _errs3 = errors
+    if (!validate93(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate93.errors : vErrors.concat(validate93.errors)
+        errors = vErrors.length
+    }
+    var _valid0 = _errs3 === errors
+    if (_valid0 && valid0) {
+        valid0 = false
+        passing0 = [passing0, 1]
+    } else {
+        if (_valid0) {
+            valid0 = true
+            passing0 = 1
+        }
+        const _errs4 = errors
+        if (!validate99(data, { instancePath, parentData, parentDataProperty, rootData })) {
+            vErrors = vErrors === null ? validate99.errors : vErrors.concat(validate99.errors)
             errors = vErrors.length
         }
-        var _valid0 = _errs2 === errors
-        valid0 = valid0 || _valid0
-        if (!valid0) {
-            const _errs3 = errors
-            if (!validate96(data, { instancePath, parentData, parentDataProperty, rootData })) {
-                vErrors = vErrors === null ? validate96.errors : vErrors.concat(validate96.errors)
-                errors = vErrors.length
+        var _valid0 = _errs4 === errors
+        if (_valid0 && valid0) {
+            valid0 = false
+            passing0 = [passing0, 2]
+        } else {
+            if (_valid0) {
+                valid0 = true
+                passing0 = 2
             }
-            var _valid0 = _errs3 === errors
-            valid0 = valid0 || _valid0
         }
     }
     if (!valid0) {
         const err0 = {
             instancePath,
-            schemaPath: '#/anyOf',
-            keyword: 'anyOf',
-            params: {},
-            message: 'must match a schema in anyOf',
+            schemaPath: '#/oneOf',
+            keyword: 'oneOf',
+            params: { passingSchemas: passing0 },
+            message: 'must match exactly one schema in oneOf',
         }
         if (vErrors === null) {
             vErrors = [err0]
@@ -9375,22 +9659,50 @@ function validate81(data, { instancePath = '', parentData, parentDataProperty, r
             vErrors.push(err0)
         }
         errors++
-        validate81.errors = vErrors
+        validate84.errors = vErrors
         return false
     } else {
-        errors = _errs0
+        errors = _errs1
         if (vErrors !== null) {
-            if (_errs0) {
-                vErrors.length = _errs0
+            if (_errs1) {
+                vErrors.length = _errs1
             } else {
                 vErrors = null
             }
         }
     }
-    validate81.errors = vErrors
+    if (errors === 0) {
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+            let missing0
+            if (data.kind === undefined && (missing0 = 'kind')) {
+                validate84.errors = [
+                    {
+                        instancePath,
+                        schemaPath: '#/required',
+                        keyword: 'required',
+                        params: { missingProperty: missing0 },
+                        message: "must have required property '" + missing0 + "'",
+                    },
+                ]
+                return false
+            }
+        } else {
+            validate84.errors = [
+                {
+                    instancePath,
+                    schemaPath: '#/type',
+                    keyword: 'type',
+                    params: { type: 'object' },
+                    message: 'must be object',
+                },
+            ]
+            return false
+        }
+    }
+    validate84.errors = vErrors
     return errors === 0
 }
-function validate76(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate79(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -9401,7 +9713,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                 (data.metric_type === undefined && (missing0 = 'metric_type')) ||
                 (data.source === undefined && (missing0 = 'source'))
             ) {
-                validate76.errors = [
+                validate79.errors = [
                     {
                         instancePath,
                         schemaPath: '#/required',
@@ -9414,8 +9726,8 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema61.properties, key0)) {
-                        validate76.errors = [
+                    if (!func2.call(schema63.properties, key0)) {
+                        validate79.errors = [
                             {
                                 instancePath,
                                 schemaPath: '#/additionalProperties',
@@ -9432,14 +9744,14 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                     if (data.breakdownFilter !== undefined) {
                         const _errs2 = errors
                         if (
-                            !validate77(data.breakdownFilter, {
+                            !validate80(data.breakdownFilter, {
                                 instancePath: instancePath + '/breakdownFilter',
                                 parentData: data,
                                 parentDataProperty: 'breakdownFilter',
                                 rootData,
                             })
                         ) {
-                            vErrors = vErrors === null ? validate77.errors : vErrors.concat(validate77.errors)
+                            vErrors = vErrors === null ? validate80.errors : vErrors.concat(validate80.errors)
                             errors = vErrors.length
                         }
                         var valid0 = _errs2 === errors
@@ -9451,7 +9763,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                             let data1 = data.conversion_window
                             const _errs3 = errors
                             if (!(typeof data1 == 'number' && !(data1 % 1) && !isNaN(data1) && isFinite(data1))) {
-                                validate76.errors = [
+                                validate79.errors = [
                                     {
                                         instancePath: instancePath + '/conversion_window',
                                         schemaPath: '#/definitions/integer/type',
@@ -9471,7 +9783,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                 let data2 = data.conversion_window_unit
                                 const _errs6 = errors
                                 if (typeof data2 !== 'string') {
-                                    validate76.errors = [
+                                    validate79.errors = [
                                         {
                                             instancePath: instancePath + '/conversion_window_unit',
                                             schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/type',
@@ -9492,12 +9804,12 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'month'
                                     )
                                 ) {
-                                    validate76.errors = [
+                                    validate79.errors = [
                                         {
                                             instancePath: instancePath + '/conversion_window_unit',
                                             schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/enum',
                                             keyword: 'enum',
-                                            params: { allowedValues: schema75.enum },
+                                            params: { allowedValues: schema77.enum },
                                             message: 'must be equal to one of the allowed values',
                                         },
                                     ]
@@ -9511,7 +9823,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                 if (data.fingerprint !== undefined) {
                                     const _errs9 = errors
                                     if (typeof data.fingerprint !== 'string') {
-                                        validate76.errors = [
+                                        validate79.errors = [
                                             {
                                                 instancePath: instancePath + '/fingerprint',
                                                 schemaPath: '#/properties/fingerprint/type',
@@ -9531,7 +9843,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                         let data4 = data.goal
                                         const _errs11 = errors
                                         if (typeof data4 !== 'string') {
-                                            validate76.errors = [
+                                            validate79.errors = [
                                                 {
                                                     instancePath: instancePath + '/goal',
                                                     schemaPath: '#/definitions/ExperimentMetricGoal/type',
@@ -9543,12 +9855,12 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                             return false
                                         }
                                         if (!(data4 === 'increase' || data4 === 'decrease')) {
-                                            validate76.errors = [
+                                            validate79.errors = [
                                                 {
                                                     instancePath: instancePath + '/goal',
                                                     schemaPath: '#/definitions/ExperimentMetricGoal/enum',
                                                     keyword: 'enum',
-                                                    params: { allowedValues: schema76.enum },
+                                                    params: { allowedValues: schema78.enum },
                                                     message: 'must be equal to one of the allowed values',
                                                 },
                                             ]
@@ -9562,7 +9874,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                         if (data.ignore_zeros !== undefined) {
                                             const _errs14 = errors
                                             if (typeof data.ignore_zeros !== 'boolean') {
-                                                validate76.errors = [
+                                                validate79.errors = [
                                                     {
                                                         instancePath: instancePath + '/ignore_zeros',
                                                         schemaPath: '#/properties/ignore_zeros/type',
@@ -9581,7 +9893,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                             if (data.isSharedMetric !== undefined) {
                                                 const _errs16 = errors
                                                 if (typeof data.isSharedMetric !== 'boolean') {
-                                                    validate76.errors = [
+                                                    validate79.errors = [
                                                         {
                                                             instancePath: instancePath + '/isSharedMetric',
                                                             schemaPath: '#/properties/isSharedMetric/type',
@@ -9601,7 +9913,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                     let data7 = data.kind
                                                     const _errs18 = errors
                                                     if (typeof data7 !== 'string') {
-                                                        validate76.errors = [
+                                                        validate79.errors = [
                                                             {
                                                                 instancePath: instancePath + '/kind',
                                                                 schemaPath: '#/properties/kind/type',
@@ -9613,7 +9925,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                         return false
                                                     }
                                                     if ('ExperimentMetric' !== data7) {
-                                                        validate76.errors = [
+                                                        validate79.errors = [
                                                             {
                                                                 instancePath: instancePath + '/kind',
                                                                 schemaPath: '#/properties/kind/const',
@@ -9633,7 +9945,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                         let data8 = data.lower_bound_percentile
                                                         const _errs20 = errors
                                                         if (!(typeof data8 == 'number' && isFinite(data8))) {
-                                                            validate76.errors = [
+                                                            validate79.errors = [
                                                                 {
                                                                     instancePath:
                                                                         instancePath + '/lower_bound_percentile',
@@ -9655,7 +9967,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                             let data9 = data.metric_type
                                                             const _errs22 = errors
                                                             if (typeof data9 !== 'string') {
-                                                                validate76.errors = [
+                                                                validate79.errors = [
                                                                     {
                                                                         instancePath: instancePath + '/metric_type',
                                                                         schemaPath: '#/properties/metric_type/type',
@@ -9667,7 +9979,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                                 return false
                                                             }
                                                             if ('mean' !== data9) {
-                                                                validate76.errors = [
+                                                                validate79.errors = [
                                                                     {
                                                                         instancePath: instancePath + '/metric_type',
                                                                         schemaPath: '#/properties/metric_type/const',
@@ -9686,7 +9998,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                             if (data.name !== undefined) {
                                                                 const _errs24 = errors
                                                                 if (typeof data.name !== 'string') {
-                                                                    validate76.errors = [
+                                                                    validate79.errors = [
                                                                         {
                                                                             instancePath: instancePath + '/name',
                                                                             schemaPath: '#/properties/name/type',
@@ -9712,7 +10024,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                                             !Array.isArray(data11)
                                                                         )
                                                                     ) {
-                                                                        validate76.errors = [
+                                                                        validate79.errors = [
                                                                             {
                                                                                 instancePath:
                                                                                     instancePath + '/response',
@@ -9739,7 +10051,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                 isFinite(data12)
                                                                             )
                                                                         ) {
-                                                                            validate76.errors = [
+                                                                            validate79.errors = [
                                                                                 {
                                                                                     instancePath:
                                                                                         instancePath +
@@ -9761,7 +10073,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                                         if (data.source !== undefined) {
                                                                             const _errs30 = errors
                                                                             if (
-                                                                                !validate81(data.source, {
+                                                                                !validate84(data.source, {
                                                                                     instancePath:
                                                                                         instancePath + '/source',
                                                                                     parentData: data,
@@ -9771,9 +10083,9 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                                             ) {
                                                                                 vErrors =
                                                                                     vErrors === null
-                                                                                        ? validate81.errors
+                                                                                        ? validate84.errors
                                                                                         : vErrors.concat(
-                                                                                              validate81.errors
+                                                                                              validate84.errors
                                                                                           )
                                                                                 errors = vErrors.length
                                                                             }
@@ -9794,7 +10106,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                         isFinite(data14)
                                                                                     )
                                                                                 ) {
-                                                                                    validate76.errors = [
+                                                                                    validate79.errors = [
                                                                                         {
                                                                                             instancePath:
                                                                                                 instancePath +
@@ -9816,7 +10128,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                 if (data.uuid !== undefined) {
                                                                                     const _errs33 = errors
                                                                                     if (typeof data.uuid !== 'string') {
-                                                                                        validate76.errors = [
+                                                                                        validate79.errors = [
                                                                                             {
                                                                                                 instancePath:
                                                                                                     instancePath +
@@ -9848,7 +10160,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                                                                                                 isFinite(data16)
                                                                                             )
                                                                                         ) {
-                                                                                            validate76.errors = [
+                                                                                            validate79.errors = [
                                                                                                 {
                                                                                                     instancePath:
                                                                                                         instancePath +
@@ -9888,7 +10200,7 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
                 }
             }
         } else {
-            validate76.errors = [
+            validate79.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -9900,10 +10212,10 @@ function validate76(data, { instancePath = '', parentData, parentDataProperty, r
             return false
         }
     }
-    validate76.errors = vErrors
+    validate79.errors = vErrors
     return errors === 0
 }
-const schema94 = {
+const schema96 = {
     additionalProperties: false,
     properties: {
         breakdownFilter: { $ref: '#/definitions/BreakdownFilter' },
@@ -9925,36 +10237,70 @@ const schema94 = {
     required: ['kind', 'metric_type', 'series'],
     type: 'object',
 }
-const schema97 = { enum: ['strict', 'unordered', 'ordered'], type: 'string' }
-const schema99 = { anyOf: [{ $ref: '#/definitions/EventsNode' }, { $ref: '#/definitions/ActionsNode' }] }
-function validate106(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+const schema99 = { enum: ['strict', 'unordered', 'ordered'], type: 'string' }
+const schema101 = {
+    discriminator: { propertyName: 'kind' },
+    oneOf: [
+        { $ref: '#/definitions/EventsNode' },
+        { $ref: '#/definitions/ActionsNode' },
+        { $ref: '#/definitions/ExperimentDataWarehouseNode' },
+    ],
+    required: ['kind'],
+    type: 'object',
+}
+function validate109(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
-    const _errs0 = errors
-    let valid0 = false
     const _errs1 = errors
-    if (!validate82(data, { instancePath, parentData, parentDataProperty, rootData })) {
-        vErrors = vErrors === null ? validate82.errors : vErrors.concat(validate82.errors)
+    let valid0 = false
+    let passing0 = null
+    const _errs2 = errors
+    if (!validate85(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate85.errors : vErrors.concat(validate85.errors)
         errors = vErrors.length
     }
-    var _valid0 = _errs1 === errors
-    valid0 = valid0 || _valid0
-    if (!valid0) {
-        const _errs2 = errors
-        if (!validate90(data, { instancePath, parentData, parentDataProperty, rootData })) {
-            vErrors = vErrors === null ? validate90.errors : vErrors.concat(validate90.errors)
+    var _valid0 = _errs2 === errors
+    if (_valid0) {
+        valid0 = true
+        passing0 = 0
+    }
+    const _errs3 = errors
+    if (!validate93(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate93.errors : vErrors.concat(validate93.errors)
+        errors = vErrors.length
+    }
+    var _valid0 = _errs3 === errors
+    if (_valid0 && valid0) {
+        valid0 = false
+        passing0 = [passing0, 1]
+    } else {
+        if (_valid0) {
+            valid0 = true
+            passing0 = 1
+        }
+        const _errs4 = errors
+        if (!validate99(data, { instancePath, parentData, parentDataProperty, rootData })) {
+            vErrors = vErrors === null ? validate99.errors : vErrors.concat(validate99.errors)
             errors = vErrors.length
         }
-        var _valid0 = _errs2 === errors
-        valid0 = valid0 || _valid0
+        var _valid0 = _errs4 === errors
+        if (_valid0 && valid0) {
+            valid0 = false
+            passing0 = [passing0, 2]
+        } else {
+            if (_valid0) {
+                valid0 = true
+                passing0 = 2
+            }
+        }
     }
     if (!valid0) {
         const err0 = {
             instancePath,
-            schemaPath: '#/anyOf',
-            keyword: 'anyOf',
-            params: {},
-            message: 'must match a schema in anyOf',
+            schemaPath: '#/oneOf',
+            keyword: 'oneOf',
+            params: { passingSchemas: passing0 },
+            message: 'must match exactly one schema in oneOf',
         }
         if (vErrors === null) {
             vErrors = [err0]
@@ -9962,22 +10308,50 @@ function validate106(data, { instancePath = '', parentData, parentDataProperty, 
             vErrors.push(err0)
         }
         errors++
-        validate106.errors = vErrors
+        validate109.errors = vErrors
         return false
     } else {
-        errors = _errs0
+        errors = _errs1
         if (vErrors !== null) {
-            if (_errs0) {
-                vErrors.length = _errs0
+            if (_errs1) {
+                vErrors.length = _errs1
             } else {
                 vErrors = null
             }
         }
     }
-    validate106.errors = vErrors
+    if (errors === 0) {
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+            let missing0
+            if (data.kind === undefined && (missing0 = 'kind')) {
+                validate109.errors = [
+                    {
+                        instancePath,
+                        schemaPath: '#/required',
+                        keyword: 'required',
+                        params: { missingProperty: missing0 },
+                        message: "must have required property '" + missing0 + "'",
+                    },
+                ]
+                return false
+            }
+        } else {
+            validate109.errors = [
+                {
+                    instancePath,
+                    schemaPath: '#/type',
+                    keyword: 'type',
+                    params: { type: 'object' },
+                    message: 'must be object',
+                },
+            ]
+            return false
+        }
+    }
+    validate109.errors = vErrors
     return errors === 0
 }
-function validate104(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate107(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -9988,7 +10362,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                 (data.metric_type === undefined && (missing0 = 'metric_type')) ||
                 (data.series === undefined && (missing0 = 'series'))
             ) {
-                validate104.errors = [
+                validate107.errors = [
                     {
                         instancePath,
                         schemaPath: '#/required',
@@ -10001,8 +10375,8 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema94.properties, key0)) {
-                        validate104.errors = [
+                    if (!func2.call(schema96.properties, key0)) {
+                        validate107.errors = [
                             {
                                 instancePath,
                                 schemaPath: '#/additionalProperties',
@@ -10019,14 +10393,14 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                     if (data.breakdownFilter !== undefined) {
                         const _errs2 = errors
                         if (
-                            !validate77(data.breakdownFilter, {
+                            !validate80(data.breakdownFilter, {
                                 instancePath: instancePath + '/breakdownFilter',
                                 parentData: data,
                                 parentDataProperty: 'breakdownFilter',
                                 rootData,
                             })
                         ) {
-                            vErrors = vErrors === null ? validate77.errors : vErrors.concat(validate77.errors)
+                            vErrors = vErrors === null ? validate80.errors : vErrors.concat(validate80.errors)
                             errors = vErrors.length
                         }
                         var valid0 = _errs2 === errors
@@ -10038,7 +10412,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                             let data1 = data.conversion_window
                             const _errs3 = errors
                             if (!(typeof data1 == 'number' && !(data1 % 1) && !isNaN(data1) && isFinite(data1))) {
-                                validate104.errors = [
+                                validate107.errors = [
                                     {
                                         instancePath: instancePath + '/conversion_window',
                                         schemaPath: '#/definitions/integer/type',
@@ -10058,7 +10432,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                 let data2 = data.conversion_window_unit
                                 const _errs6 = errors
                                 if (typeof data2 !== 'string') {
-                                    validate104.errors = [
+                                    validate107.errors = [
                                         {
                                             instancePath: instancePath + '/conversion_window_unit',
                                             schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/type',
@@ -10079,12 +10453,12 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                         data2 === 'month'
                                     )
                                 ) {
-                                    validate104.errors = [
+                                    validate107.errors = [
                                         {
                                             instancePath: instancePath + '/conversion_window_unit',
                                             schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/enum',
                                             keyword: 'enum',
-                                            params: { allowedValues: schema75.enum },
+                                            params: { allowedValues: schema77.enum },
                                             message: 'must be equal to one of the allowed values',
                                         },
                                     ]
@@ -10098,7 +10472,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                 if (data.fingerprint !== undefined) {
                                     const _errs9 = errors
                                     if (typeof data.fingerprint !== 'string') {
-                                        validate104.errors = [
+                                        validate107.errors = [
                                             {
                                                 instancePath: instancePath + '/fingerprint',
                                                 schemaPath: '#/properties/fingerprint/type',
@@ -10118,7 +10492,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                         let data4 = data.funnel_order_type
                                         const _errs11 = errors
                                         if (typeof data4 !== 'string') {
-                                            validate104.errors = [
+                                            validate107.errors = [
                                                 {
                                                     instancePath: instancePath + '/funnel_order_type',
                                                     schemaPath: '#/definitions/StepOrderValue/type',
@@ -10130,12 +10504,12 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                             return false
                                         }
                                         if (!(data4 === 'strict' || data4 === 'unordered' || data4 === 'ordered')) {
-                                            validate104.errors = [
+                                            validate107.errors = [
                                                 {
                                                     instancePath: instancePath + '/funnel_order_type',
                                                     schemaPath: '#/definitions/StepOrderValue/enum',
                                                     keyword: 'enum',
-                                                    params: { allowedValues: schema97.enum },
+                                                    params: { allowedValues: schema99.enum },
                                                     message: 'must be equal to one of the allowed values',
                                                 },
                                             ]
@@ -10150,7 +10524,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                             let data5 = data.goal
                                             const _errs14 = errors
                                             if (typeof data5 !== 'string') {
-                                                validate104.errors = [
+                                                validate107.errors = [
                                                     {
                                                         instancePath: instancePath + '/goal',
                                                         schemaPath: '#/definitions/ExperimentMetricGoal/type',
@@ -10162,12 +10536,12 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                 return false
                                             }
                                             if (!(data5 === 'increase' || data5 === 'decrease')) {
-                                                validate104.errors = [
+                                                validate107.errors = [
                                                     {
                                                         instancePath: instancePath + '/goal',
                                                         schemaPath: '#/definitions/ExperimentMetricGoal/enum',
                                                         keyword: 'enum',
-                                                        params: { allowedValues: schema76.enum },
+                                                        params: { allowedValues: schema78.enum },
                                                         message: 'must be equal to one of the allowed values',
                                                     },
                                                 ]
@@ -10181,7 +10555,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                             if (data.isSharedMetric !== undefined) {
                                                 const _errs17 = errors
                                                 if (typeof data.isSharedMetric !== 'boolean') {
-                                                    validate104.errors = [
+                                                    validate107.errors = [
                                                         {
                                                             instancePath: instancePath + '/isSharedMetric',
                                                             schemaPath: '#/properties/isSharedMetric/type',
@@ -10201,7 +10575,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                     let data7 = data.kind
                                                     const _errs19 = errors
                                                     if (typeof data7 !== 'string') {
-                                                        validate104.errors = [
+                                                        validate107.errors = [
                                                             {
                                                                 instancePath: instancePath + '/kind',
                                                                 schemaPath: '#/properties/kind/type',
@@ -10213,7 +10587,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                         return false
                                                     }
                                                     if ('ExperimentMetric' !== data7) {
-                                                        validate104.errors = [
+                                                        validate107.errors = [
                                                             {
                                                                 instancePath: instancePath + '/kind',
                                                                 schemaPath: '#/properties/kind/const',
@@ -10233,7 +10607,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                         let data8 = data.metric_type
                                                         const _errs21 = errors
                                                         if (typeof data8 !== 'string') {
-                                                            validate104.errors = [
+                                                            validate107.errors = [
                                                                 {
                                                                     instancePath: instancePath + '/metric_type',
                                                                     schemaPath: '#/properties/metric_type/type',
@@ -10245,7 +10619,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                             return false
                                                         }
                                                         if ('funnel' !== data8) {
-                                                            validate104.errors = [
+                                                            validate107.errors = [
                                                                 {
                                                                     instancePath: instancePath + '/metric_type',
                                                                     schemaPath: '#/properties/metric_type/const',
@@ -10264,7 +10638,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                         if (data.name !== undefined) {
                                                             const _errs23 = errors
                                                             if (typeof data.name !== 'string') {
-                                                                validate104.errors = [
+                                                                validate107.errors = [
                                                                     {
                                                                         instancePath: instancePath + '/name',
                                                                         schemaPath: '#/properties/name/type',
@@ -10290,7 +10664,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                                         !Array.isArray(data10)
                                                                     )
                                                                 ) {
-                                                                    validate104.errors = [
+                                                                    validate107.errors = [
                                                                         {
                                                                             instancePath: instancePath + '/response',
                                                                             schemaPath: '#/properties/response/type',
@@ -10316,7 +10690,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                                             for (let i0 = 0; i0 < len0; i0++) {
                                                                                 const _errs29 = errors
                                                                                 if (
-                                                                                    !validate106(data11[i0], {
+                                                                                    !validate109(data11[i0], {
                                                                                         instancePath:
                                                                                             instancePath +
                                                                                             '/series/' +
@@ -10328,9 +10702,9 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                 ) {
                                                                                     vErrors =
                                                                                         vErrors === null
-                                                                                            ? validate106.errors
+                                                                                            ? validate109.errors
                                                                                             : vErrors.concat(
-                                                                                                  validate106.errors
+                                                                                                  validate109.errors
                                                                                               )
                                                                                     errors = vErrors.length
                                                                                 }
@@ -10340,7 +10714,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                 }
                                                                             }
                                                                         } else {
-                                                                            validate104.errors = [
+                                                                            validate107.errors = [
                                                                                 {
                                                                                     instancePath:
                                                                                         instancePath + '/series',
@@ -10368,7 +10742,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                 isFinite(data13)
                                                                             )
                                                                         ) {
-                                                                            validate104.errors = [
+                                                                            validate107.errors = [
                                                                                 {
                                                                                     instancePath:
                                                                                         instancePath +
@@ -10390,7 +10764,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                                         if (data.uuid !== undefined) {
                                                                             const _errs32 = errors
                                                                             if (typeof data.uuid !== 'string') {
-                                                                                validate104.errors = [
+                                                                                validate107.errors = [
                                                                                     {
                                                                                         instancePath:
                                                                                             instancePath + '/uuid',
@@ -10417,7 +10791,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                         isFinite(data15)
                                                                                     )
                                                                                 ) {
-                                                                                    validate104.errors = [
+                                                                                    validate107.errors = [
                                                                                         {
                                                                                             instancePath:
                                                                                                 instancePath +
@@ -10452,7 +10826,7 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
                 }
             }
         } else {
-            validate104.errors = [
+            validate107.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -10464,10 +10838,10 @@ function validate104(data, { instancePath = '', parentData, parentDataProperty, 
             return false
         }
     }
-    validate104.errors = vErrors
+    validate107.errors = vErrors
     return errors === 0
 }
-const schema100 = {
+const schema102 = {
     additionalProperties: false,
     properties: {
         breakdownFilter: { $ref: '#/definitions/BreakdownFilter' },
@@ -10489,7 +10863,7 @@ const schema100 = {
     required: ['denominator', 'kind', 'metric_type', 'numerator'],
     type: 'object',
 }
-function validate111(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate115(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -10501,7 +10875,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                 (data.metric_type === undefined && (missing0 = 'metric_type')) ||
                 (data.numerator === undefined && (missing0 = 'numerator'))
             ) {
-                validate111.errors = [
+                validate115.errors = [
                     {
                         instancePath,
                         schemaPath: '#/required',
@@ -10514,8 +10888,8 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema100.properties, key0)) {
-                        validate111.errors = [
+                    if (!func2.call(schema102.properties, key0)) {
+                        validate115.errors = [
                             {
                                 instancePath,
                                 schemaPath: '#/additionalProperties',
@@ -10532,14 +10906,14 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                     if (data.breakdownFilter !== undefined) {
                         const _errs2 = errors
                         if (
-                            !validate77(data.breakdownFilter, {
+                            !validate80(data.breakdownFilter, {
                                 instancePath: instancePath + '/breakdownFilter',
                                 parentData: data,
                                 parentDataProperty: 'breakdownFilter',
                                 rootData,
                             })
                         ) {
-                            vErrors = vErrors === null ? validate77.errors : vErrors.concat(validate77.errors)
+                            vErrors = vErrors === null ? validate80.errors : vErrors.concat(validate80.errors)
                             errors = vErrors.length
                         }
                         var valid0 = _errs2 === errors
@@ -10551,7 +10925,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                             let data1 = data.conversion_window
                             const _errs3 = errors
                             if (!(typeof data1 == 'number' && !(data1 % 1) && !isNaN(data1) && isFinite(data1))) {
-                                validate111.errors = [
+                                validate115.errors = [
                                     {
                                         instancePath: instancePath + '/conversion_window',
                                         schemaPath: '#/definitions/integer/type',
@@ -10571,7 +10945,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                 let data2 = data.conversion_window_unit
                                 const _errs6 = errors
                                 if (typeof data2 !== 'string') {
-                                    validate111.errors = [
+                                    validate115.errors = [
                                         {
                                             instancePath: instancePath + '/conversion_window_unit',
                                             schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/type',
@@ -10592,12 +10966,12 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                         data2 === 'month'
                                     )
                                 ) {
-                                    validate111.errors = [
+                                    validate115.errors = [
                                         {
                                             instancePath: instancePath + '/conversion_window_unit',
                                             schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/enum',
                                             keyword: 'enum',
-                                            params: { allowedValues: schema75.enum },
+                                            params: { allowedValues: schema77.enum },
                                             message: 'must be equal to one of the allowed values',
                                         },
                                     ]
@@ -10611,7 +10985,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                 if (data.denominator !== undefined) {
                                     const _errs9 = errors
                                     if (
-                                        !validate81(data.denominator, {
+                                        !validate84(data.denominator, {
                                             instancePath: instancePath + '/denominator',
                                             parentData: data,
                                             parentDataProperty: 'denominator',
@@ -10619,7 +10993,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                         })
                                     ) {
                                         vErrors =
-                                            vErrors === null ? validate81.errors : vErrors.concat(validate81.errors)
+                                            vErrors === null ? validate84.errors : vErrors.concat(validate84.errors)
                                         errors = vErrors.length
                                     }
                                     var valid0 = _errs9 === errors
@@ -10630,7 +11004,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                     if (data.fingerprint !== undefined) {
                                         const _errs10 = errors
                                         if (typeof data.fingerprint !== 'string') {
-                                            validate111.errors = [
+                                            validate115.errors = [
                                                 {
                                                     instancePath: instancePath + '/fingerprint',
                                                     schemaPath: '#/properties/fingerprint/type',
@@ -10650,7 +11024,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                             let data5 = data.goal
                                             const _errs12 = errors
                                             if (typeof data5 !== 'string') {
-                                                validate111.errors = [
+                                                validate115.errors = [
                                                     {
                                                         instancePath: instancePath + '/goal',
                                                         schemaPath: '#/definitions/ExperimentMetricGoal/type',
@@ -10662,12 +11036,12 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                 return false
                                             }
                                             if (!(data5 === 'increase' || data5 === 'decrease')) {
-                                                validate111.errors = [
+                                                validate115.errors = [
                                                     {
                                                         instancePath: instancePath + '/goal',
                                                         schemaPath: '#/definitions/ExperimentMetricGoal/enum',
                                                         keyword: 'enum',
-                                                        params: { allowedValues: schema76.enum },
+                                                        params: { allowedValues: schema78.enum },
                                                         message: 'must be equal to one of the allowed values',
                                                     },
                                                 ]
@@ -10681,7 +11055,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                             if (data.isSharedMetric !== undefined) {
                                                 const _errs15 = errors
                                                 if (typeof data.isSharedMetric !== 'boolean') {
-                                                    validate111.errors = [
+                                                    validate115.errors = [
                                                         {
                                                             instancePath: instancePath + '/isSharedMetric',
                                                             schemaPath: '#/properties/isSharedMetric/type',
@@ -10701,7 +11075,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                     let data7 = data.kind
                                                     const _errs17 = errors
                                                     if (typeof data7 !== 'string') {
-                                                        validate111.errors = [
+                                                        validate115.errors = [
                                                             {
                                                                 instancePath: instancePath + '/kind',
                                                                 schemaPath: '#/properties/kind/type',
@@ -10713,7 +11087,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                         return false
                                                     }
                                                     if ('ExperimentMetric' !== data7) {
-                                                        validate111.errors = [
+                                                        validate115.errors = [
                                                             {
                                                                 instancePath: instancePath + '/kind',
                                                                 schemaPath: '#/properties/kind/const',
@@ -10733,7 +11107,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                         let data8 = data.metric_type
                                                         const _errs19 = errors
                                                         if (typeof data8 !== 'string') {
-                                                            validate111.errors = [
+                                                            validate115.errors = [
                                                                 {
                                                                     instancePath: instancePath + '/metric_type',
                                                                     schemaPath: '#/properties/metric_type/type',
@@ -10745,7 +11119,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                             return false
                                                         }
                                                         if ('ratio' !== data8) {
-                                                            validate111.errors = [
+                                                            validate115.errors = [
                                                                 {
                                                                     instancePath: instancePath + '/metric_type',
                                                                     schemaPath: '#/properties/metric_type/const',
@@ -10764,7 +11138,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                         if (data.name !== undefined) {
                                                             const _errs21 = errors
                                                             if (typeof data.name !== 'string') {
-                                                                validate111.errors = [
+                                                                validate115.errors = [
                                                                     {
                                                                         instancePath: instancePath + '/name',
                                                                         schemaPath: '#/properties/name/type',
@@ -10783,7 +11157,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                             if (data.numerator !== undefined) {
                                                                 const _errs23 = errors
                                                                 if (
-                                                                    !validate81(data.numerator, {
+                                                                    !validate84(data.numerator, {
                                                                         instancePath: instancePath + '/numerator',
                                                                         parentData: data,
                                                                         parentDataProperty: 'numerator',
@@ -10792,8 +11166,8 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                                 ) {
                                                                     vErrors =
                                                                         vErrors === null
-                                                                            ? validate81.errors
-                                                                            : vErrors.concat(validate81.errors)
+                                                                            ? validate84.errors
+                                                                            : vErrors.concat(validate84.errors)
                                                                     errors = vErrors.length
                                                                 }
                                                                 var valid0 = _errs23 === errors
@@ -10811,7 +11185,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                                             !Array.isArray(data11)
                                                                         )
                                                                     ) {
-                                                                        validate111.errors = [
+                                                                        validate115.errors = [
                                                                             {
                                                                                 instancePath:
                                                                                     instancePath + '/response',
@@ -10838,7 +11212,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                 isFinite(data12)
                                                                             )
                                                                         ) {
-                                                                            validate111.errors = [
+                                                                            validate115.errors = [
                                                                                 {
                                                                                     instancePath:
                                                                                         instancePath +
@@ -10860,7 +11234,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                                         if (data.uuid !== undefined) {
                                                                             const _errs28 = errors
                                                                             if (typeof data.uuid !== 'string') {
-                                                                                validate111.errors = [
+                                                                                validate115.errors = [
                                                                                     {
                                                                                         instancePath:
                                                                                             instancePath + '/uuid',
@@ -10887,7 +11261,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                         isFinite(data14)
                                                                                     )
                                                                                 ) {
-                                                                                    validate111.errors = [
+                                                                                    validate115.errors = [
                                                                                         {
                                                                                             instancePath:
                                                                                                 instancePath +
@@ -10922,7 +11296,7 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
                 }
             }
         } else {
-            validate111.errors = [
+            validate115.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -10934,10 +11308,10 @@ function validate111(data, { instancePath = '', parentData, parentDataProperty, 
             return false
         }
     }
-    validate111.errors = vErrors
+    validate115.errors = vErrors
     return errors === 0
 }
-const schema104 = {
+const schema106 = {
     additionalProperties: false,
     properties: {
         breakdownFilter: { $ref: '#/definitions/BreakdownFilter' },
@@ -10972,7 +11346,7 @@ const schema104 = {
     ],
     type: 'object',
 }
-function validate116(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate120(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
     if (errors === 0) {
@@ -10988,7 +11362,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                 (data.start_event === undefined && (missing0 = 'start_event')) ||
                 (data.start_handling === undefined && (missing0 = 'start_handling'))
             ) {
-                validate116.errors = [
+                validate120.errors = [
                     {
                         instancePath,
                         schemaPath: '#/required',
@@ -11001,8 +11375,8 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
             } else {
                 const _errs1 = errors
                 for (const key0 in data) {
-                    if (!func2.call(schema104.properties, key0)) {
-                        validate116.errors = [
+                    if (!func2.call(schema106.properties, key0)) {
+                        validate120.errors = [
                             {
                                 instancePath,
                                 schemaPath: '#/additionalProperties',
@@ -11019,14 +11393,14 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                     if (data.breakdownFilter !== undefined) {
                         const _errs2 = errors
                         if (
-                            !validate77(data.breakdownFilter, {
+                            !validate80(data.breakdownFilter, {
                                 instancePath: instancePath + '/breakdownFilter',
                                 parentData: data,
                                 parentDataProperty: 'breakdownFilter',
                                 rootData,
                             })
                         ) {
-                            vErrors = vErrors === null ? validate77.errors : vErrors.concat(validate77.errors)
+                            vErrors = vErrors === null ? validate80.errors : vErrors.concat(validate80.errors)
                             errors = vErrors.length
                         }
                         var valid0 = _errs2 === errors
@@ -11037,14 +11411,14 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                         if (data.completion_event !== undefined) {
                             const _errs3 = errors
                             if (
-                                !validate81(data.completion_event, {
+                                !validate84(data.completion_event, {
                                     instancePath: instancePath + '/completion_event',
                                     parentData: data,
                                     parentDataProperty: 'completion_event',
                                     rootData,
                                 })
                             ) {
-                                vErrors = vErrors === null ? validate81.errors : vErrors.concat(validate81.errors)
+                                vErrors = vErrors === null ? validate84.errors : vErrors.concat(validate84.errors)
                                 errors = vErrors.length
                             }
                             var valid0 = _errs3 === errors
@@ -11056,7 +11430,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                 let data2 = data.conversion_window
                                 const _errs4 = errors
                                 if (!(typeof data2 == 'number' && !(data2 % 1) && !isNaN(data2) && isFinite(data2))) {
-                                    validate116.errors = [
+                                    validate120.errors = [
                                         {
                                             instancePath: instancePath + '/conversion_window',
                                             schemaPath: '#/definitions/integer/type',
@@ -11076,7 +11450,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                     let data3 = data.conversion_window_unit
                                     const _errs7 = errors
                                     if (typeof data3 !== 'string') {
-                                        validate116.errors = [
+                                        validate120.errors = [
                                             {
                                                 instancePath: instancePath + '/conversion_window_unit',
                                                 schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/type',
@@ -11097,12 +11471,12 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                             data3 === 'month'
                                         )
                                     ) {
-                                        validate116.errors = [
+                                        validate120.errors = [
                                             {
                                                 instancePath: instancePath + '/conversion_window_unit',
                                                 schemaPath: '#/definitions/FunnelConversionWindowTimeUnit/enum',
                                                 keyword: 'enum',
-                                                params: { allowedValues: schema75.enum },
+                                                params: { allowedValues: schema77.enum },
                                                 message: 'must be equal to one of the allowed values',
                                             },
                                         ]
@@ -11116,7 +11490,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                     if (data.fingerprint !== undefined) {
                                         const _errs10 = errors
                                         if (typeof data.fingerprint !== 'string') {
-                                            validate116.errors = [
+                                            validate120.errors = [
                                                 {
                                                     instancePath: instancePath + '/fingerprint',
                                                     schemaPath: '#/properties/fingerprint/type',
@@ -11136,7 +11510,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                             let data5 = data.goal
                                             const _errs12 = errors
                                             if (typeof data5 !== 'string') {
-                                                validate116.errors = [
+                                                validate120.errors = [
                                                     {
                                                         instancePath: instancePath + '/goal',
                                                         schemaPath: '#/definitions/ExperimentMetricGoal/type',
@@ -11148,12 +11522,12 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                 return false
                                             }
                                             if (!(data5 === 'increase' || data5 === 'decrease')) {
-                                                validate116.errors = [
+                                                validate120.errors = [
                                                     {
                                                         instancePath: instancePath + '/goal',
                                                         schemaPath: '#/definitions/ExperimentMetricGoal/enum',
                                                         keyword: 'enum',
-                                                        params: { allowedValues: schema76.enum },
+                                                        params: { allowedValues: schema78.enum },
                                                         message: 'must be equal to one of the allowed values',
                                                     },
                                                 ]
@@ -11167,7 +11541,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                             if (data.isSharedMetric !== undefined) {
                                                 const _errs15 = errors
                                                 if (typeof data.isSharedMetric !== 'boolean') {
-                                                    validate116.errors = [
+                                                    validate120.errors = [
                                                         {
                                                             instancePath: instancePath + '/isSharedMetric',
                                                             schemaPath: '#/properties/isSharedMetric/type',
@@ -11187,7 +11561,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                     let data7 = data.kind
                                                     const _errs17 = errors
                                                     if (typeof data7 !== 'string') {
-                                                        validate116.errors = [
+                                                        validate120.errors = [
                                                             {
                                                                 instancePath: instancePath + '/kind',
                                                                 schemaPath: '#/properties/kind/type',
@@ -11199,7 +11573,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                         return false
                                                     }
                                                     if ('ExperimentMetric' !== data7) {
-                                                        validate116.errors = [
+                                                        validate120.errors = [
                                                             {
                                                                 instancePath: instancePath + '/kind',
                                                                 schemaPath: '#/properties/kind/const',
@@ -11219,7 +11593,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                         let data8 = data.metric_type
                                                         const _errs19 = errors
                                                         if (typeof data8 !== 'string') {
-                                                            validate116.errors = [
+                                                            validate120.errors = [
                                                                 {
                                                                     instancePath: instancePath + '/metric_type',
                                                                     schemaPath: '#/properties/metric_type/type',
@@ -11231,7 +11605,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                             return false
                                                         }
                                                         if ('retention' !== data8) {
-                                                            validate116.errors = [
+                                                            validate120.errors = [
                                                                 {
                                                                     instancePath: instancePath + '/metric_type',
                                                                     schemaPath: '#/properties/metric_type/const',
@@ -11250,7 +11624,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                         if (data.name !== undefined) {
                                                             const _errs21 = errors
                                                             if (typeof data.name !== 'string') {
-                                                                validate116.errors = [
+                                                                validate120.errors = [
                                                                     {
                                                                         instancePath: instancePath + '/name',
                                                                         schemaPath: '#/properties/name/type',
@@ -11276,7 +11650,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                         !Array.isArray(data10)
                                                                     )
                                                                 ) {
-                                                                    validate116.errors = [
+                                                                    validate120.errors = [
                                                                         {
                                                                             instancePath: instancePath + '/response',
                                                                             schemaPath: '#/properties/response/type',
@@ -11303,7 +11677,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                             isFinite(data11)
                                                                         )
                                                                     ) {
-                                                                        validate116.errors = [
+                                                                        validate120.errors = [
                                                                             {
                                                                                 instancePath:
                                                                                     instancePath +
@@ -11333,7 +11707,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                 isFinite(data12)
                                                                             )
                                                                         ) {
-                                                                            validate116.errors = [
+                                                                            validate120.errors = [
                                                                                 {
                                                                                     instancePath:
                                                                                         instancePath +
@@ -11356,7 +11730,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                             let data13 = data.retention_window_unit
                                                                             const _errs31 = errors
                                                                             if (typeof data13 !== 'string') {
-                                                                                validate116.errors = [
+                                                                                validate120.errors = [
                                                                                     {
                                                                                         instancePath:
                                                                                             instancePath +
@@ -11380,7 +11754,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                     data13 === 'month'
                                                                                 )
                                                                             ) {
-                                                                                validate116.errors = [
+                                                                                validate120.errors = [
                                                                                     {
                                                                                         instancePath:
                                                                                             instancePath +
@@ -11390,7 +11764,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                         keyword: 'enum',
                                                                                         params: {
                                                                                             allowedValues:
-                                                                                                schema75.enum,
+                                                                                                schema77.enum,
                                                                                         },
                                                                                         message:
                                                                                             'must be equal to one of the allowed values',
@@ -11412,7 +11786,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                         isFinite(data14)
                                                                                     )
                                                                                 ) {
-                                                                                    validate116.errors = [
+                                                                                    validate120.errors = [
                                                                                         {
                                                                                             instancePath:
                                                                                                 instancePath +
@@ -11434,7 +11808,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                 if (data.start_event !== undefined) {
                                                                                     const _errs36 = errors
                                                                                     if (
-                                                                                        !validate81(data.start_event, {
+                                                                                        !validate84(data.start_event, {
                                                                                             instancePath:
                                                                                                 instancePath +
                                                                                                 '/start_event',
@@ -11446,9 +11820,9 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                     ) {
                                                                                         vErrors =
                                                                                             vErrors === null
-                                                                                                ? validate81.errors
+                                                                                                ? validate84.errors
                                                                                                 : vErrors.concat(
-                                                                                                      validate81.errors
+                                                                                                      validate84.errors
                                                                                                   )
                                                                                         errors = vErrors.length
                                                                                     }
@@ -11466,7 +11840,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                         if (
                                                                                             typeof data16 !== 'string'
                                                                                         ) {
-                                                                                            validate116.errors = [
+                                                                                            validate120.errors = [
                                                                                                 {
                                                                                                     instancePath:
                                                                                                         instancePath +
@@ -11490,7 +11864,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                                 data16 === 'last_seen'
                                                                                             )
                                                                                         ) {
-                                                                                            validate116.errors = [
+                                                                                            validate120.errors = [
                                                                                                 {
                                                                                                     instancePath:
                                                                                                         instancePath +
@@ -11500,7 +11874,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                                     keyword: 'enum',
                                                                                                     params: {
                                                                                                         allowedValues:
-                                                                                                            schema104
+                                                                                                            schema106
                                                                                                                 .properties
                                                                                                                 .start_handling
                                                                                                                 .enum,
@@ -11522,7 +11896,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                                 typeof data.uuid !==
                                                                                                 'string'
                                                                                             ) {
-                                                                                                validate116.errors = [
+                                                                                                validate120.errors = [
                                                                                                     {
                                                                                                         instancePath:
                                                                                                             instancePath +
@@ -11559,7 +11933,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                                                                                                         isFinite(data18)
                                                                                                     )
                                                                                                 ) {
-                                                                                                    validate116.errors =
+                                                                                                    validate120.errors =
                                                                                                         [
                                                                                                             {
                                                                                                                 instancePath:
@@ -11604,7 +11978,7 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
                 }
             }
         } else {
-            validate116.errors = [
+            validate120.errors = [
                 {
                     instancePath,
                     schemaPath: '#/type',
@@ -11616,55 +11990,77 @@ function validate116(data, { instancePath = '', parentData, parentDataProperty, 
             return false
         }
     }
-    validate116.errors = vErrors
+    validate120.errors = vErrors
     return errors === 0
 }
-function validate75(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
+function validate78(data, { instancePath = '', parentData, parentDataProperty, rootData = data } = {}) {
     let vErrors = null
     let errors = 0
-    const _errs0 = errors
-    let valid0 = false
     const _errs1 = errors
-    if (!validate76(data, { instancePath, parentData, parentDataProperty, rootData })) {
-        vErrors = vErrors === null ? validate76.errors : vErrors.concat(validate76.errors)
+    let valid0 = false
+    let passing0 = null
+    const _errs2 = errors
+    if (!validate79(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate79.errors : vErrors.concat(validate79.errors)
         errors = vErrors.length
     }
-    var _valid0 = _errs1 === errors
-    valid0 = valid0 || _valid0
-    if (!valid0) {
-        const _errs2 = errors
-        if (!validate104(data, { instancePath, parentData, parentDataProperty, rootData })) {
-            vErrors = vErrors === null ? validate104.errors : vErrors.concat(validate104.errors)
+    var _valid0 = _errs2 === errors
+    if (_valid0) {
+        valid0 = true
+        passing0 = 0
+    }
+    const _errs3 = errors
+    if (!validate107(data, { instancePath, parentData, parentDataProperty, rootData })) {
+        vErrors = vErrors === null ? validate107.errors : vErrors.concat(validate107.errors)
+        errors = vErrors.length
+    }
+    var _valid0 = _errs3 === errors
+    if (_valid0 && valid0) {
+        valid0 = false
+        passing0 = [passing0, 1]
+    } else {
+        if (_valid0) {
+            valid0 = true
+            passing0 = 1
+        }
+        const _errs4 = errors
+        if (!validate115(data, { instancePath, parentData, parentDataProperty, rootData })) {
+            vErrors = vErrors === null ? validate115.errors : vErrors.concat(validate115.errors)
             errors = vErrors.length
         }
-        var _valid0 = _errs2 === errors
-        valid0 = valid0 || _valid0
-        if (!valid0) {
-            const _errs3 = errors
-            if (!validate111(data, { instancePath, parentData, parentDataProperty, rootData })) {
-                vErrors = vErrors === null ? validate111.errors : vErrors.concat(validate111.errors)
+        var _valid0 = _errs4 === errors
+        if (_valid0 && valid0) {
+            valid0 = false
+            passing0 = [passing0, 2]
+        } else {
+            if (_valid0) {
+                valid0 = true
+                passing0 = 2
+            }
+            const _errs5 = errors
+            if (!validate120(data, { instancePath, parentData, parentDataProperty, rootData })) {
+                vErrors = vErrors === null ? validate120.errors : vErrors.concat(validate120.errors)
                 errors = vErrors.length
             }
-            var _valid0 = _errs3 === errors
-            valid0 = valid0 || _valid0
-            if (!valid0) {
-                const _errs4 = errors
-                if (!validate116(data, { instancePath, parentData, parentDataProperty, rootData })) {
-                    vErrors = vErrors === null ? validate116.errors : vErrors.concat(validate116.errors)
-                    errors = vErrors.length
+            var _valid0 = _errs5 === errors
+            if (_valid0 && valid0) {
+                valid0 = false
+                passing0 = [passing0, 3]
+            } else {
+                if (_valid0) {
+                    valid0 = true
+                    passing0 = 3
                 }
-                var _valid0 = _errs4 === errors
-                valid0 = valid0 || _valid0
             }
         }
     }
     if (!valid0) {
         const err0 = {
             instancePath,
-            schemaPath: '#/anyOf',
-            keyword: 'anyOf',
-            params: {},
-            message: 'must match a schema in anyOf',
+            schemaPath: '#/oneOf',
+            keyword: 'oneOf',
+            params: { passingSchemas: passing0 },
+            message: 'must match exactly one schema in oneOf',
         }
         if (vErrors === null) {
             vErrors = [err0]
@@ -11672,18 +12068,46 @@ function validate75(data, { instancePath = '', parentData, parentDataProperty, r
             vErrors.push(err0)
         }
         errors++
-        validate75.errors = vErrors
+        validate78.errors = vErrors
         return false
     } else {
-        errors = _errs0
+        errors = _errs1
         if (vErrors !== null) {
-            if (_errs0) {
-                vErrors.length = _errs0
+            if (_errs1) {
+                vErrors.length = _errs1
             } else {
                 vErrors = null
             }
         }
     }
-    validate75.errors = vErrors
+    if (errors === 0) {
+        if (data && typeof data == 'object' && !Array.isArray(data)) {
+            let missing0
+            if (data.metric_type === undefined && (missing0 = 'metric_type')) {
+                validate78.errors = [
+                    {
+                        instancePath,
+                        schemaPath: '#/required',
+                        keyword: 'required',
+                        params: { missingProperty: missing0 },
+                        message: "must have required property '" + missing0 + "'",
+                    },
+                ]
+                return false
+            }
+        } else {
+            validate78.errors = [
+                {
+                    instancePath,
+                    schemaPath: '#/type',
+                    keyword: 'type',
+                    params: { type: 'object' },
+                    message: 'must be object',
+                },
+            ]
+            return false
+        }
+    }
+    validate78.errors = vErrors
     return errors === 0
 }

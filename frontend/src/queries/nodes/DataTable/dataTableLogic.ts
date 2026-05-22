@@ -1,10 +1,12 @@
-import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 import { RequiredExcept } from 'lib/utils/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
@@ -30,6 +32,8 @@ export interface DataTableLogicProps {
     context?: QueryContext<DataTableNode>
     // Override the data logic node key if needed
     dataNodeLogicKey?: string
+    // Used to scope per-tab UI state (e.g. expanded rows) so it survives tab switches
+    tabId?: string
 }
 
 export interface DataTableRow {
@@ -54,7 +58,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
         return props.vizKey
     }),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
-    actions({ setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }) }),
+    actions({
+        setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }),
+        toggleRowExpanded: (rowIndex: number) => ({ rowIndex }),
+    }),
     reducers(({ props }) => ({
         columnsInQuery: [getColumnsForQuery(props.query), { setColumnsInQuery: (_, { columns }) => columns }],
     })),
@@ -62,6 +69,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
+            tabUiStateLogic,
+            ['expandedRowsFor'],
             dataNodeLogic({
                 key: props.dataNodeLogicKey ?? props.dataKey,
                 query: props.query.source,
@@ -73,9 +84,27 @@ export const dataTableLogic = kea<dataTableLogicType>([
             }),
             ['response', 'responseLoading', 'responseError'],
         ],
+        actions: [tabUiStateLogic, ['toggleExpandedRow']],
+    })),
+    listeners(({ props, actions }) => ({
+        toggleRowExpanded: ({ rowIndex }) => {
+            if (props.tabId === undefined) {
+                return
+            }
+            actions.toggleExpandedRow(props.tabId, props.vizKey, rowIndex)
+        },
     })),
     selectors({
         context: [() => [(_, props) => props.context], (context) => context],
+        expandedRows: [
+            (s) => [s.expandedRowsFor, (_, p) => p.tabId, (_, p) => p.vizKey],
+            (
+                expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[],
+                tabId: string | undefined,
+                vizKey: string
+            ): number[] => expandedRowsFor(tabId, vizKey),
+            { resultEqualityCheck: objectsEqual },
+        ],
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         sourceFeatures: [
             (_, p) => [p.query, (_, props) => props.context],
@@ -107,13 +136,21 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
-            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInResponse, (_, props) => props.context],
+            (s) => [
+                s.sourceKind,
+                s.orderBy,
+                s.response,
+                s.columnsInResponse,
+                (_, props) => props.context,
+                s.currentTeam,
+            ],
             (
                 sourceKind: NodeKind | null,
                 orderBy: string[] | null,
                 response: AnyDataNode['response'],
                 columnsInResponse: string[] | null,
-                context: QueryContext<DataTableNode> | undefined
+                context: QueryContext<DataTableNode> | undefined,
+                currentTeam: { timezone?: string } | null
             ): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
                     const queryResponse = response as AnyResponseType
@@ -139,18 +176,22 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                     removeExpressionComment(column) === `-${orderKey}`
                             ) ?? -1
 
-                        // Add a label between results if the day changed for events with timestamp
+                        // Add a label between results if the day changed for events with timestamp.
+                        // Use the project timezone so date headers match the date filter.
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
+                            const tz = currentTeam?.timezone ?? 'UTC'
                             let lastResult: any = null
                             const newResults: DataTableRow[] = []
                             for (const result of results) {
                                 if (
                                     result &&
                                     lastResult &&
-                                    !dayjs(result[orderKeyIndex]).isSame(lastResult[orderKeyIndex], 'day')
+                                    !dayjs(result[orderKeyIndex])
+                                        .tz(tz)
+                                        .isSame(dayjs(lastResult[orderKeyIndex]).tz(tz), 'day')
                                 ) {
                                     newResults.push({
-                                        label: dayjs(result[orderKeyIndex]).format('LL'),
+                                        label: dayjs(result[orderKeyIndex]).tz(tz).format('LL'),
                                     })
                                 }
                                 newResults.push({ result })
@@ -223,6 +264,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showSavedQueries: query.showSavedQueries ?? false,
                         showSavedFilters: query.showSavedFilters ?? false,
                         showTableViews: query.showTableViews ?? false,
+                        showAbsoluteTime: query.showAbsoluteTime ?? false,
                         showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                         showOpenEditorButton:

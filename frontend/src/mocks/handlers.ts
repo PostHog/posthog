@@ -15,7 +15,8 @@ import {
 
 import { ResponseComposition, RestContext, RestRequest } from 'msw'
 
-import { INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
+import { INCIDENT_IO_STATUS_PAGE_BASE } from 'lib/components/HealthMenu/incidentStatusLogic'
+
 import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
 import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
 import { SharingConfigurationType } from '~/types'
@@ -27,7 +28,12 @@ import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplat
 import * as incidentIoStatusPageAllOK from './fixtures/_incident_io_status_page_all_ok.json'
 import { MockSignature, Mocks, mocksToHandlers } from './utils'
 
-export const EMPTY_PAGINATED_RESPONSE = { count: 0, results: [] as any[], next: null, previous: null }
+export const EMPTY_PAGINATED_RESPONSE = {
+    count: 0,
+    results: [] as any[],
+    next: null,
+    previous: null,
+}
 export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESPONSE => ({
     count: results.length,
     results,
@@ -131,7 +137,10 @@ export const defaultMocks: Mocks = {
         '/api/user_home_settings/@me/': { tabs: [], homepage: null },
         '/api/organizations/@current/': (): MockSignature => [
             200,
-            { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
+            {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                available_product_features: getAvailableProductFeatures(),
+            },
         ],
         '/api/organizations/:organization_id/roles/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/resource_access': EMPTY_PAGINATED_RESPONSE,
@@ -156,6 +165,7 @@ export const defaultMocks: Mocks = {
                     ...MOCK_DEFAULT_ORGANIZATION,
                     available_product_features: getAvailableProductFeatures(),
                 },
+                pending_invites: [],
             },
         ],
         '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [], method: 'TOTP' }],
@@ -174,6 +184,12 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/comments/count': { count: 0 },
         '/api/projects/:team_id/comments': { results: [] },
         '/_preflight': require('./fixtures/_preflight.json'),
+        '/api/login/dev': {
+            users: [
+                { email: 'test@posthog.com', is_staff: true, label: 'Default test user' },
+                { email: 'staff@posthog.com', is_staff: true, label: null },
+            ],
+        },
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
         // TODO: Add a real mock once we know why this endpoint returns an error inside a 200 response
@@ -232,6 +248,8 @@ export const defaultMocks: Mocks = {
         'api/projects/:team_id/surveys': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys/responses_count': {},
         'api/environments/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,
+        '/api/organizations/:organization_id/integrations/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/quick_filters/': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/assignment_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/grouping_rules': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/suppression_rules': EMPTY_PAGINATED_RESPONSE,
@@ -242,7 +260,7 @@ export const defaultMocks: Mocks = {
         '/api/sdk_versions/': sdkVersions,
         '/api/team_sdk_versions/': teamSdkVersions,
         '/api/environments/:team_id/endpoints/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/signal_source_configs/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/signals/source_configs/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/:feature_flag_id/dependent_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_prompts/resolve/': {},
         '/api/environments/:team_id/llm_analytics/': {},

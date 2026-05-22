@@ -10,7 +10,7 @@ class UserRepoPreference(UUIDModel):
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="user_repo_preferences")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="user_repo_preferences")
-    scope_type = models.CharField(max_length=32, choices=ScopeType.choices)
+    scope_type = models.CharField(max_length=32, choices=ScopeType)
     scope_id = models.CharField(max_length=128, default="", blank=True)
     repository = models.CharField(max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -186,6 +186,19 @@ class TestSharing(APIBaseTest):
         assert response.json()["is_shared"]
         assert ActivityLog.objects.filter(scope="SharingConfiguration").count() == 0
 
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": False},
+        )
+
+        dashboard_sharing_logs = ActivityLog.objects.filter(
+            scope="Dashboard", activity__in=["sharing enabled", "sharing disabled"]
+        ).order_by("created_at")
+        assert [(x.activity, x.user_id) for x in dashboard_sharing_logs] == [
+            ("sharing enabled", self.user.id),
+            ("sharing disabled", self.user.id),
+        ]
+
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
         assert ActivityLog.objects.filter(scope="SharingConfiguration").count() == 0
@@ -452,6 +465,13 @@ class TestSharing(APIBaseTest):
         # Verify the token persists
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
         assert response.json()["access_token"] == refreshed_data["access_token"]
+
+        # Verify activity log was created
+        activity_logs = ActivityLog.objects.filter(scope="Dashboard", activity="access token refreshed")
+        assert activity_logs.count() == 1
+        first = activity_logs.first()
+        assert first is not None
+        assert first.item_id == str(self.dashboard.id)
 
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_refresh_sharing_access_token_for_insight(self, patched_exporter_task: Mock):
@@ -1003,6 +1023,86 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         response = self.client.get(f"/shared/{access_token}")
         assert response.status_code == 404
 
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_exported_asset_public_url_blocked_when_organization_disallows_public_sharing(
+        self, _patched_exporter_task: Mock, patched_get_presigned_url: Mock
+    ):
+        """
+        Regression test: previously, disabling org-level public sharing only blocked
+        `/shared/<token>` (SharingConfiguration path) but left `/exporter/...?token=<jwt>`
+        (ExportedAsset public token path) returning content. Both surfaces must respect
+        the kill switch.
+        """
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "organization_security_settings"},
+        ]
+        self.organization.save()
+
+        # Enable sharing and create a publicly-accessible ExportedAsset for the dashboard.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            content_location="some object url",
+        )
+        exporter_url = asset.get_public_content_url()
+
+        # Sanity check: public token URL works while public sharing is allowed.
+        response = self.client.get(exporter_url)
+        assert response.status_code == 302
+
+        # Disable public sharing at the org level.
+        self.organization.allow_publicly_shared_resources = False
+        self.organization.save()
+
+        # ExportedAsset public token URL must now be blocked, same as /shared/...
+        response = self.client.get(exporter_url)
+        assert response.status_code == 404
+
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_exported_asset_public_url_blocked_for_password_protected_share_when_disallowed(
+        self, _patched_exporter_task: Mock, patched_get_presigned_url: Mock
+    ):
+        """
+        A known ExportedAsset public token URL must not bypass the org-level kill switch even
+        when the underlying SharingConfiguration is password-protected.
+        """
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "organization_security_settings"},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "access_control"},
+        ]
+        self.organization.save()
+
+        SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            enabled=True,
+            password_required=True,
+        )
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            content_location="some object url",
+        )
+        exporter_url = asset.get_public_content_url()
+
+        self.organization.allow_publicly_shared_resources = False
+        self.organization.save()
+
+        response = self.client.get(exporter_url)
+        assert response.status_code == 404
+
 
 class TestSharePasswordLogging(APIBaseTest):
     """Test the _log_share_password_attempt function for activity logging"""
@@ -1209,3 +1309,103 @@ class TestExportCacheKeyFlow(APIBaseTest):
         # fetch_cached_response_by_key should not be called since cache_keys parsing failed
         mock_fetch_cached.assert_not_called()
         mock_calculate.assert_called_once()
+
+
+class TestSharedCohortInlining(APIBaseTest):
+    @mock_exporter_template
+    def test_shared_insight_inlines_referenced_cohort_names(self):
+        from posthog.models.cohort import Cohort
+
+        cohort = Cohort.objects.create(team=self.team, name="Power users")
+        other_cohort = Cohort.objects.create(team=self.team, name="Churned users")  # not referenced
+
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Trend by cohort",
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort.id]},
+                },
+            },
+        )
+        config = SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+
+        exported_cohorts = self._parse_exported_cohorts(response.content.decode())
+        assert exported_cohorts == [{"id": cohort.id, "name": "Power users"}]
+        assert other_cohort.id not in {c["id"] for c in exported_cohorts}
+
+    @mock_exporter_template
+    def test_shared_insight_without_cohort_references_returns_empty_list(self):
+        insight = Insight.objects.create(
+            team=self.team,
+            name="No cohorts",
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                },
+            },
+        )
+        config = SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
+
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+        assert self._parse_exported_cohorts(response.content.decode()) == []
+
+    @mock_exporter_template
+    def test_shared_dashboard_collects_cohorts_across_tiles(self):
+        from posthog.models.cohort import Cohort
+
+        from products.dashboards.backend.models.dashboard_tile import DashboardTile
+
+        cohort_a = Cohort.objects.create(team=self.team, name="Cohort A")
+        cohort_b = Cohort.objects.create(team=self.team, name="Cohort B")
+
+        dashboard = Dashboard.objects.create(team=self.team, name="dash", created_by=self.user)
+        insight_a = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_a.id]},
+                },
+            },
+        )
+        insight_b = Insight.objects.create(
+            team=self.team,
+            filters={
+                "events": [{"id": "$pageview"}],
+                "properties": [{"key": "id", "value": cohort_b.id, "type": "cohort"}],
+            },
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight_a)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight_b)
+
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+
+        exported_cohorts = self._parse_exported_cohorts(response.content.decode())
+        assert sorted(exported_cohorts, key=lambda c: c["id"]) == sorted(
+            [{"id": cohort_a.id, "name": "Cohort A"}, {"id": cohort_b.id, "name": "Cohort B"}],
+            key=lambda c: c["id"],
+        )
+
+    @staticmethod
+    def _parse_exported_cohorts(html: str) -> list[dict]:
+        # mock_exporter_template embeds the exported_data JSON inside this <script> tag.
+        start_marker = '<script id="posthog-exported-data" type="application/json">'
+        start = html.index(start_marker) + len(start_marker)
+        end = html.index("</script>", start)
+        outer = json.loads(html[start:end])
+        inner = json.loads(outer) if isinstance(outer, str) else outer
+        return inner.get("cohorts", [])

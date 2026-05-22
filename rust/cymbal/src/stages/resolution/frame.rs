@@ -75,6 +75,8 @@ impl FrameResolver {
         debug_images: &[AppleDebugImage],
         ctx: ResolutionStage,
     ) -> Result<Vec<Frame>, UnhandledError> {
+        let _permit = ctx.acquire_symbol_resolution_permit().await?;
+
         ctx.symbol_resolver
             .resolve_raw_frame(team_id, frame, debug_images)
             .await

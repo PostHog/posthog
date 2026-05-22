@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import random
 from dataclasses import asdict
 from datetime import UTC, datetime, time, timedelta
@@ -11,6 +13,7 @@ from temporalio.client import (
     Client as TemporalClient,
     Schedule,
     ScheduleActionStartWorkflow,
+    ScheduleAlreadyRunningError,
     ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
@@ -25,6 +28,7 @@ from posthog.temporal.common.schedule import (
     a_delete_schedule,
     a_schedule_exists,
     a_trigger_schedule,
+    a_unpause_schedule,
     a_update_schedule,
     create_schedule,
     delete_schedule,
@@ -37,8 +41,10 @@ from posthog.temporal.common.schedule import (
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSource
-    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+    from posthog.models import Team
+
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, int]:
@@ -48,7 +54,7 @@ def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, i
     return (int(jitter_seconds // 3600), int((jitter_seconds % 3600) // 60))
 
 
-def get_sync_schedule(external_data_schema: "ExternalDataSchema", should_sync: bool = True):
+def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: bool = True):
     inputs = ExternalDataWorkflowInputs(
         team_id=external_data_schema.team_id,
         external_data_schema_id=external_data_schema.id,
@@ -141,14 +147,18 @@ def to_temporal_schedule(
 
 
 def sync_external_data_job_workflow(
-    external_data_schema: "ExternalDataSchema", create: bool = False, should_sync: bool = True
-) -> "ExternalDataSchema":
+    external_data_schema: ExternalDataSchema, create: bool = False, should_sync: bool = True
+) -> ExternalDataSchema:
     temporal = sync_connect()
 
     schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
-        create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        try:
+            create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        except ScheduleAlreadyRunningError:
+            update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+            trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
         update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
@@ -156,31 +166,37 @@ def sync_external_data_job_workflow(
 
 
 async def a_sync_external_data_job_workflow(
-    external_data_schema: "ExternalDataSchema", create: bool = False, should_sync: bool = True
-) -> "ExternalDataSchema":
+    external_data_schema: ExternalDataSchema, create: bool = False, should_sync: bool = True
+) -> ExternalDataSchema:
     temporal = await async_connect()
 
     schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
 
     if create:
-        await a_create_schedule(temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True)
+        try:
+            await a_create_schedule(
+                temporal, id=str(external_data_schema.id), schedule=schedule, trigger_immediately=True
+            )
+        except ScheduleAlreadyRunningError:
+            await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
+            await a_trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
     else:
         await a_update_schedule(temporal, id=str(external_data_schema.id), schedule=schedule)
 
     return external_data_schema
 
 
-def trigger_external_data_source_workflow(external_data_source: "ExternalDataSource"):
+def trigger_external_data_source_workflow(external_data_source: ExternalDataSource):
     temporal = sync_connect()
     trigger_schedule(temporal, schedule_id=str(external_data_source.id))
 
 
-def trigger_external_data_workflow(external_data_schema: "ExternalDataSchema"):
+def trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
     temporal = sync_connect()
     trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
 
 
-async def a_trigger_external_data_workflow(external_data_schema: "ExternalDataSchema"):
+async def a_trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
     temporal = await async_connect()
     await a_trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
 
@@ -205,6 +221,11 @@ def unpause_external_data_schedule(id: str):
     unpause_schedule(temporal, schedule_id=id)
 
 
+async def a_unpause_external_data_schedule(id: str):
+    temporal = await async_connect()
+    await a_unpause_schedule(temporal, schedule_id=id)
+
+
 def delete_external_data_schedule(schedule_id: str):
     temporal = sync_connect()
     try:
@@ -216,7 +237,7 @@ def delete_external_data_schedule(schedule_id: str):
         raise
 
 
-async def a_delete_external_data_schedule(external_data_source: "ExternalDataSource"):
+async def a_delete_external_data_schedule(external_data_source: ExternalDataSource):
     temporal = await async_connect()
     try:
         await a_delete_schedule(temporal, schedule_id=str(external_data_source.id))
@@ -239,10 +260,253 @@ async def cancel_workflow(temporal: TemporalClient, workflow_id: str):
 
 
 def is_any_external_data_schema_paused(team_id: int) -> bool:
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     return (
         ExternalDataSchema.objects.exclude(deleted=True)
         .filter(team_id=team_id, status=ExternalDataSchema.Status.PAUSED)
         .exists()
     )
+
+
+def is_cdc_enabled_for_team(team: Team) -> bool:
+    """Check if the CDC feature flag is enabled for a team."""
+    from django.conf import settings
+
+    if settings.DEBUG:
+        return True
+
+    import posthoganalytics
+
+    return posthoganalytics.feature_enabled(
+        "dwh-postgres-cdc",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+
+# ---------------------------------------------------------------------------
+# CDC extraction scheduling (source-level)
+# ---------------------------------------------------------------------------
+
+
+def _get_cdc_extraction_schedule_id(source_id: str) -> str:
+    return f"cdc-extraction-{source_id}"
+
+
+def get_cdc_extraction_schedule(
+    source: ExternalDataSource,
+    min_interval: timedelta,
+) -> Schedule:
+    """Build a Temporal Schedule for the CDC extraction workflow.
+
+    The schedule runs at the source level and the interval is the minimum
+    sync_frequency_interval of all CDC-enabled schemas in the source.
+    """
+    from posthog.temporal.data_imports.cdc.workflows import CDCExtractionInput
+
+    inputs = CDCExtractionInput(
+        team_id=source.team_id,
+        source_id=source.id,
+    )
+
+    action = ScheduleActionStartWorkflow(
+        "cdc-extraction",
+        asdict(inputs),
+        id=_get_cdc_extraction_schedule_id(str(source.id)),
+        task_queue=str(settings.DATA_WAREHOUSE_TASK_QUEUE),
+        retry_policy=RetryPolicy(
+            initial_interval=timedelta(seconds=10),
+            maximum_interval=timedelta(seconds=120),
+            maximum_attempts=3,
+        ),
+    )
+
+    spec = ScheduleSpec(
+        intervals=[ScheduleIntervalSpec(every=min_interval)],
+    )
+
+    return Schedule(
+        action=action,
+        spec=spec,
+        state=ScheduleState(
+            note=f"CDC extraction schedule for source: {source.id}",
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+
+def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = False) -> None:
+    """Create or update the CDC extraction Temporal schedule for a source.
+
+    Calculates the interval from the most frequent CDC schema. If no CDC
+    schemas are active, deletes the schedule.
+    """
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+    cdc_schemas = list(
+        ExternalDataSchema.objects.filter(
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        ).exclude(deleted=True)
+    )
+
+    schedule_id = _get_cdc_extraction_schedule_id(str(source.id))
+
+    if not cdc_schemas:
+        try:
+            delete_external_data_schedule(schedule_id)
+        except Exception:
+            pass
+        return
+
+    intervals = [s.sync_frequency_interval for s in cdc_schemas if s.sync_frequency_interval is not None]
+    min_interval = min(intervals) if intervals else timedelta(hours=1)
+
+    temporal = sync_connect()
+    schedule = get_cdc_extraction_schedule(source, min_interval)
+
+    if create:
+        create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+    else:
+        try:
+            update_schedule(temporal, id=schedule_id, schedule=schedule)
+        except temporalio.service.RPCError as e:
+            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+            else:
+                raise
+
+
+def delete_cdc_extraction_schedule(source_id: str) -> None:
+    """Delete the CDC extraction schedule for a source."""
+    schedule_id = _get_cdc_extraction_schedule_id(source_id)
+    try:
+        delete_external_data_schedule(schedule_id)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Schema discovery scheduling (source-level)
+# ---------------------------------------------------------------------------
+
+DISCOVER_SCHEMAS_INTERVAL = timedelta(hours=6)
+
+
+def _get_discover_schemas_schedule_id(source_id: str) -> str:
+    return f"discover-schemas-{source_id}"
+
+
+def get_discover_schemas_schedule(source: ExternalDataSource) -> Schedule:
+    """Build a Temporal Schedule for the per-source schema-discovery workflow."""
+    # Inline import breaks a circular dependency: `sync_new_schemas` needs
+    # `delete_external_data_schedule` and `_get_discover_schemas_schedule_id` from this
+    # module for self-cleanup when the source vanishes, so it imports from us at module
+    # load time. Hoisting this import would deadlock the loader.
+    from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import SyncNewSchemasActivityInputs
+
+    inputs = SyncNewSchemasActivityInputs(source_id=str(source.id), team_id=source.team_id)
+
+    action = ScheduleActionStartWorkflow(
+        "discover-schemas",
+        asdict(inputs),
+        id=_get_discover_schemas_schedule_id(str(source.id)),
+        task_queue=str(settings.DATA_WAREHOUSE_TASK_QUEUE),
+        retry_policy=RetryPolicy(
+            initial_interval=timedelta(seconds=10),
+            maximum_interval=timedelta(seconds=60),
+            maximum_attempts=3,
+            non_retryable_error_types=["NondeterminismError"],
+        ),
+    )
+
+    # Deterministic per-source offset so sources sharing a cadence don't dogpile.
+    offset_hours, offset_minutes = _jitter_timedelta(DISCOVER_SCHEMAS_INTERVAL, random.Random(str(source.id)))
+    spec = ScheduleSpec(
+        intervals=[
+            ScheduleIntervalSpec(
+                every=DISCOVER_SCHEMAS_INTERVAL,
+                offset=timedelta(hours=offset_hours, minutes=offset_minutes),
+            )
+        ],
+    )
+
+    return Schedule(
+        action=action,
+        spec=spec,
+        state=ScheduleState(note=f"Discover schemas schedule for source: {source.id}"),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+
+def sync_discover_schemas_schedule(source: ExternalDataSource, create: bool = False) -> None:
+    """Create or update the per-source schema-discovery Temporal schedule.
+
+    On ``create=True`` triggers an immediate run so a brand-new source picks up
+    its initial schema list right away. On ``create=False`` (or when the
+    schedule turns out not to exist), upserts idempotently — this makes the
+    helper safe for both fresh deploys and the backfill management command.
+    """
+    temporal = sync_connect()
+    schedule_id = _get_discover_schemas_schedule_id(str(source.id))
+    schedule = get_discover_schemas_schedule(source)
+
+    if create:
+        create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+        return
+
+    try:
+        update_schedule(temporal, id=schedule_id, schedule=schedule)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+        else:
+            raise
+
+
+def delete_discover_schemas_schedule(source_id: str) -> None:
+    schedule_id = _get_discover_schemas_schedule_id(source_id)
+    try:
+        delete_external_data_schedule(schedule_id)
+    except Exception:
+        # delete_external_data_schedule already swallows NOT_FOUND; defensively
+        # ignore other races (e.g. schedule deleted between fetch and delete).
+        pass
+
+
+_CDC_SLOT_CLEANUP_SCHEDULE_ID = "cdc-slot-cleanup-global"
+
+
+def ensure_cdc_slot_cleanup_schedule() -> None:
+    """Ensure the global hourly CDCSlotCleanupWorkflow schedule exists.
+
+    Idempotent — safe to call on every app startup or source creation.
+    Creates the schedule if absent; no-ops if already present.
+    """
+    temporal = sync_connect()
+
+    if schedule_exists(temporal, schedule_id=_CDC_SLOT_CLEANUP_SCHEDULE_ID):
+        return
+
+    action = ScheduleActionStartWorkflow(
+        "cdc-slot-cleanup",
+        id=_CDC_SLOT_CLEANUP_SCHEDULE_ID,
+        task_queue=str(settings.DATA_WAREHOUSE_TASK_QUEUE),
+        retry_policy=RetryPolicy(
+            initial_interval=timedelta(seconds=30),
+            maximum_interval=timedelta(seconds=300),
+            maximum_attempts=2,
+        ),
+    )
+
+    schedule = Schedule(
+        action=action,
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+        state=ScheduleState(note="Global CDC slot orphan cleanup and WAL lag monitor"),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    create_schedule(temporal, id=_CDC_SLOT_CLEANUP_SCHEDULE_ID, schedule=schedule)

@@ -6,6 +6,7 @@ import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { IconLink } from '../icons'
 import { LemonButton } from '../LemonButton'
+import { More } from '../LemonButton/More'
 import { LemonDivider } from '../LemonDivider'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
@@ -450,29 +451,33 @@ export const WithRowActions: Story = {
                     },
                 ]}
                 rowActions={(record) => (
-                    <>
-                        <LemonButton
-                            fullWidth
-                            size="small"
-                            icon={<IconLink />}
-                            onClick={() => alert(`Viewing ${record.name}'s profile`)}
-                        >
-                            View profile
-                        </LemonButton>
-                        <LemonButton fullWidth size="small" onClick={() => alert(`Editing ${record.name}`)}>
-                            Edit
-                        </LemonButton>
-                        <LemonDivider />
-                        <LemonButton
-                            fullWidth
-                            size="small"
-                            status="danger"
-                            icon={<IconTrash />}
-                            onClick={() => alert(`Deleting ${record.name}`)}
-                        >
-                            Delete
-                        </LemonButton>
-                    </>
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    icon={<IconLink />}
+                                    onClick={() => alert(`Viewing ${record.name}'s profile`)}
+                                >
+                                    View profile
+                                </LemonButton>
+                                <LemonButton fullWidth size="small" onClick={() => alert(`Editing ${record.name}`)}>
+                                    Edit
+                                </LemonButton>
+                                <LemonDivider />
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    status="danger"
+                                    icon={<IconTrash />}
+                                    onClick={() => alert(`Deleting ${record.name}`)}
+                                >
+                                    Delete
+                                </LemonButton>
+                            </>
+                        }
+                    />
                 )}
                 dataSource={MANY_PEOPLE.slice(0, 5)}
             />
@@ -508,4 +513,56 @@ export const WithHorizontalAndVerticalOverflow: Story = {
             </div>
         )
     },
+}
+
+const BULK_SELECTION_COLUMNS: LemonTableColumns<MockPerson> = [
+    { title: 'Name', dataIndex: 'name' },
+    { title: 'Occupation', dataIndex: 'occupation' },
+]
+
+const BULK_SELECTION_PEOPLE = MANY_PEOPLE.slice(0, 5)
+
+function BulkSelectionTable({ initialSelected }: { initialSelected: string[] }): JSX.Element {
+    return (
+        <LemonTable
+            columns={BULK_SELECTION_COLUMNS}
+            dataSource={BULK_SELECTION_PEOPLE}
+            rowKey="name"
+            bulkSelection={{
+                getKey: (person: MockPerson): string => person.name,
+                initialSelectedKeys: initialSelected,
+                noun: ['person', 'people'],
+                rowAriaLabel: (person: MockPerson) => `Select ${person.name}`,
+                headerAriaLabel: 'Select all people on this page',
+                renderActions: (ctx) => (
+                    <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => alert(`Editing ${ctx.selectedCount} person(s)`)}
+                        >
+                            Edit selected
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            status="danger"
+                            size="small"
+                            icon={<IconTrash />}
+                            onClick={() => alert(`Deleting ${ctx.selectedKeys.join(', ')}`)}
+                        >
+                            Delete selected
+                        </LemonButton>
+                    </>
+                ),
+            }}
+        />
+    )
+}
+
+export const WithBulkSelectionNothingSelected: Story = {
+    render: () => <BulkSelectionTable initialSelected={[]} />,
+}
+
+export const WithBulkSelectionTwoSelected: Story = {
+    render: () => <BulkSelectionTable initialSelected={['Werner C.', 'Ursula Z.']} />,
 }

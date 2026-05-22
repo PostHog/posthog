@@ -1,4 +1,3 @@
-import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -265,7 +264,8 @@ export const productToursLogic = kea<productToursLogicType>([
         productTours: {
             __default: [] as ProductTour[],
             loadProductTours: async () => {
-                const response: PaginatedResponse<ProductTour> = await api.productTours.list()
+                const search = values.searchTerm?.trim() || undefined
+                const response: PaginatedResponse<ProductTour> = await api.productTours.list({ search })
                 return response.results
             },
             deleteProductTour: async (id: string) => {
@@ -341,6 +341,10 @@ export const productToursLogic = kea<productToursLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
+        setSearchTerm: async (_, breakpoint) => {
+            await breakpoint(250)
+            actions.loadProductTours()
+        },
         setTab: ({ tab }) => {
             actions.setFilters({ archived: tab === ProductToursTabs.Archived })
         },
@@ -404,26 +408,12 @@ export const productToursLogic = kea<productToursLogicType>([
     })),
     selectors({
         filteredProductTours: [
-            (s) => [s.productTours, s.searchTerm, s.filters],
-            (productTours: ProductTour[], searchTerm: string, filters: ProductToursFilters) => {
-                let filtered = productTours
-
-                if (searchTerm) {
-                    const fuse = new Fuse(filtered, {
-                        keys: ['name', 'description'],
-                        ignoreLocation: true,
-                        threshold: 0.3,
-                    })
-                    filtered = fuse.search(searchTerm).map((result) => result.item)
-                }
-
+            (s) => [s.productTours, s.filters],
+            (productTours: ProductTour[], filters: ProductToursFilters) => {
                 if (filters.archived) {
-                    filtered = filtered.filter((tour: ProductTour) => tour.archived)
-                } else {
-                    filtered = filtered.filter((tour: ProductTour) => !tour.archived)
+                    return productTours.filter((tour: ProductTour) => tour.archived)
                 }
-
-                return filtered
+                return productTours.filter((tour: ProductTour) => !tour.archived)
             },
         ],
         breadcrumbs: [

@@ -1,17 +1,19 @@
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { KafkaConsumer } from '~/kafka/consumer'
+import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, PipelineEvent, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
 import { parseJSON } from '~/utils/json-parse'
 import { UUIDT } from '~/utils/utils'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
 
 /** Creates a mock KafkaConsumer for tests that don't need actual Kafka connections */
@@ -142,33 +144,63 @@ describe('ErrorTrackingConsumer', () => {
         const config = {
             groupId: hub.ERROR_TRACKING_CONSUMER_GROUP_ID,
             topic: hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
-            dlqTopic: hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC,
-            overflowTopic: hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC,
-            outputTopic: hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
             cymbalBaseUrl: hub.ERROR_TRACKING_CYMBAL_BASE_URL,
             cymbalTimeoutMs: hub.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
             cymbalMaxBodyBytes: hub.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
             lane: hub.INGESTION_LANE ?? ('main' as const),
+            overflowEnabled:
+                !!hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
+                hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !== hub.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
             overflowBucketCapacity: hub.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
             overflowBucketReplenishRate: hub.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
             statefulOverflowEnabled: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
             statefulOverflowRedisTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
             statefulOverflowLocalCacheTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
-            pipeline: hub.INGESTION_PIPELINE ?? 'error_tracking',
+            preservePartitionLocality: hub.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+            pipeline: hub.INGESTION_PIPELINE ?? 'errortracking',
+            rateLimiterEnabled: hub.ERROR_TRACKING_RATE_LIMITER_ENABLED,
+            rateLimiterReportingMode: hub.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
+            rateLimiterRedisHost: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
+            rateLimiterRedisPort: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
+            rateLimiterRedisTls: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
+            rateLimiterTtlSeconds: hub.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
+            fallbackRedisUrl: hub.REDIS_URL,
+            rateLimiterRedisPoolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            rateLimiterRedisPoolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         }
         // Create and store the mock so tests can configure it
         mockHogTransformer = createMockHogTransformer()
         const deps = {
             outputs: new IngestionOutputs({
-                events: [{ topic: config.outputTopic, producer: hub.kafkaProducer, producerName: 'test' }],
-                ingestion_warnings: [
-                    { topic: 'clickhouse_ingestion_warnings_test', producer: hub.kafkaProducer, producerName: 'test' },
-                ],
-                dlq: [{ topic: config.dlqTopic, producer: hub.kafkaProducer, producerName: 'test' }],
-                overflow: [{ topic: config.overflowTopic || '', producer: hub.kafkaProducer, producerName: 'test' }],
-                tophog: [{ topic: 'clickhouse_tophog_test', producer: hub.kafkaProducer, producerName: 'test' }],
+                events: new SingleIngestionOutput(
+                    'events',
+                    hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
+                    mockProducer,
+                    'test'
+                ),
+                ingestion_warnings: new SingleIngestionOutput(
+                    'ingestion_warnings',
+                    'clickhouse_ingestion_warnings_test',
+                    mockProducer,
+                    'test'
+                ),
+                dlq: new SingleIngestionOutput('dlq', hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC, mockProducer, 'test'),
+                overflow: new SingleIngestionOutput(
+                    'overflow',
+                    hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC || '',
+                    mockProducer,
+                    'test'
+                ),
+                tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', mockProducer, 'test'),
+                app_metrics: new SingleIngestionOutput(
+                    'app_metrics',
+                    'clickhouse_app_metrics2_test',
+                    mockProducer,
+                    'test'
+                ),
             }),
             teamManager: hub.teamManager,
+            errorTrackingSettingsManager: new ErrorTrackingSettingsManager(hub.postgres),
             hogTransformer: mockHogTransformer,
             groupTypeManager: hub.groupTypeManager,
             redisPool: hub.redisPool,
@@ -237,8 +269,6 @@ describe('ErrorTrackingConsumer', () => {
             expect(consumer['name']).toBe('error-tracking-consumer')
             expect(consumer['config'].groupId).toBe('ingestion-errortracking')
             expect(consumer['config'].topic).toBe('ingestion-errortracking-main_test')
-            expect(consumer['config'].dlqTopic).toBe('ingestion-errortracking-main-dlq_test')
-            expect(consumer['config'].outputTopic).toBe('clickhouse_events_json_test')
         })
     })
 

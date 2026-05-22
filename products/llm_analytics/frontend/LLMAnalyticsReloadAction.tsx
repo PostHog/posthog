@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import React from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -6,6 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -21,18 +23,32 @@ export function LLMAnalyticsReloadAction(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { selectedDashboardId } = useValues(llmAnalyticsDashboardLogic)
 
-    const shouldUseDashboardLogic = selectedDashboardId && activeTab === 'dashboard'
-    const dashboardLogicInstance = dashboardLogic({
-        id: selectedDashboardId || 0,
-        placement: DashboardPlacement.Builtin,
-    })
+    const shouldUseDashboardLogic = !!(selectedDashboardId && activeTab === 'dashboard')
+
+    // Memoize per-id so the previous dashboardLogic.<id> store path is released cleanly
+    // before the next one mounts; an unmemoized call on every render leaves selectors/
+    // listeners reading from an unmounted store and Kea throws "Can not find path".
+    const dashboardLogicInstance = React.useMemo(
+        () =>
+            selectedDashboardId
+                ? dashboardLogic({ id: selectedDashboardId, placement: DashboardPlacement.Builtin })
+                : null,
+        [selectedDashboardId]
+    )
+    const fallbackLogicInstance = React.useMemo(
+        () => dashboardLogic({ id: 0, placement: DashboardPlacement.Builtin }),
+        []
+    )
+    const boundLogic = dashboardLogicInstance || fallbackLogicInstance
+    useAttachedLogic(boundLogic, llmAnalyticsSharedLogic)
+
     const {
         itemsLoading: dashboardLoading,
         effectiveLastRefresh,
         refreshMetrics,
         dashboardLoadData,
-    } = useValues(dashboardLogicInstance)
-    const { triggerDashboardRefresh } = useActions(dashboardLogicInstance)
+    } = useValues(boundLogic)
+    const { triggerDashboardRefresh } = useActions(boundLogic)
 
     const { reloadAll } = useActions(dataNodeCollectionLogic({ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }))
     const { reloadAll: reloadEvaluationMetrics } = useActions(

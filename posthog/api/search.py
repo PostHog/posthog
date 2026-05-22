@@ -9,11 +9,13 @@ from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.full_text_search import build_rank, process_query
-from posthog.models import Action, Cohort, EventDefinition, FeatureFlag, Insight, PropertyDefinition
+from posthog.models import Cohort, EventDefinition, FeatureFlag, Insight, PropertyDefinition
 from posthog.models.hog_flow.hog_flow import HogFlow
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
@@ -111,6 +113,7 @@ class QuerySerializer(serializers.Serializer):
 
 class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
 
     def list(self, request: Request, **kw) -> HttpResponse:
         # parse query params
@@ -196,7 +199,7 @@ def class_queryset(
     entity_type = class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields", "_sort_name"]
 
-    qs: QuerySet[Any] = klass.objects.filter(team__project_id=project_id)  # filter team
+    qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
 
     # Apply entity-specific filters

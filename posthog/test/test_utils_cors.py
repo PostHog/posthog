@@ -1,13 +1,8 @@
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpResponse
 from django.test import TestCase
+from django.test.client import RequestFactory
 
 from posthog.utils_cors import cors_response
-
-
-class FakeRequest(HttpRequest):
-    def __init__(self, META):
-        super().__init__()
-        self.META = META
 
 
 class TestCorsResponse(TestCase):
@@ -26,7 +21,7 @@ class TestCorsResponse(TestCase):
 
         for origin, expected in valid_origin_test_cases:
             with self.subTest():
-                request = FakeRequest(META={"HTTP_ORIGIN": origin})
+                request = RequestFactory().get("/", HTTP_ORIGIN=origin)
                 self.assertEqual(
                     expected,
                     cors_response(request, HttpResponse()).get("Access-Control-Allow-Origin"),

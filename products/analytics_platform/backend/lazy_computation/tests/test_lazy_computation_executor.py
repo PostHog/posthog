@@ -1072,6 +1072,91 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
                 f"Job {job.time_range_start}: expected TTL ~{expected_ttl}, got {actual_ttl}"
             )
 
+    def test_sentinel_placeholders_produce_stable_hash(self):
+        query = """
+            SELECT
+                toStartOfDay(timestamp) as time_window_start,
+                [] as breakdown_value,
+                uniqExactState(person_id) as uniq_exact_state
+            FROM events
+            WHERE event = '$pageview'
+                AND timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+                AND timestamp <= {my_date}
+            GROUP BY time_window_start
+        """
+
+        first = ensure_precomputed(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            placeholders={"my_date": ast.Constant(value=datetime(2024, 1, 5, 12, 0, 0, tzinfo=UTC))},
+            sentinel_placeholders={"my_date"},
+        )
+        second = ensure_precomputed(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            placeholders={"my_date": ast.Constant(value=datetime(2024, 1, 5, 12, 0, 30, tzinfo=UTC))},
+            sentinel_placeholders={"my_date"},
+        )
+
+        assert first.ready is True
+        assert second.ready is True
+        assert second.job_ids[0] == first.job_ids[0]
+
+    def test_non_sentinel_placeholder_change_produces_different_hash(self):
+        query = """
+            SELECT
+                toStartOfDay(timestamp) as time_window_start,
+                [] as breakdown_value,
+                uniqExactState(person_id) as uniq_exact_state
+            FROM events
+            WHERE event = {event_name}
+                AND timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+                AND timestamp <= {my_date}
+            GROUP BY time_window_start
+        """
+
+        first = ensure_precomputed(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            placeholders={
+                "event_name": ast.Constant(value="$pageview"),
+                "my_date": ast.Constant(value=datetime(2024, 1, 5, tzinfo=UTC)),
+            },
+            sentinel_placeholders={"my_date"},
+        )
+        second = ensure_precomputed(
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            placeholders={
+                "event_name": ast.Constant(value="$pageleave"),
+                "my_date": ast.Constant(value=datetime(2024, 1, 5, tzinfo=UTC)),
+            },
+            sentinel_placeholders={"my_date"},
+        )
+
+        assert first.job_ids[0] != second.job_ids[0]
+
+    def test_sentinel_placeholders_must_exist_in_placeholders(self):
+        with pytest.raises(ValueError, match="must also be present in placeholders"):
+            ensure_precomputed(
+                team=self.team,
+                insert_query=self.MANUAL_INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+                placeholders={},
+                sentinel_placeholders={"nonexistent"},
+            )
+
 
 class TestParseTtlSchedule(BaseTest):
     def test_int_returns_schedule_with_no_rules(self):
@@ -1307,6 +1392,92 @@ class TestRaceConditionHandling(BaseTest):
 
         assert result.ready is True
         assert existing_pending.id in result.job_ids
+
+    def test_for_loop_creates_duplicate_after_peer_completes_mid_loop(self):
+        """Wasted-INSERT pattern under concurrent first-readers — documented in CONSISTENCY.md.
+
+        The executor's `for range in ttl_ranges` loop iterates over a snapshot of
+        missing ranges computed once per while-loop tick. If a peer thread marks
+        a job READY for a later range *while* this thread is mid-loop, the
+        partial unique index `WHERE status='pending'` no longer blocks our
+        CREATE — and we end up with a second READY job for a range already
+        covered by the peer.
+
+        `filter_overlapping_jobs` keeps reads consistent (it picks the most
+        recently created READY per range), so this is a wasted-INSERT cost
+        rather than a correctness bug.
+        """
+        query = self._make_computation_query()
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+        query_hash = compute_query_hash(query_info)
+
+        range_a_start = datetime(2024, 1, 1, tzinfo=UTC)
+        range_b_start = datetime(2024, 1, 2, tzinfo=UTC)
+        range_b_end = datetime(2024, 1, 3, tzinfo=UTC)
+
+        # Distinct TTLs so split_ranges_by_ttl keeps the two days as separate
+        # for-loop iterations — matches the today/yesterday/7-day shape that
+        # web_overview_lazy_precompute uses in prod.
+        schedule = TtlSchedule(
+            rules=[(range_b_start, 100)],  # range_b: 100s
+            default_ttl_seconds=200,  # range_a: 200s
+        )
+
+        # Simulate the peer thread by injecting a fresh READY job for range_b
+        # *during* this executor's insert for range_a — the moment the partial
+        # unique index releases its hold on range_b would be when the peer
+        # marks its own job READY.
+        peer_ready: list[PreaggregationJob] = []
+
+        def mock_insert_with_peer(team, job):
+            if job.time_range_start == range_a_start:
+                peer_job = PreaggregationJob.objects.create(
+                    team=self.team,
+                    query_hash=query_hash,
+                    time_range_start=range_b_start,
+                    time_range_end=range_b_end,
+                    status=PreaggregationJob.Status.READY,
+                    computed_at=django_timezone.now(),
+                    expires_at=django_timezone.now() + timedelta(days=7),
+                )
+                peer_ready.append(peer_job)
+
+        executor = LazyComputationExecutor(
+            wait_timeout_seconds=2.0,
+            poll_interval_seconds=0.05,
+            ttl_schedule=schedule,
+        )
+        result = executor.execute(
+            team=self.team,
+            query_info=query_info,
+            start=range_a_start,
+            end=range_b_end,
+            run_insert=mock_insert_with_peer,
+        )
+
+        # Peer injection happened exactly once
+        assert len(peer_ready) == 1
+
+        # Two READY jobs exist for range_b — the peer's and ours from iter 2
+        jobs_for_b = PreaggregationJob.objects.filter(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=range_b_start,
+            time_range_end=range_b_end,
+            status=PreaggregationJob.Status.READY,
+        )
+        assert jobs_for_b.count() == 2, (
+            "Expected wasted duplicate READY job for range_b — see CONSISTENCY.md "
+            "section 'Concurrent first-readers: redundant INSERTs (by design)'"
+        )
+
+        # filter_overlapping_jobs picks the most-recently-created READY per
+        # range, so the duplicate is invisible to the read path.
+        assert result.ready
+        our_b_job = jobs_for_b.exclude(id=peer_ready[0].id).first()
+        assert our_b_job is not None
+        assert our_b_job.id in result.job_ids
+        assert peer_ready[0].id not in result.job_ids, "filter_overlapping_jobs should drop the older peer READY job"
 
     def test_unique_constraint_prevents_duplicate_pending_jobs(self):
         query = self._make_computation_query()

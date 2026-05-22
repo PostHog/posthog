@@ -148,6 +148,7 @@
     'kind',
     'last_backfill_person_properties_at',
     'last_calculation_duration_ms',
+    'last_realtime_cohort_calculation_at',
     'name',
     'query',
   ])
@@ -192,7 +193,6 @@
   list([
     'description',
     'exposure_criteria',
-    'exposure_preaggregation_enabled',
     'filters',
     'metrics',
     'metrics_secondary',
@@ -270,6 +270,7 @@
   list([
     'appearance',
     'archived',
+    'base_language',
     'conditions',
     'created_at',
     'current_iteration',
@@ -332,6 +333,7 @@
     'button_tile',
     'dashboard',
     'insight',
+    'team',
     'text',
   ])
 # ---
@@ -452,15 +454,16 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
-    '__annotations__',
     '__doc__',
     '__module__',
     '__repr__',
     '__str__',
+    '_get_existing_ch_member_uuids',
     '_get_uuids_for_distinct_ids_batch',
     '_get_uuids_for_emails_batch',
     '_get_uuids_for_emails_batch_ch',
     '_get_uuids_for_emails_batch_pg',
+    '_insert_batch_via_personhog',
     '_insert_users_list_with_batching',
     '_meta',
     '_safe_reset_calculating_state',
@@ -506,7 +509,6 @@
     'MultipleObjectsReturned',
     'PrivilegeLevel',
     'RestrictionLevel',
-    '__annotations__',
     '__doc__',
     '__module__',
     '__repr__',
@@ -554,7 +556,6 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
-    '__annotations__',
     '__doc__',
     '__module__',
     '_meta',
@@ -576,6 +577,7 @@
     'refreshing',
     'save',
     'sort_tiles_by_layout',
+    'team_id',
     'text_id',
   ])
 # ---
@@ -607,7 +609,6 @@
     'ExperimentType',
     'MultipleObjectsReturned',
     'Status',
-    '__annotations__',
     '__doc__',
     '__module__',
     '__str__',
@@ -641,6 +642,7 @@
     'id',
     'is_draft',
     'is_launched',
+    'is_paused',
     'is_running',
     'is_stopped',
     'save',
@@ -716,7 +718,6 @@
     'DoesNotExist',
     'EVALUATION_RUNTIME_CHOICES',
     'MultipleObjectsReturned',
-    '__annotations__',
     '__doc__',
     '__module__',
     '__str__',
@@ -726,6 +727,7 @@
     'access',
     'aggregation_group_type_index',
     'analytics_dashboards',
+    'clean',
     'conditions',
     'created_by_id',
     'deleted',
@@ -778,7 +780,6 @@
     'DoesNotExist',
     'MATERIAL_INSIGHT_FIELDS',
     'MultipleObjectsReturned',
-    '__annotations__',
     '__doc__',
     '__init__',
     '__module__',

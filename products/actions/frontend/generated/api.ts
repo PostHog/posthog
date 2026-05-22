@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActionApi,
     ActionReferenceApi,
+    ActionsBulkUpdateTagsCreateParams,
     ActionsCreateParams,
     ActionsDestroyParams,
     ActionsListParams,
@@ -18,6 +19,8 @@ import type {
     ActionsReferencesListParams,
     ActionsRetrieveParams,
     ActionsUpdateParams,
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     PaginatedActionListApi,
     PatchedActionApi,
 } from './api.schemas'
@@ -84,7 +87,7 @@ export const getActionsCreateUrl = (projectId: string, params?: ActionsCreatePar
 
 export const actionsCreate = async (
     projectId: string,
-    actionApi: NonReadonly<ActionApi>,
+    actionApi?: NonReadonly<ActionApi>,
     params?: ActionsCreateParams,
     options?: RequestInit
 ): Promise<ActionApi> => {
@@ -143,7 +146,7 @@ export const getActionsUpdateUrl = (projectId: string, id: number, params?: Acti
 export const actionsUpdate = async (
     projectId: string,
     id: number,
-    actionApi: NonReadonly<ActionApi>,
+    actionApi?: NonReadonly<ActionApi>,
     params?: ActionsUpdateParams,
     options?: RequestInit
 ): Promise<ActionApi> => {
@@ -174,7 +177,7 @@ export const getActionsPartialUpdateUrl = (projectId: string, id: number, params
 export const actionsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedActionApi: NonReadonly<PatchedActionApi>,
+    patchedActionApi?: NonReadonly<PatchedActionApi>,
     params?: ActionsPartialUpdateParams,
     options?: RequestInit
 ): Promise<ActionApi> => {
@@ -186,9 +189,6 @@ export const actionsPartialUpdate = async (
     })
 }
 
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
 export const getActionsDestroyUrl = (projectId: string, id: number, params?: ActionsDestroyParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -205,6 +205,9 @@ export const getActionsDestroyUrl = (projectId: string, id: number, params?: Act
         : `/api/projects/${projectId}/actions/${id}/`
 }
 
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
 export const actionsDestroy = async (
     projectId: string,
     id: number,
@@ -242,5 +245,46 @@ export const actionsReferencesList = async (
     return apiMutator<ActionReferenceApi[]>(getActionsReferencesListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getActionsBulkUpdateTagsCreateUrl = (projectId: string, params?: ActionsBulkUpdateTagsCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/actions/bulk_update_tags/?${stringifiedParams}`
+        : `/api/projects/${projectId}/actions/bulk_update_tags/`
+}
+
+/**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const actionsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    params?: ActionsBulkUpdateTagsCreateParams,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getActionsBulkUpdateTagsCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
     })
 }

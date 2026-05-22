@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, ClassVar, Union
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -20,15 +20,16 @@ from posthog.schema import (
 from posthog.hogql.errors import QueryError
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.models import Action
 from posthog.models.team.team import Team
 
-from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
-from products.data_warehouse.backend.models.credential import DataWarehouseCredential
+from products.actions.backend.models.action import Action
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 TEST_DATE_FROM = "2024-11-01"
 TEST_DATE_TO = "2024-12-31"
@@ -111,6 +112,7 @@ def _create_action(team, name: str = "test_action") -> Action:
 class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
+    test_data_configs: ClassVar[dict[str, DataConfig]]
 
     @classmethod
     def setUpClass(cls):
@@ -167,7 +169,7 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
     def setUp(self):
         super().setUp()
         self.test_tables: dict[str, TableInfo] = {}
-        self._cleanup_functions: list[callable] = []
+        self._cleanup_functions: list[Callable[[], None]] = []
 
         config = self.team.marketing_analytics_config
         config.sources_map = {}

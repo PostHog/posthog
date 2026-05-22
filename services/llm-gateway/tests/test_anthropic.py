@@ -1,4 +1,5 @@
 import os
+from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -508,6 +509,71 @@ class TestAnthropicMessagesEndpoint:
         assert "Expected: true or false" in response.json()["error"]["message"]
 
 
+class TestStripServerSideTools:
+    """Unit tests for strip_server_side_tools helper."""
+
+    CUSTOM_TOOL: dict[str, Any] = {
+        "name": "read_data",
+        "description": "Reads data",
+        "input_schema": {"type": "object", "properties": {}},
+    }
+    WEB_SEARCH_TOOL: dict[str, Any] = {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}
+    TEXT_EDITOR_TOOL: dict[str, Any] = {"type": "text_editor_20250124", "name": "text_editor"}
+
+    def _call(self, data: dict[str, Any]) -> None:
+        from llm_gateway.api.anthropic import strip_server_side_tools
+
+        strip_server_side_tools(data, model="test-model", product="test")
+
+    def test_strips_server_side_keeps_custom(self) -> None:
+        data: dict[str, Any] = {"tools": [self.CUSTOM_TOOL, self.WEB_SEARCH_TOOL]}
+        self._call(data)
+        assert len(data["tools"]) == 1
+        assert data["tools"][0]["name"] == "read_data"
+
+    def test_keeps_explicit_custom_type(self) -> None:
+        explicit = {**self.CUSTOM_TOOL, "type": "custom"}
+        data: dict[str, Any] = {"tools": [self.CUSTOM_TOOL, explicit]}
+        self._call(data)
+        assert len(data["tools"]) == 2
+
+    def test_keeps_function_type(self) -> None:
+        fn_tool = {**self.CUSTOM_TOOL, "type": "function"}
+        data: dict[str, Any] = {"tools": [fn_tool]}
+        self._call(data)
+        assert len(data["tools"]) == 1
+
+    def test_removes_tools_key_when_all_stripped(self) -> None:
+        data: dict[str, Any] = {"tools": [self.WEB_SEARCH_TOOL]}
+        self._call(data)
+        assert "tools" not in data
+
+    def test_noop_when_no_tools_key(self) -> None:
+        data: dict[str, Any] = {"model": "test"}
+        self._call(data)
+        assert "tools" not in data
+
+    def test_logs_warning_per_stripped_tool(self) -> None:
+        from llm_gateway.api.anthropic import strip_server_side_tools
+
+        data: dict[str, Any] = {"tools": [self.CUSTOM_TOOL, self.WEB_SEARCH_TOOL, self.TEXT_EDITOR_TOOL]}
+        with patch("llm_gateway.api.anthropic.logger") as mock_logger:
+            strip_server_side_tools(data, model="test-model", product="test")
+
+            assert mock_logger.warning.call_count == 2
+            warned_tool_names = {call.kwargs["tool_name"] for call in mock_logger.warning.call_args_list}
+            assert warned_tool_names == {"web_search", "text_editor"}
+
+    def test_strips_multiple_server_side_tool_types(self) -> None:
+        code_exec_tool: dict[str, Any] = {"type": "code_execution_20250522", "name": "code_execution"}
+        data: dict[str, Any] = {
+            "tools": [self.CUSTOM_TOOL, self.WEB_SEARCH_TOOL, self.TEXT_EDITOR_TOOL, code_exec_tool]
+        }
+        self._call(data)
+        assert len(data["tools"]) == 1
+        assert data["tools"][0]["name"] == "read_data"
+
+
 class TestAnthropicCountTokensEndpoint:
     @pytest.fixture
     def valid_request_body(self) -> dict[str, Any]:
@@ -862,3 +928,298 @@ class TestAnthropicCountTokensEndpoint:
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
         assert "Expected: true or false" in response.json()["error"]["message"]
+
+
+class TestAnthropicCircuitBreakerIntegration:
+    """End-to-end behavior of the Anthropic->Bedrock circuit breaker in /v1/messages."""
+
+    @pytest.fixture
+    def request_body(self) -> dict[str, Any]:
+        return {"model": "claude-sonnet-4-6", "messages": [{"role": "user", "content": "Hi"}]}
+
+    @pytest.fixture
+    def mock_response_dict(self) -> dict[str, Any]:
+        return {
+            "id": "msg_123",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "Hi!"}],
+            "model": "claude-sonnet-4-6",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+    @pytest.fixture
+    def install_breaker(self, authenticated_client: TestClient):
+        from llm_gateway.circuit_breaker import BreakerDecision
+
+        def _install(*, bypass: bool) -> MagicMock:
+            breaker = MagicMock()
+            breaker.evaluate = AsyncMock(
+                return_value=BreakerDecision(
+                    bypass=bypass,
+                    open=bypass,
+                    failure_rate=0.5 if bypass else 0.0,
+                    total_requests=30,
+                )
+            )
+            breaker.record_outcome = AsyncMock()
+            authenticated_client.app.state.anthropic_circuit_breaker = breaker
+            return breaker
+
+        return _install
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_open_breaker_with_fallback_routes_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=True)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_count == 1
+        forwarded_model = mock_anthropic.call_args.kwargs["model"]
+        # The model is prefixed with 'bedrock/' for litellm routing
+        assert forwarded_model.startswith("bedrock/")
+        bedrock_model = forwarded_model.removeprefix("bedrock/")
+        assert bedrock_model.startswith(("us.anthropic.", "eu.anthropic.", "anthropic."))
+        breaker.record_outcome.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_open_breaker_without_fallback_still_uses_anthropic(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=True)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        forwarded_model = mock_anthropic.call_args.kwargs["model"]
+        assert forwarded_model == "claude-sonnet-4-6"
+        breaker.record_outcome.assert_awaited_with(success=True)
+        breaker.evaluate.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_closed_breaker_routes_to_anthropic(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 200
+        forwarded_model = mock_anthropic.call_args.kwargs["model"]
+        assert forwarded_model == "claude-sonnet-4-6"
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_5xx_records_failure(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("Internal error")
+        error.status_code = 503  # type: ignore[attr-defined]
+        error.message = "Internal error"  # type: ignore[attr-defined]
+        error.type = "internal_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 503
+        breaker.record_outcome.assert_awaited_with(success=False)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_4xx_recorded_as_success(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("bad request")
+        error.status_code = 400  # type: ignore[attr-defined]
+        error.message = "bad request"  # type: ignore[attr-defined]
+        error.type = "invalid_request_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_429_recorded_as_failure(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("rate limited")
+        error.status_code = 429  # type: ignore[attr-defined]
+        error.message = "rate limited"  # type: ignore[attr-defined]
+        error.type = "rate_limit_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 429
+        breaker.record_outcome.assert_awaited_with(success=False)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_429_with_fallback_routes_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+        mock_response_dict: dict,
+    ) -> None:
+        breaker = install_breaker(bypass=False)
+        error = Exception("rate limited")
+        error.status_code = 429  # type: ignore[attr-defined]
+        error.message = "rate limited"  # type: ignore[attr-defined]
+        error.type = "rate_limit_error"  # type: ignore[attr-defined]
+
+        bedrock_response = MagicMock()
+        bedrock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.side_effect = [error, bedrock_response]
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        breaker.record_outcome.assert_awaited_with(success=False)
+        assert mock_anthropic.call_count == 2
+
+    def test_streaming_success_records_after_stream_completes(
+        self,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        from fastapi.responses import StreamingResponse
+
+        from llm_gateway.api.anthropic import _wrap_stream_with_breaker
+
+        breaker = install_breaker(bypass=False)
+
+        async def ok_iter() -> AsyncIterator[bytes]:
+            yield b'data: {"type":"message_start"}\n\n'
+            yield b'data: {"type":"message_stop"}\n\n'
+
+        wrapped = _wrap_stream_with_breaker(StreamingResponse(ok_iter()), breaker)
+
+        async def consume() -> list[bytes]:
+            return [chunk async for chunk in wrapped.body_iterator]
+
+        import asyncio as _asyncio
+
+        chunks = _asyncio.get_event_loop().run_until_complete(consume())
+        assert len(chunks) == 2
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    def test_streaming_mid_stream_failure_records_failure(
+        self,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        """Direct unit test of the stream wrapper — TestClient surfaces stream errors as
+        connection-level failures which makes a true HTTP-level test brittle."""
+        from fastapi.responses import StreamingResponse
+
+        from llm_gateway.api.anthropic import _wrap_stream_with_breaker
+
+        breaker = install_breaker(bypass=False)
+
+        async def failing_iter() -> AsyncIterator[bytes]:
+            yield b'data: {"type":"message_start"}\n\n'
+            raise RuntimeError("upstream dropped")
+
+        wrapped = _wrap_stream_with_breaker(StreamingResponse(failing_iter()), breaker)
+
+        async def consume() -> None:
+            try:
+                async for _ in wrapped.body_iterator:
+                    pass
+            except RuntimeError:
+                pass
+
+        import asyncio as _asyncio
+
+        _asyncio.get_event_loop().run_until_complete(consume())
+        breaker.record_outcome.assert_awaited_with(success=False)

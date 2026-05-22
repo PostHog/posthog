@@ -19,6 +19,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_at: '2024-01-01T00:00:00Z',
         created_by: null,
         last_used_at: null,
+        azure_endpoint_display: null,
+        api_version_display: null,
     },
     {
         id: 'key-2',
@@ -30,6 +32,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_at: '2024-01-02T00:00:00Z',
         created_by: null,
         last_used_at: null,
+        azure_endpoint_display: null,
+        api_version_display: null,
     },
     {
         id: 'key-3',
@@ -41,6 +45,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_at: '2024-01-03T00:00:00Z',
         created_by: null,
         last_used_at: null,
+        azure_endpoint_display: null,
+        api_version_display: null,
     },
     {
         id: 'key-4',
@@ -52,6 +58,8 @@ const mockProviderKeys: LLMProviderKey[] = [
         created_at: '2024-01-04T00:00:00Z',
         created_by: null,
         last_used_at: null,
+        azure_endpoint_display: null,
+        api_version_display: null,
     },
 ]
 
@@ -60,6 +68,8 @@ const mockEvaluation: EvaluationConfig = {
     name: 'Test Evaluation',
     description: 'A test evaluation',
     enabled: true,
+    status: 'active',
+    status_reason: null,
     evaluation_type: 'llm_judge',
     evaluation_config: { prompt: 'Is this response helpful?' },
     output_type: 'boolean',
@@ -254,6 +264,27 @@ describe('llmEvaluationLogic', () => {
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
                 logic.actions.setEvaluationName('Valid Name')
                 logic.actions.setEvaluationPrompt('Valid prompt')
+
+                await expectLogic(logic).toMatchValues({ formValid: false })
+            })
+
+            it('returns false when conditions array is empty', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Valid Name')
+                logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setTriggerConditions([])
+
+                await expectLogic(logic).toMatchValues({ formValid: false })
+            })
+
+            it.each([
+                ['rollout_percentage of 0', 0],
+                ['rollout_percentage above 100', 150],
+            ])('returns false when %s', async (_label, percentage) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Valid Name')
+                logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: percentage, properties: [] }])
 
                 await expectLogic(logic).toMatchValues({ formValid: false })
             })
@@ -794,6 +825,47 @@ describe('llmEvaluationLogic', () => {
                     model_configuration: null,
                 }),
             })
+        })
+    })
+
+    describe('saveEvaluation failure handling', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
+                    '/api/environments/:teamId/llm_analytics/evaluation_config/': {
+                        trial_eval_limit: 100,
+                        trial_evals_used: 100,
+                        trial_evals_remaining: 0,
+                        active_provider_key: null,
+                        created_at: '2024-01-01T00:00:00Z',
+                        updated_at: '2024-01-01T00:00:00Z',
+                    },
+                    '/api/environments/:teamId/evaluations/:id/': mockEvaluation,
+                },
+                patch: {
+                    '/api/environments/:teamId/evaluations/:id/': (_, __, ctx) => [
+                        ctx.status(400),
+                        ctx.json({
+                            enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],
+                        }),
+                    ],
+                },
+            })
+
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+        })
+
+        it('dispatches saveEvaluationFailure and resets submitting state on 400', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            logic.actions.setEvaluationName('Renamed')
+
+            logic.actions.saveEvaluation()
+
+            await expectLogic(logic)
+                .toDispatchActions(['saveEvaluation', 'saveEvaluationFailure'])
+                .toMatchValues({ evaluationFormSubmitting: false })
         })
     })
 })

@@ -10,6 +10,7 @@ import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { alphabet } from 'lib/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
+import { PercentageInput } from 'scenes/feature-flags/PercentageInput'
 import { getSurveyForFeatureFlagVariant } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
@@ -149,7 +150,7 @@ export function FeatureFlagVariantsForm({
                                     <span className="text-secondary">No payload associated with this variant</span>
                                 )}
                             </div>
-                            <div>{variant.rollout_percentage}%</div>
+                            <div className="tabular-nums">{variant.rollout_percentage}%</div>
                             {(flagKey || onGetFeedback) && (
                                 <div className="col-span-2 flex gap-2 items-start">
                                     {flagKey && (
@@ -254,22 +255,10 @@ export function FeatureFlagVariantsForm({
                     </div>
                     <div className="col-span-3">
                         <div>
-                            <LemonInput
-                                type="number"
-                                min={0}
-                                max={100}
+                            <PercentageInput
+                                value={variant.rollout_percentage}
+                                onChange={(value) => onVariantChange?.(index, 'rollout_percentage', value)}
                                 step={0.01}
-                                value={variant.rollout_percentage || 0}
-                                onChange={(changedValue) => {
-                                    const raw =
-                                        changedValue !== undefined && !isNaN(Number(changedValue))
-                                            ? parseFloat(changedValue.toString())
-                                            : 0
-                                    const numValue = Math.round(raw * 100) / 100
-
-                                    onVariantChange?.(index, 'rollout_percentage', numValue)
-                                }}
-                                suffix={<span>%</span>}
                                 data-attr="feature-flag-variant-rollout-percentage-input"
                             />
                             {filterGroups.filter((group) => group.variant === variant.key).length > 0 && (

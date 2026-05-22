@@ -1,4 +1,4 @@
-use crate::api::errors::{simplify_serde_error, FlagError};
+use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::Cohort;
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
@@ -7,25 +7,67 @@ use crate::flags::flag_models::{
 };
 use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
-use common_hypercache::HYPER_CACHE_EMPTY_VALUE;
 use common_types::TeamId;
 use metrics::counter;
+use std::sync::Arc;
 
 /// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
 type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<Cohort>>);
 
+/// `Arc<[FeatureFlag]>` with regexes pre-compiled. Every constructor routes
+/// through [`PreparedFlags::seal`] (or `from_arc` for already-sealed input),
+/// so a value of this type is guaranteed to have been through
+/// `prepare_regexes_in_place`.
+#[derive(Clone, Debug)]
+pub struct PreparedFlags(Arc<[FeatureFlag]>);
+
+impl PreparedFlags {
+    pub fn seal(mut flags: Vec<FeatureFlag>) -> Self {
+        FeatureFlagList::prepare_regexes_in_place(&mut flags);
+        Self(Arc::from(flags))
+    }
+
+    /// Wraps an already-sealed `Arc<[FeatureFlag]>`. Crate-private so external
+    /// callers can't smuggle in an unsealed Arc.
+    pub(crate) fn from_arc(flags: Arc<[FeatureFlag]>) -> Self {
+        Self(flags)
+    }
+
+    pub fn as_arc(&self) -> &Arc<[FeatureFlag]> {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for PreparedFlags {
+    type Target = [FeatureFlag];
+    fn deref(&self) -> &[FeatureFlag] {
+        &self.0
+    }
+}
+
+impl Default for PreparedFlags {
+    fn default() -> Self {
+        Self(Arc::from(Vec::<FeatureFlag>::new()))
+    }
+}
+
+impl From<Vec<FeatureFlag>> for PreparedFlags {
+    fn from(flags: Vec<FeatureFlag>) -> Self {
+        Self::seal(flags)
+    }
+}
+
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
         Self {
-            flags,
+            flags: PreparedFlags::seal(flags),
             ..Default::default()
         }
     }
 
-    /// Pre-compiles all regex patterns in property filters across all flags.
-    /// Called once after deserialization, before evaluation begins.
-    pub fn prepare_regexes(&mut self) {
-        for flag in &mut self.flags {
+    /// Pre-compiles all regex patterns in property filters across a flag slice.
+    pub fn prepare_regexes_in_place(flags: &mut [FeatureFlag]) {
+        for flag in flags.iter_mut() {
             Self::prepare_group_regexes(&mut flag.filters.groups);
             // super_groups currently only use Exact operators (early access enrollment),
             // so prepare_regex() will no-op for each filter. We walk them anyway for
@@ -46,46 +88,19 @@ impl FeatureFlagList {
         }
     }
 
-    /// Parses a JSON Value from hypercache into flags, evaluation metadata,
-    /// and optional preloaded cohort definitions.
-    ///
-    /// Handles:
-    /// - Null values (returns empty vec with default metadata)
-    /// - Sentinel "__missing__" value (returns empty vec with default metadata)
-    /// - Standard hypercache format `{"flags": [...], "evaluation_metadata": {...}, "cohorts": [...]}`
-    pub fn parse_hypercache_value(
-        data: serde_json::Value,
+    /// Validates and extracts flags from a deserialized `HypercacheFlagsWrapper`.
+    /// `None` means the `__missing__` sentinel (team has no flags).
+    pub fn from_wrapper(
+        wrapper: Option<HypercacheFlagsWrapper>,
         team_id: TeamId,
     ) -> Result<HypercacheParseResult, FlagError> {
-        // Handle null (can happen when hypercache returns empty)
-        if data.is_null() {
-            return Ok((vec![], EvaluationMetadata::default(), None));
-        }
-
-        // Check for the sentinel value indicating no flags for this team
-        if data.as_str() == Some(HYPER_CACHE_EMPTY_VALUE) {
-            tracing::debug!("Hypercache sentinel (no flags) for team {}", team_id);
-            return Ok((vec![], EvaluationMetadata::default(), None));
-        }
-
-        // Parse the hypercache format: {"flags": [...], "evaluation_metadata": {...}}
-        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(data).map_err(|e| {
-            tracing::error!(
-                "Failed to parse hypercache data for team {}: {}",
-                team_id,
-                e
-            );
-            counter!(
-                TOMBSTONE_COUNTER,
-                "failure_type" => "hypercache_parse_error",
-                "team_id" => team_id.to_string(),
-            )
-            .increment(1);
-            FlagError::DataParsingErrorWithContext(format!(
-                "Failed to parse feature flags for team {team_id}: {}",
-                simplify_serde_error(&e.to_string())
-            ))
-        })?;
+        let wrapper = match wrapper {
+            None => {
+                tracing::debug!("Hypercache sentinel (no flags) for team {}", team_id);
+                return Ok((vec![], EvaluationMetadata::default(), None));
+            }
+            Some(w) => w,
+        };
 
         tracing::debug!(
             "Parsed {} flags and {} cohorts for team {}",
@@ -96,8 +111,6 @@ impl FeatureFlagList {
 
         let evaluation_metadata = wrapper.evaluation_metadata;
         if evaluation_metadata.dependency_stages.is_empty() && !wrapper.flags.is_empty() {
-            // Every valid cache entry and PG fallback must populate dependency_stages.
-            // Empty stages with non-empty flags means something went wrong upstream.
             tracing::error!(
                 "evaluation_metadata.dependency_stages is empty but {} flags present for team {}",
                 wrapper.flags.len(),
@@ -665,14 +678,14 @@ mod tests {
     }
 
     // =========================================================================
-    // Tests for parse_hypercache_value()
+    // Tests for from_wrapper()
     // =========================================================================
 
     use serde_json::json;
 
     #[test]
-    fn test_parse_hypercache_value_valid_flags() {
-        let data = json!({
+    fn test_from_wrapper_valid_flags() {
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(json!({
             "flags": [
                 {
                     "id": 1,
@@ -696,11 +709,11 @@ mod tests {
                 "flags_with_missing_deps": [],
                 "transitive_deps": {}
             }
-        });
+        }))
+        .unwrap();
 
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(result.is_ok());
-        let (flags, metadata, _cohorts) = result.unwrap();
+        let (flags, metadata, _cohorts) =
+            FeatureFlagList::from_wrapper(Some(wrapper), 123).unwrap();
         assert_eq!(metadata.dependency_stages, vec![vec![1, 2]]);
         assert!(metadata.flags_with_missing_deps.is_empty());
         assert!(metadata.transitive_deps.is_empty());
@@ -712,8 +725,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_hypercache_value_with_evaluation_context_valid_flags() {
-        let data = json!({
+    fn test_from_wrapper_with_evaluation_context_valid_flags() {
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(json!({
             "evaluation_metadata": {
                 "dependency_stages": [
                     [766, 768, 769],
@@ -853,11 +866,11 @@ mod tests {
                     "version": 1
                 }
             ]
-        });
+        }))
+        .unwrap();
 
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(result.is_ok());
-        let (flags, evaluation_metadata, _cohorts) = result.unwrap();
+        let (flags, evaluation_metadata, _cohorts) =
+            FeatureFlagList::from_wrapper(Some(wrapper), 123).unwrap();
         assert_eq!(evaluation_metadata.dependency_stages.len(), 2);
         assert_eq!(
             evaluation_metadata.dependency_stages[0],
@@ -883,85 +896,33 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_hypercache_value_null_returns_empty() {
-        let data = serde_json::Value::Null;
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(result.is_ok());
-        let (flags, metadata, _cohorts) = result.unwrap();
+    fn test_from_wrapper_none_returns_empty() {
+        let (flags, metadata, cohorts) = FeatureFlagList::from_wrapper(None, 123).unwrap();
         assert!(flags.is_empty());
         assert_eq!(metadata, EvaluationMetadata::default());
+        assert!(cohorts.is_none());
     }
 
     #[test]
-    fn test_parse_hypercache_value_sentinel_returns_empty() {
-        let data = json!("__missing__");
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(result.is_ok());
-        let (flags, metadata, _cohorts) = result.unwrap();
-        assert!(flags.is_empty());
-        assert_eq!(metadata, EvaluationMetadata::default());
-    }
-
-    #[test]
-    fn test_parse_hypercache_value_empty_flags_array() {
-        let data = json!({
+    fn test_from_wrapper_empty_flags_array() {
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(json!({
             "flags": [],
             "evaluation_metadata": {
                 "dependency_stages": [],
                 "flags_with_missing_deps": [],
                 "transitive_deps": {}
             }
-        });
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(result.is_ok());
-        let (flags, metadata, _cohorts) = result.unwrap();
+        }))
+        .unwrap();
+        let (flags, metadata, _cohorts) =
+            FeatureFlagList::from_wrapper(Some(wrapper), 123).unwrap();
         assert!(flags.is_empty());
         assert_eq!(metadata, EvaluationMetadata::default());
     }
 
     #[test]
-    fn test_parse_hypercache_value_missing_flags_wrapper() {
-        // Data is an array instead of {"flags": [...]} wrapper
-        let data = json!([{"id": 1, "key": "test"}]);
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-    }
-
-    #[test]
-    fn test_parse_hypercache_value_invalid_json_structure() {
-        // Data has wrong structure - flags is not an array
-        let data = json!({"flags": "not an array"});
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-    }
-
-    #[test]
-    fn test_parse_hypercache_value_invalid_flag_fields() {
-        // Missing required fields in flag
-        let data = json!({
-            "flags": [
-                {
-                    "id": 1
-                    // missing required fields: key, team_id, active, deleted, filters
-                }
-            ]
-        });
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-    }
-
-    #[test]
-    fn test_parse_hypercache_value_with_all_optional_fields() {
-        let data = json!({
+    fn test_from_wrapper_with_all_optional_fields() {
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(json!({
             "flags": [
                 {
                     "id": 42,
@@ -991,11 +952,11 @@ mod tests {
                 "flags_with_missing_deps": [],
                 "transitive_deps": {}
             }
-        });
+        }))
+        .unwrap();
 
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(result.is_ok());
-        let (flags, metadata, _cohorts) = result.unwrap();
+        let (flags, metadata, _cohorts) =
+            FeatureFlagList::from_wrapper(Some(wrapper), 123).unwrap();
         assert_eq!(metadata.dependency_stages, vec![vec![42]]);
         assert!(metadata.flags_with_missing_deps.is_empty());
         assert!(metadata.transitive_deps.is_empty());
@@ -1012,8 +973,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_hypercache_value_with_cohorts() {
-        let data = json!({
+    fn test_from_wrapper_with_cohorts() {
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(json!({
             "flags": [],
             "evaluation_metadata": {
                 "dependency_stages": [],
@@ -1038,10 +999,10 @@ mod tests {
                 "created_by_id": null,
                 "cohort_type": null
             }]
-        });
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(result.is_ok());
-        let (_flags, _metadata, cohorts) = result.unwrap();
+        }))
+        .unwrap();
+        let (_flags, _metadata, cohorts) =
+            FeatureFlagList::from_wrapper(Some(wrapper), 123).unwrap();
         let cohorts = cohorts.expect("cohorts should be Some");
         assert_eq!(cohorts.len(), 1);
         assert_eq!(cohorts[0].id, 42);
@@ -1051,8 +1012,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_hypercache_value_without_cohorts_defaults_to_none() {
-        let data = json!({
+    fn test_from_wrapper_without_cohorts_defaults_to_none() {
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(json!({
             "flags": [{
                 "id": 1,
                 "team_id": 123,
@@ -1065,17 +1026,16 @@ mod tests {
                 "flags_with_missing_deps": [],
                 "transitive_deps": {}
             }
-        });
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(result.is_ok());
-        let (_flags, _metadata, cohorts) = result.unwrap();
+        }))
+        .unwrap();
+        let (_flags, _metadata, cohorts) =
+            FeatureFlagList::from_wrapper(Some(wrapper), 123).unwrap();
         assert!(cohorts.is_none());
     }
 
     #[test]
-    fn test_parse_hypercache_value_empty_stages_with_flags_is_error() {
-        // dependency_stages must not be empty when flags are present
-        let data = json!({
+    fn test_from_wrapper_empty_stages_with_flags_is_error() {
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(json!({
             "flags": [
                 {"id": 10, "key": "a", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}},
                 {"id": 20, "key": "b", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}}
@@ -1085,23 +1045,9 @@ mod tests {
                 "flags_with_missing_deps": [],
                 "transitive_deps": {}
             }
-        });
-        let result = FeatureFlagList::parse_hypercache_value(data, 1);
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-    }
-
-    #[test]
-    fn test_parse_hypercache_value_missing_evaluation_metadata_fails() {
-        // evaluation_metadata is required in cache entries; missing field must fail
-        let data = json!({
-            "flags": [
-                {"id": 1, "key": "flag", "team_id": 1, "active": true, "deleted": false, "filters": {"groups": []}}
-            ]
-        });
-        let result = FeatureFlagList::parse_hypercache_value(data, 1);
+        }))
+        .unwrap();
+        let result = FeatureFlagList::from_wrapper(Some(wrapper), 1);
         assert!(matches!(
             result,
             Err(FlagError::DataParsingErrorWithContext(_))
@@ -1133,28 +1079,6 @@ mod tests {
         assert!(meta.transitive_deps.is_empty()); // no flags → genuinely empty
     }
 
-    #[test]
-    fn test_parse_hypercache_value_random_string_is_not_sentinel() {
-        // A random string that's not the sentinel should fail parsing
-        let data = json!("some_random_string");
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-    }
-
-    #[test]
-    fn test_parse_hypercache_value_empty_object() {
-        // Empty object (no flags key)
-        let data = json!({});
-        let result = FeatureFlagList::parse_hypercache_value(data, 123);
-        assert!(matches!(
-            result,
-            Err(FlagError::DataParsingErrorWithContext(_))
-        ));
-    }
-
     /// Golden fixture contract test: verifies that Rust can deserialize the hypercache
     /// format that Python produces. If this test fails, you've changed the cache schema
     /// in a way that breaks deserialization.
@@ -1165,12 +1089,12 @@ mod tests {
     #[test]
     fn test_hypercache_contract() {
         let fixture = include_str!("../../tests/fixtures/hypercache_contract.json");
-        let data: serde_json::Value = serde_json::from_str(fixture).expect(
-            "Failed to parse hypercache_contract.json as JSON. \
-             The fixture file must be valid JSON.",
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_str(fixture).expect(
+            "Failed to deserialize hypercache_contract.json as HypercacheFlagsWrapper. \
+             The fixture file must be valid JSON matching the wrapper schema.",
         );
 
-        let result = FeatureFlagList::parse_hypercache_value(data, 99);
+        let result = FeatureFlagList::from_wrapper(Some(wrapper), 99);
         let (flags, metadata, cohorts) = result.expect(
             "\n\
              ==============================================================================\n\
@@ -1285,8 +1209,8 @@ mod tests {
     }
 
     #[test]
-    fn test_prepare_regexes_compiles_regex_filters_only() {
-        let mut flag_list = FeatureFlagList::new(vec![FeatureFlag {
+    fn test_prepared_flags_seal_compiles_regex_filters_only() {
+        let flags = vec![FeatureFlag {
             id: 1,
             team_id: 1,
             name: None,
@@ -1330,14 +1254,11 @@ mod tests {
             evaluation_runtime: None,
             evaluation_tags: None,
             bucketing_identifier: None,
-        }]);
+        }];
 
-        flag_list.prepare_regexes();
+        let sealed = PreparedFlags::seal(flags);
 
-        let props = flag_list.flags[0].filters.groups[0]
-            .properties
-            .as_ref()
-            .unwrap();
+        let props = sealed[0].filters.groups[0].properties.as_ref().unwrap();
         assert!(
             matches!(
                 props[0].compiled_regex,

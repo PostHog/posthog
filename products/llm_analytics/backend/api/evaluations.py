@@ -1,11 +1,14 @@
+import copy
 import json
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Q, QuerySet
 
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -17,6 +20,8 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
@@ -24,12 +29,66 @@ from posthog.temporal.llm_analytics.run_evaluation import extract_event_io, run_
 
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import validate_evaluation_configs
+from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
 
 logger = structlog.get_logger(__name__)
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {
+                "type": "object",
+                "title": "LLM judge config",
+                "required": ["prompt"],
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.",
+                        "minLength": 1,
+                    }
+                },
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "title": "Hog config",
+                "required": ["source"],
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
+                        "minLength": 1,
+                    }
+                },
+                "additionalProperties": False,
+            },
+        ]
+    }
+)
+class _EvaluationConfigField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "allows_na": {
+                "type": "boolean",
+                "description": "Whether the evaluation can return N/A for non-applicable generations.",
+                "default": False,
+            }
+        },
+        "additionalProperties": False,
+    }
+)
+class _OutputConfigField(serializers.JSONField):
+    pass
 
 
 class ModelConfigurationSerializer(serializers.Serializer):
@@ -57,6 +116,14 @@ class ModelConfigurationSerializer(serializers.Serializer):
 class EvaluationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     model_configuration = ModelConfigurationSerializer(required=False, allow_null=True)
+    evaluation_config = _EvaluationConfigField(
+        required=False,
+        help_text="Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.",
+    )
+    output_config = _OutputConfigField(
+        required=False,
+        help_text="Output config. For 'boolean' output_type: {allows_na} to permit N/A results.",
+    )
 
     class Meta:
         model = Evaluation
@@ -65,6 +132,8 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "enabled",
+            "status",
+            "status_reason",
             "evaluation_type",
             "evaluation_config",
             "output_type",
@@ -76,7 +145,22 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "created_by",
             "deleted",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "created_by"]
+        # status / status_reason are server-managed (coerced from enabled on user writes, set directly by
+        # system transitions). Clients toggle `enabled`; the model's save() keeps the trio consistent.
+        read_only_fields = ["id", "status", "status_reason", "created_at", "updated_at", "created_by"]
+        extra_kwargs = {
+            "name": {"help_text": "Name of the evaluation."},
+            "description": {"help_text": "Optional description of what this evaluation checks."},
+            "enabled": {"help_text": "Whether the evaluation runs automatically on new $ai_generation events."},
+            "evaluation_type": {
+                "help_text": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code."
+            },
+            "output_type": {"help_text": "Output format. Currently only 'boolean' is supported."},
+            "conditions": {
+                "help_text": "Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each."
+            },
+            "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
+        }
 
     def validate(self, data):
         if "evaluation_config" in data and "output_config" in data:
@@ -90,20 +174,63 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 except ValueError as e:
                     raise serializers.ValidationError({"config": str(e)})
 
-        # Prevent re-enabling an evaluation that uses trial credits when quota is exhausted.
+        # Guard re-enable transitions: if the eval is currently disabled and the caller is flipping
+        # `enabled=True`, make sure whatever caused the disabled state has actually been resolved.
+        # Without this check, a caller (UI, API, MCP, agent) can flip enabled=True, see a 200, and
+        # then watch the next Temporal run silently re-disable the eval for the same reason.
         if data.get("enabled") and self.instance and not self.instance.enabled:
-            has_byok = self._has_byok_key(data)
-            if not has_byok:
-                team = self.context["get_team"]()
-                config = EvaluationConfig.objects.filter(team=team).first()
-                if config and config.trial_limit_reached:
-                    raise serializers.ValidationError(
-                        {
-                            "enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."
-                        }
-                    )
+            self._validate_re_enable(data)
 
         return data
+
+    def _validate_re_enable(self, data: dict) -> None:
+        has_byok = self._has_byok_key(data)
+        status_reason = getattr(self.instance, "status_reason", None)
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        # Hog evals run deterministic bytecode server-side: they never call an LLM provider,
+        # never consume trial quota, and never need a BYOK key. The trial-limit / model-allowlist /
+        # provider-key-deleted gates below all assume an LLM-judge call path, so skip them entirely.
+        if evaluation_type == "hog":
+            return
+
+        # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
+        if status_reason == "trial_limit_reached" or not status_reason:
+            team = self.context["get_team"]()
+            config = EvaluationConfig.objects.filter(team=team).first()
+            if config and config.trial_limit_reached and not has_byok:
+                raise serializers.ValidationError(
+                    {"enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."}
+                )
+
+        # Model-not-allowed: the eval's current model must now be on the trial allowlist, or they
+        # must have attached a BYOK key (BYOK bypasses the allowlist entirely).
+        if status_reason == "model_not_allowed" and not has_byok:
+            from products.llm_analytics.backend.llm import TRIAL_MODEL_IDS
+
+            model_config_data = data.get("model_configuration")
+            if model_config_data is not None:
+                model = model_config_data.get("model")
+            elif self.instance and self.instance.model_configuration:
+                model = self.instance.model_configuration.model
+            else:
+                model = None
+            if model and model not in TRIAL_MODEL_IDS:
+                raise serializers.ValidationError(
+                    {
+                        "enabled": (
+                            f"Model '{model}' is not available on the trial plan. "
+                            "Either choose a supported trial model or add a provider API key."
+                        )
+                    }
+                )
+
+        # Provider key deleted: the eval must now point at a real provider key.
+        if status_reason == "provider_key_deleted" and not has_byok:
+            raise serializers.ValidationError(
+                {
+                    "enabled": "The provider API key for this evaluation was deleted. Attach a provider API key before re-enabling."
+                }
+            )
 
     def _has_byok_key(self, data: dict) -> bool:
         """Check if the evaluation will have a BYOK key after this update."""
@@ -157,19 +284,25 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         model_config_data = validated_data.pop("model_configuration", None)
+        old_config = None
 
         if model_config_data is not None:
-            # Delete old model configuration if it exists
+            # Defer the cascade until after super().update(): SET_NULL would otherwise null
+            # Evaluation.model_configuration_id before ModelActivityMixin.save() snapshots
+            # before_update from the DB, producing a `null -> new` diff instead of `old -> new`.
             if instance.model_configuration:
                 old_config = instance.model_configuration
-                instance.model_configuration = None
-                old_config.delete()
 
             validated_data["model_configuration"] = self._create_or_update_model_configuration(
                 model_config_data, instance.team_id
             )
 
-        return super().update(instance, validated_data)
+        result = super().update(instance, validated_data)
+
+        if old_config is not None:
+            old_config.delete()
+
+        return result
 
 
 class EvaluationFilter(django_filters.FilterSet):
@@ -201,6 +334,72 @@ class EvaluationFilter(django_filters.FilterSet):
         return queryset
 
 
+class EvaluationListSerializer(EvaluationSerializer):
+    """Slim list serializer for MCP callers — drops heavy per-item fields to save tokens.
+
+    Gated on the ``X-PostHog-Client: mcp`` header so the web UI keeps the full shape
+    it relies on (see `EvaluationViewSet.get_serializer_class`).
+    """
+
+    class Meta(EvaluationSerializer.Meta):
+        fields = [
+            f
+            for f in EvaluationSerializer.Meta.fields
+            if f
+            not in (
+                "evaluation_config",
+                "output_config",
+                "conditions",
+                "model_configuration",
+                "created_by",
+                "deleted",
+            )
+        ]
+        read_only_fields = [f for f in EvaluationSerializer.Meta.read_only_fields if f != "created_by"]
+
+
+class TestHogRequestSerializer(serializers.Serializer):
+    source = serializers.CharField(
+        required=True,
+        min_length=1,
+        help_text="Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N/A.",
+    )  # type: ignore[assignment]
+    sample_count = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=10,
+        help_text="Number of recent $ai_generation events to test against (1–10, default 5).",
+    )
+    allows_na = serializers.BooleanField(
+        required=False, default=False, help_text="Whether the evaluation can return N/A for non-applicable generations."
+    )
+    conditions = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+        help_text="Optional trigger conditions to filter which events are sampled.",
+    )
+
+
+class TestHogResultItemSerializer(serializers.Serializer):
+    event_uuid = serializers.CharField(help_text="UUID of the $ai_generation event.")
+    trace_id = serializers.CharField(allow_null=True, required=False, help_text="Trace ID if available.")
+    input_preview = serializers.CharField(help_text="First 200 chars of the generation input.")
+    output_preview = serializers.CharField(help_text="First 200 chars of the generation output.")
+    result = serializers.BooleanField(allow_null=True, help_text="True = pass, False = fail, null = N/A or error.")
+    reasoning = serializers.CharField(allow_null=True, help_text="Hog evaluation reasoning string, if any.")
+    error = serializers.CharField(allow_null=True, help_text="Error message if the Hog code raised an exception.")
+
+
+class TestHogResponseSerializer(serializers.Serializer):
+    results = TestHogResultItemSerializer(many=True)
+    message = serializers.CharField(
+        required=False, help_text="Optional message, e.g. when no recent events were found."
+    )
+
+
+@extend_schema(tags=["llm_analytics"])
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
@@ -209,15 +408,24 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     filter_backends = [DjangoFilterBackend]
     filterset_class = EvaluationFilter
 
+    @staticmethod
+    def _is_mcp_request(request: Request) -> bool:
+        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
+
+    def _wants_slim_list(self) -> bool:
+        return self.action == "list" and self._is_mcp_request(self.request)
+
+    def get_serializer_class(self):
+        if self._wants_slim_list():
+            return EvaluationListSerializer
+        return super().get_serializer_class()
+
     def safely_get_queryset(self, queryset: QuerySet[Evaluation]) -> QuerySet[Evaluation]:
-        queryset = (
-            queryset.filter(team_id=self.team_id)
-            .select_related("created_by", "model_configuration", "model_configuration__provider_key")
-            .order_by("-created_at")
-        )
+        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
+        if not self._wants_slim_list():
+            queryset = queryset.select_related("created_by", "model_configuration", "model_configuration__provider_key")
         if not self.action.endswith("update"):
             queryset = queryset.filter(deleted=False)
-
         return queryset
 
     @staticmethod
@@ -233,7 +441,16 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         return 0
 
     def perform_create(self, serializer):
-        instance = serializer.save()
+        with transaction.atomic():
+            instance = serializer.save()
+
+            # Auto-create a default report config so reports are generated from the start.
+            # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
+            # and users add email/Slack delivery targets later if they want notifications.
+            EvaluationReport.objects.create(
+                team=self.team,
+                evaluation=instance,
+            )
 
         # Calculate properties for tracking
         conditions = instance.conditions or []
@@ -372,6 +589,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
+    @extend_schema(request=TestHogRequestSerializer, responses=TestHogResponseSerializer)
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog evaluation code against sample events without saving."""
@@ -525,8 +743,51 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         return Response({"results": results})
 
 
-class TestHogRequestSerializer(serializers.Serializer):
-    source = serializers.CharField(required=True, min_length=1)  # type: ignore[assignment]
-    sample_count = serializers.IntegerField(required=False, default=5, min_value=1, max_value=10)
-    allows_na = serializers.BooleanField(required=False, default=False)
-    conditions = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+_COMPILED_KEYS = ("bytecode", "bytecode_error")
+
+
+def _strip_compiled_from_conditions(conditions: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if not conditions:
+        return []
+    return [{k: v for k, v in cond.items() if k not in _COMPILED_KEYS} for cond in conditions]
+
+
+def _strip_compiled_from_eval_config(config: dict[str, Any] | None) -> dict[str, Any]:
+    if not config:
+        return {}
+    return {k: v for k, v in config.items() if k not in _COMPILED_KEYS}
+
+
+@mutable_receiver(model_activity_signal, sender=Evaluation)
+def handle_evaluation_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    # `save()` re-derives `conditions[*].bytecode` and `evaluation_config.bytecode` on every write.
+    # Strip them on shallow copies so the diff reflects user intent, not the compiler — mutating
+    # `after_update` directly would also mutate the live instance DRF serialises for the response.
+    before_log = copy.copy(before_update) if before_update is not None else None
+    after_log = copy.copy(after_update) if after_update is not None else None
+    for snapshot in (before_log, after_log):
+        if snapshot is not None:
+            snapshot.conditions = _strip_compiled_from_conditions(snapshot.conditions)
+            snapshot.evaluation_config = _strip_compiled_from_eval_config(snapshot.evaluation_config)
+
+    if before_update and after_update:
+        before_deleted = getattr(before_update, "deleted", None)
+        after_deleted = getattr(after_update, "deleted", None)
+        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
+            activity = "restored" if after_deleted is False else "deleted"
+
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_log, current=after_log),
+            name=after_update.name,
+        ),
+    )

@@ -49,6 +49,7 @@ case "$RS_SVC" in
     export CAPTURE_MODE=events
     export LOG_LEVEL=debug
     export DEBUG=1
+    export KAFKA_ERROR_TRACKING_TOPIC=${KAFKA_ERROR_TRACKING_TOPIC:-ingestion-errortracking-main}
     ;;
 
   capture-replay)
@@ -88,14 +89,20 @@ case "$RS_SVC" in
     export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode
     ;;
 
-  cymbal)
-    # NOTE: to ensure the exceptions topic exists and avoid crash loops in dev:
-    # cd rust
-    # cargo run --bin generate_test_events
+  capture-logs)
     export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1
-    export KAFKA_CONSUMER_GROUP=cymbal
-    export KAFKA_CONSUMER_TOPIC=exceptions_ingestion
+    export BIND_HOST=0.0.0.0
+    export BIND_PORT=4320 # Offset from 4318 to avoid conflict with otel-collector host port mapping
+    export MANAGEMENT_BIND_PORT=3304 # Park alongside the other Rust services (3301-3309); 8080/8081 clash with local infra (temporal-ui)
+    export KAFKA_HOSTS=localhost:9092
+    export KAFKA_TOPIC=logs_ingestion
+    export KAFKA_METRICS_TOPIC=metrics_ingestion
+    ;;
+
+  cymbal)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
     export OBJECT_STORAGE_BUCKET=posthog
     export OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
     export OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
@@ -149,6 +156,14 @@ case "$RS_SVC" in
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;
 
+  hypercache-server)
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    export REDIS_URL="$DEFAULT_REDIS"
+    export ADDRESS=0.0.0.0:3002
+    export DEBUG=1
+    ;;
+
   batch-import-worker)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
@@ -180,6 +195,60 @@ case "$RS_SVC" in
     export REPLICA_URL=http://127.0.0.1:50051
     export BACKEND_TIMEOUT_MS=5000
     export METRICS_PORT=9101
+    ;;
+
+  flags-consumer)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export FLAGS_READ_STORE_DATABASE_URL="${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/flags_read_store}"
+    export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
+    export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
+    export METRICS_PORT=9105
+    export DEBUG=1
+    ;;
+
+  personhog-router-leader)
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    export GRPC_ADDRESS=127.0.0.1:50054
+    export REPLICA_URL=http://127.0.0.1:50051
+    export ROUTER_MODE=leader
+    export ETCD_ENDPOINTS=http://localhost:2379
+    export ETCD_PREFIX=/personhog/
+    export BACKEND_TIMEOUT_MS=5000
+    export METRICS_PORT=9104
+    # The router binary is the same as personhog-router
+    export DEV_RUST_SVC_OVERRIDE=personhog-router
+    ;;
+
+  personhog-leader)
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    export GRPC_ADDRESS=127.0.0.1:50053
+    export CACHE_MEMORY_CAPACITY=100000
+    export ETCD_ENDPOINTS=http://localhost:2379
+    export ETCD_PREFIX=/personhog/
+    # Register as 127.0.0.1 so the router can resolve the pod address locally.
+    # In production, pod names resolve via K8s DNS.
+    export POD_NAME=127.0.0.1
+    export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
+    export KAFKA_PERSON_STATE_TOPIC=personhog_updates
+    export FALLBACK_DATABASE_URL="postgres://posthog:posthog@${PGHOST:-localhost}:${PGPORT:-5432}/posthog_persons"
+    export METRICS_PORT=9102
+    ;;
+
+  personhog-writer)
+    export RUST_LOG=debug
+    export RUST_BACKTRACE=1
+    export DATABASE_URL="postgres://posthog:posthog@${PGHOST:-localhost}:${PGPORT:-5432}/posthog_persons"
+    export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
+    export KAFKA_TOPIC=personhog_updates
+    export KAFKA_CONSUMER_GROUP=personhog-writer
+    export FLUSH_INTERVAL_MS=5000
+    export FLUSH_BUFFER_SIZE=1000
+    export BUFFER_CAPACITY=50000
+    export METRICS_PORT=9103
     ;;
 
   *)

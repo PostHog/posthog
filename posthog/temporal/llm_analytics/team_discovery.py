@@ -1,5 +1,5 @@
 """
-Team discovery activity for LLM analytics workflows.
+Team discovery activity for AI observability workflows.
 
 Provides dynamic team discovery that combines a guaranteed allowlist
 with a configurable random sample of teams that have AI events.
@@ -70,7 +70,7 @@ class LLMAWorkflowConfig:
 def _get_llma_workflow_config() -> LLMAWorkflowConfig:
     """Read LLMA team-discovery config from the feature flag payload, falling back to defaults."""
     try:
-        payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]
+        payload: dict | None = posthoganalytics.get_feature_flag_payload(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
             FEATURE_FLAG_KEY, "internal_llma_team_discovery"
         )
 
@@ -139,7 +139,7 @@ class TeamDiscoveryInput:
 @temporalio.activity.defn
 async def get_team_ids_for_llm_analytics(inputs: TeamDiscoveryInput) -> list[int]:
     """
-    Discover teams for LLM analytics workflows.
+    Discover teams for AI observability workflows.
 
     Returns guaranteed allowlist teams + a random sample of other teams with AI events.
     On failure, falls back to guaranteed teams only.

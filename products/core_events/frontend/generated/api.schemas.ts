@@ -41,14 +41,14 @@ export interface CoreEventApi {
     description?: string
     /** Lifecycle category for this core event
 
-* `acquisition` - Acquisition
-* `activation` - Activation
-* `monetization` - Monetization
-* `expansion` - Expansion
-* `referral` - Referral
-* `retention` - Retention
-* `churn` - Churn
-* `reactivation` - Reactivation */
+  * `acquisition` - Acquisition
+  * `activation` - Activation
+  * `monetization` - Monetization
+  * `expansion` - Expansion
+  * `referral` - Referral
+  * `retention` - Retention
+  * `churn` - Churn
+  * `reactivation` - Reactivation */
     category: CoreEventCategoryEnumApi
     /** Filter configuration - event, action, or data warehouse node */
     filter: unknown
@@ -76,14 +76,14 @@ export interface PatchedCoreEventApi {
     description?: string
     /** Lifecycle category for this core event
 
-* `acquisition` - Acquisition
-* `activation` - Activation
-* `monetization` - Monetization
-* `expansion` - Expansion
-* `referral` - Referral
-* `retention` - Retention
-* `churn` - Churn
-* `reactivation` - Reactivation */
+  * `acquisition` - Acquisition
+  * `activation` - Activation
+  * `monetization` - Monetization
+  * `expansion` - Expansion
+  * `referral` - Referral
+  * `retention` - Retention
+  * `churn` - Churn
+  * `reactivation` - Reactivation */
     category?: CoreEventCategoryEnumApi
     /** Filter configuration - event, action, or data warehouse node */
     filter?: unknown

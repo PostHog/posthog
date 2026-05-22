@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import AuthService, get_auth_service
+from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.products.config import ALLOWED_PRODUCTS, check_product_access, resolve_product_alias
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
@@ -18,6 +19,7 @@ from llm_gateway.request_context import (
     get_request_id,
     set_throttle_context,
 )
+from llm_gateway.services.plan_resolver import resolve_plan_info
 
 logger = structlog.get_logger(__name__)
 
@@ -29,6 +31,10 @@ async def get_db_pool(request: Request) -> "asyncpg.Pool[asyncpg.Record]":  # no
 
 async def get_throttle_runner(request: Request) -> ThrottleRunner:
     return request.app.state.throttle_runner
+
+
+async def get_anthropic_circuit_breaker(request: Request) -> AnthropicCircuitBreaker | None:
+    return getattr(request.app.state, "anthropic_circuit_breaker", None)
 
 
 async def get_authenticated_user(
@@ -157,11 +163,16 @@ async def enforce_throttles(
     else:
         end_user_id = await _extract_end_user_id_from_body(request)
 
+    plan_info = await resolve_plan_info(request, user.user_id, product)
+
     context = ThrottleContext(
         user=user,
         product=product,
         request_id=get_request_id() or None,
         end_user_id=end_user_id,
+        plan_key=plan_info.plan_key,
+        seat_created_at=plan_info.seat_created_at,
+        billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
     )
     request.state.throttle_context = context
     set_throttle_context(runner, context)
@@ -193,3 +204,4 @@ DBPool = Annotated[asyncpg.Pool, Depends(get_db_pool)]
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_authenticated_user)]
 ProductAccessUser = Annotated[AuthenticatedUser, Depends(enforce_product_access)]
 RateLimitedUser = Annotated[AuthenticatedUser, Depends(enforce_throttles)]
+AnthropicCircuitBreakerDep = Annotated[AnthropicCircuitBreaker | None, Depends(get_anthropic_circuit_breaker)]

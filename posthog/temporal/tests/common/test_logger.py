@@ -1,6 +1,4 @@
-import ssl
 import json
-import time
 import uuid
 import random
 import asyncio
@@ -14,7 +12,6 @@ import freezegun
 from django.conf import settings
 from django.test import override_settings
 
-import aiokafka
 import structlog
 import pytest_asyncio
 import temporalio.testing
@@ -31,13 +28,9 @@ from posthog.clickhouse.log_entries import (
     LOG_ENTRIES_TABLE_MV_SQL,
     TRUNCATE_LOG_ENTRIES_TABLE_SQL,
 )
+from posthog.kafka_client.client import _AsyncKafkaProducer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.common.logger import (
-    BACKGROUND_LOGGER_TASKS,
-    configure_default_ssl_context,
-    configure_logger,
-    resolve_log_source,
-)
+from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
 
 pytestmark = pytest.mark.asyncio
 
@@ -96,51 +89,40 @@ async def queue():
 
 
 class CaptureKafkaProducer:
-    """A test aiokafka.AIOKafkaProducer that captures calls to send_and_wait."""
+    """Wrap a `_AsyncKafkaProducer` to captures calls to `produce`."""
 
-    def __init__(self, *args, **kwargs):
-        self.entries = []
-        self._producer: None | aiokafka.AIOKafkaProducer = None
+    def __init__(self, *args, topic: str, producer: _AsyncKafkaProducer, **kwargs):
+        self.entries: list[dict[str, str | bytes]] = []
+        self.producer: _AsyncKafkaProducer = producer
+        self._is_closed = False
 
-    @property
-    def producer(self) -> aiokafka.AIOKafkaProducer:
-        if self._producer is None:
-            self._producer = aiokafka.AIOKafkaProducer(
-                bootstrap_servers=[*settings.KAFKA_HOSTS, "localhost:9092"],
-                security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
-                acks="all",
-                request_timeout_ms=1000000,
-                api_version="2.5.0",
-            )
-        return self._producer
-
-    async def send(self, topic, value=None, key=None, partition=None, timestamp_ms=None, headers=None):
-        """Append an entry and delegate to aiokafka.AIOKafkaProducer."""
+    async def produce(self, *, topic, data, key=None, value_serializer=None):
+        """Append an entry and delegate to `_AsyncKafkaProducer`."""
+        if value_serializer is not None:
+            data = value_serializer(data)
 
         self.entries.append(
             {
                 "topic": topic,
-                "value": value,
+                "value": data,
                 "key": key,
-                "partition": partition,
-                "timestamp_ms": timestamp_ms,
-                "headers": headers,
             }
         )
-        return await self.producer.send(topic, value, key, partition, timestamp_ms, headers)
+        return await self.producer.produce(topic, data, key, value_serializer=lambda v: v)
 
-    async def start(self):
-        await self.producer.start()
-
-    async def stop(self):
-        await self.producer.stop()
-
-    async def flush(self):
+    async def flush(self, timeout=None):
         await self.producer.flush()
+
+    async def close(self):
+        if self._is_closed:
+            return
+
+        await self.producer.close()
+        self._is_closed = True
 
     @property
     def _closed(self):
-        return self.producer._closed
+        return self._is_closed
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -149,13 +131,17 @@ async def producer():
 
     After usage, we ensure the producer was closed to avoid leaking/warnings.
     """
-    loop = asyncio.get_running_loop()
-    producer = CaptureKafkaProducer(bootstrap_servers=settings.KAFKA_HOSTS, loop=loop)
+    from posthog.kafka_client.routing import new_async_producer
+
+    kafka_producer = await new_async_producer(topic=KAFKA_LOG_ENTRIES)
+    producer = CaptureKafkaProducer(
+        topic=KAFKA_LOG_ENTRIES, bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts, producer=kafka_producer
+    )
 
     yield producer
 
     if producer._closed is False:
-        await producer.stop()
+        await producer.close()
 
 
 @pytest_asyncio.fixture(autouse=True, scope="function")
@@ -179,6 +165,7 @@ async def configure_logger_auto(log_capture, queue, producer):
             producer=producer,
             cache_logger_on_first_use=False,
             loop=loop,
+            raise_on_producer_error=True,
         )
 
     yield
@@ -200,15 +187,6 @@ def structlog_context():
 
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(**ctx)
-
-
-def test_configure_default_ssl_context_uses_modern_defaults():
-    """Kafka SSL contexts should rely on the modern TLS client defaults."""
-    context = configure_default_ssl_context()
-
-    assert context.protocol is ssl.PROTOCOL_TLS_CLIENT
-    assert context.verify_mode is ssl.CERT_OPTIONAL
-    assert context.check_hostname is False
 
 
 async def test_logger_context(log_capture):
@@ -507,6 +485,16 @@ def log_entries_table():
     sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
 
 
+async def wait_for_queue_entries(queue):
+    iterations = 0
+    while not queue.entries:
+        await asyncio.sleep(0)
+
+        iterations += 1
+        if iterations > 10:
+            raise TimeoutError("Timedout waiting for logs")
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "activity_environment",
@@ -560,18 +548,11 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
     )
 
     for activity in activities:
-        with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
+        with freezegun.freeze_time("2024-01-01 00:00:00", real_asyncio=True):
             if fut := activity_environment.run(activity):
                 await fut
 
-        iterations = 0
-        while not queue.entries:
-            # Let the loop run so messages have a chance to be inserted
-            await asyncio.sleep(1)
-
-            iterations += 1
-            if iterations > 10:
-                raise TimeoutError("Timedout waiting for logs")
+        await wait_for_queue_entries(queue)
 
         assert len(queue.entries) == 2 or len(queue.entries) == 4
 
@@ -581,14 +562,13 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
         entries_captured = len(producer.entries)
         assert entries_captured == 2 or entries_captured == 4
 
+        await producer.flush()
+
         for _ in range(len(producer.entries)):
             entry = producer.entries.pop(0)
 
             assert entry["topic"] == KAFKA_LOG_ENTRIES
             assert entry["key"] is None
-            assert entry["partition"] is None
-            assert entry["timestamp_ms"] is None
-            assert entry["headers"] is None
 
             log_dict = json.loads(entry["value"].decode("utf-8"))
 
@@ -598,11 +578,9 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
             assert log_dict["log_source_id"] == log_source_id
             assert log_dict["message"] == "Hi! This is an external info log from an activity"
             assert log_dict["team_id"] == team_id_producer_counter
-            assert log_dict["timestamp"] == "2023-11-03 10:00:00.123123"
+            assert log_dict["timestamp"] == "2024-01-01 00:00:00.000000"
 
             team_id_producer_counter += 1
-
-        await producer.flush()
 
         results = sync_execute(
             f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} WHERE instance_id = '{activity_environment.info.workflow_run_id}' ORDER BY team_id ASC"
@@ -627,7 +605,7 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
             assert row[3] == log_source_id
             assert row[4] == "Hi! This is an external info log from an activity"
             assert row[5] == team_id_row_counter
-            assert row[6].isoformat() == "2023-11-03T10:00:00.123123+00:00"
+            assert row[6].isoformat() == "2024-01-01T00:00:00+00:00"
             team_id_row_counter += 1
 
         sync_execute(f"TRUNCATE {log_entries_table}")
@@ -679,7 +657,7 @@ async def test_logger_produces_to_log_queue_from_workflow(queue):
 
     iterations = 0
     while not queue.entries:
-        await asyncio.sleep(1)
+        await asyncio.sleep(0)
 
         iterations += 1
         if iterations > 10:
@@ -701,7 +679,6 @@ async def test_logger_produces_to_log_queue_from_workflow(queue):
 
 
 @pytest.mark.django_db
-@freezegun.freeze_time("2024-01-01 00:00:00")
 @pytest.mark.parametrize("log_capture", [False], indirect=True)
 async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entries_table):
     """Test whether our log entries logger produces messages to Kafka.
@@ -726,22 +703,16 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
             activities=[],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            await workflow_environment.client.execute_workflow(
-                TestWorkflow.run,
-                id=workflow_id,
-                task_queue=task_queue,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=5),
-            )
+            with freezegun.freeze_time("2024-01-01 00:00:00", real_asyncio=True):
+                await workflow_environment.client.execute_workflow(
+                    TestWorkflow.run,
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=5),
+                )
 
-    iterations = 0
-    while not queue.entries:
-        # Let the loop run so messages have a chance to be inserted
-        await asyncio.sleep(1)
-
-        iterations += 1
-        if iterations > 10:
-            raise TimeoutError("Timedout waiting for logs")
+    await wait_for_queue_entries(queue)
 
     assert len(queue.entries) == 2
 
@@ -751,6 +722,8 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
     entries_captured = len(producer.entries)
     assert entries_captured == 2
 
+    await producer.flush()
+
     log_source, log_source_id = resolve_log_source("external-data-job", workflow_id)
 
     for i in range(entries_captured):
@@ -758,9 +731,6 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
 
         assert entry["topic"] == KAFKA_LOG_ENTRIES
         assert entry["key"] is None
-        assert entry["partition"] is None
-        assert entry["timestamp_ms"] is None
-        assert entry["headers"] is None
 
         log_dict = json.loads(entry["value"].decode("utf-8"))
 
@@ -772,20 +742,17 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
         assert log_dict["team_id"] == FIRST_WORKFLOW_TEAM_ID + i
         assert log_dict["timestamp"] == "2024-01-01 00:00:00.000000"
 
-    await producer.flush()
+    results = sync_execute(
+        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} ORDER BY team_id ASC"
+    )
 
     iterations = 0
-
-    while True:
+    while not len(results) == entries_captured:
         # It may take a bit for CH to ingest.
+        await asyncio.sleep(1)
         results = sync_execute(
             f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} ORDER BY team_id ASC"
         )
-
-        if len(results) == entries_captured:
-            break
-        else:
-            time.sleep(1)
 
         iterations += 1
         if iterations > 10:

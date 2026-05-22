@@ -1,10 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.",
     "properties": {
         "dag_id": {
             "anyOf": [
                 {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                     "type": "string"
                 },
                 {
@@ -16,6 +17,8 @@
         "folder_id": {
             "anyOf": [
                 {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                     "type": "string"
                 },
                 {
@@ -29,20 +32,26 @@
             "type": "boolean"
         },
         "name": {
-            "description": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
+            "description": "Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.",
             "maxLength": 128,
             "type": "string"
         },
         "query": {
-            "anyOf": [
-                {},
-                {
-                    "type": "null"
+            "description": "HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT * FROM events LIMIT 100\"}",
+            "properties": {
+                "kind": {
+                    "default": "HogQLQuery",
+                    "enum": ["HogQLQuery"],
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
                 }
-            ],
-            "description": "HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key containing the query type. Example: {\"query\": \"SELECT * FROM events LIMIT 100\", \"kind\": \"HogQLQuery\"}"
+            },
+            "required": ["query"],
+            "type": "object"
         }
     },
-    "required": ["name"],
+    "required": ["name", "query"],
     "type": "object"
 }

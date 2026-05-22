@@ -17,7 +17,8 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models import Action
+
+from products.actions.backend.models.action import Action
 
 DEFAULT_LIMIT = 500
 
@@ -208,7 +209,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                         WHERE {filter}
                     )
                     ARRAY JOIN kv.1 AS key, kv.2 AS value
-                    WHERE value != ''
+                    WHERE value IS NOT NULL AND value != ''
                     GROUP BY key, value
                     ORDER BY count DESC
                 """,

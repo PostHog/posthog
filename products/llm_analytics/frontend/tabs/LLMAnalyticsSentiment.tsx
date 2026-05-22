@@ -312,6 +312,7 @@ export function LLMAnalyticsSentiment(): JSX.Element {
     const {
         generations,
         generationsLoading,
+        generationsError,
         groupedSentimentCards,
         sentimentCards,
         stillAnalyzing,
@@ -326,7 +327,12 @@ export function LLMAnalyticsSentiment(): JSX.Element {
 
             {generationsLoading && generations.length === 0 ? (
                 <div className="flex items-center justify-center py-20">
-                    <Spinner className="text-4xl" />
+                    <Spinner className="text-4xl" captureTime />
+                </div>
+            ) : generationsError ? (
+                <div className="text-center py-20 text-muted">
+                    <p className="text-lg font-medium mb-1">Failed to load generations</p>
+                    <p className="text-sm">There was an error fetching data. Try refreshing the page.</p>
                 </div>
             ) : generations.length === 0 ? (
                 <div className="text-center py-20 text-muted">
@@ -353,7 +359,9 @@ export function LLMAnalyticsSentiment(): JSX.Element {
                     {(generationsLoading || stillAnalyzing) && (
                         <div className="flex items-center justify-center py-8 gap-2 text-muted">
                             <Spinner className="text-lg" />
-                            <span className="text-sm">Analyzing sentiment…</span>
+                            <span className="text-sm">
+                                Analyzing sentiment on the fly, this can take a minute or two…
+                            </span>
                         </div>
                     )}
 

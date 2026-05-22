@@ -5,13 +5,12 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSource } from '~/types'
+
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 import { Modifiers } from './Modifiers'
 
@@ -53,6 +52,7 @@ describe('Modifiers', () => {
                 prefix: 'analytics-db',
                 description: null,
                 access_method: 'direct',
+                created_via: 'web',
                 latest_error: null,
                 revenue_analytics_config: {
                     enabled: false,
@@ -75,22 +75,16 @@ describe('Modifiers', () => {
 
     beforeEach(() => {
         initKeaTests()
-        externalDataSourcesLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-            [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: false,
-        })
+        sourcesDataLogic.mount()
     })
 
     afterEach(() => {
-        externalDataSourcesLogic.unmount()
+        sourcesDataLogic.unmount()
         jest.restoreAllMocks()
         cleanup()
     })
 
-    it('renders a connection selector for HogQL queries when direct query is enabled', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-            [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: true,
-        })
+    it('renders a connection selector for HogQL queries', async () => {
         jest.spyOn(api.externalDataSources, 'list').mockResolvedValue(mockSourcesResponse)
 
         const setQuery = jest.fn()
@@ -119,10 +113,6 @@ describe('Modifiers', () => {
     })
 
     it('does not render a connection selector for non-HogQL queries', () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY], {
-            [FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]: false,
-        })
-
         const setQuery = jest.fn()
 
         render(

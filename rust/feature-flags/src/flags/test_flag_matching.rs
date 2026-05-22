@@ -10,6 +10,7 @@ mod tests {
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::cohort_cache_manager::CohortCacheManager,
         flags::{
+            feature_flag_list::PreparedFlags,
             flag_group_type_mapping::GroupTypeCacheManager,
             flag_match_reason::FeatureFlagMatchReason,
             flag_matching::{FeatureFlagMatch, FeatureFlagMatcher, PropertyContext},
@@ -204,6 +205,77 @@ mod tests {
         assert_eq!(
             result.flags.get("test_flag").unwrap().to_value(),
             FlagValue::Boolean(true)
+        );
+    }
+
+    // The injected `distinct_id` case passes `Some(HashMap::new())` so the
+    // only way the override can be populated is the matcher's own injection
+    // of `self.distinct_id`.
+    #[rstest::rstest]
+    #[case::injected_from_request("request_only_user", "request_only_user", None)]
+    #[case::explicit_override_wins("request_user", "explicit_user", Some("explicit_user"))]
+    #[tokio::test]
+    async fn test_distinct_id_flag_matches_locally(
+        #[case] matcher_distinct_id: &str,
+        #[case] flag_value: &str,
+        #[case] explicit_override: Option<&str>,
+    ) {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: mock!(crate::properties::property_models::PropertyFilter,
+                key: "distinct_id".mock_into(),
+                value: Some(json!(flag_value)),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Person
+            ).mock_into()
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            matcher_distinct_id.to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        );
+
+        let overrides = match explicit_override {
+            Some(value) => HashMap::from([("distinct_id".to_string(), json!(value))]),
+            None => HashMap::new(),
+        };
+
+        reset_fetch_calls_count();
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                Some(overrides),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.flags.get("test_flag").unwrap().to_value(),
+            FlagValue::Boolean(true)
+        );
+        assert_eq!(
+            get_fetch_calls_count(),
+            0,
+            "distinct_id-only filter should evaluate without a DB property fetch"
         );
     }
 
@@ -5328,14 +5400,23 @@ mod tests {
             None,
         );
 
-        matcher
-            .prepare_flag_evaluation_state(&[&flag])
+        let result = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag.clone()]),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
             .await
             .unwrap();
-
-        let match_result = matcher.get_match(&flag, None, None, None, &None).unwrap();
-        assert!(match_result.matches);
-        assert_eq!(match_result.variant, None);
+        assert!(!result.errors_while_computing_flags);
+        assert_eq!(
+            result.flags.get("flag1").unwrap().to_value(),
+            FlagValue::Boolean(true)
+        );
     }
 
     fn build_device_bucketing_flag(team_id: TeamId) -> FeatureFlag {
@@ -6399,13 +6480,13 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([1]);
 
         let flags = FeatureFlagList {
-            flags: vec![filtered_continuity_flag, active_normal_flag],
+            flags: PreparedFlags::seal(vec![filtered_continuity_flag, active_normal_flag]),
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
-            },
+            }),
             cohorts: None,
         };
 
@@ -6493,12 +6574,12 @@ mod tests {
         );
 
         let flags = FeatureFlagList {
-            flags: vec![base_flag, dependent_flag],
-            evaluation_metadata: EvaluationMetadata {
+            flags: PreparedFlags::seal(vec![base_flag, dependent_flag]),
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -6597,13 +6678,13 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([1]);
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b],
+            flags: PreparedFlags::seal(vec![flag_a, flag_b]),
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
-            },
+            }),
             cohorts: None,
         };
 
@@ -6696,13 +6777,13 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([1]);
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b],
+            flags: PreparedFlags::seal(vec![flag_a, flag_b]),
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
-            },
+            }),
             cohorts: None,
         };
 
@@ -6888,9 +6969,9 @@ mod tests {
         let filtered_out = std::collections::HashSet::from([2]);
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b, flag_c],
+            flags: PreparedFlags::seal(vec![flag_a, flag_b, flag_c]),
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1], vec![2], vec![3]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -6898,7 +6979,7 @@ mod tests {
                     (2, HashSet::from([1])),
                     (3, HashSet::from([1, 2])),
                 ]),
-            },
+            }),
             cohorts: None,
         };
 
@@ -8471,8 +8552,8 @@ mod tests {
         );
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b, flag_c],
-            evaluation_metadata: EvaluationMetadata {
+            flags: PreparedFlags::seal(vec![flag_a, flag_b, flag_c]),
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![3], vec![2], vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -8480,7 +8561,7 @@ mod tests {
                     (2, HashSet::from([3])),
                     (3, HashSet::new()),
                 ]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -8564,12 +8645,12 @@ mod tests {
         );
 
         let flags = FeatureFlagList {
-            flags: vec![flag_a, flag_b],
-            evaluation_metadata: EvaluationMetadata {
+            flags: PreparedFlags::seal(vec![flag_a, flag_b]),
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![1],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -8932,6 +9013,145 @@ mod tests {
         );
         assert_eq!(result.condition_index, Some(1));
         assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+    }
+
+    /// Person condition variant for the reason-priority parametrized test below.
+    /// Each variant produces a different non-matching reason from a single person condition,
+    /// so the test can assert which reason wins when paired with a skipped group condition.
+    #[derive(Debug, Clone, Copy)]
+    enum PersonConditionVariant {
+        /// Person condition with property filter that won't match — produces `NoConditionMatch`.
+        FailsProperties,
+        /// Person condition with 0% rollout — produces `OutOfRolloutBound`.
+        FailsRollout,
+        /// No person condition at all — only the group condition exists.
+        Absent,
+    }
+
+    #[rstest::rstest]
+    #[case::person_property_mismatch_outranks_skipped_group(
+        PersonConditionVariant::FailsProperties,
+        FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated,
+        Some(0)
+    )]
+    #[case::person_out_of_rollout_outranks_skipped_group(
+        PersonConditionVariant::FailsRollout,
+        FeatureFlagMatchReason::OutOfRolloutBound,
+        Some(0)
+    )]
+    #[case::pure_group_flag_still_surfaces_no_group_type(
+        PersonConditionVariant::Absent,
+        FeatureFlagMatchReason::NoGroupType,
+        Some(0)
+    )]
+    #[tokio::test]
+    async fn test_mixed_targeting_reason_priority(
+        #[case] person_variant: PersonConditionVariant,
+        #[case] expected_reason: FeatureFlagMatchReason,
+        #[case] expected_condition_index: Option<usize>,
+    ) {
+        // Regression coverage for the reason-priority ordering. When a person condition
+        // produces a real evaluation result (NoConditionMatch or OutOfRolloutBound), it
+        // should outrank a group condition that was skipped for missing context. When the
+        // flag has no person condition, the skipped group condition should still surface
+        // NoGroupType so callers know they're missing the group key.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let group_condition = FlagPropertyGroup {
+            properties: Some(vec![PropertyFilter {
+                key: "industry".to_string(),
+                value: Some(json!("tech")),
+                operator: Some(OperatorType::Exact),
+                prop_type: PropertyType::Group,
+                group_type_index: Some(1),
+                negation: None,
+                compiled_regex: None,
+            }]),
+            rollout_percentage: Some(100.0),
+            variant: None,
+            aggregation_group_type_index: Some(Some(1)),
+        };
+
+        let groups = match person_variant {
+            PersonConditionVariant::FailsProperties => vec![
+                FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: Some(json!("test@example.com")),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                        compiled_regex: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    aggregation_group_type_index: None,
+                },
+                group_condition,
+            ],
+            PersonConditionVariant::FailsRollout => vec![
+                FlagPropertyGroup {
+                    // No property filters and 0% rollout — every distinct_id falls outside.
+                    properties: None,
+                    rollout_percentage: Some(0.0),
+                    variant: None,
+                    aggregation_group_type_index: None,
+                },
+                group_condition,
+            ],
+            PersonConditionVariant::Absent => vec![group_condition],
+        };
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            key: "mixed-flag".mock_into(),
+            filters: FlagFilters {
+                groups,
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                feature_enrollment: None,
+                holdout: None,
+            }
+        );
+
+        let group_type_cache =
+            mock_group_type_cache([("organization".to_string(), 1)].into_iter().collect());
+
+        // Person properties never match the FailsProperties variant, are irrelevant for
+        // FailsRollout (no filter), and unused for Absent. No groups are ever provided.
+        let person_overrides = HashMap::from([("email".to_string(), json!("other@example.com"))]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(&flag, Some(&person_overrides), None, None, &None)
+            .unwrap();
+
+        assert!(!result.matches);
+        assert_eq!(result.reason, expected_reason);
+        assert_eq!(result.condition_index, expected_condition_index);
     }
 
     #[tokio::test]

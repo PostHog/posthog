@@ -1,6 +1,6 @@
-# LLM Analytics skills
+# AI observability skills
 
-Agent skills for the LLM Analytics product.
+Agent skills for the AI observability product.
 Built by `hogli build:skills` and installed into sandbox containers for background agents.
 Also available to Claude Code / Codex via `hogli sync:skill`.
 
@@ -8,9 +8,19 @@ Also available to Claude Code / Codex via `hogli sync:skill`.
 
 - **exploring-llm-traces** — how to query, inspect, and debug LLM traces via MCP tools.
   Covers the `$ai_*` event schema, content detail levels, and step-by-step debugging workflows.
-- **exploring-llm-clusters** — how to investigate LLM analytics clustering results,
+- **exploring-llm-clusters** — how to investigate AI observability clustering results,
   compare cluster behavior, compute metrics, and drill into individual traces.
+- **exploring-llm-costs** — how to investigate LLM spend: total cost, breakdowns
+  by model/provider/user/trace/custom dimension, token and cache economics,
+  cost regressions, and materializing cost insights, dashboards, and alerts.
+- **exploring-llm-evaluations** — how to manage and investigate AI observability
+  evaluations (both `hog` and `llm_judge` types), run them on specific generations,
+  query individual results, and generate AI-powered summaries of pass/fail/N/A patterns.
 - **skills-store** — discover and use shared team skills stored as prompts in PostHog.
+- **working-with-skills** — best-practice playbook for agents managing skills via the
+  `llma-skill-*` MCP tools: decision tree for picking the right write primitive,
+  progressive disclosure discipline, large multi-file workflows, concurrency, and
+  common pitfalls.
 
 ## Adding a new skill
 

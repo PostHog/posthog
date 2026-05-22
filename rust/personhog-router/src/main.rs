@@ -9,15 +9,18 @@ use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
-use personhog_coordination::error::Result as CoordResult;
-use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
+use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
-use personhog_router::backend::{LeaderBackend, ReplicaBackend};
-use personhog_router::config::{Config, RouterMode};
+use personhog_router::backend::{
+    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
+};
+use personhog_router::config::{Config, ProxyMode, RouterMode};
+use personhog_router::proxy::RawProxyService;
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
+use personhog_router::stash_handler::RouterStashHandler;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -28,38 +31,12 @@ use tracing_subscriber::EnvFilter;
 
 common_alloc::used!();
 
-/// Cutover handler for the router. When a partition handoff reaches the Ready
-/// phase, the routing table calls this to perform the traffic switch.
-///
-/// The `LeaderBackend` already reads from the shared routing table which is
-/// updated by the `RoutingTable`'s assignment watch. The cutover handler
-/// clears the cached gRPC client for the old owner so the next request
-/// reconnects to the new leader pod.
-struct RouterCutoverHandler {
-    leader_backend: Arc<LeaderBackend>,
-}
-
-#[async_trait::async_trait]
-impl CutoverHandler for RouterCutoverHandler {
-    async fn execute_cutover(
-        &self,
-        partition: u32,
-        old_owner: &str,
-        new_owner: &str,
-    ) -> CoordResult<()> {
-        tracing::info!(
-            partition,
-            old_owner,
-            new_owner,
-            "executing cutover: clearing cached client for old owner"
-        );
-        self.leader_backend.clear_client_cache(old_owner);
-        Ok(())
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let config = Config::init_from_env().expect("Invalid configuration");
 
     // Initialize tracing
@@ -79,8 +56,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting personhog-router service");
     tracing::info!("Router mode: {}", config.router_mode);
+    tracing::info!("Proxy mode: {}", config.proxy_mode);
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Replica URL: {}", config.replica_url);
+    tracing::info!("Replica channels: {}", config.replica_channels);
     tracing::info!("Backend timeout: {}ms", config.backend_timeout_ms);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!(
@@ -163,21 +142,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    // Create backend connection to personhog-replica
-    let replica_backend = ReplicaBackend::new(
-        &config.replica_url,
-        config.backend_timeout(),
-        config.retry_config(),
-        config.backend_keepalive_interval(),
-        config.backend_keepalive_timeout(),
-        config.grpc_max_send_message_size,
-        config.grpc_max_recv_message_size,
-    )
-    .expect("Failed to create replica backend");
+    // Create backend connection(s) to personhog-replica
+    let replica_backend = Arc::new(ReplicaBackend::new(ReplicaBackendConfig {
+        url: config.replica_url.clone(),
+        timeout: config.backend_timeout(),
+        retry_config: config.retry_config(),
+        keepalive_interval: config.backend_keepalive_interval(),
+        keepalive_timeout: config.backend_keepalive_timeout(),
+        max_send_message_size: config.grpc_max_send_message_size,
+        max_recv_message_size: config.grpc_max_recv_message_size,
+        num_channels: config.replica_channels,
+    }));
 
-    // Build the router — in leader mode, also wire up etcd coordination
-    // and the leader backend for person writes / strong reads.
-    let router = if config.router_mode == RouterMode::Leader {
+    // In leader mode, wire up etcd coordination and the leader backend
+    // for person writes / strong reads.
+    let leader_backend: Option<Arc<LeaderBackend>> = if config.router_mode == RouterMode::Leader {
         tracing::info!("Leader mode: connecting to etcd");
         tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
         tracing::info!("etcd prefix: {}", config.etcd_prefix);
@@ -215,16 +194,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let leader_backend = Arc::new(LeaderBackend::new(
             shared_table,
             Arc::new(move |pod_name: &str| Some(format!("http://{}:{}", pod_name, leader_port))),
-            num_partitions,
-            config.backend_timeout(),
-            config.retry_config(),
-            config.grpc_max_send_message_size,
-            config.grpc_max_recv_message_size,
+            LeaderBackendConfig {
+                num_partitions,
+                timeout: config.backend_timeout(),
+                retry_config: config.retry_config(),
+                max_send_message_size: config.grpc_max_send_message_size,
+                max_recv_message_size: config.grpc_max_recv_message_size,
+            },
+            StashTable::with_bounds(
+                config.stash_max_messages_per_partition,
+                config.stash_max_bytes_per_partition,
+            ),
         ));
 
-        let cutover_handler: Arc<dyn CutoverHandler> = Arc::new(RouterCutoverHandler {
-            leader_backend: Arc::clone(&leader_backend),
-        });
+        let stash_handler: Arc<dyn StashHandler> = Arc::new(RouterStashHandler::new(
+            Arc::clone(&leader_backend),
+            config.stash_max_wait(),
+            config.stash_drain_concurrency,
+        ));
 
         // Start routing table (etcd registration + assignment/handoff watches)
         let routing_table_handle =
@@ -233,7 +220,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             let _guard = routing_table_handle.process_scope();
             if let Err(e) = coordination_routing_table
-                .run(routing_table_handle.shutdown_token(), cutover_handler)
+                .run(routing_table_handle.shutdown_token(), stash_handler)
                 .await
             {
                 routing_table_handle.signal_failure(format!("Routing table error: {e}"));
@@ -284,13 +271,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             k8s_cancel.cancel();
         });
 
-        PersonHogRouter::new(Arc::new(replica_backend)).with_leader(leader_backend)
+        Some(leader_backend)
     } else {
         tracing::info!("Replica mode: leader routing disabled");
-        PersonHogRouter::new(Arc::new(replica_backend))
+        None
     };
-
-    let service = PersonHogRouterService::new(Arc::new(router));
 
     // gRPC server
     let grpc_addr = config.grpc_address;
@@ -298,6 +283,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let keepalive_timeout = config.grpc_keepalive_timeout();
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
+    let proxy_mode = config.proxy_mode;
+    let retry_config = config.retry_config();
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
     tokio::spawn(async move {
@@ -310,18 +297,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let incoming = tracked_tcp_incoming(listener);
-        if let Err(e) = Server::builder()
-            .http2_keepalive_interval(keepalive_interval)
-            .http2_keepalive_timeout(keepalive_timeout)
-            .layer(GrpcMetricsLayer)
-            .add_service(
-                PersonHogServiceServer::new(service)
-                    .max_encoding_message_size(max_send)
-                    .max_decoding_message_size(max_recv),
-            )
-            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
-            .await
-        {
+
+        let result = if proxy_mode == ProxyMode::Raw {
+            let proxy =
+                RawProxyService::new(replica_backend, leader_backend, retry_config, max_recv);
+            Server::builder()
+                .http2_keepalive_interval(keepalive_interval)
+                .http2_keepalive_timeout(keepalive_timeout)
+                .layer(GrpcMetricsLayer)
+                .add_service(proxy)
+                .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+                .await
+        } else {
+            let replica_dyn: Arc<dyn personhog_router::backend::PersonHogBackend> = replica_backend;
+            let mut router = PersonHogRouter::new(replica_dyn);
+            if let Some(leader) = leader_backend {
+                router = router.with_leader(leader);
+            }
+            let service = PersonHogRouterService::new(Arc::new(router));
+            Server::builder()
+                .http2_keepalive_interval(keepalive_interval)
+                .http2_keepalive_timeout(keepalive_timeout)
+                .layer(GrpcMetricsLayer)
+                .add_service(
+                    PersonHogServiceServer::new(service)
+                        .max_encoding_message_size(max_send)
+                        .max_decoding_message_size(max_recv),
+                )
+                .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+                .await
+        };
+
+        if let Err(e) = result {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));
         }
     });

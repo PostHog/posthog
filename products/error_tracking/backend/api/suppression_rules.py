@@ -2,12 +2,14 @@ from typing import override
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import OpenApiResponse, extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
 from posthog.schema import PropertyGroupFilterValue
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
 from posthog.models.team.team import Team
@@ -26,6 +28,66 @@ class ErrorTrackingSuppressionRuleSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id", "created_at", "updated_at"]
 
 
+@extend_schema_field(PropertyGroupFilterValue)  # type: ignore[arg-type]
+class ErrorTrackingSuppressionRuleFiltersField(serializers.JSONField):
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Expected an object.")
+
+        if _has_filter_values(value):
+            try:
+                PropertyGroupFilterValue(**value)
+            except (PydanticValidationError, TypeError) as err:
+                logger.warning("Invalid suppression rule filters payload", exc_info=err)
+                raise serializers.ValidationError("Invalid filters payload.") from err
+        elif "values" not in value:
+            raise serializers.ValidationError("Invalid filters")
+
+        return value
+
+
+class ErrorTrackingSuppressionRuleCreateRequestSerializer(serializers.Serializer):
+    filters = ErrorTrackingSuppressionRuleFiltersField(
+        required=False,
+        help_text=(
+            "Optional property-group filters that define which incoming error events should be suppressed. "
+            "Omit this field or provide an empty `values` array to create a match-all suppression rule."
+        ),
+    )
+    sampling_rate = serializers.FloatField(
+        required=False,
+        default=1.0,
+        min_value=0.0,
+        max_value=1.0,
+        help_text=(
+            "Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; "
+            "`0.5` drops half. Higher values suppress more."
+        ),
+    )
+
+
+class ErrorTrackingSuppressionRuleUpdateRequestSerializer(serializers.Serializer):
+    filters = ErrorTrackingSuppressionRuleFiltersField(
+        required=False,
+        help_text=(
+            "Property-group filters that define which incoming error events should be suppressed. "
+            "Provide an empty `values` array to convert the rule into a match-all suppression. "
+            "Omit to preserve the existing filters."
+        ),
+    )
+    sampling_rate = serializers.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=1.0,
+        help_text=(
+            "Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; "
+            "`0.5` drops half. Higher values suppress more. Omit to preserve the existing rate."
+        ),
+    )
+
+
 class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet, RuleReorderingMixin):
     scope_object = "error_tracking"
     queryset = ErrorTrackingSuppressionRule.objects.order_by("order_key").all()
@@ -35,30 +97,20 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
 
-    @override
-    def update(self, request, *args, **kwargs) -> Response:
+    def _apply_rule_update(self, request: ValidatedRequest) -> Response:
         suppression_rule = self.get_object()
-        json_filters = request.data.get("filters")
+        json_filters = request.validated_data.get("filters")
 
         if json_filters is not None:
             if _has_filter_values(json_filters):
-                try:
-                    parsed_filters = PropertyGroupFilterValue(**json_filters)
-                except (PydanticValidationError, TypeError):
-                    return Response({"error": "Invalid filters"}, status=status.HTTP_400_BAD_REQUEST)
+                parsed_filters = PropertyGroupFilterValue(**json_filters)
                 suppression_rule.filters = json_filters
                 suppression_rule.bytecode = generate_byte_code(self.team, parsed_filters)
             else:
                 suppression_rule.filters = json_filters
                 suppression_rule.bytecode = generate_match_all_bytecode()
-        if "sampling_rate" in request.data:
-            sampling_rate = request.data["sampling_rate"]
-            if not isinstance(sampling_rate, (int, float)) or not (0.0 <= sampling_rate <= 1.0):
-                return Response(
-                    {"error": "sampling_rate must be a number between 0 and 1"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            suppression_rule.sampling_rate = sampling_rate
+        if "sampling_rate" in request.validated_data:
+            suppression_rule.sampling_rate = request.validated_data["sampling_rate"]
         suppression_rule.disabled_data = None
         suppression_rule.save()
 
@@ -70,8 +122,20 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
     @override
-    def partial_update(self, request, *args, **kwargs) -> Response:
-        return self.update(request, *args, **kwargs)
+    @validated_request(
+        request_serializer=ErrorTrackingSuppressionRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
+
+    @override
+    @validated_request(
+        request_serializer=ErrorTrackingSuppressionRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
 
     @override
     def destroy(self, request, *args, **kwargs) -> Response:
@@ -84,31 +148,22 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
 
         return response
 
-    @override
-    def create(self, request, *args, **kwargs) -> Response:
-        json_filters = request.data.get("filters")
+    @validated_request(
+        request_serializer=ErrorTrackingSuppressionRuleCreateRequestSerializer,
+        responses={201: OpenApiResponse(response=ErrorTrackingSuppressionRuleSerializer)},
+    )
+    def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        json_filters = request.validated_data.get("filters")
 
-        if json_filters is not None:
-            if _has_filter_values(json_filters):
-                try:
-                    parsed_filters = PropertyGroupFilterValue(**json_filters)
-                except (PydanticValidationError, TypeError):
-                    return Response({"error": "Invalid filters"}, status=status.HTTP_400_BAD_REQUEST)
-                bytecode = generate_byte_code(self.team, parsed_filters)
-            elif "values" not in json_filters:
-                return Response({"error": "Invalid filters"}, status=status.HTTP_400_BAD_REQUEST)
-            else:
-                bytecode = generate_match_all_bytecode()
-        else:
+        if json_filters is None:
             json_filters = {"type": "AND", "values": []}
+
+        if _has_filter_values(json_filters):
+            bytecode = generate_byte_code(self.team, PropertyGroupFilterValue(**json_filters))
+        else:
             bytecode = generate_match_all_bytecode()
 
-        sampling_rate = request.data.get("sampling_rate", 1.0)
-        if not isinstance(sampling_rate, (int, float)) or not (0.0 <= sampling_rate <= 1.0):
-            return Response(
-                {"error": "sampling_rate must be a number between 0 and 1"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        sampling_rate = request.validated_data["sampling_rate"]
 
         suppression_rule = ErrorTrackingSuppressionRule.objects.create(
             team=self.team,

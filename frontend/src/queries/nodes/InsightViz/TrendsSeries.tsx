@@ -4,7 +4,6 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { alphabet } from 'lib/utils'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -15,7 +14,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FunnelsQuery, LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { LifecycleQuery, NodeKind, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
 import { ChartDisplayType, FilterType } from '~/types'
 
@@ -37,8 +36,6 @@ export function TrendsSeries(): JSX.Element | null {
     )
     const { updateQuerySource, toggleFormulaMode } = useActions(insightVizDataLogic(insightProps))
 
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
-
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
@@ -55,7 +52,6 @@ export function TrendsSeries(): JSX.Element | null {
     }
 
     const filters = queryNodeToFilter(querySource)
-    const isFunnels = querySource.kind === NodeKind.FunnelsQuery
     const mathAvailability = isLifecycle
         ? MathAvailability.None
         : isStickiness
@@ -65,12 +61,13 @@ export function TrendsSeries(): JSX.Element | null {
             : display === ChartDisplayType.BoxPlot
               ? MathAvailability.BoxPlotOnly
               : MathAvailability.All
+    const supportsDataWarehouse =
+        (isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot) ||
+        isLifecycle ||
+        isStickiness
 
     const showFormulaOption =
-        editorPanelsEnabled &&
-        isTrends &&
-        display !== ChartDisplayType.CalendarHeatmap &&
-        display !== ChartDisplayType.BoxPlot
+        isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
 
     const canDisableFormula: boolean =
         !isTrends || !display || !SINGLE_SERIES_DISPLAY_TYPES.includes(display) || series?.length === 1
@@ -103,15 +100,6 @@ export function TrendsSeries(): JSX.Element | null {
                                 NodeKind.LifecycleDataWarehouseNode
                             ),
                         } as LifecycleQuery)
-                    } else if (isFunnels) {
-                        updateQuerySource({
-                            series: actionsAndEventsToSeries(
-                                payload as any,
-                                true,
-                                mathAvailability,
-                                NodeKind.FunnelsDataWarehouseNode
-                            ),
-                        } as FunnelsQuery)
                     } else {
                         updateQuerySource({
                             series: actionsAndEventsToSeries(
@@ -124,13 +112,7 @@ export function TrendsSeries(): JSX.Element | null {
                     }
                 }}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}
-                buttonCopy={
-                    editorPanelsEnabled
-                        ? hasFormula
-                            ? 'Variable'
-                            : 'Series'
-                        : `Add graph ${hasFormula ? 'variable' : 'series'}`
-                }
+                buttonCopy={hasFormula ? 'Variable' : 'Series'}
                 showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={
@@ -146,20 +128,14 @@ export function TrendsSeries(): JSX.Element | null {
                     ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
                     ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
                     TaxonomicFilterGroupType.AutocaptureEvents,
-                    ...((isTrends &&
-                        display !== ChartDisplayType.CalendarHeatmap &&
-                        display !== ChartDisplayType.BoxPlot) ||
-                    isLifecycle
-                        ? [TaxonomicFilterGroupType.DataWarehouse]
-                        : []),
+                    ...(supportsDataWarehouse ? [TaxonomicFilterGroupType.DataWarehouse] : []),
                 ]}
                 hideDeleteBtn={series?.length === 1}
-                hideDuplicate={editorPanelsEnabled}
                 addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
                 dataWarehousePopoverFields={isLifecycle ? lifecycleDataWarehousePopoverFields : undefined}
                 customFooter={formulaFooter}
             />
-            {editorPanelsEnabled && hasFormula && <TrendsFormula insightProps={insightProps} />}
+            {hasFormula && <TrendsFormula insightProps={insightProps} />}
         </>
     )
 }

@@ -9,7 +9,9 @@ from posthog.schema import FeatureFlagGroupType
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.models import FeatureFlag, GroupTypeMapping
+from posthog.models import FeatureFlag
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.tool import MaxTool
@@ -34,14 +36,18 @@ class FeatureFlagCreationSchema(BaseModel):
     description: str | None = Field(default=None, description="Optional description of what the flag controls")
     active: bool = Field(default=True, description="Whether the flag is active")
     group_type: str | None = Field(
-        default=None, description="Group type name for group-based targeting (e.g., 'organization', 'company')"
+        default=None,
+        description="Group type name for group-based targeting (e.g., 'organization', 'company')",
     )
     groups: list[FeatureFlagGroupType] = Field(
         default_factory=list,
         description="Feature flag groups containing properties and rollout percentage. "
         "Uses PostHog's native FeatureFlagGroupType schema.",
     )
-    tags: list[str] = Field(default_factory=list, description="Tags for organizing and categorizing the flag")
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Tags for organizing and categorizing the flag",
+    )
     variants: list[MultivariateVariant] | None = Field(
         default=None,
         description="Multivariate variants for A/B testing. If provided, creates a multivariate flag. "
@@ -193,7 +199,9 @@ class CreateFeatureFlagTool(MaxTool):
     description: str = FEATURE_FLAG_CREATION_TOOL_DESCRIPTION
     args_schema: type[BaseModel] = CreateFeatureFlagToolArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(
+        self,
+    ) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         """
         Creating a feature flag requires editor-level access to feature flags.
         This check runs before the tool executes.
@@ -211,10 +219,14 @@ class CreateFeatureFlagTool(MaxTool):
             if flag_schema.group_type:
 
                 @database_sync_to_async
-                def get_group_mapping():
-                    return GroupTypeMapping.objects.filter(
-                        team=self._team, group_type=flag_schema.group_type.lower() if flag_schema.group_type else None
-                    ).first()
+                def get_group_mapping() -> dict | None:
+                    from posthog.models.group_type_mapping import get_group_types_for_project
+
+                    target = flag_schema.group_type.lower() if flag_schema.group_type else None
+                    for m in get_group_types_for_project(self._team.project_id):
+                        if m["group_type"] == target:
+                            return m
+                    return None
 
                 group_mapping = await get_group_mapping()
                 if not group_mapping:
@@ -223,8 +235,8 @@ class CreateFeatureFlagTool(MaxTool):
                         {"error": "group_type_not_found"},
                     )
 
-                aggregation_group_type_index = group_mapping.group_type_index
-                group_type_display_name = group_mapping.name_plural or flag_schema.group_type
+                aggregation_group_type_index = group_mapping["group_type_index"]
+                group_type_display_name = group_mapping["name_plural"] or flag_schema.group_type
 
             filters: dict[str, Any] = {}
             if aggregation_group_type_index is not None:
@@ -263,7 +275,7 @@ class CreateFeatureFlagTool(MaxTool):
             }
 
             @database_sync_to_async
-            def create_flag_via_serializer():
+            def create_flag_via_serializer() -> FeatureFlag:
                 serializer = FeatureFlagSerializer(data=serializer_data, context=context)
                 serializer.is_valid(raise_exception=True)
                 return serializer.save()
@@ -291,7 +303,7 @@ class CreateFeatureFlagTool(MaxTool):
                 if any("already" in str(err).lower() for err in key_errors):
 
                     @database_sync_to_async
-                    def get_existing_flag():
+                    def get_existing_flag() -> FeatureFlag | None:
                         return FeatureFlag.objects.filter(team=self._team, key=flag_schema.key).first()
 
                     existing = await get_existing_flag()

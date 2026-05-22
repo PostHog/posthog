@@ -283,4 +283,23 @@ describe('performance-event-utils', () => {
 
         expect(actual).toMatchSnapshot()
     })
+
+    it.each([
+        ['rrweb/network@1 with missing payload', { plugin: 'rrweb/network@1' }],
+        ['rrweb/network@1 with null payload', { plugin: 'rrweb/network@1', payload: null }],
+        ['posthog/network@1 with missing payload', { plugin: 'posthog/network@1' }],
+        ['posthog/network@1 with null payload', { plugin: 'posthog/network@1', payload: null }],
+    ])('does not crash when network snapshot has no usable payload (%s)', (_name, snapshotData) => {
+        const snapshot = {
+            windowId: '018d5247-079c-7126-8e43-464605576a62',
+            type: 6,
+            data: snapshotData,
+            timestamp: 1700000000000,
+        } as any
+
+        const result = getPerformanceEvents({
+            '018d5247-079c-7126-8e43-464605576a62': [snapshot],
+        })
+        expect(result).toEqual([])
+    })
 })

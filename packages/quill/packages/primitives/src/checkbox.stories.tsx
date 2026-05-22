@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react-vite'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { Checkbox } from './checkbox'
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from './field'

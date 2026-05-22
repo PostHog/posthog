@@ -4,27 +4,27 @@ from textwrap import dedent
 from typing import Any, Literal, cast
 
 import structlog
-import posthoganalytics
 from pydantic import BaseModel, Field
 
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
-from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.session_replay.session_summary.summarize_session_group import execute_summarize_session_group
-from posthog.temporal.session_replay.session_summary.types.group import (
+from posthog.temporal.session_replay.count_playlist_items import convert_filters_to_recordings_query
+from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
+from posthog.temporal.session_replay.session_summary_group.types import (
+    FailedSessionInfo,
     SessionProgressStreamData,
     SessionStatusChange,
     SessionSummaryStreamUpdate,
 )
+from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
 
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
     MAX_SESSIONS_TO_SUMMARIZE,
-    SESSION_SUMMARIES_SYNC_MODEL,
+    SESSION_SUMMARIES_MODEL,
 )
 from ee.hogai.session_summaries.session.stringify import SingleSessionSummaryStringifier
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
@@ -145,7 +145,6 @@ class SummarizeSessionsTool(MaxTool):
         summary_type: Literal["single", "group"] = (
             "single" if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS else "group"
         )
-        video_validation_enabled = self._determine_video_validation_enabled()
         tracking_id = generate_tracking_id()
         capture_session_summary_started(
             user=self._user,
@@ -153,13 +152,11 @@ class SummarizeSessionsTool(MaxTool):
             tracking_id=tracking_id,
             summary_source="chat",
             summary_type=summary_type,
-            is_streaming=False,
             session_ids=session_ids,
-            video_validation_enabled=video_validation_enabled,
         )
         try:
             # Summarize the sessions
-            summaries_content, session_group_summary_id = await self._summarize_sessions(
+            summaries_content, session_group_summary_id, failed_sessions = await self._summarize_sessions(
                 session_ids=session_ids,
                 summary_title=summary_title,
                 session_ids_source=llm_provided_session_ids_source,
@@ -175,57 +172,29 @@ class SummarizeSessionsTool(MaxTool):
             else:
                 content, artifact = summaries_content, None
         except Exception as err:
-            # The session summarization failed
             capture_session_summary_generated(
                 user=self._user,
                 team=self._team,
                 tracking_id=tracking_id,
                 summary_source="chat",
                 summary_type=summary_type,
-                is_streaming=False,
                 session_ids=session_ids,
-                video_validation_enabled=video_validation_enabled,
                 success=False,
                 error_type=type(err).__name__,
                 error_message=str(err),
             )
             raise
-        # The session successfully summarized
         capture_session_summary_generated(
             user=self._user,
             team=self._team,
             tracking_id=tracking_id,
             summary_source="chat",
             summary_type=summary_type,
-            is_streaming=False,
             session_ids=session_ids,
-            video_validation_enabled=video_validation_enabled,
             success=True,
+            failed_session_count=len(failed_sessions),
         )
         return content, artifact
-
-    def _determine_video_validation_enabled(self) -> bool | Literal["full"]:
-        """
-        Check if the user has the video validation for session summaries feature flag enabled.
-        """
-        if posthoganalytics.feature_enabled(
-            "max-session-summarization-video-as-base",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        ):
-            return "full"  # Use video as base of summarization
-        return (
-            posthoganalytics.feature_enabled(
-                "max-session-summarization-video-validation",
-                str(self._user.distinct_id),
-                groups={"organization": str(self._team.organization_id)},
-                group_properties={"organization": {"id": str(self._team.organization_id)}},
-                send_feature_flag_events=False,
-            )
-            or False
-        )
 
     def _stream_progress(self, progress_message: str) -> None:
         """Push summarization progress as reasoning messages"""
@@ -287,7 +256,12 @@ class SummarizeSessionsTool(MaxTool):
 
         # Execute the query to get session IDs
         try:
-            with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+            with tags_context(
+                product=Product.MAX_AI,
+                feature=Feature.POSTHOG_AI,
+                team_id=self._team.pk,
+                org_id=self._team.organization_id,
+            ):
                 query_runner = SessionRecordingListFromQuery(
                     team=self._team, query=replay_filters, hogql_query_modifiers=None
                 )
@@ -303,11 +277,15 @@ class SummarizeSessionsTool(MaxTool):
         session_ids = [recording["session_id"] for recording in results.results]
         return session_ids if session_ids else None
 
+    def _get_trigger_session_id(self) -> str | None:
+        """Get the session ID of the user who triggered the summarization."""
+        return self._get_session_id(self._config)
+
     async def _summarize_sessions_individually(self, session_ids: list[str]) -> str:
         """Summarize sessions individually with progress updates."""
         total = len(session_ids)
         completed = 0
-        video_validation_enabled = self._determine_video_validation_enabled()
+        trigger_session_id = self._get_trigger_session_id()
 
         async def _summarize(session_id: str) -> dict[str, Any] | None:
             nonlocal completed
@@ -317,8 +295,8 @@ class SummarizeSessionsTool(MaxTool):
                     session_id=session_id,
                     user=self._user,
                     team=self._team,
-                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
-                    video_validation_enabled=video_validation_enabled,
+                    model_to_use=SESSION_SUMMARIES_MODEL,
+                    trigger_session_id=trigger_session_id,
                 )
                 completed += 1
                 self._dispatch_session_progress(session_id, "summarized", completed, total)
@@ -349,19 +327,39 @@ class SummarizeSessionsTool(MaxTool):
         summaries_str = "\n\n".join(stringified_summaries)
         return summaries_str
 
+    @staticmethod
+    def _format_failed_sessions_note(failed_sessions: list[FailedSessionInfo], total_requested: int) -> str:
+        """Short note prepended to the LLM context when the run was partial, bucketed by category."""
+        if not failed_sessions:
+            return ""
+        analyzed = total_requested - len(failed_sessions)
+        counts: dict[str, int] = {}
+        reasons_by_category: dict[str, str] = {}
+        for fs in failed_sessions:
+            counts[fs.category] = counts.get(fs.category, 0) + 1
+            reasons_by_category.setdefault(fs.category, fs.reason)
+        breakdown_parts = [
+            f"{counts[category]} {category.replace('_', ' ')} ({reasons_by_category[category]})" for category in counts
+        ]
+        breakdown = "; ".join(breakdown_parts)
+        return (
+            f"Note: only {analyzed} of {total_requested} sessions were included in this summary. "
+            f"{len(failed_sessions)} sessions were dropped: {breakdown}. "
+            f"When responding to the user, mention this so they know the summary is based on a partial set.\n\n"
+        )
+
     async def _summarize_sessions_as_group(
         self,
         session_ids: list[str],
         summary_title: str | None,
-    ) -> tuple[str, str]:
-        """Summarize sessions as a group (for larger sets). Returns tuple of (summary_str, session_group_summary_id)."""
+    ) -> tuple[str, str, list[FailedSessionInfo]]:
+        """Summarize sessions as a group. Returns (summary_str, summary_id, failed_sessions)."""
         from ee.hogai.session_summaries.utils import logging_session_ids
 
         min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
             session_ids=session_ids, team=self._team
         )
-        # Check if the summaries should be validated with videos
-        video_validation_enabled = self._determine_video_validation_enabled()
+        trigger_session_id = self._get_trigger_session_id()
         async with Heartbeater():
             async for update_type, data in execute_summarize_session_group(
                 session_ids=session_ids,
@@ -371,7 +369,7 @@ class SummarizeSessionsTool(MaxTool):
                 max_timestamp=max_timestamp,
                 summary_title=summary_title,
                 extra_summary_context=None,
-                video_validation_enabled=video_validation_enabled,
+                trigger_session_id=trigger_session_id,
             ):
                 # Max "reasoning" text update message
                 if update_type == SessionSummaryStreamUpdate.UI_STATUS:
@@ -390,14 +388,14 @@ class SummarizeSessionsTool(MaxTool):
                     self._dispatch_structured_update(cast(SessionProgressStreamData, data))
                 # Final summary result
                 elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
-                    if not isinstance(data, tuple) or len(data) != 2:
+                    if not isinstance(data, tuple) or len(data) != 3:
                         msg = (
                             f"Unexpected data type for stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(data)} "
-                            f"(expected: tuple[EnrichedSessionGroupSummaryPatternsList, str])"
+                            f"(expected: tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]])"
                         )
                         logger.error(msg, signals_type="session-summaries")
                         raise ValueError(msg)
-                    summary, session_group_summary_id = data
+                    summary, session_group_summary_id, failed_sessions = data
                     if not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
                         msg = (  # type: ignore[unreachable]
                             f"Unexpected data type for patterns in stream update {SessionSummaryStreamUpdate.FINAL_RESULT}: {type(summary)} "
@@ -408,7 +406,8 @@ class SummarizeSessionsTool(MaxTool):
                     # Stringify the summary to "weight" less and apply example limits per pattern, so it won't overload the context
                     stringifier = SessionGroupSummaryStringifier(summary.model_dump(exclude_none=False))
                     summary_str = stringifier.stringify_patterns()
-                    return summary_str, session_group_summary_id
+                    note = self._format_failed_sessions_note(failed_sessions, total_requested=len(session_ids))
+                    return note + summary_str, session_group_summary_id, failed_sessions
                 else:
                     msg = f"Unexpected update type ({update_type}) in session group summarization (session_ids: {logging_session_ids(session_ids)})."  # type: ignore[unreachable]
                     logger.error(msg, signals_type="session-summaries")
@@ -420,11 +419,9 @@ class SummarizeSessionsTool(MaxTool):
 
     async def _summarize_sessions(
         self, session_ids: list[str], summary_title: str | None, *, session_ids_source: Literal["filters", "explicit"]
-    ) -> tuple[str, str | None]:
-        """
-        Summarize sessions. Returns tuple of (summary_str, session_group_summary_id).
-        session_group_summary_id is None for individual summaries, as report is not generated.
-        """
+    ) -> tuple[str, str | None, list[FailedSessionInfo]]:
+        """Returns (summary_str, summary_id, failed_sessions). summary_id and failed_sessions are
+        only populated for the group path; the individual path logs per-session errors inline."""
         # Fetch per-session metadata for the progress widget
         metadata = await database_sync_to_async(self._get_session_metadata, thread_sensitive=False)(session_ids)
         # Emit sessions_discovered for the frontend progress widget
@@ -447,13 +444,13 @@ class SummarizeSessionsTool(MaxTool):
         # Process sessions based on count
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
-            return summaries_content, None
+            return summaries_content, None, []
         # For large groups, process in detail, searching for patterns
-        summaries_content, session_group_summary_id = await self._summarize_sessions_as_group(
+        summaries_content, session_group_summary_id, failed_sessions = await self._summarize_sessions_as_group(
             session_ids=session_ids,
             summary_title=summary_title,
         )
-        return summaries_content, session_group_summary_id
+        return summaries_content, session_group_summary_id, failed_sessions
 
     def _validate_specific_session_ids(self, session_ids: list[str]) -> list[str] | None:
         """Validate that specific session IDs exist in the database."""

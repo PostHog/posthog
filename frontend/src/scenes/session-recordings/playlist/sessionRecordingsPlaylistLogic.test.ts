@@ -209,7 +209,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
 
         describe('nextSessionRecording', () => {
-            it('returns next older recording when autoplay direction is null (autoplay off)', async () => {
+            it('returns undefined when autoplay direction is null (autoplay off)', async () => {
                 playerSettingsLogic.mount()
                 playerSettingsLogic.actions.setAutoplayDirection(null)
 
@@ -217,7 +217,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toDispatchActions(['loadSessionRecordingsSuccess'])
                     .toMatchValues({
                         activeSessionRecording: listOfSessionRecordings[0],
-                        nextSessionRecording: listOfSessionRecordings[1],
+                        nextSessionRecording: undefined,
                     })
             })
 
@@ -1236,91 +1236,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     },
                 })
             }).toMatchValues({ totalFiltersCount: 1 })
-        })
-    })
-
-    describe('summarizeDisabledReason', () => {
-        it.each([
-            {
-                scenario: 'no type, no filters, no recordings',
-                props: { logicKey: 'summarize-test' },
-                hasRecordings: false,
-                hasFilters: false,
-                expected: 'No recordings in the list',
-            },
-            {
-                scenario: 'no type, no filters, has recordings',
-                props: { logicKey: 'summarize-test' },
-                hasRecordings: true,
-                hasFilters: false,
-                expected: 'Add filters to summarize recordings',
-            },
-            {
-                scenario: 'no type, has filters, has recordings',
-                props: { logicKey: 'summarize-test' },
-                hasRecordings: true,
-                hasFilters: true,
-                expected: undefined,
-            },
-            {
-                scenario: 'collection type, no filters, no recordings',
-                props: { logicKey: 'summarize-test', type: 'collection' as const },
-                hasRecordings: false,
-                hasFilters: false,
-                expected: 'No recordings in the list',
-            },
-            {
-                scenario: 'collection type, no filters, has recordings',
-                props: { logicKey: 'summarize-test', type: 'collection' as const },
-                hasRecordings: true,
-                hasFilters: false,
-                expected: undefined,
-            },
-            {
-                scenario: 'filters type, no filters, no recordings',
-                props: { logicKey: 'summarize-test', type: 'filters' as const },
-                hasRecordings: false,
-                hasFilters: false,
-                expected: 'No recordings in the list',
-            },
-            {
-                scenario: 'filters type, no filters, has recordings',
-                props: { logicKey: 'summarize-test', type: 'filters' as const },
-                hasRecordings: true,
-                hasFilters: false,
-                expected: undefined,
-            },
-        ])('$scenario -> $expected', async ({ props, hasRecordings, hasFilters, expected }) => {
-            logic = sessionRecordingsPlaylistLogic(props)
-            logic.mount()
-
-            if (hasRecordings) {
-                await expectLogic(logic).toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
-            }
-
-            if (hasFilters) {
-                logic.actions.setFilters({
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    {
-                                        type: PropertyFilterType.LogEntry,
-                                        key: 'level',
-                                        operator: PropertyOperator.IContains,
-                                        value: ['error'],
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                })
-                await expectLogic(logic).toDispatchActionsInAnyOrder(['loadSessionRecordingsSuccess'])
-            }
-
-            expectLogic(logic).toMatchValues({ summarizeDisabledReason: expected })
         })
     })
 })

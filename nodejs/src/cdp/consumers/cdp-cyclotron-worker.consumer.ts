@@ -3,7 +3,7 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
@@ -12,19 +12,21 @@ import {
     CyclotronJobQueueKind,
 } from '../types'
 import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
+import { mirrorCall } from '../utils/mirror-call'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 /**
- * The future of the CDP consumer. This will be the main consumer that will handle all hog jobs from Cyclotron
+ * CDP worker that consumes and processes hog function / hogflow jobs.
+ * Receives its job queue backend via constructor injection.
  */
 export class CdpCyclotronWorker<
     TConfig extends PluginsServerConfig = PluginsServerConfig,
 > extends CdpConsumerBase<TConfig> {
     protected name = 'CdpCyclotronWorker'
-    protected cyclotronJobQueue: CyclotronJobQueue
+    protected cyclotronJobQueue: JobQueue
     protected queue: CyclotronJobQueueKind
 
-    constructor(config: TConfig, deps: CdpConsumerBaseDeps, queue?: CyclotronJobQueueKind) {
+    constructor(config: TConfig, deps: CdpConsumerBaseDeps, jobQueue: JobQueue, queue?: CyclotronJobQueueKind) {
         super(config, deps)
         this.queue = queue ?? config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 
@@ -32,10 +34,10 @@ export class CdpCyclotronWorker<
             throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
         }
 
-        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+        this.cyclotronJobQueue = jobQueue
     }
 
-    @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
+    @instrumented({ key: 'cdpConsumer.handleEachBatch.executeInvocations', timeoutMs: 30_000, sendException: false })
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
 
@@ -54,7 +56,7 @@ export class CdpCyclotronWorker<
         )
     }
 
-    @instrumented('cdpConsumer.handleEachBatch.loadHogFunctions')
+    @instrumented({ key: 'cdpConsumer.handleEachBatch.loadHogFunctions', timeoutMs: 10_000, sendException: false })
     protected async loadHogFunctions(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationHogFunction[]> {
@@ -71,7 +73,7 @@ export class CdpCyclotronWorker<
 
                     failedInvocations.push(item)
 
-                    return null
+                    return
                 }
 
                 if (!hogFunction.enabled || hogFunction.deleted) {
@@ -81,7 +83,7 @@ export class CdpCyclotronWorker<
 
                     failedInvocations.push(item)
 
-                    return null
+                    return
                 }
 
                 const hogFuncState = item.state as CyclotronJobInvocationHogFunction['state']
@@ -126,38 +128,60 @@ export class CdpCyclotronWorker<
         const invocationResults = await this.processInvocations(invocations)
 
         // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
-        const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
-            // NOTE: After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
-            return Promise.allSettled([
-                this.hogFunctionMonitoringService
-                    .queueInvocationResults(invocationResults)
-                    .then(() => this.hogFunctionMonitoringService.flush())
-                    .catch((err) => {
-                        captureException(err)
-                        logger.error('Error processing invocation results', { err })
-                    }),
-                this.hogWatcher.observeResults(invocationResults).catch((err: any) => {
-                    captureException(err)
-                    logger.error('Error observing results', { err })
-                }),
-            ])
-        })
+        const backgroundTask = this.runBackgroundTasks(invocationResults)
 
         return { backgroundTask, invocationResults }
     }
 
+    @instrumented({ key: 'cdpConsumer.backgroundTask', timeoutMs: 30_000, sendException: false })
+    private async runBackgroundTasks(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+        await this.queueInvocationResults(invocationResults)
+
+        // After this point we parallelize and any issues are logged rather than thrown
+        // as retrying now would end up in duplicate messages
+        await Promise.allSettled([this.flushMonitoring(invocationResults), this.observeResults(invocationResults)])
+    }
+
+    @instrumented({ key: 'cdpConsumer.backgroundTask.monitoringFlush', timeoutMs: 15_000, sendException: false })
+    private async flushMonitoring(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+        try {
+            await this.invocationResultsService.queueInvocationResultsAndFlush(invocationResults)
+        } catch (err) {
+            captureException(err)
+            logger.error('Error processing invocation results', { err })
+        }
+    }
+
+    @instrumented({ key: 'cdpConsumer.backgroundTask.hogWatcherObserve', timeoutMs: 10_000, sendException: false })
+    private async observeResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
+        try {
+            await Promise.all([
+                this.hogWatcher.observeResults(invocationResults),
+                mirrorCall('hog-watcher.observeResults', () =>
+                    this.hogWatcherMirror?.observeResults(invocationResults)
+                ),
+            ])
+        } catch (err: any) {
+            captureException(err)
+            logger.error('Error observing results', { err })
+        }
+    }
+
+    @instrumented({ key: 'cdpConsumer.backgroundTask.queueInvocationResults', timeoutMs: 15_000, sendException: false })
     protected async queueInvocationResults(invocations: CyclotronJobInvocationResult[]) {
         await this.cyclotronJobQueue.queueInvocationResults(invocations)
     }
 
-    public async start() {
+    public override async start() {
         await super.start()
-        await this.cyclotronJobQueue.start(this.queue, (batch) => this.processBatch(batch))
+        await this.cyclotronJobQueue.startAsProducer()
+        await this.cyclotronJobQueue.startAsConsumer(this.queue, (batch) => this.processBatch(batch))
     }
 
-    public async stop() {
+    public override async stop() {
         logger.info('🔄', 'Stopping cyclotron worker consumer')
-        await this.cyclotronJobQueue.stop()
+        await this.cyclotronJobQueue.stopConsumer()
+        await this.cyclotronJobQueue.stopProducer()
 
         // IMPORTANT: super always comes last
         await super.stop()

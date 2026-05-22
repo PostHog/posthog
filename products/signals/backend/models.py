@@ -1,9 +1,15 @@
+import logging
+
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
 
+from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
+
+logger = logging.getLogger(__name__)
 
 
 class SignalSourceConfig(UUIDModel):
@@ -13,7 +19,9 @@ class SignalSourceConfig(UUIDModel):
         GITHUB = "github", "GitHub"
         LINEAR = "linear", "Linear"
         ZENDESK = "zendesk", "Zendesk"
+        CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
+        PGANALYZE = "pganalyze", "pganalyze"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -25,8 +33,8 @@ class SignalSourceConfig(UUIDModel):
         ISSUE_SPIKING = "issue_spiking", "Issue spiking"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
-    source_product = models.CharField(max_length=100, choices=SourceProduct.choices)
-    source_type = models.CharField(max_length=100, choices=SourceType.choices)
+    source_product = models.CharField(max_length=100, choices=SourceProduct)
+    source_type = models.CharField(max_length=100, choices=SourceType)
     enabled = models.BooleanField(default=True)
     config = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -37,11 +45,16 @@ class SignalSourceConfig(UUIDModel):
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
         """Check whether a given signal source is enabled for a team.
 
-        LLM analytics signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
+        AI observability signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
         For everything else, the team must have a SignalSourceConfig row with enabled=True.
         """
         if source_product == cls.SourceProduct.LLM_ANALYTICS:
             return True
+
+        # Session problem signals are emitted as part of session analysis,
+        # so they're gated by the pre-existing session_analysis_cluster config
+        if source_product == cls.SourceProduct.SESSION_REPLAY and source_type == "session_problem":
+            source_type = cls.SourceType.SESSION_ANALYSIS_CLUSTER
 
         return cls.objects.filter(
             team_id=team_id,
@@ -58,6 +71,43 @@ class SignalSourceConfig(UUIDModel):
         ]
 
 
+class AutonomyPriority(models.TextChoices):
+    P0 = "P0", "P0"
+    P1 = "P1", "P1"
+    P2 = "P2", "P2"
+    P3 = "P3", "P3"
+    P4 = "P4", "P4"
+
+
+class SignalTeamConfig(UUIDModel):
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_team_config",
+    )
+    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Signal team config"
+        verbose_name_plural = "Signal team configs"
+
+
+register_team_extension_signal(SignalTeamConfig, logger=logger)
+
+
+class SignalUserAutonomyConfig(UUIDModel):
+    user = models.OneToOneField("posthog.User", on_delete=models.CASCADE, related_name="signal_autonomy_config")
+    autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Signal user autonomy config"
+        verbose_name_plural = "Signal user autonomy configs"
+
+
 class InvalidStatusTransition(Exception):
     def __init__(self, from_status: str, to_status: str):
         self.from_status = from_status
@@ -72,12 +122,13 @@ class SignalReport(UUIDModel):
         IN_PROGRESS = "in_progress"
         PENDING_INPUT = "pending_input"
         READY = "ready"
+        RESOLVED = "resolved"
         FAILED = "failed"
         DELETED = "deleted"
         SUPPRESSED = "suppressed"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.POTENTIAL)
+    status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
 
     total_weight = models.FloatField(default=0.0)
     signal_count = models.IntegerField(default=0)
@@ -139,16 +190,15 @@ class SignalReport(UUIDModel):
         Raises InvalidStatusTransition if the transition is not allowed.
         Does NOT call .save().
         """
-        from django.utils import timezone
-
         S = self.Status
         updated_fields: set[str] = set()
 
         match (self.status, new_status):
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
-            # - READY -> CANDIDATE to update the report with new signals context (every N signals)
-            case (S.POTENTIAL | S.READY, S.CANDIDATE):
+            # - READY | RESOLVED -> CANDIDATE when new matching signals reopen the report for
+            #   summary / agentic research (READY: every signal; resolved: recurrence of the issue)
+            case (S.POTENTIAL | S.READY | S.RESOLVED, S.CANDIDATE):
                 self.promoted_at = timezone.now()
                 updated_fields.add("promoted_at")
 
@@ -176,8 +226,8 @@ class SignalReport(UUIDModel):
                 self.error = error
                 updated_fields.update(["title", "summary", "error"])
 
-            # Reset to potential (from in_progress via actionability judge, or from suppressed)
-            case (S.IN_PROGRESS | S.SUPPRESSED, S.POTENTIAL):
+            # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze on a ready report)
+            case (S.IN_PROGRESS | S.SUPPRESSED | S.READY | S.RESOLVED, S.POTENTIAL):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
                 if snooze_for is not None:
@@ -191,22 +241,38 @@ class SignalReport(UUIDModel):
                     updated_fields.add("error")
 
             # Any non-deleted status can fail
-            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY, S.FAILED):
+            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED, S.FAILED):
                 if error is None:
                     raise ValueError("error is required for transition to failed")
                 self.error = error
                 updated_fields.add("error")
 
             # Any non-deleted status can be suppressed
-            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.FAILED, S.SUPPRESSED):
+            case (
+                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED,
+                S.SUPPRESSED,
+            ):
                 self.promoted_at = None
                 updated_fields.add("promoted_at")
 
             # Any non-deleted status can be deleted
             case (
-                S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.FAILED | S.SUPPRESSED,
+                S.POTENTIAL
+                | S.CANDIDATE
+                | S.IN_PROGRESS
+                | S.PENDING_INPUT
+                | S.READY
+                | S.RESOLVED
+                | S.FAILED
+                | S.SUPPRESSED,
                 S.DELETED,
             ):
+                pass
+
+            # Only ready reports can resolve
+            # Reports are marked resolved when the linked implementation PR is merged (see tasks GitHub webhook)
+            case (S.PENDING_INPUT | S.READY, S.RESOLVED):
+                # Just pass through to status setting
                 pass
 
             case _:
@@ -215,6 +281,34 @@ class SignalReport(UUIDModel):
         self.status = new_status
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
+
+
+class SignalEmissionRecord(UUIDModel):
+    """Tracks which source records have been emitted as signals.
+
+    Owned by the signals app so source models (e.g. Ticket) stay decoupled.
+    One row per source record, upserted on emission.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    source_product = models.CharField(max_length=100)
+    source_type = models.CharField(max_length=100)
+    source_id = models.CharField(max_length=200)
+    emitted_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "source_product", "source_type", "source_id"],
+                name="unique_signal_emission_record",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["team", "source_product", "source_type"],
+                name="signals_emission_lookup_idx",
+            )
+        ]
 
 
 class SignalReportArtefact(UUIDModel):
@@ -226,14 +320,34 @@ class SignalReportArtefact(UUIDModel):
         SIGNAL_FINDING = "signal_finding"
         REPO_SELECTION = "repo_selection"
         SUGGESTED_REVIEWERS = "suggested_reviewers"
+        DISMISSAL = "dismissal"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="artefacts")
-    type = models.CharField(max_length=100, choices=ArtefactType.choices)
+    type = models.CharField(max_length=100, choices=ArtefactType)
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["report"], name="signals_sig_report__idx"),
+            # For JOINs involving matching a report to artifact of a certain type
+            models.Index(fields=["report", "type"], name="signals_sig_report_type_idx"),
         ]
+
+
+class SignalReportTask(UUIDModel):
+    class Relationship(models.TextChoices):
+        REPO_SELECTION = "repo_selection"
+        RESEARCH = "research"
+        IMPLEMENTATION = "implementation"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="report_tasks")
+    task = models.ForeignKey("tasks.Task", on_delete=models.CASCADE, related_name="signal_report_tasks")
+    relationship = models.CharField(max_length=200, choices=Relationship)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal report task"
+        verbose_name_plural = "Signal report tasks"

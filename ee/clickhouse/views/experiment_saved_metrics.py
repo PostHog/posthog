@@ -47,6 +47,27 @@ class ExperimentSavedMetricSerializer(
     UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
 ):
     created_by = UserBasicSerializer(read_only=True)
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Name of the shared metric. Must be unique within the project (case-insensitive).",
+    )
+    description = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Short description of what the metric measures.",
+    )
+    query = serializers.JSONField(
+        help_text=(
+            "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: "
+            "'mean' (set source to an EventsNode with an event name), "
+            "'funnel' (set series to an array of EventsNode steps), "
+            "'ratio' (set numerator and denominator EventsNode entries), or "
+            "'retention' (set start_event and completion_event). "
+            "Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+        ),
+    )
 
     class Meta:
         model = ExperimentSavedMetric
@@ -68,6 +89,15 @@ class ExperimentSavedMetricSerializer(
             "updated_at",
             "user_access_level",
         ]
+
+    def validate_name(self, value: str) -> str:
+        team = self.context["get_team"]()
+        qs = ExperimentSavedMetric.objects.filter(team=team, name__iexact=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError("A shared metric with this name already exists.")
+        return value
 
     def to_representation(self, instance: ExperimentSavedMetric):
         data = super().to_representation(instance)

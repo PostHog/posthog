@@ -18,7 +18,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.printer import prepare_and_print_ast
@@ -177,21 +177,12 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def _calculate_internal(self) -> ActorsQueryResponse:
-        # Funnel queries require the experimental analyzer to run correctly
-        # Can remove once clickhouse moves to version 24.3 or above
-        settings = None
-        if isinstance(self.source_query_runner, InsightActorsQueryRunner) and isinstance(
-            self.source_query_runner.source_runner, FunnelsQueryRunner
-        ):
-            settings = HogQLGlobalSettings(enable_analyzer=True)
-
         response = self.paginator.execute_hogql_query(
             query_type="ActorsQuery",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
-            settings=settings,
         )
         input_columns = self.input_columns()
         missing_actors_count = None
@@ -255,6 +246,11 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             return self._calculate_internal()
         finally:
             self.calculating = False
+
+    def validate(self) -> None:
+        super().validate()
+        if self.source_query_runner is not None:
+            self.source_query_runner.validate()
 
     def input_columns(self) -> list[str]:
         strategy_input_cols = self.strategy.input_columns()

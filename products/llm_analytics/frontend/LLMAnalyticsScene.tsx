@@ -1,8 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import React, { useMemo } from 'react'
+import React from 'react'
 
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
@@ -25,8 +25,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { EditCustomProductsModal } from '~/layout/panel-layout/PinnedFolder/EditCustomProductsModal'
-import { editCustomProductsModalLogic } from '~/layout/panel-layout/PinnedFolder/editCustomProductsModalLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -36,13 +34,18 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
+import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
-import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
+import {
+    buildApplyUrlStatePayload,
+    LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    llmAnalyticsSharedLogic,
+} from './llmAnalyticsSharedLogic'
 import { LLMAnalyticsTools } from './LLMAnalyticsTools'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
@@ -163,7 +166,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
 
                 {availableDashboardsLoading || !selectedDashboardId ? (
                     <div className="text-center p-8">
-                        <Spinner />
+                        <Spinner captureTime />
                     </div>
                 ) : (
                     <Dashboard id={selectedDashboardId.toString()} placement={DashboardPlacement.Builtin} />
@@ -174,8 +177,8 @@ function LLMAnalyticsDashboard(): JSX.Element {
 }
 
 function LLMAnalyticsGenerations(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsSharedLogic)
-    const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
+    const { applyUrlState } = useActions(llmAnalyticsSharedLogic)
+    const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
     const { searchParams } = useValues(router)
     const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } =
         useActions(llmAnalyticsGenerationsLogic)
@@ -194,7 +197,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
         const columns =
             generationsQuery.source.select ||
             getDefaultGenerationsColumns(
-                !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
                 !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
                 !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
             )
@@ -229,7 +231,6 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 ...generationsQuery,
                 showSavedFilters: true,
                 defaultColumns: getDefaultGenerationsColumns(
-                    !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT],
                     !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
                     !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
                 ),
@@ -238,13 +239,16 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 if (!isEventsQuery(query.source)) {
                     throw new Error('Invalid query')
                 }
-                setDates(query.source.after || null, query.source.before || null)
-                setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-
-                const newPropertyFilters = query.source.properties || []
-                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
-                    setPropertyFilters(newPropertyFilters)
-                }
+                applyUrlState(
+                    buildApplyUrlStatePayload({
+                        dateFrom: query.source.after || null,
+                        dateTo: query.source.before || null,
+                        shouldFilterTestAccounts: query.source.filterTestAccounts || false,
+                        propertyFilters: query.source.properties || [],
+                        currentDateFilter: dateFilter,
+                        currentPropertyFilters,
+                    })
+                )
 
                 if (query.source.select) {
                     setGenerationsColumns(query.source.select)
@@ -289,6 +293,22 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 </strong>
                             )
                         },
+                    },
+                    'properties.$ai_input[-1]': {
+                        ...llmAnalyticsColumnRenderers['properties.$ai_input[-1]'],
+                        renderTitle: () => (
+                            <Tooltip title="The last message in the input array sent to the LLM for this generation.">
+                                <span>Input</span>
+                            </Tooltip>
+                        ),
+                    },
+                    'properties.$ai_output_choices': {
+                        ...llmAnalyticsColumnRenderers['properties.$ai_output_choices'],
+                        renderTitle: () => (
+                            <Tooltip title="The LLM's response for this generation.">
+                                <span>Output</span>
+                            </Tooltip>
+                        ),
                     },
                     person: llmAnalyticsColumnRenderers.person,
                     "'' -- Sentiment": llmAnalyticsColumnRenderers["'' -- Sentiment"],
@@ -380,27 +400,27 @@ function LLMAnalyticsGenerations(): JSX.Element {
     )
 }
 
-const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
+const DEFAULT_DOCS_URL = 'https://posthog.com/docs/ai-observability/installation'
 const DOCS_URLS_BY_TAB: Record<string, string> = {
-    traces: 'https://posthog.com/docs/llm-analytics/traces',
-    reviews: 'https://posthog.com/docs/llm-analytics/trace-reviews',
-    generations: 'https://posthog.com/docs/llm-analytics/generations',
-    sessions: 'https://posthog.com/docs/llm-analytics/sessions',
-    errors: 'https://posthog.com/docs/llm-analytics/errors',
-    tools: 'https://posthog.com/docs/llm-analytics',
-    sentiment: 'https://posthog.com/docs/llm-analytics',
+    traces: 'https://posthog.com/docs/ai-observability/traces',
+    reviews: 'https://posthog.com/docs/ai-observability/trace-reviews',
+    generations: 'https://posthog.com/docs/ai-observability/generations',
+    sessions: 'https://posthog.com/docs/ai-observability/sessions',
+    errors: 'https://posthog.com/docs/ai-observability/errors',
+    tools: 'https://posthog.com/docs/ai-observability/tools',
+    sentiment: 'https://posthog.com/docs/ai-observability/sentiment',
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
-    dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
+    dashboard: 'Overview of your AI usage, costs, and performance metrics.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
     reviews: 'Browse reviews, organize queues, and manage the scoring setup.',
-    generations: 'View individual LLM generations and their details.',
-    users: 'Understand how users are interacting with your LLM features.',
-    errors: 'Monitor and debug errors in your LLM pipeline.',
+    generations: 'View individual AI generations and their details.',
+    users: 'Understand how users are interacting with your AI features.',
+    errors: 'Monitor and debug errors in your AI pipeline.',
     tools: 'See which tools your LLMs are calling and how often.',
     sentiment: 'Scan user messages by sentiment to spot frustration or satisfaction.',
-    sessions: 'Analyze user sessions containing LLM interactions.',
+    sessions: 'Analyze user sessions containing AI interactions.',
 }
 
 export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
@@ -442,7 +462,6 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     const isTraceReviewEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
 
     const { push } = useActions(router)
-    const { toggleProduct, openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
 
     // Tab switching shortcuts
     useAppShortcut({
@@ -570,7 +589,6 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     })
 
     const isEarlyAdopter = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-    const isPromptManagementEnabled = !!featureFlags[FEATURE_FLAGS.PROMPT_MANAGEMENT] || isEarlyAdopter
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]) {
         tabs.push({
@@ -589,14 +607,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT_TAB]) {
         tabs.push({
             key: 'sentiment',
-            label: (
-                <>
-                    Sentiment
-                    <LemonTag type="warning" className="ml-1.5 uppercase">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
+            label: 'Sentiment',
             content: (
                 <LLMAnalyticsSetupPrompt>
                     <Filters />
@@ -622,52 +633,6 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             'data-attr': 'sessions-tab',
         })
     }
-
-    const availableItemsInSidebar = useMemo(() => {
-        return [
-            <Link
-                key="playground"
-                to={combineUrl(urls.llmAnalyticsPlayground(), searchParams).url}
-                onClick={() => toggleProduct('Playground', true)}
-            >
-                Playground
-            </Link>,
-            <Link
-                key="clusters"
-                to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
-                onClick={() => toggleProduct('Clusters', true)}
-            >
-                clusters
-            </Link>,
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] ? (
-                <Link
-                    key="datasets"
-                    to={combineUrl(urls.llmAnalyticsDatasets(), searchParams).url}
-                    onClick={() => toggleProduct('Datasets', true)}
-                >
-                    datasets
-                </Link>
-            ) : null,
-            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS] ? (
-                <Link
-                    key="evaluations"
-                    to={combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url}
-                    onClick={() => toggleProduct('Evaluations', true)}
-                >
-                    evaluations
-                </Link>
-            ) : null,
-            isPromptManagementEnabled ? (
-                <Link
-                    key="prompts"
-                    to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
-                    onClick={() => toggleProduct('Prompts', true)}
-                >
-                    prompts
-                </Link>
-            ) : null,
-        ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags, isPromptManagementEnabled, searchParams, toggleProduct])
 
     if (activeTab === 'reviews' && !isTraceReviewEnabled) {
         return <NotFound object="page" />
@@ -695,23 +660,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 }
             />
 
-            {availableItemsInSidebar.length > 0 ? (
-                <>
-                    <LemonBanner type="info" className="mb-2" dismissKey="llm-analytics-sidebar-moved-banner">
-                        We've moved{' '}
-                        {availableItemsInSidebar.map((el, i) => (
-                            <React.Fragment key={i}>
-                                {i > 0 && ', '}
-                                {el}
-                            </React.Fragment>
-                        ))}{' '}
-                        out of LLM Analytics and into their own apps. You can access them by clicking in the links
-                        above, or by clicking "All apps" in the sidebar. You can also customize your sidebar{' '}
-                        <Link onClick={openEditCustomProductsModal}>here</Link>.
-                    </LemonBanner>
-                    <EditCustomProductsModal />
-                </>
-            ) : null}
+            <AIObservabilityRenameBanner />
 
             <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
         </SceneContent>

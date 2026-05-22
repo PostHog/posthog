@@ -24,7 +24,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from posthog.models import Action
+from products.actions.backend.models.action import Action
 
 from ee.hogai.chat_agent.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.chat_agent.retention.nodes import RetentionSchemaGeneratorOutput
@@ -239,7 +239,7 @@ class TestChatAgent(BaseAssistantTest):
         )
         query = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
-                targetEntity=AssistantRetentionEventsNode(name="$pageview"),
+                targetEntity=AssistantRetentionEventsNode(id="$pageview"),
                 returningEntity=AssistantRetentionActionsNode(name=action.name, id=action.id),
             )
         )

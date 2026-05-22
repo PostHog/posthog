@@ -348,6 +348,8 @@
     --color-product-early-access-features-dark: rgb(53 213 189);
     --color-product-support-light: rgb(243 84 84);
     --color-product-support-dark: rgb(247 165 1);
+    --color-product-deployments-light: rgb(220 38 38);
+    --color-product-deployments-dark: rgb(248 113 113);
 
     // Insight colors
     --color-insight-funnel-light: rgb(47 128 250);
@@ -650,6 +652,7 @@
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
+    --z-chart-tooltip: calc(var(--z-modal) - 50);
 
     // 1161 and 1162 are reserved to be set from code
     // 1166 through 1169 are reserved to be set from code
@@ -1125,6 +1128,17 @@
     button:focus-visible,
     [data-highlighted]:not(:hover) {
         outline: 2px solid var(--color-accent);
+    }
+
+    /* Radix menus highlight items on pointer-move; only show the outline for
+       keyboard focus, and render it inset so the container's rounded
+       overflow:hidden mask can't clip the corners */
+    .primitive-menu-content [data-highlighted]:not(:focus-visible) {
+        outline: none;
+    }
+
+    .primitive-menu-content [data-highlighted]:focus-visible {
+        outline-offset: -2px;
     }
 
     .input-like {
@@ -2060,5 +2074,64 @@
         outline: 3px solid var(--color-accent);
         outline-offset: 2px;
         box-shadow: 0 0 24px 8px var(--color-accent);
+    }
+}
+
+// Rainbow brand gradient — animated horizontal scroll of PostHog brand colors.
+// Apply via `background-image: var(--rainbow-gradient)` or via the helper
+// classes below. The text variants use `background-clip: text` so the gradient
+// fills the glyphs; `*-fading` additionally plays a one-shot fade-in on mount,
+// useful for elements that swap content via a key change.
+:root {
+    --rainbow-gradient: linear-gradient(
+        90deg,
+        #0143cb 0%,
+        #2b6ff4 24%,
+        #d23401 47%,
+        #ff651f 66%,
+        #fba000 83%,
+        #0143cb 100%
+    );
+}
+
+.rainbow-text,
+.rainbow-text-fading {
+    color: transparent;
+    background-image: var(--rainbow-gradient);
+    background-clip: text;
+    background-size: 200% 100%;
+}
+
+.rainbow-text.rainbow-text-animating {
+    animation: rainbow-scroll 3s linear infinite;
+}
+
+.rainbow-text-fading.rainbow-text-animating {
+    animation:
+        rainbow-scroll 3s linear infinite,
+        rainbow-fade-in 300ms ease-out;
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes rainbow-scroll {
+    0% {
+        background-position-x: 0%;
+    }
+
+    100% {
+        background-position-x: 200%;
+    }
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes rainbow-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
     }
 }

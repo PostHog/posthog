@@ -20,7 +20,12 @@ import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/Surveys
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
-import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
+import {
+    canDeleteSurvey,
+    openArchiveSurveyDialog,
+    openDeleteSurveyDialog,
+    openResumeSurveyDialog,
+} from 'scenes/surveys/surveyDialogs'
 import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { getSurveyWarnings } from 'scenes/surveys/surveyVersionRequirements'
 import { isSurveyRunning } from 'scenes/surveys/utils'
@@ -58,7 +63,9 @@ export function SurveysTable(): JSX.Element {
 
     const hasMultipleProjects = currentOrganization?.teams && currentOrganization.teams.length > 1
 
-    const shouldShowEmptyState = !dataLoading && surveys.length === 0
+    const isInitialDataLoad = surveys.length === 0 && hasNextPage
+    const isTableLoading = dataLoading || isInitialDataLoad
+    const shouldShowEmptyState = !isTableLoading && surveys.length === 0
 
     if (shouldShowEmptyState) {
         return <SurveysEmptyState />
@@ -144,16 +151,18 @@ export function SurveysTable(): JSX.Element {
                 nouns={['survey', 'surveys']}
                 data-attr="surveys-table"
                 emptyState={tab === SurveysTabs.Active ? 'No surveys. Create a new survey?' : 'No surveys found'}
-                loading={dataLoading}
+                loading={isTableLoading}
                 footer={
                     (searchTerm ? hasNextSearchPage : hasNextPage) && (
                         <div className="flex justify-center p-1">
                             <LemonButton
                                 onClick={searchTerm ? loadNextSearchPage : loadNextPage}
                                 className="min-w-full text-center"
-                                disabledReason={dataLoading ? 'Loading surveys' : ''}
+                                disabledReason={isTableLoading ? 'Loading surveys' : ''}
                             >
-                                <span className="flex-1 text-center">{dataLoading ? 'Loading...' : 'Load more'}</span>
+                                <span className="flex-1 text-center">
+                                    {isTableLoading ? 'Loading...' : 'Load more'}
+                                </span>
                             </LemonButton>
                         </div>
                     )
@@ -344,37 +353,15 @@ export function SurveysTable(): JSX.Element {
                                                 >
                                                     <LemonButton
                                                         fullWidth
-                                                        onClick={() => {
-                                                            LemonDialog.open({
-                                                                title: 'Resume this survey?',
-                                                                content: (
-                                                                    <div className="text-sm text-secondary">
-                                                                        Once resumed, the survey will be visible to your
-                                                                        users again.
-                                                                    </div>
-                                                                ),
-                                                                primaryButton: {
-                                                                    children: 'Resume',
-                                                                    type: 'primary',
-                                                                    onClick: () => {
-                                                                        updateSurvey({
-                                                                            id: survey.id,
-                                                                            updatePayload: {
-                                                                                end_date: null,
-                                                                            },
-                                                                            intentContext:
-                                                                                ProductIntentContext.SURVEY_RESUMED,
-                                                                        })
-                                                                    },
-                                                                    size: 'small',
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                    type: 'tertiary',
-                                                                    size: 'small',
-                                                                },
-                                                            })
-                                                        }}
+                                                        onClick={() =>
+                                                            openResumeSurveyDialog(survey, () =>
+                                                                updateSurvey({
+                                                                    id: survey.id,
+                                                                    updatePayload: { end_date: null },
+                                                                    intentContext: ProductIntentContext.SURVEY_RESUMED,
+                                                                })
+                                                            )
+                                                        }
                                                     >
                                                         Resume survey
                                                     </LemonButton>

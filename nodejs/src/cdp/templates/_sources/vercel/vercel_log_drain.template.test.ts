@@ -25,7 +25,7 @@ describe('vercel log drain template', () => {
         expect(response.finished).toEqual(true)
         expect(response.capturedPostHogEvents).toHaveLength(1)
         expect(response.capturedPostHogEvents[0].event).toEqual('$http_log')
-        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^vercel_[a-f0-9]{64}$/)
+        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
         expect(response.capturedPostHogEvents[0].properties).toMatchObject({
             source: 'lambda',
             level: 'info',
@@ -218,10 +218,10 @@ describe('vercel log drain template', () => {
         )
 
         expect(response.error).toBeUndefined()
-        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^vercel_[a-f0-9]{64}$/)
+        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
     })
 
-    it('should capture all Vercel log properties with snake_case naming', async () => {
+    it('snapshot: default config (forward_ip_and_user_agent on) emits PII fields', async () => {
         const response = await tester.invoke(
             {},
             {
@@ -232,7 +232,18 @@ describe('vercel log drain template', () => {
         expect(response.capturedPostHogEvents).toMatchSnapshot()
     })
 
-    it('should flatten proxy properties', async () => {
+    it('snapshot: forward_ip_and_user_agent disabled drops PII fields', async () => {
+        const response = await tester.invoke(
+            { forward_ip_and_user_agent: false },
+            {
+                request: createVercelRequest(vercelLogDrain),
+            }
+        )
+
+        expect(response.capturedPostHogEvents).toMatchSnapshot()
+    })
+
+    it('should flatten all proxy properties (including PII) by default', async () => {
         const response = await tester.invoke(
             {},
             {
@@ -249,7 +260,7 @@ describe('vercel log drain template', () => {
         expect(props.proxy_vercel_cache).toBe('MISS')
     })
 
-    it('should set PostHog standard properties from proxy data', async () => {
+    it('should emit $ip, $raw_user_agent, and proxy_* PII by default and set $current_url from proxy data', async () => {
         const response = await tester.invoke(
             {},
             {
@@ -261,7 +272,23 @@ describe('vercel log drain template', () => {
         const props = response.capturedPostHogEvents[0].properties
         expect(props.$ip).toBe('120.75.16.101')
         expect(props.$raw_user_agent).toBe('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
+        expect(props.proxy_client_ip).toBe('120.75.16.101')
+        expect(props.proxy_user_agent).toEqual(['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'])
         expect(props.$current_url).toBe('https://my-app.vercel.app/api/users?page=1')
+    })
+
+    it('should drop $ip, $raw_user_agent, and proxy_* PII when forward_ip_and_user_agent is disabled', async () => {
+        const response = await tester.invoke(
+            { forward_ip_and_user_agent: false },
+            { request: createVercelRequest(vercelLogDrain) }
+        )
+
+        expect(response.error).toBeUndefined()
+        const props = response.capturedPostHogEvents[0].properties
+        expect(props.$ip).toBeUndefined()
+        expect(props.$raw_user_agent).toBeUndefined()
+        expect(props.proxy_client_ip).toBeUndefined()
+        expect(props.proxy_user_agent).toBeUndefined()
     })
 
     it('should handle logs with null message without crashing', async () => {
@@ -294,7 +321,7 @@ describe('vercel log drain template', () => {
 
         expect(response.error).toBeUndefined()
         expect(response.capturedPostHogEvents).toHaveLength(1)
-        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^vercel_[a-f0-9]{64}$/)
+        expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
         // Proxy fields should be null when proxy is missing
         expect(response.capturedPostHogEvents[0].properties.proxy_method).toBeNull()
     })
@@ -500,6 +527,197 @@ describe('vercel log drain template', () => {
         expect(props.utm_campaign).toBe('100%free')
         // Valid encoding still works
         expect(props.utm_source).toBe('google')
+    })
+
+    describe('distinct_id_strategy', () => {
+        const setMockedDay = (iso: string): void => {
+            jest.spyOn(Date, 'now').mockReturnValue(DateTime.fromISO(iso, { zone: 'utc' }).toMillis())
+        }
+
+        const otherUaProxy = {
+            ...vercelLogDrain.proxy,
+            userAgent: ['curl/8.0'],
+        }
+
+        const otherIpProxy = {
+            ...vercelLogDrain.proxy,
+            clientIp: '203.0.113.7',
+        }
+
+        it('rotating_salt: same inputs same day → same id; different day → different id', async () => {
+            setMockedDay('2025-01-01T00:00:00Z')
+            const day1 = await tester.invoke(
+                { salt_secret: 'test-salt', distinct_id_strategy: 'rotating_salt' },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+            const day1Repeat = await tester.invoke(
+                { salt_secret: 'test-salt', distinct_id_strategy: 'rotating_salt' },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+            setMockedDay('2025-01-02T00:00:00Z')
+            const day2 = await tester.invoke(
+                { salt_secret: 'test-salt', distinct_id_strategy: 'rotating_salt' },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+
+            const id1 = day1.capturedPostHogEvents[0].distinct_id
+            const id1Repeat = day1Repeat.capturedPostHogEvents[0].distinct_id
+            const id2 = day2.capturedPostHogEvents[0].distinct_id
+
+            expect(id1).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
+            expect(id1Repeat).toBe(id1)
+            expect(id2).not.toBe(id1)
+            expect(day1.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('rotating_salt')
+        })
+
+        it('rotating_salt: different UA on the same IP/day → different id', async () => {
+            setMockedDay('2025-01-01T00:00:00Z')
+            const baseline = await tester.invoke(
+                { salt_secret: 'test-salt', distinct_id_strategy: 'rotating_salt' },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+            const otherUa = await tester.invoke(
+                { salt_secret: 'test-salt', distinct_id_strategy: 'rotating_salt' },
+                { request: createVercelRequest({ ...vercelLogDrain, proxy: otherUaProxy }) }
+            )
+
+            expect(otherUa.capturedPostHogEvents[0].distinct_id).not.toBe(baseline.capturedPostHogEvents[0].distinct_id)
+        })
+
+        it('fixed_salt: same inputs different days → same id; rotating salt → different id', async () => {
+            setMockedDay('2025-01-01T00:00:00Z')
+            const day1 = await tester.invoke(
+                { salt_secret: 'salt-v1', distinct_id_strategy: 'fixed_salt' },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+            setMockedDay('2025-02-15T00:00:00Z')
+            const day2 = await tester.invoke(
+                { salt_secret: 'salt-v1', distinct_id_strategy: 'fixed_salt' },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+            const rotated = await tester.invoke(
+                { salt_secret: 'salt-v2', distinct_id_strategy: 'fixed_salt' },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+
+            expect(day1.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
+            expect(day2.capturedPostHogEvents[0].distinct_id).toBe(day1.capturedPostHogEvents[0].distinct_id)
+            expect(rotated.capturedPostHogEvents[0].distinct_id).not.toBe(day1.capturedPostHogEvents[0].distinct_id)
+            expect(day1.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('fixed_salt')
+        })
+
+        it('ip: literal client IP after the prefix; stable across days', async () => {
+            setMockedDay('2025-01-01T00:00:00Z')
+            const day1 = await tester.invoke(
+                { salt_secret: 'unused', distinct_id_strategy: 'ip' },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+            setMockedDay('2025-03-01T00:00:00Z')
+            const day2 = await tester.invoke(
+                { salt_secret: 'unused', distinct_id_strategy: 'ip' },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+            const otherIp = await tester.invoke(
+                { salt_secret: 'unused', distinct_id_strategy: 'ip' },
+                { request: createVercelRequest({ ...vercelLogDrain, proxy: otherIpProxy }) }
+            )
+
+            expect(day1.capturedPostHogEvents[0].distinct_id).toBe('http_log_120.75.16.101')
+            expect(day2.capturedPostHogEvents[0].distinct_id).toBe('http_log_120.75.16.101')
+            expect(otherIp.capturedPostHogEvents[0].distinct_id).toBe('http_log_203.0.113.7')
+            expect(day1.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('ip')
+        })
+
+        it('custom: substitutes placeholders into the template', async () => {
+            const response = await tester.invoke(
+                {
+                    salt_secret: 'unused',
+                    distinct_id_strategy: 'custom',
+                    custom_template: 'tenant_{host}_{ip}',
+                },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents[0].distinct_id).toBe(
+                'http_log_tenant_my-app.vercel.app_120.75.16.101'
+            )
+            expect(response.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('custom')
+        })
+
+        it('custom: substituted-to-empty template falls back to rotating_salt', async () => {
+            const logWithoutUa = {
+                ...vercelLogDrain,
+                proxy: { ...vercelLogDrain.proxy, userAgent: [] },
+            }
+            const response = await tester.invoke(
+                {
+                    salt_secret: 'test-salt',
+                    distinct_id_strategy: 'custom',
+                    custom_template: '{ua}',
+                },
+                { request: createVercelRequest(logWithoutUa) }
+            )
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
+            expect(response.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('rotating_salt_fallback')
+            expect(response.logs.map((l) => l.message)).toContainEqual(expect.stringContaining('substituted to empty'))
+        })
+
+        it('custom: {salt} placeholder is not interpreted (secret never reaches distinct_id)', async () => {
+            const response = await tester.invoke(
+                {
+                    salt_secret: 'super-secret-salt',
+                    distinct_id_strategy: 'custom',
+                    custom_template: 'leak_{salt}_check',
+                },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+
+            expect(response.error).toBeUndefined()
+            const distinctId = response.capturedPostHogEvents[0].distinct_id
+            expect(distinctId).toBe('http_log_leak_{salt}_check')
+            expect(distinctId).not.toContain('super-secret-salt')
+        })
+
+        it('custom: empty template falls back to rotating_salt and warns', async () => {
+            const response = await tester.invoke(
+                {
+                    salt_secret: 'test-salt',
+                    distinct_id_strategy: 'custom',
+                    custom_template: '',
+                },
+                { request: createVercelRequest(vercelLogDrain) }
+            )
+
+            expect(response.error).toBeUndefined()
+            expect(response.capturedPostHogEvents[0].distinct_id).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
+            expect(response.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('rotating_salt_fallback')
+            expect(response.logs.map((l) => l.message)).toContainEqual(
+                expect.stringContaining('custom_template empty, falling back')
+            )
+        })
+
+        it.each(['rotating_salt', 'fixed_salt', 'ip', 'custom'])(
+            'strategy %s: omits $ip and $raw_user_agent when forward toggle is explicitly false',
+            async (strategy) => {
+                const response = await tester.invoke(
+                    {
+                        salt_secret: 'test-salt',
+                        distinct_id_strategy: strategy,
+                        custom_template: strategy === 'custom' ? 'k_{ip}' : undefined,
+                        forward_ip_and_user_agent: false,
+                    },
+                    { request: createVercelRequest(vercelLogDrain) }
+                )
+
+                expect(response.error).toBeUndefined()
+                const props = response.capturedPostHogEvents[0].properties
+                expect(props.$ip).toBeUndefined()
+                expect(props.$raw_user_agent).toBeUndefined()
+            }
+        )
     })
 })
 

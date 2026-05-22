@@ -95,6 +95,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
     This allows users to execute specific versions or track query evolution over time.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
     team = models.ForeignKey(
@@ -114,13 +115,12 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         related_name="endpoint_versions_created",
     )
 
-    cache_age_seconds = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Cache age in seconds. If null, uses default interval-based caching.",
+    data_freshness_seconds = models.IntegerField(
+        default=86400,
+        help_text="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",
     )
     saved_query = models.ForeignKey(
-        "data_warehouse.DataWarehouseSavedQuery",
+        "data_modeling.DataWarehouseSavedQuery",
         null=True,
         blank=True,
         db_index=False,
@@ -209,11 +209,8 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         MATERIALIZABLE_QUERY_TYPES = {
             "HogQLQuery",
             "TrendsQuery",
-            "FunnelsQuery",
             "LifecycleQuery",
             "RetentionQuery",
-            "PathsQuery",
-            "StickinessQuery",
         }
 
         if query_kind not in MATERIALIZABLE_QUERY_TYPES:
@@ -222,6 +219,20 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
                 False,
                 f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
             )
+
+        # Block compare mode — materialization can't reconstruct doubled series
+        compare_filter = self.query.get("compareFilter") or {}
+        if compare_filter.get("compare"):
+            return False, "Compare mode is not supported for materialized endpoints."
+
+        # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
+        # inject_series_index tags as separate series, causing a mismatch at read time.
+        breakdown_filter = self.query.get("breakdownFilter") or {}
+        if breakdown_filter.get("breakdown_type") == "cohort":
+            return False, "Cohort breakdowns are not supported for materialized endpoints."
+        for breakdown in breakdown_filter.get("breakdowns") or []:
+            if isinstance(breakdown, dict) and breakdown.get("type") == "cohort":
+                return False, "Cohort breakdowns are not supported for materialized endpoints."
 
         if self.query.get("variables"):
             from products.endpoints.backend.materialization import analyze_variables_for_materialization
@@ -279,7 +290,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     Endpoints allow creating reusable query endpoints like:
     /api/environments/{team_id}/endpoints/{endpoint_name}/run
 
-    Query, description, cache_age_seconds, and materialization settings are stored
+    Query, description, data_freshness_seconds, and materialization settings are stored
     in EndpointVersion, allowing per-version configuration.
     """
 
@@ -301,7 +312,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
 
     current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
 
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_executed_at = models.DateTimeField(
@@ -350,7 +361,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         """
         # Get previous version's settings before incrementing
         previous_version = self.get_version()
-        previous_cache_age = previous_version.cache_age_seconds if previous_version else None
+        previous_data_freshness = previous_version.data_freshness_seconds if previous_version else 86400
         previous_description = previous_version.description if previous_version else ""
 
         self.current_version += 1
@@ -367,7 +378,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
             version=self.current_version,
             query=query,
             created_by=user,
-            cache_age_seconds=previous_cache_age,
+            data_freshness_seconds=previous_data_freshness,
             description=previous_description,
             columns=columns,
         )

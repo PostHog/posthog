@@ -18,7 +18,7 @@ it's simpler and doesn't need a sandbox.
 | ----------------------------------------------------------------------------------------------- | ---------------------------------- |
 | Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent (this page)        |
 | Conversations team building a support agent that queries PostHog and customer documentation     | Sandboxed agent (this page)        |
-| LLM analytics summarizing a funnel, generating a natural-language insight title                 | LLM gateway via `get_llm_client()` |
+| AI observability summarizing a funnel, generating a natural-language insight title              | LLM gateway via `get_llm_client()` |
 | Not sure                                                                                        | Ask in `#team-posthog-ai`          |
 
 **Rule of thumb**: if the LLM needs to _do things_ (query data, read files, create branches, open PRs), use a sandboxed agent.
@@ -161,6 +161,70 @@ They're copied to three discovery locations during image build:
 
 For details on writing skills, see [Writing skills](/handbook/engineering/ai/writing-skills).
 
+## Multi-turn sessions
+
+`MultiTurnSession` provides a structured API for building custom multi-turn research agents.
+Use it when your agent needs multiple conversation turns with schema-validated responses –
+for example, a discovery pass followed by per-item research, then assessment and summarization.
+
+### Mental model
+
+1. **Start** – `MultiTurnSession.start(prompt, context, model=Shape)` launches a sandbox, sends the first prompt, and returns a validated Pydantic model.
+2. **Follow up** – `session.send_followup(prompt, Shape)` sends additional prompts within the same sandbox session. Each response is validated against the provided schema. The session retries once on empty responses.
+3. **End** – `session.end()` signals the sandbox workflow to shut down.
+
+### Example
+
+```python
+from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+
+# 1. Start: discovery turn
+session, candidates = await MultiTurnSession.start(
+    prompt="Find up to 10 items to investigate.",
+    context=context,  # CustomPromptSandboxContext
+    model=DiscoveryResult,
+    branch="master",
+    step_name="my_discovery",
+)
+
+# 2. Follow up: research each item
+for item in candidates.items:
+    finding = await session.send_followup(
+        f"Research {item.name} in detail.",
+        FindingResult,
+        label=f"research_{item.name}",
+    )
+
+# 3. Follow up: summarize
+summary = await session.send_followup(
+    "Summarize all findings.",
+    SummaryResult,
+    label="summary",
+)
+
+# 4. End the session
+await session.end()
+```
+
+### Reference implementation
+
+See `products/tasks/backend/services/mts_example/` for a complete working example.
+It runs a multi-turn agent that discovers "cursed" identifiers in a repo,
+researches each one, and produces output in the shape Signals consumes:
+
+```text
+discovery → research ×N → actionability → priority? → presentation
+```
+
+Run it locally (DEBUG only):
+
+```bash
+DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>
+```
+
+See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/services/mts_example/README.md) for details on adapting it to your own use case.
+
 ## Code execution
 
 Agents run inside an isolated sandbox with full code execution capabilities.
@@ -169,8 +233,23 @@ They can:
 - Read, write, and execute files in the cloned repository
 - Install dependencies (npm, pip, etc.)
 - Run tests, linters, and build tools
-- Create git branches, commits, and pull requests
+- Create git branches and pull requests (commits must be signed — see below)
 - Execute arbitrary shell commands within the container
+
+### Git commit signing
+
+Direct `git commit` and `git push` commands are blocked in the sandbox to ensure all commits are properly signed by GitHub. A PATH shim (`git-guard.sh` at `/opt/posthog/bin/git`) intercepts these subcommands while passing all other git operations through to the real binary.
+
+If an agent attempts to run `git commit` or `git push`, it will see:
+
+```text
+git commit is disabled in PostHog Code: commits must be signed.
+Stage changes with 'git add', then call the git_signed_commit tool.
+```
+
+Agents should stage changes with `git add`, then use the `git_signed_commit` tool to create signed commits.
+
+**Debugging escape hatch**: Set `POSTHOG_ALLOW_UNSIGNED_GIT=1` in the sandbox environment to bypass this restriction. This is intended for debugging only and should not be used in production.
 
 ### Sandbox isolation
 
@@ -227,15 +306,22 @@ or the PostHog Code settings UI.
 
 ## Local development
 
-See the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/temporal/process_task/SETUP_GUIDE.md)
-for step-by-step instructions on running sandboxed agents locally with Docker.
+To set up sandboxed agents for local development:
 
-Key requirements:
+1. Create a personal dev GitHub App (see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md#github-app) for details)
+2. Run `python manage.py setup_background_agents`
+3. Run `hogli start`
 
-- `DEBUG=1` and `SANDBOX_PROVIDER=docker` in your `.env`
-- A GitHub App with Contents and Pull Requests permissions
-- The `tasks` feature flag enabled at 100%
-- Temporal running (starts automatically via phrocs with `./bin/start`)
+The setup command is idempotent and handles:
+
+- Writing required env vars (`OIDC_RSA_PRIVATE_KEY`, `SANDBOX_JWT_PRIVATE_KEY`, `DEBUG`, `SANDBOX_PROVIDER`, `SANDBOX_MCP_URL`) to your `.env`
+- Creating the Array OAuth application
+- Enabling the `tasks` feature flag for all teams
+- Building the agent skills bundle
+
+For advanced setup options (Modal sandboxes, local agent packages, MCP), see the [Cloud runs setup guide](https://github.com/PostHog/posthog/blob/master/docs/internal/sandboxes-setup-guide.md).
+
+**Tip:** Set `SANDBOX_REPO_MOUNT_MAP` to bind-mount local repositories into the Docker container and skip cloning from GitHub. Format: `SANDBOX_REPO_MOUNT_MAP=org/repo:/local/path` (e.g., `SANDBOX_REPO_MOUNT_MAP=PostHog/posthog:~/Developer/posthog`). This can significantly reduce sandbox startup time for large repos.
 
 ## Questions?
 

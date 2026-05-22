@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 import shlex
 import shutil
 import logging
 import tempfile
+import threading
 from collections.abc import Iterable
 from functools import lru_cache
+from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
+
+from cachetools import TTLCache, cached
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -20,6 +25,7 @@ import modal
 import requests
 
 from posthog.exceptions_capture import capture_exception
+from posthog.settings import CLOUD_DEPLOYMENT
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.agentsh import (
@@ -32,8 +38,24 @@ from products.tasks.backend.services.agentsh import (
     generate_env_wrapper,
     generate_policy_yaml,
 )
-from products.tasks.backend.services.local_packages import overlay_local_packages
-from products.tasks.backend.services.sandbox import wait_for_health_check
+from products.tasks.backend.services.local_packages import get_local_posthog_code_packages
+from products.tasks.backend.services.local_skills import (
+    BUILT_SKILLS_RELATIVE_PATH as LOCAL_BUILT_SKILLS_PATH,
+    LocalSkillsCache,
+    populate_skills_directory,
+)
+from products.tasks.backend.services.modal_provision_diagnostics import (
+    SandboxProvisionDiagnostics,
+    capture_modal_output_if_debug,
+    summarize_modal_output,
+)
+from products.tasks.backend.services.sandbox import (
+    WORKING_DIR,
+    SandboxBase,
+    build_agent_runtime_env_prefix,
+    redact_sandbox_command,
+    wait_for_health_check,
+)
 from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -47,107 +69,166 @@ from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, Sandbo
 
 logger = logging.getLogger(__name__)
 
-WORKING_DIR = "/tmp/workspace"
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
-LOCAL_BUILT_SKILLS_PATH = Path("products/posthog_ai/dist/skills")
-LOCAL_SOURCE_SKILLS_PATHS = (Path(".agents/skills"), Path("products/posthog_ai/skills"))
+
+# Modal region mapping based on cloud deployment
+MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
+    "EU": "eu-west",
+    "US": "us-east",
+}
+DEFAULT_MODAL_REGION = "us-east"
+
+
+def _get_modal_region() -> str:
+    return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
+
+
 LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"),
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
+LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 
 
-@lru_cache(maxsize=2)
-def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
-    """Modal caches sandbox images indefinitely. This function resolves the digest of the master tag
-    so Modal fetches the correct version. Queries GHCR once per deployment.
+_image_ref_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
+_image_ref_lock = threading.Lock()
+
+
+# Modal caches images by reference indefinitely. Falling back to the mutable
+# `:master` tag therefore lets Modal keep serving a stale or broken image
+# (e.g. one missing /scripts/node_modules/.bin/agent-server) forever, so we
+# retry transient GHCR failures and otherwise fail closed.
+_GHCR_RESOLVE_MAX_ATTEMPTS = 4
+_GHCR_RESOLVE_BACKOFF_BASE_SECONDS = 1.0
+
+
+class _ImageDigestResolutionError(Exception):
+    """A single attempt to resolve the GHCR digest failed."""
+
+
+def _resolve_image_digest_once(image: str) -> str:
+    """Resolve ``image:master`` to an immutable ``image@sha256:...`` reference.
+
+    Raises ``_ImageDigestResolutionError`` for non-200 responses or missing
+    fields; network-level exceptions (``ConnectionError``, ``Timeout``, etc.)
+    propagate as-is. The caller catches ``Exception`` in all cases, so we never
+    fall back to the mutable ``:master`` tag.
     """
     image_repo = image.replace("ghcr.io/", "")
-    try:
-        token_resp = requests.get(
-            f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
-            timeout=10,
+
+    token_resp = requests.get(
+        f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
+        timeout=10,
+    )
+    if token_resp.status_code != 200:
+        raise _ImageDigestResolutionError(f"GHCR token request failed: status={token_resp.status_code}")
+
+    token = token_resp.json().get("token")
+    if not token:
+        raise _ImageDigestResolutionError("GHCR token response missing token field")
+
+    manifest_resp = requests.get(
+        f"https://ghcr.io/v2/{image_repo}/manifests/master",
+        headers={
+            "Accept": "application/vnd.oci.image.index.v1+json",
+            "Authorization": f"Bearer {token}",
+        },
+        timeout=10,
+    )
+    if manifest_resp.status_code != 200:
+        raise _ImageDigestResolutionError(f"GHCR manifest request failed: status={manifest_resp.status_code}")
+
+    digest = manifest_resp.headers.get("Docker-Content-Digest")
+    if not digest:
+        raise _ImageDigestResolutionError("GHCR manifest response missing Docker-Content-Digest header")
+
+    return f"{image}@{digest}"
+
+
+@cached(cache=_image_ref_cache, lock=_image_ref_lock)
+def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
+    """Resolve the sandbox image to an immutable digest pin.
+
+    Modal caches sandbox images by reference indefinitely, so a mutable
+    ``:master`` tag would let Modal keep serving a stale or broken image. We
+    therefore retry transient GHCR failures with exponential backoff and, if
+    resolution still fails, fail closed by raising ``SandboxProvisionError``
+    (transient — the provisioning activity retries) rather than ever returning
+    the floating tag. Successful resolutions are cached for ~5 minutes;
+    failures are not cached and re-resolve on the next call.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, _GHCR_RESOLVE_MAX_ATTEMPTS + 1):
+        try:
+            reference = _resolve_image_digest_once(image)
+            logger.info(f"Resolved sandbox image digest for {image} on attempt {attempt}: {reference}")
+            return reference
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                f"Failed to resolve sandbox image digest for {image} "
+                f"(attempt {attempt}/{_GHCR_RESOLVE_MAX_ATTEMPTS}): {e}"
+            )
+            if attempt < _GHCR_RESOLVE_MAX_ATTEMPTS:
+                time.sleep(_GHCR_RESOLVE_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
+
+    raise SandboxProvisionError(
+        f"Could not resolve an immutable digest for {image}:master after "
+        f"{_GHCR_RESOLVE_MAX_ATTEMPTS} attempts; refusing to fall back to the mutable "
+        f":master tag because Modal caches images by reference indefinitely",
+        {"image": image},
+        cause=last_error if last_error is not None else RuntimeError("digest resolution failed"),
+    )
+
+
+def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
+    """Overlay each local package's built `dist/` dir onto the installed package
+    via add_local_dir(copy=False). No-op unless `template` is DEFAULT_BASE and
+    local packages are available.
+
+    Transitive deps are resolved from the baked /scripts/node_modules/ tree;
+    only compiled output is swapped live.
+    """
+    if template != SandboxTemplate.DEFAULT_BASE:
+        return image
+    packages = get_local_posthog_code_packages()
+    if not packages:
+        return image
+    for package in packages:
+        image = image.add_local_dir(
+            str(package.build_output_path),
+            package.sandbox_build_output_path,
+            copy=False,
         )
-        if token_resp.status_code != 200:
-            logger.warning(f"Failed to get GHCR token: status={token_resp.status_code}")
-            return f"{image}:master"
-
-        token = token_resp.json().get("token")
-        if not token:
-            logger.warning("GHCR token response missing token field")
-            return f"{image}:master"
-
-        manifest_resp = requests.get(
-            f"https://ghcr.io/v2/{image_repo}/manifests/master",
-            headers={
-                "Accept": "application/vnd.oci.image.index.v1+json",
-                "Authorization": f"Bearer {token}",
-            },
-            timeout=10,
-        )
-        if manifest_resp.status_code == 200:
-            digest = manifest_resp.headers.get("Docker-Content-Digest")
-            if digest:
-                logger.info(f"Resolved sandbox image digest for {image_repo}: {digest}")
-                return f"{image}@{digest}"
-        logger.warning(f"Failed to get sandbox image digest: status={manifest_resp.status_code}")
-    except Exception as e:
-        logger.warning(f"Failed to fetch sandbox image digest: {e}")
-
-    return f"{image}:master"
+    return image
 
 
+_template_image_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
+_template_image_lock = threading.Lock()
+
+
+@cached(cache=_template_image_cache, lock=_template_image_lock)
 def _get_template_image(template: SandboxTemplate) -> modal.Image:
-    if template == SandboxTemplate.DEFAULT_BASE:
-        if settings.DEBUG:
-            dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
-            return modal.Image.from_dockerfile(dockerfile_path, force_build=True, context_dir=context_dir, ignore=[])
-        else:
-            return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_BASE_IMAGE))
+    registry_image = {
+        SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
+        SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+    }.get(template)
+    if registry_image is None:
+        raise ValueError(f"Unknown template: {template}")
 
-    if template == SandboxTemplate.NOTEBOOK_BASE:
-        if settings.DEBUG:
-            dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
-            return modal.Image.from_dockerfile(dockerfile_path, force_build=True, context_dir=context_dir, ignore=[])
-        else:
-            return modal.Image.from_registry(_get_sandbox_image_reference(SANDBOX_NOTEBOOK_IMAGE))
+    if settings.DEBUG:
+        dockerfile_path, context_dir = _prepare_local_modal_build_context(template)
+        image = modal.Image.from_dockerfile(dockerfile_path, context_dir=context_dir, ignore=[])
+    else:
+        image = modal.Image.from_registry(_get_sandbox_image_reference(registry_image))
 
-    raise ValueError(f"Unknown template: {template}")
-
-
-def _copy_directory_contents(source: Path, destination: Path) -> None:
-    if not source.exists():
-        return
-
-    destination.mkdir(parents=True, exist_ok=True)
-    for child in source.iterdir():
-        if child.name == "__pycache__":
-            continue
-
-        target = destination / child.name
-        if child.is_dir():
-            shutil.copytree(child, target, dirs_exist_ok=True, ignore=shutil.ignore_patterns("__pycache__"))
-        elif child.is_file():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(child, target)
-
-
-def _populate_local_skills_directory(destination: Path) -> None:
-    built_skills_dir = Path(settings.BASE_DIR) / LOCAL_BUILT_SKILLS_PATH
-    if built_skills_dir.exists():
-        logger.info(f"Using pre-built skills from {built_skills_dir} for local Modal sandbox builds")
-        _copy_directory_contents(built_skills_dir, destination)
-        return
-
-    logger.info("Built skills directory missing; falling back to local skill sources for Modal sandbox builds")
-    for relative_path in LOCAL_SOURCE_SKILLS_PATHS:
-        _copy_directory_contents(Path(settings.BASE_DIR) / relative_path, destination)
+    return _attach_local_package_mounts(image, template)
 
 
 @lru_cache(maxsize=2)
@@ -166,21 +247,27 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_dockerfile_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_dockerfile_path, destination_dockerfile_path)
 
+    # Both base and notebook Dockerfiles COPY the git guard, so include it in
+    # every local build context.
+    destination_git_guard_path = context_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT
+    destination_git_guard_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(base_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT, destination_git_guard_path)
+
     if template == SandboxTemplate.DEFAULT_BASE:
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
         destination_install_script_path = context_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
         destination_install_script_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_install_script_path, destination_install_script_path)
 
-        _populate_local_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH)
-
-        # Overlay local agent packages when LOCAL_POSTHOG_CODE_MONOREPO_ROOT is set
-        overlay_local_packages(context_dir, destination_dockerfile_path)
+        # Refresh dist/skills if out of date so the context picks up the
+        # latest rendered output.
+        LocalSkillsCache(base_dir).ensure_built()
+        populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
 
     return str(destination_dockerfile_path), str(context_dir)
 
 
-class ModalSandbox:
+class ModalSandbox(SandboxBase):
     """
     Modal-based sandbox for production use.
     A box in the cloud. Sand optional.
@@ -191,6 +278,7 @@ class ModalSandbox:
     _sandbox: modal.Sandbox
     _app: modal.App
     _sandbox_url: str | None
+    provision_diagnostics: SandboxProvisionDiagnostics | None
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
 
@@ -200,6 +288,7 @@ class ModalSandbox:
         self._sandbox = sandbox
         self._app = type(self)._get_app_for_template(config.template)
         self._sandbox_url = sandbox_url
+        self.provision_diagnostics = None
 
     @property
     def sandbox_url(self) -> str | None:
@@ -226,7 +315,9 @@ class ModalSandbox:
 
             if config.snapshot_external_id:
                 try:
-                    image = modal.Image.from_id(config.snapshot_external_id)
+                    image = _attach_local_package_mounts(
+                        modal.Image.from_id(config.snapshot_external_id), config.template
+                    )
                     used_snapshot_image = True
                 except Exception as e:
                     logger.warning(f"Failed to load resume snapshot image {config.snapshot_external_id}: {e}")
@@ -235,7 +326,7 @@ class ModalSandbox:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
                     try:
-                        image = modal.Image.from_id(snapshot.external_id)
+                        image = _attach_local_package_mounts(modal.Image.from_id(snapshot.external_id), config.template)
                         used_snapshot_image = True
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
@@ -249,6 +340,8 @@ class ModalSandbox:
 
             sandbox_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
 
+            region = _get_modal_region()
+
             create_kwargs: dict[str, object] = {
                 "app": app,
                 "name": sandbox_name,
@@ -256,6 +349,7 @@ class ModalSandbox:
                 "timeout": config.ttl_seconds,
                 "cpu": float(config.cpu_cores),
                 "memory": int(config.memory_gb * 1024),
+                "region": region,
                 "verbose": True,
             }
 
@@ -263,19 +357,24 @@ class ModalSandbox:
                 create_kwargs["secrets"] = secrets
 
             try:
-                sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                modal_output: StringIO | None
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
             except Exception as e:
                 if not used_snapshot_image:
                     raise
                 logger.warning(f"Failed to create sandbox with snapshot image, falling back to base image: {e}")
                 capture_exception(e)
                 create_kwargs["image"] = base_image
-                sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
 
             if config.metadata:
                 sb.set_tags(config.metadata)
 
             sandbox = cls(sandbox=sb, config=config)
+            if modal_output is not None:
+                sandbox.provision_diagnostics = summarize_modal_output(modal_output.getvalue())
 
             logger.info(f"Created sandbox {sandbox.id} for {config.name}")
 
@@ -284,7 +383,7 @@ class ModalSandbox:
         except Exception as e:
             logger.exception(f"Failed to create sandbox: {e}")
             raise SandboxProvisionError(
-                f"Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
+                "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
             )
 
     @staticmethod
@@ -321,6 +420,7 @@ class ModalSandbox:
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
 
             process.wait()
@@ -345,12 +445,15 @@ class ModalSandbox:
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
     def execute_stream(
@@ -369,6 +472,7 @@ class ModalSandbox:
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
         except TimeoutError as e:
             capture_exception(e)
@@ -378,12 +482,15 @@ class ModalSandbox:
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
         class _ModalExecutionStream:
@@ -428,8 +535,7 @@ class ModalSandbox:
 
         temp_path = f"{path}.tmp-{uuid.uuid4().hex}"
         try:
-            with self._sandbox.open(temp_path, "wb") as file_handle:
-                file_handle.write(payload)
+            self._sandbox.filesystem.write_bytes(payload, temp_path)
             mv_command = f"mv {shlex.quote(temp_path)} {shlex.quote(path)}"
             result = self.execute(mv_command, timeout_seconds=self.config.default_execution_timeout_seconds)
             if result.exit_code != 0:
@@ -446,30 +552,6 @@ class ModalSandbox:
                 {"sandbox_id": self.id, "path": path, "error": str(e)},
                 cause=e,
             )
-
-    def clone_repository(self, repository: str, github_token: str | None = "") -> ExecutionResult:
-        if not self.is_running():
-            raise RuntimeError(f"Sandbox not in running state.")
-
-        org, repo = repository.lower().split("/")
-        repo_url = (
-            f"https://x-access-token:{github_token}@github.com/{org}/{repo}.git"
-            if github_token
-            else f"https://github.com/{org}/{repo}.git"
-        )
-
-        target_path = f"/tmp/workspace/repos/{org}/{repo}"
-        org_path = f"/tmp/workspace/repos/{org}"
-
-        clone_command = (
-            f"rm -rf {shlex.quote(target_path)} && "
-            f"mkdir -p {shlex.quote(org_path)} && "
-            f"cd {shlex.quote(org_path)} && "
-            f"git clone --single-branch {shlex.quote(repo_url)} {shlex.quote(repo)}"  # No --depth to allow git blame
-        )
-
-        logger.info(f"Cloning repository {repository} to {target_path} in sandbox {self.id}")
-        return self.execute(clone_command, timeout_seconds=5 * 60)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
@@ -514,26 +596,38 @@ class ModalSandbox:
         task_id: str,
         run_id: str,
         mode: str,
+        create_pr: bool,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> str:
-        env_prefix = (
-            f"env POSTHOG_CODE_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        env_prefix = build_agent_runtime_env_prefix(
+            interaction_origin=interaction_origin,
+            runtime_adapter=runtime_adapter,
+            provider=provider,
+            model=model,
+            reasoning_effort=reasoning_effort,
+            event_ingest_token=event_ingest_token,
         )
+        create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
         server_cmd = (
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{branch_flag}{mcp_servers_arg}{domains_flag}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
 
-        if allowed_domains:
+        if allowed_domains is not None:
             return (
                 f"cd /scripts && env -0 > {ENV_FILE} && "
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
@@ -554,10 +648,16 @@ class ModalSandbox:
         task_id: str,
         run_id: str,
         mode: str = "background",
+        create_pr: bool = True,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        runtime_adapter: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -573,7 +673,7 @@ class ModalSandbox:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        if allowed_domains:
+        if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
 
         mcp_servers_arg = ""
@@ -586,10 +686,16 @@ class ModalSandbox:
             task_id,
             run_id,
             mode,
+            create_pr,
             interaction_origin,
             branch,
+            runtime_adapter,
+            provider,
+            model,
+            reasoning_effort,
             mcp_servers_arg,
             allowed_domains=allowed_domains,
+            event_ingest_token=event_ingest_token,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -604,7 +710,7 @@ class ModalSandbox:
         logger.info(f"Agent-server started in sandbox {self.id}")
 
     def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
-        if allowed_domains:
+        if allowed_domains is not None:
             logger.info("Configuring agentsh in sandbox %s for %d allowed domain(s)", self.id, len(allowed_domains))
         else:
             logger.info("Configuring agentsh in sandbox %s (allow-all mode)", self.id)
@@ -662,6 +768,8 @@ class ModalSandbox:
             )
 
         try:
+            # Modal can report the sandbox as running before filesystem snapshotting is ready.
+            self._sandbox.exec("true", timeout=30).wait()
             image = self._sandbox.snapshot_filesystem()
 
             snapshot_id = image.object_id
@@ -693,12 +801,6 @@ class ModalSandbox:
             raise SandboxCleanupError(
                 f"Failed to destroy sandbox: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
             )
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.destroy()
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING

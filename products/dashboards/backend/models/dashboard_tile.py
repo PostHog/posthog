@@ -77,6 +77,11 @@ class DashboardTile(models.Model):
         related_name="dashboard_tiles",
         null=True,
     )
+    # Denormalized from `dashboard.team_id` so this table can be exposed via HogQL,
+    # whose printer injects `WHERE team_id = <ctx.team_id>` against every PostgresTable.
+    # Auto-populated in save() when omitted. Nullable here only because the rollout
+    # backfills before flipping NOT NULL in a later migration.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, db_index=False)
 
     # Tile layout and style
     layouts = models.JSONField(default=dict)
@@ -116,13 +121,25 @@ class DashboardTile(models.Model):
                 condition=Q(("button_tile__isnull", False)),
             ),
             models.CheckConstraint(
-                check=build_unique_relationship_check(("insight", "text", "button_tile")),
+                condition=build_unique_relationship_check(("insight", "text", "button_tile")),
                 name="dash_tile_exactly_one_related_object",
             ),
         ]
         db_table = "posthog_dashboardtile"
 
     def save(self, *args, **kwargs) -> None:
+        # Django accepts update_fields as list or tuple; normalize to list so the
+        # branches below can append without crashing when a caller passes a tuple.
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields = list(update_fields)
+            kwargs["update_fields"] = update_fields
+
+        if self.team_id is None and self.dashboard_id is not None:
+            self.team_id = self.dashboard.team_id
+            if update_fields is not None:
+                update_fields.append("team_id")
+
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
             if has_no_filters_hash and self.insight.filters != {}:
@@ -130,8 +147,8 @@ class DashboardTile(models.Model):
 
                 self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)
 
-                if "update_fields" in kwargs:
-                    kwargs["update_fields"].append("filters_hash")
+                if update_fields is not None:
+                    update_fields.append("filters_hash")
 
         super().save(*args, **kwargs)
 
@@ -207,6 +224,7 @@ class DashboardTile(models.Model):
             if existing.deleted is not True:
                 raise ValidationError("Tile already exists on destination dashboard")
             existing.deleted = False
+            existing.team_id = dashboard.team_id
             existing.layouts = self.layouts
             existing.color = self.color
             existing.show_description = self.show_description
@@ -217,6 +235,7 @@ class DashboardTile(models.Model):
 
         DashboardTile.objects.create(
             dashboard=dashboard,
+            team_id=dashboard.team_id,
             insight=self.insight,
             text=self.text,
             button_tile=self.button_tile,

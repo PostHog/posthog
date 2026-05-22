@@ -1,0 +1,329 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: User interview topics
+feature: user_interviews
+url_prefix: /user_interviews
+ui_apps: {}
+tools:
+    user-interview-topics-add-interviewee:
+        operation: user_interview_topics_add_interviewee_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Add an interviewee to a topic
+        description: >
+            Append a single interviewee identifier to a user interview topic. Email-shaped identifiers (including the
+            `Display Name <email@host>` form) go to `interviewee_emails`; everything else goes to
+            `interviewee_distinct_ids`. Idempotent — adding an identifier that is already present leaves the topic
+            unchanged. Returns the updated topic.
+        include_params:
+            - identifier
+        feature_flag: user-interviews
+    user-interview-topics-create:
+        operation: user_interview_topics_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create user interview topic
+        description: >
+            Plan a user interview by recording who you want to target and what product or idea you want to ask them
+            about. `topic` is the free-text description of the question or product area. Targets are specified as a
+            combination of `interviewee_emails` (list of email addresses) and `interviewee_distinct_ids` (list of
+            PostHog distinct IDs) — at least one of the two must be provided. To target a cohort, resolve cohort members
+            to emails/distinct_ids in the calling agent first (see the planning-user-interviews skill) and pass them
+            explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free text) to give
+            the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of
+            questions the agent should work through.
+        include_params:
+            - interviewee_emails
+            - interviewee_distinct_ids
+            - topic
+            - agent_context
+            - questions
+        feature_flag: user-interviews
+    user-interview-topics-destroy:
+        operation: user_interview_topics_destroy
+        enabled: false
+    user-interview-topics-generate-links:
+        operation: user_interview_topics_generate_links_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Generate public interview links for a topic
+        description: >
+            Generate one public, unauthenticated interview link per targeted interviewee on a user interview topic. For
+            each identifier in the topic's `interviewee_emails` and `interviewee_distinct_ids`, materializes (or reuses)
+            an IntervieweeContext row and an enabled SharingConfiguration, and returns the merged voice-agent context
+            alongside the URL the interviewee should open. The URL hosts the call publicly — no PostHog login required.
+            Calling this multiple times is safe: existing share links are reused.
+        feature_flag: user-interviews
+    user-interview-topics-interviewees-bulk-create:
+        operation: user_interview_topics_interviewees_bulk_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create many per-interviewee context rows at once
+        description: >
+            Create up to 500 per-interviewee context rows for a topic in a single request. Each item is
+            (interviewee_identifier, agent_context). Rows whose (topic, interviewee_identifier) already exists are
+            skipped — the response surfaces `inserted_count`, `skipped_count`, and `skipped_identifiers` so the caller
+            can reconcile. Items must have unique `interviewee_identifier` values within the batch. Prefer this over
+            `user-interview-topics-interviewees-create` when adding many rows.
+        include_params:
+            - items
+        feature_flag: user-interviews
+    user-interview-topics-interviewees-create:
+        operation: user_interview_topics_interviewees_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add per-interviewee context to a topic
+        description: >
+            Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent
+            background it should know about this specific person — e.g. "uses the replay product but has never used
+            summarization". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in
+            the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic,
+            interviewee_identifier) — calling create twice for the same pair will conflict. Prefer
+            `user-interview-topics-interviewees-bulk-create` when adding many rows at once.
+        include_params:
+            - interviewee_identifier
+            - agent_context
+        feature_flag: user-interviews
+    user-interview-topics-interviewees-destroy:
+        operation: user_interview_topics_interviewees_destroy
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a per-interviewee context row
+        description: >
+            Remove the extra context attached to a single interviewee on a user interview topic. Only deletes the
+            `IntervieweeContext` row — does not change the topic's targeting (`interviewee_emails` /
+            `interviewee_distinct_ids`). Use `user-interview-topics-remove-interviewee` if you want to drop the
+            interviewee from targeting as well.
+        feature_flag: user-interviews
+    user-interview-topics-interviewees-list:
+        operation: user_interview_topics_interviewees_list
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List per-interviewee contexts for a topic
+        description: >
+            List the per-interviewee context rows attached to a single user interview topic. Each row is
+            (interviewee_identifier, agent_context). Use this to see who has extra context attached before adding more.
+        feature_flag: user-interviews
+    user-interview-topics-interviewees-partial-update:
+        operation: user_interview_topics_interviewees_partial_update
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a per-interviewee context row
+        description: >
+            Update the `agent_context` field on a per-interviewee context row. Pass only the fields you want to change.
+            Does not modify the topic's targeting; use `user-interview-topics-add-interviewee` /
+            `user-interview-topics-remove-interviewee` for that.
+        include_params:
+            - agent_context
+        feature_flag: user-interviews
+    user-interview-topics-interviewees-retrieve:
+        operation: user_interview_topics_interviewees_retrieve
+        enabled: false
+    user-interview-topics-interviewees-update:
+        operation: user_interview_topics_interviewees_update
+        enabled: false
+    user-interview-topics-list:
+        operation: user_interview_topics_list
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List user interview topics
+        description: >
+            List planned user interview topics in the current project, newest first. Each result includes the topic,
+            targeting (interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context,
+            questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.
+        feature_flag: user-interviews
+    user-interview-topics-partial-update:
+        operation: user_interview_topics_partial_update
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a user interview topic
+        description: >
+            Update fields on a user interview topic. Pass only the fields you want to change. For incremental edits to
+            targeting, prefer `user-interview-topics-add-interviewee` and `user-interview-topics-remove-interviewee` —
+            sending `interviewee_emails` or `interviewee_distinct_ids` here replaces the entire array.
+        include_params:
+            - topic
+            - agent_context
+            - questions
+            - interviewee_emails
+            - interviewee_distinct_ids
+        feature_flag: user-interviews
+    user-interview-topics-remove-interviewee:
+        operation: user_interview_topics_remove_interviewee_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove an interviewee from a topic
+        description: >
+            Remove an interviewee identifier from a topic's targeting. Drops the identifier from both
+            `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration tied to
+            that interviewee on this topic so the removed person can no longer open their interview link. Idempotent —
+            removing an identifier that isn't present is a no-op. Returns the updated topic.
+        include_params:
+            - identifier
+        feature_flag: user-interviews
+    user-interview-topics-retrieve:
+        operation: user_interview_topics_retrieve
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get user interview topic
+        description: >
+            Retrieve a single user interview topic by ID, including its full targeting (`interviewee_emails`,
+            `interviewee_distinct_ids`), voice agent setup (`agent_context`, `questions`), and metadata. Use this to
+            list the current interviewees on a topic before adding, editing, or removing them.
+        feature_flag: user-interviews
+    user-interview-topics-send-invites:
+        operation: user_interview_topics_send_invites_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Email interview invites to every targeted interviewee
+        description: >
+            Generate (if not yet created) and email a personalized public interview link to every targeted interviewee
+            on a user interview topic whose identifier is an email address. The email includes a friendly greeting and a
+            button linking to the public voice-interview page. Distinct-ID-only interviewees are skipped and surfaced in
+            the response. Use this once a topic is finalized; safe to call repeatedly — invites are deduplicated per
+            share via the messaging system's idempotency record, and a token rotation produces a fresh send key.
+        include_params:
+            - subject
+            - reply_to
+            - send_async
+        feature_flag: user-interviews
+    user-interview-topics-update:
+        operation: user_interview_topics_update
+        enabled: false
+    user-interviews-create:
+        operation: user_interviews_create
+        enabled: false
+    user-interviews-destroy:
+        operation: user_interviews_destroy
+        enabled: false
+    user-interviews-list:
+        operation: user_interviews_list
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List user interview responses
+        description: >
+            List completed user interview responses in the current project, newest first. Each row includes the
+            interviewee email(s) and identifier, the linked `topic` UUID (set when the interview came in via a topic's
+            shared link), and the AI-generated `transcript` and `summary` fields. Pass `topic` with a topic UUID to
+            scope to a single research topic — use this to answer questions like "do I have any responses on my X topic
+            yet?". Use `limit`/`offset` for pagination. `transcript` and `summary` can be long; when listing, prefer
+            skimming the response shapes and then call `user-interviews-retrieve` for the full text of a specific
+            interview.
+        feature_flag: user-interviews
+    user-interviews-partial-update:
+        operation: user_interviews_partial_update
+        enabled: false
+    user-interviews-retrieve:
+        operation: user_interviews_retrieve
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Retrieve a user interview response
+        description: >
+            Fetch a single completed user interview response by id, including the full AI-generated `transcript` and
+            `summary`. Use after `user-interviews-list` has narrowed down to a specific interview — for example, to read
+            what a particular interviewee said about a research topic.
+        feature_flag: user-interviews
+    user-interviews-search:
+        operation: user_interviews_search_create
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Semantic search across interview responses
+        description: >
+            Search recorded user interviews by meaning, not keywords. Embeds the natural-language `query` with the same
+            model used to index transcripts and summaries, then returns the top matches by cosine similarity. Each match
+            is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and
+            summary score above other interviews. Use `document_types` to restrict to just `transcript` or just
+            `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of
+            returned matches (1-50, default 10). Useful for surfacing relevant excerpts when the caller has a research
+            question rather than a known string to grep for.
+        feature_flag: user-interviews
+    user-interviews-update:
+        operation: user_interviews_update
+        enabled: false

@@ -7,15 +7,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import {
-    ActionsNode,
-    EventsNode,
-    FunnelsQuery,
-    InsightQueryNode,
-    LifecycleQuery,
-    NodeKind,
-    TrendsQuery,
-} from '~/queries/schema/schema-general'
+import { FunnelsQuery, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
@@ -228,7 +220,7 @@ describe('insightVizDataLogic', () => {
                     source: {
                         kind: NodeKind.LifecycleQuery,
                         properties: undefined,
-                        filterTestAccounts: undefined,
+                        filterTestAccounts: false,
                         samplingFactor: undefined,
                         series: [
                             {
@@ -292,7 +284,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: expect.objectContaining({
                         kind: NodeKind.TrendsQuery,
-                        filterTestAccounts: undefined,
+                        filterTestAccounts: false,
                         properties: undefined,
                         series: [
                             expect.objectContaining({
@@ -636,31 +628,6 @@ describe('insightVizDataLogic', () => {
                         },
                     },
                 })
-        })
-    })
-
-    describe('isFunnelWithEnoughSteps', () => {
-        const queryWithSeries = (series: (ActionsNode | EventsNode)[]): FunnelsQuery => ({
-            kind: NodeKind.FunnelsQuery,
-            series,
-        })
-
-        it('with enough/not enough steps', () => {
-            expectLogic(builtInsightVizDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateQuerySource({
-                    kind: NodeKind.RetentionQuery,
-                } as InsightQueryNode)
-            }).toMatchValues({ isFunnelWithEnoughSteps: false })
-
-            expectLogic(builtInsightVizDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateQuerySource(queryWithSeries([]))
-            }).toMatchValues({ isFunnelWithEnoughSteps: false })
-
-            expectLogic(builtInsightVizDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateQuerySource(
-                    queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }])
-                )
-            }).toMatchValues({ isFunnelWithEnoughSteps: true })
         })
     })
 

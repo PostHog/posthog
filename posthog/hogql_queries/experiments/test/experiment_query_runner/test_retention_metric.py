@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import cast
 
 from freezegun import freeze_time
@@ -152,9 +153,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -293,9 +292,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -603,9 +600,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -712,9 +707,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -860,9 +853,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1009,9 +1000,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1166,9 +1155,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1303,9 +1290,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1471,7 +1456,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        runner = ExperimentQueryRunner(query=experiment_query, team=self.team, force_precomputation=False)
+        runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = runner.calculate()
 
         assert isinstance(result, ExperimentQueryResponse)
@@ -1633,7 +1618,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        runner = ExperimentQueryRunner(query=experiment_query, team=self.team, force_precomputation=use_precomputation)
+        runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = runner.calculate()
 
         assert isinstance(result, ExperimentQueryResponse)
@@ -1663,8 +1648,6 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
     @freeze_time("2020-01-25T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_only_count_matured_users(self, name, use_precomputation):
-        from datetime import datetime
-
         self._setup_precomputation_test(use_precomputation)
 
         feature_flag = self.create_feature_flag()
@@ -1791,9 +1774,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query, team=self.team, force_precomputation=use_precomputation
-        )
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         # Only mature users should be counted (1 control, 1 test)
@@ -1805,3 +1786,271 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         assert len(result.variant_results) == 1
         self.assertEqual(result.variant_results[0].number_of_samples, 1)
         self.assertEqual(result.variant_results[0].sum, 1)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2020-01-25T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_only_count_matured_users_without_conversion_window(self, name, use_precomputation):
+        # Retention metrics should respect only_count_matured_users even when no
+        # conversion_window is set — maturity comes from retention_window_end alone.
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 25, 0, 0, 0),
+        )
+
+        # Day-7 retention with no conversion_window. Maturity window = 7 days.
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(
+                event="signup",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            completion_event=EventsNode(
+                event="login",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=7,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.only_count_matured_users = True
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Mature control user: exposed Jan 2, maturity = Jan 9 (before now=Jan 25)
+        _create_person(distinct_ids=["user_mature_control"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_mature_control",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="user_mature_control",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={feature_flag_property: "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="login",
+            distinct_id="user_mature_control",
+            timestamp="2020-01-09T12:01:00Z",
+            properties={feature_flag_property: "control"},
+        )
+
+        # Immature control user: exposed Jan 22, maturity = Jan 29 (after now=Jan 25)
+        _create_person(distinct_ids=["user_immature_control"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_immature_control",
+            timestamp="2020-01-22T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="user_immature_control",
+            timestamp="2020-01-22T12:01:00Z",
+            properties={feature_flag_property: "control"},
+        )
+
+        # Mature test user: exposed Jan 2
+        _create_person(distinct_ids=["user_mature_test"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_mature_test",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "test",
+                "$feature_flag_response": "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="user_mature_test",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={feature_flag_property: "test"},
+        )
+        _create_event(
+            team=self.team,
+            event="login",
+            distinct_id="user_mature_test",
+            timestamp="2020-01-09T12:01:00Z",
+            properties={feature_flag_property: "test"},
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Only mature users should be counted (1 control, 1 test); immature excluded.
+        assert result.baseline is not None
+        self.assertEqual(result.baseline.number_of_samples, 1)
+        self.assertEqual(result.baseline.sum, 1)
+
+        assert result.variant_results is not None
+        assert len(result.variant_results) == 1
+        self.assertEqual(result.variant_results[0].number_of_samples, 1)
+        self.assertEqual(result.variant_results[0].sum, 1)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2020-01-25T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_only_count_matured_users_anchors_on_start_event(self, name, use_precomputation):
+        # Maturity must be anchored on the user's start_event timestamp, not their
+        # first exposure. A user exposed long ago who only does the start_event
+        # recently has not had enough time for their retention window to elapse.
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 25, 0, 0, 0),
+        )
+
+        # Day-7 retention, no conversion_window. Maturity = 7 days from start_event.
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(
+                event="signup",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            completion_event=EventsNode(
+                event="login",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=7,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.only_count_matured_users = True
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Early-starter control: exposed Jan 2, signup Jan 2, mature on Jan 9.
+        _create_person(distinct_ids=["user_early_starter_control"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_early_starter_control",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="user_early_starter_control",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={feature_flag_property: "control"},
+        )
+
+        # Late-starter control: exposed Jan 2 but signup only on Jan 22.
+        # Under start_event anchor: maturity = Jan 22 + 7d = Jan 29 > Jan 25, so excluded.
+        # Under any exposure-based anchor (min or max): min(exp) = Jan 2, so it would
+        # incorrectly include this user. This test only passes under start_event anchor.
+        _create_person(distinct_ids=["user_late_starter_control"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_late_starter_control",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="user_late_starter_control",
+            timestamp="2020-01-22T12:00:00Z",
+            properties={feature_flag_property: "control"},
+        )
+
+        # Early-starter test: same shape as early-starter control.
+        _create_person(distinct_ids=["user_early_starter_test"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_early_starter_test",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "test",
+                "$feature_flag_response": "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="user_early_starter_test",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={feature_flag_property: "test"},
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Only early-starters should appear in results; late-starter excluded.
+        assert result.baseline is not None
+        self.assertEqual(result.baseline.number_of_samples, 1)
+
+        assert result.variant_results is not None
+        assert len(result.variant_results) == 1
+        self.assertEqual(result.variant_results[0].number_of_samples, 1)

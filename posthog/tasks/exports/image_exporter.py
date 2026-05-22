@@ -4,7 +4,7 @@ import time
 import uuid
 import tempfile
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import Any, Literal, Optional, cast
 from urllib.parse import quote
 
 from django.conf import settings
@@ -116,7 +116,7 @@ def get_driver() -> webdriver.Chrome:
     # which routes through HTTP_PROXY. The egress proxy blocks this localhost request,
     # but it doesn't matter — Service.stop() always calls _terminate_process() (SIGTERM)
     # right after, so the HTTP shutdown is redundant.
-    driver.service.send_remote_shutdown_command = lambda: None
+    cast(Any, driver.service).send_remote_shutdown_command = lambda: None
 
     return driver
 
@@ -158,6 +158,7 @@ def _export_to_png(
         screenshot_width: ScreenWidth
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
+        page_load_timeout: int = 40
         if exported_asset.insight is not None:
             show_legend = exported_asset.insight.show_legend
             legend_param = "&legend=true" if show_legend else ""
@@ -204,13 +205,20 @@ def _export_to_png(
             if not ok:
                 raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
 
-            # Handle replay export using /exporter route (same as insights/dashboards)
+            # URL-encode the page and data URLs so their inner `?` and `&` (e.g.
+            # `?width=1024&format=jpeg` on screenshot content URLs) don't corrupt
+            # the `/exporter` query string.
+            encoded_page_url = quote(heatmap_url, safe="")
+            encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
             url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&pageURL={exported_asset.export_context.get('heatmap_url')}&dataURL={exported_asset.export_context.get('heatmap_data_url')}"
+                f"/exporter?token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")
             screenshot_width = exported_asset.export_context.get("width", 1400)
             screenshot_height = exported_asset.export_context.get("height", 600)
+            # Heatmaps wait for the data fetch to complete (`.heatmaps-ready` is added
+            # by HeatmapCanvas after heatmapDataLogic loads the data), which can take a while.
+            page_load_timeout = 100
 
             logger.info(
                 "exporting_heatmap",
@@ -227,7 +235,13 @@ def _export_to_png(
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
         _screenshot_asset(
-            image_path, url_to_render, screenshot_width, wait_for_css_selector, screenshot_height, max_height_pixels
+            image_path,
+            url_to_render,
+            screenshot_width,
+            wait_for_css_selector,
+            screenshot_height,
+            max_height_pixels,
+            page_load_timeout,
         )
 
         with open(image_path, "rb") as image_file:
@@ -254,6 +268,7 @@ def _screenshot_asset(
     wait_for_css_selector: CSSSelector,
     screenshot_height: int = 600,
     max_height_pixels: Optional[int] = None,
+    page_load_timeout: int = 40,
 ) -> None:
     driver: Optional[webdriver.Chrome] = None
     try:
@@ -262,14 +277,10 @@ def _screenshot_asset(
         driver.get(url_to_render)
         posthoganalytics.tag("url_to_render", url_to_render)
 
-        timeout = 40
-
-        # For heatmaps, we need to wait until the heatmap is ready
-        if wait_for_css_selector == ".heatmap-exporter":
-            timeout = 100
-
         try:
-            WebDriverWait(driver, timeout).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
+            WebDriverWait(driver, page_load_timeout).until(
+                lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector)
+            )
         except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
@@ -311,7 +322,13 @@ def _screenshot_asset(
         # Funnels are handled separately with fit-content measurement below
         width = driver.execute_script(
             f"""
-            // Check for replay player first
+            // Check for heatmap exporter first — its width is set explicitly
+            const heatmapElement = document.querySelector('.heatmap-exporter');
+            if (heatmapElement) {{
+                return heatmapElement.offsetWidth;
+            }}
+
+            // Check for replay player
             const replayElement = document.querySelector('.replayer-wrapper');
             if (replayElement) {{
                 return replayElement.offsetWidth;

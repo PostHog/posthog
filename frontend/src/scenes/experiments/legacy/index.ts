@@ -1,13 +1,14 @@
 // Legacy experiment components re-exports
 // These components support legacy experiment metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery)
 
+// View
+export { LegacyExperimentView } from './LegacyExperimentView'
+
 // Logic
+export { legacyExperimentLogic } from './legacyExperimentLogic'
 export { legacyExperimentModalsLogic } from './legacyExperimentModalsLogic'
 
 // Metrics
-export { LegacyMetricModal } from './metrics/LegacyMetricModal'
-export { LegacyMetricSourceModal } from './metrics/LegacyMetricSourceModal'
-export { LegacySharedMetricModal } from './metrics/LegacySharedMetricModal'
 export { TrendsMetricForm } from './metrics/TrendsMetricForm'
 export { FunnelsMetricForm } from './metrics/FunnelsMetricForm'
 
@@ -16,20 +17,29 @@ export { LegacySharedTrendsMetricForm } from './sharedMetrics/LegacySharedTrends
 export { LegacySharedFunnelsMetricForm } from './sharedMetrics/LegacySharedFunnelsMetricForm'
 
 // Components
-export { LegacyExperimentHeader } from './components/LegacyExperimentHeader'
-export { LegacySummaryTable } from './components/LegacySummaryTable'
+export { LegacyDataCollection } from './components/LegacyDataCollection'
 export { LegacyExperimentDate } from './LegacyExperimentDate'
 export { LegacyExperimentDates } from './LegacyExperimentDates'
+export { LegacyExperimentHeader } from './components/LegacyExperimentHeader'
 export { LegacyExperimentInfo } from './LegacyExperimentInfo'
-export { LegacyResultsQuery } from './components/LegacyResultsQuery'
 export { LegacyExploreButton } from './components/LegacyExploreButton'
+export { LegacyResultsQuery } from './components/LegacyResultsQuery'
+export { LegacySummaryTable } from './components/LegacySummaryTable'
+export { LegacyFunnelAttributionSelect } from './components/LegacyFunnelAttributionSelect'
+export { LegacyFunnelConversionWindowFilter } from './components/LegacyFunnelConversionWindowFilter'
+export { LegacyFunnelAggregationSelect } from './components/LegacyFunnelAggregationSelect'
 
 // Calculations
 export * from './calculations/legacyExperimentCalculations'
 
+// Functions
+export * from './legacyUtils'
+
+// Modals
+export { LegacyChartModal } from './metricsView/LegacyChartModal'
+
 // Metrics View
 export { LegacyMetricsView } from './metricsView/LegacyMetricsView'
-export { LegacyChartModal } from './metricsView/LegacyChartModal'
 export { LegacyDeltaChart } from './metricsView/LegacyDeltaChart'
 export { LegacyChartEmptyState } from './metricsView/LegacyChartEmptyState'
 export { LegacyErrorChecklist } from './metricsView/LegacyErrorChecklist'
@@ -37,8 +47,8 @@ export { LegacyMetricsChartLayout } from './metricsView/LegacyMetricsChartLayout
 export { LegacySignificanceHighlight } from './metricsView/LegacySignificanceHighlight'
 export { LegacyTickPanel } from './metricsView/LegacyTickPanel'
 export { LegacyVariantTooltip } from './metricsView/LegacyVariantTooltip'
-export { LegacyViolinPath } from './metricsView/LegacyViolinPath'
-export { LegacyWinningVariantText, LegacySignificanceText } from './metricsView/LegacyOverview'
+export { LegacyWinningVariantText, LegacySignificanceText, LegacyOverview } from './metricsView/LegacyOverview'
+export { LegacyVariantTag } from './components/LegacyVariantTag'
 export * from './metricsView/legacyViolinUtils'
 
 // Metrics View - Shared (Legacy)

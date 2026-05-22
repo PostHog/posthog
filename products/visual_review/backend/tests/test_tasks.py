@@ -4,10 +4,11 @@ import pytest
 from unittest.mock import patch
 
 from products.visual_review.backend import logic
+from products.visual_review.backend.diffing import process_diffs
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
-from products.visual_review.backend.tasks.tasks import _process_diffs, process_run_diffs
+from products.visual_review.backend.tasks.tasks import post_approval_comment, process_run_diffs
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -31,7 +32,7 @@ class TestProcessRunDiffs:
         )
 
         # Process (should complete immediately since no changed snapshots need diffing)
-        process_run_diffs(str(create_result.run_id))
+        process_run_diffs(repo.team_id, str(create_result.run_id))
 
         # Check run is completed
         run = api.get_run(create_result.run_id)
@@ -50,18 +51,18 @@ class TestProcessRunDiffs:
             team_id=repo.team_id,
         )
 
-        with patch("products.visual_review.backend.tasks.tasks._process_diffs") as mock:
+        with patch("products.visual_review.backend.diffing.process_diffs") as mock:
             mock.side_effect = Exception("Something went wrong")
 
             with pytest.raises(Exception):
-                process_run_diffs(str(create_result.run_id))
+                process_run_diffs(repo.team_id, str(create_result.run_id))
 
         # Check run is marked as failed
         run = api.get_run(create_result.run_id)
         assert run.status == RunStatus.FAILED
         assert "Something went wrong" in (run.error_message or "")
 
-    def test_process_diffs_skips_unchanged(self, repo):
+    def testprocess_diffs_skips_unchanged(self, repo):
         # Create artifact that exists for both baseline and current
         logic.get_or_create_artifact(
             repo_id=repo.id,
@@ -83,20 +84,20 @@ class TestProcessRunDiffs:
 
         # Classification happens at complete_run time
         with patch(
-            "products.visual_review.backend.logic._resolve_baselines",
-            return_value={"Button": "same_hash"},
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"Button": "same_hash"}, 0),
         ):
             logic.complete_run(create_result.run_id)
 
         # Process - should skip unchanged snapshot
-        _process_diffs(create_result.run_id)
+        process_diffs(create_result.run_id)
 
         # Snapshot should remain unchanged
         snapshots = api.get_run_snapshots(create_result.run_id)
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.UNCHANGED
 
-    def test_process_diffs_skips_new(self, repo):
+    def testprocess_diffs_skips_new(self, repo):
         create_result = api.create_run(
             CreateRunInput(
                 repo_id=repo.id,
@@ -110,13 +111,13 @@ class TestProcessRunDiffs:
         )
 
         # Process - should skip new snapshot (no baseline to diff against)
-        _process_diffs(create_result.run_id)
+        process_diffs(create_result.run_id)
 
         snapshots = api.get_run_snapshots(create_result.run_id)
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.NEW
 
-    def test_process_diffs_attempts_diff_for_changed(self, repo):
+    def testprocess_diffs_attempts_diff_for_changed(self, repo):
         # Create baseline artifact
         logic.get_or_create_artifact(
             repo_id=repo.id,
@@ -145,18 +146,57 @@ class TestProcessRunDiffs:
         # Classification happens at complete_run time
         with (
             patch(
-                "products.visual_review.backend.logic._resolve_baselines",
-                return_value={"Button": "old_hash"},
+                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                return_value=({"Button": "old_hash"}, 0),
             ),
             patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
         ):
             logic.complete_run(create_result.run_id)
 
         # Process - should attempt to diff but fail because artifacts aren't in storage
-        with patch("products.visual_review.backend.tasks.tasks.logger") as mock_logger:
-            _process_diffs(create_result.run_id)
+        with patch("products.visual_review.backend.diffing.logger") as mock_logger:
+            process_diffs(create_result.run_id)
 
             # Check that warning was logged about missing artifacts
             mock_logger.warning.assert_called()
             call_args = [call[0][0] for call in mock_logger.warning.call_args_list]
             assert any("diff_skipped_missing_artifact" in arg for arg in call_args)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestPostApprovalCommentTask:
+    @pytest.fixture
+    def repo(self, team):
+        return api.create_repo(team_id=team.id, repo_external_id=88888, repo_full_name="org/approval")
+
+    def test_calls_logic_helper(self, repo):
+        with patch("products.visual_review.backend.logic.post_approval_comment_for_run") as helper:
+            post_approval_comment(repo.team_id, "00000000-0000-0000-0000-000000000001")
+        helper.assert_called_once()
+        args, kwargs = helper.call_args
+        assert str(args[0]) == "00000000-0000-0000-0000-000000000001"
+        assert kwargs["team_id"] == repo.team_id
+
+    def test_swallows_unexpected_errors(self, repo):
+        with patch(
+            "products.visual_review.backend.logic.post_approval_comment_for_run",
+            side_effect=RuntimeError("boom"),
+        ):
+            # Must not raise — failure to comment must never block other work.
+            post_approval_comment(repo.team_id, "00000000-0000-0000-0000-000000000002")
+
+    def test_retries_on_rate_limit(self, repo):
+        from posthog.models.integration import GitHubRateLimitError
+
+        with (
+            patch(
+                "products.visual_review.backend.logic.post_approval_comment_for_run",
+                side_effect=GitHubRateLimitError("rate limited", retry_after=42),
+            ),
+            patch.object(post_approval_comment, "retry", side_effect=RuntimeError("retry called")) as retry_mock,
+        ):
+            with pytest.raises(RuntimeError, match="retry called"):
+                post_approval_comment(repo.team_id, "00000000-0000-0000-0000-000000000003")
+
+        retry_mock.assert_called_once()
+        assert retry_mock.call_args.kwargs["countdown"] == 42

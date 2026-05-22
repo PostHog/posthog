@@ -26,7 +26,7 @@ export type SettingSectionId =
     | 'environment-product-analytics'
     | 'environment-privacy'
     | 'environment-revenue-analytics'
-    | 'environment-llm-analytics'
+    | 'environment-ai-observability'
     | 'environment-marketing-analytics'
     | 'environment-web-analytics'
     | 'environment-replay'
@@ -43,6 +43,7 @@ export type SettingSectionId =
     | 'environment-activity-logs'
     | 'environment-discussions'
     | 'environment-access-control'
+    | 'environment-secret-api-keys'
     | 'environment-danger-zone'
     | 'project-details'
     | 'project-danger-zone'
@@ -52,11 +53,12 @@ export type SettingSectionId =
     | 'project-surveys' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-ai-observability' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'organization-details'
     | 'organization-integrations'
     | 'organization-oauth-apps'
+    | 'organization-cimd-verification-tokens'
     | 'organization-members'
-    | 'organization-notifications'
     | 'organization-roles'
     | 'organization-authentication'
     | 'organization-proxy'
@@ -64,8 +66,11 @@ export type SettingSectionId =
     | 'environment-approvals'
     | 'organization-danger-zone'
     | 'organization-billing'
+    | 'organization-legal-documents'
     | 'organization-startup-program'
     | 'user-profile'
+    | 'user-personal-integrations'
+    | 'user-connected-apps'
     | 'user-api-keys'
     | 'user-notifications'
     | 'user-customization'
@@ -75,12 +80,9 @@ export type SettingSectionId =
     | 'mcp-servers'
 
 export type SettingId =
-    | 'conversations-api'
+    | 'conversations-general'
+    | 'conversations-channels'
     | 'conversations-notifications'
-    | 'conversations-slack'
-    | 'conversations-email'
-    | 'conversations-widget'
-    | 'conversations-workflows'
     | 'snippet-v2'
     | 'js-snippet-version'
     | 'replay-triggers'
@@ -98,6 +100,7 @@ export type SettingId =
     | 'correlation-analysis'
     | 'customer-analytics-usage-metrics'
     | 'customer-analytics-dashboard-events'
+    | 'customer-analytics-accounts'
     | 'person-display-name'
     | 'person-last-seen-at'
     | 'path-cleaning'
@@ -125,6 +128,9 @@ export type SettingId =
     | 'environment-experiment-stats-method'
     | 'environment-experiment-confidence-level'
     | 'environment-experiment-recalculation-time'
+    | 'environment-experiment-matured-users'
+    | 'environment-experiment-cuped-enabled'
+    | 'environment-experiment-mde'
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-suppression-rules'
     | 'error-tracking-ingestion-controls'
@@ -136,6 +142,7 @@ export type SettingId =
     | 'error-tracking-integrations'
     | 'error-tracking-auto-assignment'
     | 'error-tracking-spike-detection'
+    | 'error-tracking-rate-limits'
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-posthog-code-slack'
@@ -145,17 +152,19 @@ export type SettingId =
     | 'integration-other'
     | 'integration-ip-allowlist'
     | 'environment-access-control'
+    | 'environment-secret-api-keys'
     | 'environment-delete'
     | 'project-delete'
     | 'project-move'
     | 'organization-display-name'
     | 'organization-integrations-list'
     | 'organization-oauth-apps-list'
+    | 'organization-cimd-verification-tokens-list'
     | 'invites'
     | 'members'
-    | 'email-members'
     | 'authentication-domains'
     | 'organization-ai-consent'
+    | 'organization-ai-training-opt-out'
     | 'organization-experiment-stats-method'
     | 'organization-roles'
     | 'organization-default-role'
@@ -166,8 +175,11 @@ export type SettingId =
     | 'change-password'
     | '2fa'
     | 'passkeys'
+    | 'connected-apps'
+    | 'personal-integrations'
     | 'personal-api-keys'
     | 'notifications'
+    | 'realtime-notifications'
     | 'feature-previews'
     | 'feature-previews-coming-soon'
     | 'optout'
@@ -185,7 +197,7 @@ export type SettingId =
     | 'revenue-analytics-goals'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
-    | 'llm-analytics-byok'
+    | 'ai-observability-byok'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'
@@ -210,13 +222,16 @@ export type SettingId =
     | 'discussion-mention-integrations'
     | 'logs'
     | 'logs-json-parse'
+    | 'logs-pii-scrub'
     | 'logs-retention'
     | 'logs-alerting'
+    | 'logs-drop-rules'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'
     | 'change-requests'
     | 'banner'
+    | 'mcp-hints'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -232,8 +247,13 @@ export type Setting = {
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
      * When an array is provided, the setting will be shown if ALL of the conditions are met.
+     * When a tuple is provided, the setting will be shown if the feature flag is enabled and the value matches the given value.
      */
-    flag?: FeatureFlagKey | `!${FeatureFlagKey}` | (FeatureFlagKey | `!${FeatureFlagKey}`)[]
+    flag?:
+        | FeatureFlagKey
+        | `!${FeatureFlagKey}`
+        | (FeatureFlagKey | `!${FeatureFlagKey}`)[]
+        | [[FeatureFlagKey, string | boolean]]
 
     /**
      * defaults to true if not provided

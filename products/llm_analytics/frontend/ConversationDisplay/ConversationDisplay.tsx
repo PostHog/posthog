@@ -8,22 +8,32 @@ import { EventType } from '~/types'
 import { AIDataLoading } from '../components/AIDataLoading'
 import { useAIData } from '../hooks/useAIData'
 import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
-import { normalizeMessage, normalizeMessages } from '../utils'
+import { costContextFromProperties, normalizeMessage, normalizeMessages } from '../utils'
 import { ConversationMessagesDisplay } from './ConversationMessagesDisplay'
 import { MetadataHeader } from './MetadataHeader'
 
 export interface ConversationDisplayProps {
     eventProperties: EventType['properties']
     eventId: string
+    /** Event timestamp, needed to fetch heavy props via TraceQuery when they've been stripped from `events`. */
+    eventTimestamp?: string
 }
 
-export function ConversationDisplay({ eventProperties, eventId }: ConversationDisplayProps): JSX.Element {
+export function ConversationDisplay({
+    eventProperties,
+    eventId,
+    eventTimestamp,
+}: ConversationDisplayProps): JSX.Element {
     const rawInput = eventProperties.$ai_input ?? eventProperties.$ai_input_state
     const rawOutput = eventProperties.$ai_output_choices ?? eventProperties.$ai_output_state
-    const { input, output, isLoading } = useAIData({
+    const rawTools = eventProperties.$ai_tools
+    const { input, output, tools, isLoading } = useAIData({
         uuid: eventId,
         input: rawInput,
         output: rawOutput,
+        tools: rawTools,
+        traceId: eventProperties.$ai_trace_id,
+        timestamp: eventTimestamp,
     })
 
     const handleOpenInPlayground = (): void => {
@@ -31,10 +41,10 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
             model: eventProperties.$ai_model,
             provider: eventProperties.$ai_provider,
             input,
+            output,
         })
     }
 
-    const tools = eventProperties.$ai_tools
     const showPlaygroundButton = eventProperties.$ai_model && input
 
     const inputSourceIndices = React.useMemo(() => {
@@ -61,7 +71,7 @@ export function ConversationDisplay({ eventProperties, eventId }: ConversationDi
                     outputTokens={eventProperties.$ai_output_tokens}
                     cacheReadTokens={eventProperties.$ai_cache_read_input_tokens}
                     cacheWriteTokens={eventProperties.$ai_cache_creation_input_tokens}
-                    totalCostUsd={eventProperties.$ai_total_cost_usd}
+                    costContext={costContextFromProperties(eventProperties)}
                     model={eventProperties.$ai_model}
                     latency={eventProperties.$ai_latency}
                     timeToFirstToken={eventProperties.$ai_time_to_first_token}

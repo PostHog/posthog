@@ -31,7 +31,7 @@ from posthog.utils import get_previous_day
 
 @freeze_time("2022-01-10T00:01:00Z")
 class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
-    """Tests for LLM Analytics usage reporting functionality."""
+    """Tests for AI observability usage reporting functionality."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -159,6 +159,104 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert metrics.reasoning_tokens == 75  # 3 * 25
         assert metrics.cache_read_tokens == 1500  # 3 * 500
         assert metrics.cache_creation_tokens == 600  # 3 * 200
+
+    def test_get_all_ai_metrics_cost_anomaly_counts(self) -> None:
+        """Test that cost anomaly counts (total, negative, zero) are correctly calculated."""
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period_start, period_end = get_previous_day()
+
+        # Create events with positive cost
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            3,
+            properties={"$ai_total_cost_usd": 0.05},
+        )
+
+        # Create events with zero cost
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            2,
+            properties={"$ai_total_cost_usd": 0},
+        )
+
+        # Create events with negative cost
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            4,
+            properties={"$ai_total_cost_usd": -0.01},
+        )
+
+        # Create events without cost (null)
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            5,
+            properties={},
+        )
+
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+
+        assert self.team.id in all_metrics
+        metrics = all_metrics[self.team.id]
+
+        assert metrics.ai_generation_count == 14  # 3 + 2 + 4 + 5
+        assert metrics.total_cost_count == 9  # 3 + 2 + 4 (events with non-null cost)
+        assert metrics.total_cost_negative_count == 4
+        assert metrics.total_cost_zero_count == 2
+        assert metrics.total_cost == pytest.approx(0.11, rel=1e-6)  # 3*0.05 + 2*0 + 4*(-0.01)
+
+    def test_get_all_ai_metrics_error_count(self) -> None:
+        """Test that ai_is_error_count is correctly calculated."""
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period_start, period_end = get_previous_day()
+
+        # Create events with $ai_is_error = true
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            4,
+            properties={"$ai_is_error": "true"},
+        )
+
+        # Create events with $ai_is_error = false
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            3,
+            properties={"$ai_is_error": "false"},
+        )
+
+        # Create events without $ai_is_error
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            5,
+            properties={},
+        )
+
+        team_ids = get_teams_with_ai_events(period_start, period_end)
+        all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
+
+        assert self.team.id in all_metrics
+        metrics = all_metrics[self.team.id]
+
+        assert metrics.ai_generation_count == 12  # 4 + 3 + 5
+        assert metrics.ai_is_error_count == 4  # only events with $ai_is_error = 'true'
 
     def test_get_all_ai_dimension_breakdowns(self) -> None:
         """Test that we correctly get dimension breakdowns using the combined Map-based query."""
@@ -369,7 +467,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         assert metrics.response_count == 5  # 3 + 2 (only "survey sent" events)
 
     def test_full_llm_analytics_report(self) -> None:
-        """Test the full LLM Analytics report generation."""
+        """Test the full AI observability report generation."""
         # Create second organization and team
         org_2 = Organization.objects.create(name="Org 2")
         team_2 = Team.objects.create(organization=org_2, name="Team 2")
@@ -508,7 +606,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         mock_get_ph_client: MagicMock,
         mock_capture_report: MagicMock,
     ) -> None:
-        """Test the main task to send LLM Analytics usage reports."""
+        """Test the main task to send AI observability usage reports."""
         distinct_id = str(uuid4())
         _create_person(distinct_ids=[distinct_id], team=self.team)
 

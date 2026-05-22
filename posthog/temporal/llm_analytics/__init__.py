@@ -1,3 +1,33 @@
+from posthog.temporal.llm_analytics.eval_reports.activities import (
+    deliver_report_activity,
+    fetch_count_triggered_eval_reports_activity,
+    fetch_due_eval_reports_activity,
+    prepare_report_context_activity,
+    run_eval_report_agent_activity,
+    store_report_run_activity,
+    update_next_delivery_date_activity,
+)
+from posthog.temporal.llm_analytics.eval_reports.emit_signal import (
+    EmitEvalReportSignalWorkflow,
+    emit_eval_report_signal_activity,
+)
+from posthog.temporal.llm_analytics.eval_reports.workflow import (
+    CheckCountTriggeredReportsWorkflow,
+    GenerateAndDeliverEvalReportWorkflow,
+    ScheduleAllEvalReportsWorkflow,
+)
+from posthog.temporal.llm_analytics.evaluation_clustering import (
+    LLMAEvaluationClusteringCoordinatorWorkflow,
+    LLMAEvaluationClusteringWorkflow,
+    LLMAEvaluationSamplerCoordinatorWorkflow,
+    LLMAEvaluationSamplerWorkflow,
+    compute_evaluation_cluster_aggregates_activity,
+    emit_evaluation_cluster_events_activity,
+    fetch_evaluation_metadata_activity,
+    generate_evaluation_cluster_labels_activity,
+    perform_evaluation_clustering_compute_activity,
+    sample_and_embed_for_job_activity,
+)
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor  # noqa: F401
 from posthog.temporal.llm_analytics.run_evaluation import (
     RunEvaluationWorkflow,
@@ -8,8 +38,17 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     execute_llm_judge_activity,
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
+    send_evaluation_disabled_email_activity,
     send_trial_usage_email_activity,
     update_key_state_activity,
+)
+from posthog.temporal.llm_analytics.run_tagger import (
+    RunTaggerWorkflow,
+    disable_tagger_activity,
+    emit_tagger_event_activity,
+    execute_hog_tagger_activity,
+    execute_tagger_activity,
+    fetch_tagger_activity,
 )
 from posthog.temporal.llm_analytics.sentiment import ClassifySentimentWorkflow, classify_sentiment_activity
 from posthog.temporal.llm_analytics.shared_activities import (
@@ -20,6 +59,7 @@ from posthog.temporal.llm_analytics.team_discovery import get_team_ids_for_llm_a
 from posthog.temporal.llm_analytics.trace_clustering import (
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
+    compute_cluster_aggregates_activity,
     emit_cluster_events_activity,
     generate_cluster_labels_activity,
     perform_clustering_compute_activity,
@@ -43,12 +83,25 @@ EVAL_ACTIVITIES = [
     increment_trial_eval_count_activity,
     disable_evaluation_activity,
     send_trial_usage_email_activity,
+    send_evaluation_disabled_email_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
     execute_hog_eval_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
+]
+
+TAGGER_WORKFLOWS = [
+    RunTaggerWorkflow,
+]
+
+TAGGER_ACTIVITIES = [
+    fetch_tagger_activity,
+    execute_tagger_activity,
+    execute_hog_tagger_activity,
+    emit_tagger_event_activity,
+    disable_tagger_activity,
 ]
 
 SENTIMENT_WORKFLOWS = [
@@ -64,6 +117,16 @@ WORKFLOWS = [
     BatchTraceSummarizationCoordinatorWorkflow,
     DailyTraceClusteringWorkflow,
     TraceClusteringCoordinatorWorkflow,
+    # Evaluation reports
+    ScheduleAllEvalReportsWorkflow,
+    CheckCountTriggeredReportsWorkflow,
+    GenerateAndDeliverEvalReportWorkflow,
+    EmitEvalReportSignalWorkflow,
+    # Evaluation clustering (Stage A sampler + Stage B clustering)
+    LLMAEvaluationSamplerCoordinatorWorkflow,
+    LLMAEvaluationSamplerWorkflow,
+    LLMAEvaluationClusteringCoordinatorWorkflow,
+    LLMAEvaluationClusteringWorkflow,
     # Keep sentiment workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
     ClassifySentimentWorkflow,
     # Keep eval workflow registered here temporarily so orphaned workflows on general-purpose queue can complete
@@ -83,7 +146,24 @@ ACTIVITIES = [
     # Clustering activities
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,
+    compute_cluster_aggregates_activity,
     emit_cluster_events_activity,
+    # Evaluation report activities
+    fetch_due_eval_reports_activity,
+    fetch_count_triggered_eval_reports_activity,
+    prepare_report_context_activity,
+    run_eval_report_agent_activity,
+    store_report_run_activity,
+    deliver_report_activity,
+    update_next_delivery_date_activity,
+    emit_eval_report_signal_activity,
+    # Evaluation clustering activities
+    sample_and_embed_for_job_activity,
+    perform_evaluation_clustering_compute_activity,
+    fetch_evaluation_metadata_activity,
+    generate_evaluation_cluster_labels_activity,
+    compute_evaluation_cluster_aggregates_activity,
+    emit_evaluation_cluster_events_activity,
     # Keep sentiment activity registered here temporarily so orphaned workflows on general-purpose queue can complete
     classify_sentiment_activity,
     # Keep eval activities registered here temporarily so orphaned workflows on general-purpose queue can complete
@@ -91,6 +171,7 @@ ACTIVITIES = [
     increment_trial_eval_count_activity,
     disable_evaluation_activity,
     send_trial_usage_email_activity,
+    send_evaluation_disabled_email_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
     execute_hog_eval_activity,

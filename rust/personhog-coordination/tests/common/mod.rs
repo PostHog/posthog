@@ -13,7 +13,7 @@ use assignment_coordination::store::{EtcdStore, StoreConfig};
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::error::Result;
 use personhog_coordination::pod::{HandoffHandler, PodConfig, PodHandle};
-use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
+use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::AssignmentStrategy;
 
@@ -219,6 +219,7 @@ pub fn start_router(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandoffEvent {
+    Drained(u32),
     Warmed(u32),
     Released(u32),
 }
@@ -241,6 +242,14 @@ impl MockHandoffHandler {
 
 #[async_trait]
 impl HandoffHandler for MockHandoffHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         self.events
             .lock()
@@ -278,6 +287,14 @@ impl BlockingHandoffHandler {
 
 #[async_trait]
 impl HandoffHandler for BlockingHandoffHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
     async fn warm_partition(&self, _partition: u32) -> Result<()> {
         // Block forever — simulates a slow warm that never completes
         std::future::pending().await
@@ -314,6 +331,14 @@ impl SlowHandoffHandler {
 
 #[async_trait]
 impl HandoffHandler for SlowHandoffHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         tokio::time::sleep(self.warm_delay).await;
         self.events
@@ -333,10 +358,9 @@ impl HandoffHandler for SlowHandoffHandler {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CutoverEvent {
-    pub partition: u32,
-    pub old_owner: String,
-    pub new_owner: String,
+pub enum CutoverEvent {
+    StashBegan { partition: u32, new_owner: String },
+    StashDrained { partition: u32, target: String },
 }
 
 pub struct MockCutoverHandler {
@@ -356,17 +380,19 @@ impl MockCutoverHandler {
 }
 
 #[async_trait]
-impl CutoverHandler for MockCutoverHandler {
-    async fn execute_cutover(
-        &self,
-        partition: u32,
-        old_owner: &str,
-        new_owner: &str,
-    ) -> Result<()> {
-        self.events.lock().await.push(CutoverEvent {
+impl StashHandler for MockCutoverHandler {
+    async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashBegan {
             partition,
-            old_owner: old_owner.to_string(),
             new_owner: new_owner.to_string(),
+        });
+        Ok(())
+    }
+
+    async fn drain_stash(&self, partition: u32, target: &str) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashDrained {
+            partition,
+            target: target.to_string(),
         });
         Ok(())
     }

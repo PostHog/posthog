@@ -429,7 +429,21 @@ class TestSuppressionRuleAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["error"] == "Invalid filters"
+        assert response.json()["attr"] == "filters"
+        assert response.json()["detail"] == "Invalid filters"
+
+    def test_create_rejects_invalid_filters_shape_without_leaking_exception(self) -> None:
+        response = self.client.post(
+            self._url(),
+            data={"filters": {"type": "NOT_A_VALID_OPERATOR", "values": [{"key": "x"}]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["type"] == "validation_error"
+        assert body["attr"] == "filters"
+        assert body["detail"] == "Invalid filters payload."
 
     def test_update_changes_bytecode(self) -> None:
         create_response = self.client.post(
@@ -557,7 +571,8 @@ class TestSuppressionRuleAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "sampling_rate" in response.json()["error"]
+        assert response.json()["attr"] == "sampling_rate"
+        assert "less than or equal to 1.0" in response.json()["detail"]
 
     def test_update_sampling_rate(self) -> None:
         create_response = self.client.post(
@@ -596,3 +611,71 @@ class TestSuppressionRuleAPI(APIBaseTest):
 
         rule = ErrorTrackingSuppressionRule.objects.get(id=rule_id)
         assert rule.sampling_rate == 0.25
+
+    def test_update_rejects_invalid_filters_payload(self) -> None:
+        create_response = self.client.post(
+            self._url(),
+            data={"filters": VALID_FILTERS},
+            format="json",
+        )
+        rule_id = create_response.json()["id"]
+
+        response = self.client.patch(
+            self._url(rule_id),
+            data={"filters": {"type": "NOT_VALID", "values": [{"key": "x"}]}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["type"] == "validation_error"
+        assert body["attr"] == "filters"
+        assert body["detail"] == "Invalid filters payload."
+
+    def test_update_rejects_invalid_sampling_rate(self) -> None:
+        create_response = self.client.post(
+            self._url(),
+            data={"filters": VALID_FILTERS},
+            format="json",
+        )
+        rule_id = create_response.json()["id"]
+
+        response = self.client.patch(
+            self._url(rule_id),
+            data={"sampling_rate": 1.5},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["type"] == "validation_error"
+        assert body["attr"] == "sampling_rate"
+
+    def test_update_accepts_frontend_payload_shape_with_extra_fields(self) -> None:
+        create_response = self.client.post(
+            self._url(),
+            data={"filters": VALID_FILTERS, "sampling_rate": 1.0},
+            format="json",
+        )
+        rule_id = create_response.json()["id"]
+        rule = ErrorTrackingSuppressionRule.objects.get(id=rule_id)
+
+        response = self.client.patch(
+            self._url(rule_id),
+            data={
+                "sampling_rate": 0.25,
+                "order_key": 456,
+                "disabled_data": {"reason": "frontend-local-state"},
+                "created_at": rule.created_at.isoformat(),
+                "updated_at": rule.updated_at.isoformat(),
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        rule.refresh_from_db()
+        assert rule.sampling_rate == 0.25
+        assert rule.order_key == 0
+        assert rule.disabled_data is None
+        assert rule.filters == VALID_FILTERS

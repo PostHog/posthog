@@ -16,27 +16,41 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::{
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsRequest, DeletePersonsResponse,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
-    Person, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse, Person,
+    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
-use personhog_router::backend::{LeaderBackend, ReplicaBackend};
+use personhog_router::backend::{
+    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
+};
 use personhog_router::config::RetryConfig;
+use personhog_router::proxy::RawProxyService;
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::{Channel, Server};
 use tonic::{Request, Response, Status};
 
@@ -231,6 +245,48 @@ impl PersonHogReplica for TestReplicaService {
         }))
     }
 
+    async fn count_cohort_members(
+        &self,
+        _request: Request<CountCohortMembersRequest>,
+    ) -> Result<Response<CountCohortMembersResponse>, Status> {
+        Ok(Response::new(CountCohortMembersResponse { count: 0 }))
+    }
+
+    async fn delete_cohort_member(
+        &self,
+        _request: Request<DeleteCohortMemberRequest>,
+    ) -> Result<Response<DeleteCohortMemberResponse>, Status> {
+        Ok(Response::new(DeleteCohortMemberResponse { deleted: false }))
+    }
+
+    async fn delete_cohort_members_bulk(
+        &self,
+        _request: Request<DeleteCohortMembersBulkRequest>,
+    ) -> Result<Response<DeleteCohortMembersBulkResponse>, Status> {
+        Ok(Response::new(DeleteCohortMembersBulkResponse {
+            deleted_count: 0,
+        }))
+    }
+
+    async fn insert_cohort_members(
+        &self,
+        _request: Request<InsertCohortMembersRequest>,
+    ) -> Result<Response<InsertCohortMembersResponse>, Status> {
+        Ok(Response::new(InsertCohortMembersResponse {
+            inserted_count: 0,
+        }))
+    }
+
+    async fn list_cohort_member_ids(
+        &self,
+        _request: Request<ListCohortMemberIdsRequest>,
+    ) -> Result<Response<ListCohortMemberIdsResponse>, Status> {
+        Ok(Response::new(ListCohortMemberIdsResponse {
+            person_ids: vec![],
+            next_cursor: 0,
+        }))
+    }
+
     async fn get_group(
         &self,
         _request: Request<GetGroupRequest>,
@@ -253,6 +309,16 @@ impl PersonHogReplica for TestReplicaService {
         _request: Request<GetGroupsBatchRequest>,
     ) -> Result<Response<GetGroupsBatchResponse>, Status> {
         Ok(Response::new(GetGroupsBatchResponse { results: vec![] }))
+    }
+
+    async fn list_groups(
+        &self,
+        _request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        Ok(Response::new(ListGroupsResponse {
+            groups: vec![],
+            has_more: false,
+        }))
     }
 
     async fn get_group_type_mappings_by_team_id(
@@ -291,11 +357,82 @@ impl PersonHogReplica for TestReplicaService {
         }))
     }
 
+    async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        _request: Request<GetGroupTypeMappingByDashboardIdRequest>,
+    ) -> Result<Response<GetGroupTypeMappingByDashboardIdResponse>, Status> {
+        Ok(Response::new(GetGroupTypeMappingByDashboardIdResponse {
+            mapping: None,
+        }))
+    }
+
+    async fn create_group(
+        &self,
+        _request: Request<CreateGroupRequest>,
+    ) -> Result<Response<CreateGroupResponse>, Status> {
+        Ok(Response::new(CreateGroupResponse { group: None }))
+    }
+
+    async fn update_group(
+        &self,
+        _request: Request<UpdateGroupRequest>,
+    ) -> Result<Response<UpdateGroupResponse>, Status> {
+        Ok(Response::new(UpdateGroupResponse {
+            group: None,
+            updated: false,
+        }))
+    }
+
+    async fn delete_groups_batch_for_team(
+        &self,
+        _request: Request<DeleteGroupsBatchForTeamRequest>,
+    ) -> Result<Response<DeleteGroupsBatchForTeamResponse>, Status> {
+        Ok(Response::new(DeleteGroupsBatchForTeamResponse {
+            deleted_count: 0,
+        }))
+    }
+
+    async fn update_group_type_mapping(
+        &self,
+        _request: Request<UpdateGroupTypeMappingRequest>,
+    ) -> Result<Response<UpdateGroupTypeMappingResponse>, Status> {
+        Ok(Response::new(UpdateGroupTypeMappingResponse {
+            mapping: None,
+        }))
+    }
+
+    async fn delete_group_type_mapping(
+        &self,
+        _request: Request<DeleteGroupTypeMappingRequest>,
+    ) -> Result<Response<DeleteGroupTypeMappingResponse>, Status> {
+        Ok(Response::new(DeleteGroupTypeMappingResponse {
+            deleted: false,
+        }))
+    }
+
+    async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        _request: Request<DeleteGroupTypeMappingsBatchForTeamRequest>,
+    ) -> Result<Response<DeleteGroupTypeMappingsBatchForTeamResponse>, Status> {
+        Ok(Response::new(DeleteGroupTypeMappingsBatchForTeamResponse {
+            deleted_count: 0,
+        }))
+    }
+
     async fn delete_persons(
         &self,
         _request: Request<DeletePersonsRequest>,
     ) -> Result<Response<DeletePersonsResponse>, Status> {
         Ok(Response::new(DeletePersonsResponse { deleted_count: 0 }))
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        _request: Request<DeletePersonsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
+        Ok(Response::new(DeletePersonsBatchForTeamResponse {
+            deleted_count: 0,
+        }))
     }
 }
 
@@ -306,7 +443,11 @@ pub async fn start_test_replica(service: TestReplicaService) -> SocketAddr {
 
     tokio::spawn(async move {
         Server::builder()
-            .add_service(PersonHogReplicaServer::new(service))
+            .add_service(
+                PersonHogReplicaServer::new(service)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
+            )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
@@ -329,16 +470,16 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
         initial_backoff_ms: 1,
         max_backoff_ms: 1,
     };
-    let backend = ReplicaBackend::new(
-        &replica_url,
-        Duration::from_secs(5),
+    let backend = ReplicaBackend::new(ReplicaBackendConfig {
+        url: replica_url,
+        timeout: Duration::from_secs(5),
         retry_config,
-        None,
-        None,
-        4 * 1024 * 1024,
-        4 * 1024 * 1024,
-    )
-    .unwrap();
+        keepalive_interval: None,
+        keepalive_timeout: None,
+        max_send_message_size: 4 * 1024 * 1024,
+        max_recv_message_size: 4 * 1024 * 1024,
+        num_channels: 1,
+    });
     let router = PersonHogRouter::new(Arc::new(backend));
     let service = PersonHogRouterService::new(Arc::new(router));
 
@@ -360,6 +501,15 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
 pub async fn create_client(router_addr: SocketAddr) -> PersonHogServiceClient<Channel> {
     let url = format!("http://{}", router_addr);
     PersonHogServiceClient::connect(url).await.unwrap()
+}
+
+/// Create a client that sends Zstd-compressed requests.
+pub async fn create_compressed_client(router_addr: SocketAddr) -> PersonHogServiceClient<Channel> {
+    let url = format!("http://{}", router_addr);
+    let channel = Channel::from_shared(url).unwrap().connect().await.unwrap();
+    PersonHogServiceClient::new(channel)
+        .send_compressed(CompressionEncoding::Zstd)
+        .accept_compressed(CompressionEncoding::Zstd)
 }
 
 pub fn create_test_person() -> Person {
@@ -471,8 +621,18 @@ pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
     let addr = listener.local_addr().unwrap();
 
     tokio::spawn(async move {
+        // The production `LeaderBackend` configures its gRPC client with
+        // `send_compressed(Zstd) + accept_compressed(Zstd)`, so the test
+        // leader must accept (and may send) Zstd-compressed payloads to
+        // mirror real wire behavior. Without this the LeaderBackend
+        // forwards a Zstd-compressed body and the server returns
+        // `Unimplemented: Content is compressed with zstd which isn't supported`.
         Server::builder()
-            .add_service(PersonHogLeaderServer::new(service))
+            .add_service(
+                PersonHogLeaderServer::new(service)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
+            )
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
@@ -501,16 +661,16 @@ pub async fn start_test_router_with_leader(
 
     // Replica backend
     let replica_url = format!("http://{}", replica_addr);
-    let replica = ReplicaBackend::new(
-        &replica_url,
-        Duration::from_secs(5),
+    let replica = ReplicaBackend::new(ReplicaBackendConfig {
+        url: replica_url,
+        timeout: Duration::from_secs(5),
         retry_config,
-        None,
-        None,
-        4 * 1024 * 1024,
-        4 * 1024 * 1024,
-    )
-    .unwrap();
+        keepalive_interval: None,
+        keepalive_timeout: None,
+        max_send_message_size: 4 * 1024 * 1024,
+        max_recv_message_size: 4 * 1024 * 1024,
+        num_channels: 1,
+    });
 
     // Leader backend: all partitions → "leader-0", resolver → leader_addr
     let mut routing = HashMap::new();
@@ -524,11 +684,14 @@ pub async fn start_test_router_with_leader(
     let leader = LeaderBackend::new(
         routing_table,
         address_resolver,
-        num_partitions,
-        Duration::from_secs(5),
-        retry_config,
-        4 * 1024 * 1024,
-        4 * 1024 * 1024,
+        LeaderBackendConfig {
+            num_partitions,
+            timeout: Duration::from_secs(5),
+            retry_config,
+            max_send_message_size: 4 * 1024 * 1024,
+            max_recv_message_size: 4 * 1024 * 1024,
+        },
+        StashTable::with_bounds(usize::MAX, usize::MAX),
     );
 
     let router = PersonHogRouter::new(Arc::new(replica)).with_leader(Arc::new(leader));
@@ -544,5 +707,134 @@ pub async fn start_test_router_with_leader(
 
     tokio::time::sleep(Duration::from_millis(10)).await;
 
+    addr
+}
+
+// ============================================================
+// Raw proxy test helpers
+// ============================================================
+
+fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+    Arc::new(ReplicaBackend::new(ReplicaBackendConfig {
+        url: format!("http://{}", replica_addr),
+        timeout: Duration::from_secs(5),
+        retry_config,
+        keepalive_interval: None,
+        keepalive_timeout: None,
+        max_send_message_size: 4 * 1024 * 1024,
+        max_recv_message_size: 4 * 1024 * 1024,
+        num_channels: 1,
+    }))
+}
+
+fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<LeaderBackend> {
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+    let mut routing = HashMap::new();
+    for p in 0..num_partitions {
+        routing.insert(p, "leader-0".to_string());
+    }
+    let routing_table = Arc::new(RwLock::new(routing));
+    let leader_url = format!("http://{}", leader_addr);
+    let address_resolver: Arc<dyn Fn(&str) -> Option<String> + Send + Sync> =
+        Arc::new(move |_pod_name| Some(leader_url.clone()));
+    Arc::new(LeaderBackend::new(
+        routing_table,
+        address_resolver,
+        LeaderBackendConfig {
+            num_partitions,
+            timeout: Duration::from_secs(5),
+            retry_config,
+            max_send_message_size: 4 * 1024 * 1024,
+            max_recv_message_size: 4 * 1024 * 1024,
+        },
+        StashTable::with_bounds(usize::MAX, usize::MAX),
+    ))
+}
+
+/// Start a raw proxy router (replica only, no leader).
+pub async fn start_test_router_raw(replica_addr: SocketAddr) -> SocketAddr {
+    start_test_router_raw_with_max_recv(replica_addr, 4 * 1024 * 1024).await
+}
+
+/// Start a raw proxy router with a custom max receive message size.
+pub async fn start_test_router_raw_with_max_recv(
+    replica_addr: SocketAddr,
+    max_recv_message_size: usize,
+) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let replica = make_replica_backend(replica_addr);
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+    let proxy = RawProxyService::new(replica, None, retry_config, max_recv_message_size);
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(proxy)
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    addr
+}
+
+/// Start a raw proxy router with both replica and leader backends.
+pub async fn start_test_router_raw_with_leader(
+    replica_addr: SocketAddr,
+    leader_addr: SocketAddr,
+    num_partitions: u32,
+) -> SocketAddr {
+    start_test_router_raw_with_leader_and_max_recv(
+        replica_addr,
+        leader_addr,
+        num_partitions,
+        4 * 1024 * 1024,
+    )
+    .await
+}
+
+/// Start a raw proxy router with both backends and a custom max receive message size.
+pub async fn start_test_router_raw_with_leader_and_max_recv(
+    replica_addr: SocketAddr,
+    leader_addr: SocketAddr,
+    num_partitions: u32,
+    max_recv_message_size: usize,
+) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let replica = make_replica_backend(replica_addr);
+    let leader = make_leader_backend(leader_addr, num_partitions);
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+    let proxy = RawProxyService::new(replica, Some(leader), retry_config, max_recv_message_size);
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(proxy)
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
     addr
 }
