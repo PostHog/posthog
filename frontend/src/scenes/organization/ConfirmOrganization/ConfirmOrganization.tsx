@@ -3,7 +3,6 @@ import { Form } from 'kea-forms'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
@@ -11,6 +10,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { JoinExistingOrgLink } from 'scenes/authentication/signup/signupForm/JoinExistingOrgLink'
+import { PendingInviteBanner } from 'scenes/authentication/signup/signupForm/panels/PendingInviteBanner'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -22,41 +23,34 @@ export const scene: SceneExport = {
 }
 
 export function ConfirmOrganization(): JSX.Element {
-    const { isConfirmOrganizationSubmitting, email, showNewOrgWarning } = useValues(confirmOrganizationLogic)
-    const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
+    const {
+        isConfirmOrganizationSubmitting,
+        email,
+        loginUrl,
+        pendingInvite,
+        isPendingInviteResending,
+        pendingInviteResent,
+    } = useValues(confirmOrganizationLogic)
+    const { resendPendingInvite, dismissPendingInvite } = useActions(confirmOrganizationLogic)
+
+    if (pendingInvite) {
+        return (
+            <BridgePage view="org-creation-confirmation" hedgehog>
+                <PendingInviteBanner
+                    invite={pendingInvite}
+                    email={email}
+                    onResend={resendPendingInvite}
+                    onDismiss={dismissPendingInvite}
+                    isResending={isPendingInviteResending}
+                    wasResent={pendingInviteResent}
+                />
+            </BridgePage>
+        )
+    }
 
     return (
         <BridgePage view="org-creation-confirmation" hedgehog>
             <h2>Create a new organization</h2>
-            <div className="flex-1">
-                <p className="text-center">
-                    <strong>
-                        Trying to join an existing organization? <br />
-                        {!showNewOrgWarning && (
-                            <Link
-                                onClick={() => {
-                                    setShowNewOrgWarning(true)
-                                }}
-                            >
-                                Read more
-                            </Link>
-                        )}
-                    </strong>
-                </p>
-                <AnimatedCollapsible collapsed={!showNewOrgWarning}>
-                    <div className="py-2">
-                        <p>
-                            If you're trying to join an existing organization, you should not create a new one. Some
-                            reasons that you may accidentally end up here are:
-                        </p>
-                        <ul className="list-disc pl-4">
-                            <li>You're logging in with the wrong email address</li>
-                            <li>Your PostHog account is at a different URL</li>
-                            <li>You need an invitation from a colleague</li>
-                        </ul>
-                    </div>
-                </AnimatedCollapsible>
-            </div>
 
             <Form
                 logic={confirmOrganizationLogic}
@@ -89,10 +83,20 @@ export function ConfirmOrganization(): JSX.Element {
                     center
                     type="primary"
                     loading={isConfirmOrganizationSubmitting}
+                    disabled={isConfirmOrganizationSubmitting}
                 >
                     Create organization
                 </LemonButton>
             </Form>
+
+            <div className="text-center mt-4">
+                Already have an account?{' '}
+                <Link to={loginUrl} data-attr="confirm-org-login-link" className="font-bold">
+                    Log in instead
+                </Link>
+            </div>
+
+            <JoinExistingOrgLink />
 
             <div className="text-center terms-and-conditions-text mt-4 text-secondary">
                 By creating an account, you agree to our{' '}

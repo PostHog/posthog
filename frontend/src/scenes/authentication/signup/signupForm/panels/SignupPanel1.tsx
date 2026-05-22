@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect, useRef } from 'react'
 
@@ -17,8 +17,17 @@ import { PendingInviteBanner } from './PendingInviteBanner'
 
 export function SignupPanel1(): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
-    const { isSignupPanel1Submitting, validatedPassword, loginUrl, emailCaseNotice, pendingInvite, signupPanel1 } =
-        useValues(signupLogic)
+    const {
+        isSignupPanel1Submitting,
+        validatedPassword,
+        loginUrl,
+        emailCaseNotice,
+        pendingInvite,
+        isPendingInviteResending,
+        pendingInviteResent,
+        signupPanel1,
+    } = useValues(signupLogic)
+    const { resendPendingInvite, dismissPendingInvite } = useActions(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -27,7 +36,16 @@ export function SignupPanel1(): JSX.Element | null {
     }, [preflight?.demo])
 
     if (pendingInvite) {
-        return <PendingInviteBanner invite={pendingInvite} email={signupPanel1.email} />
+        return (
+            <PendingInviteBanner
+                invite={pendingInvite}
+                email={signupPanel1.email}
+                onResend={resendPendingInvite}
+                onDismiss={dismissPendingInvite}
+                isResending={isPendingInviteResending}
+                wasResent={pendingInviteResent}
+            />
+        )
     }
 
     return (

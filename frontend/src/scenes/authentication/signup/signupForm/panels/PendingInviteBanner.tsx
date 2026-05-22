@@ -1,13 +1,24 @@
-import { useActions, useValues } from 'kea'
-
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { PendingInvite, signupLogic } from '../signupLogic'
+import { PendingInvite } from '../signupLogic'
 
-export function PendingInviteBanner({ invite, email }: { invite: PendingInvite; email: string }): JSX.Element {
-    const { isPendingInviteResending, pendingInviteResent } = useValues(signupLogic)
-    const { resendPendingInvite, dismissPendingInvite } = useActions(signupLogic)
+export interface PendingInviteBannerProps {
+    invite: PendingInvite
+    email: string
+    onResend: (email: string) => void
+    onDismiss: () => void
+    isResending: boolean
+    wasResent: boolean
+}
 
+export function PendingInviteBanner({
+    invite,
+    email,
+    onResend,
+    onDismiss,
+    isResending,
+    wasResent,
+}: PendingInviteBannerProps): JSX.Element {
     return (
         <div className="deprecated-space-y-4 Signup__panel__pending-invite">
             <h2 className="m-0">You've already been invited to PostHog</h2>
@@ -15,7 +26,7 @@ export function PendingInviteBanner({ invite, email }: { invite: PendingInvite; 
                 <b>{invite.organization_name}</b> sent you an invite to join them on PostHog. Look for it in your inbox,
                 or have us resend it.
             </p>
-            {pendingInviteResent ? (
+            {wasResent ? (
                 <LemonBanner type="success">
                     Sent. Check your inbox for the invite link from {invite.organization_name}.
                 </LemonBanner>
@@ -27,8 +38,9 @@ export function PendingInviteBanner({ invite, email }: { invite: PendingInvite; 
                         fullWidth
                         center
                         size="large"
-                        onClick={() => resendPendingInvite(email)}
-                        loading={isPendingInviteResending}
+                        onClick={() => onResend(email)}
+                        loading={isResending}
+                        disabled={isResending}
                         data-attr="pending-invite-resend"
                     >
                         Resend invite email
@@ -37,7 +49,7 @@ export function PendingInviteBanner({ invite, email }: { invite: PendingInvite; 
                         type="secondary"
                         fullWidth
                         center
-                        onClick={dismissPendingInvite}
+                        onClick={onDismiss}
                         data-attr="pending-invite-create-own-org"
                     >
                         I'd like to create my own organization

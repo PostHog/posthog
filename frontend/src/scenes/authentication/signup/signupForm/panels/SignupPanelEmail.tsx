@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect, useRef } from 'react'
 
@@ -23,8 +23,11 @@ export function SignupPanelEmail(): JSX.Element | null {
         passkeyError,
         error,
         pendingInvite,
+        isPendingInviteResending,
+        pendingInviteResent,
         signupPanelEmail,
     } = useValues(signupLogic)
+    const { resendPendingInvite, dismissPendingInvite } = useActions(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -32,7 +35,16 @@ export function SignupPanelEmail(): JSX.Element | null {
     }, [])
 
     if (pendingInvite) {
-        return <PendingInviteBanner invite={pendingInvite} email={signupPanelEmail.email} />
+        return (
+            <PendingInviteBanner
+                invite={pendingInvite}
+                email={signupPanelEmail.email}
+                onResend={resendPendingInvite}
+                onDismiss={dismissPendingInvite}
+                isResending={isPendingInviteResending}
+                wasResent={pendingInviteResent}
+            />
+        )
     }
 
     return (
