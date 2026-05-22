@@ -309,10 +309,18 @@ export class ErrorTrackingConsumer {
                     const settings = input.errorTrackingSettings!
                     const value = settings.projectRateLimitValue!
                     const minutes = settings.projectRateLimitBucketSizeMinutes ?? 60
-                    return {
+                    const config = {
                         bucketSize: value,
                         refillRate: value / (minutes * 60),
                     }
+
+                    console.log('[ET-RL] project bucket config', {
+                        teamId: input.team.id,
+                        value,
+                        minutes,
+                        ...config,
+                    })
+                    return config
                 },
             },
             // Per-stack cap: independent opt-in from the team-global limit.
@@ -334,10 +342,18 @@ export class ErrorTrackingConsumer {
                     const settings = input.errorTrackingSettings!
                     const value = settings.perIssueRateLimitValue!
                     const minutes = settings.perIssueRateLimitBucketSizeMinutes ?? 60
-                    return {
+                    const config = {
                         bucketSize: value,
                         refillRate: value / (minutes * 60),
                     }
+
+                    console.log('[ET-RL] per-issue bucket config', {
+                        teamId: input.team.id,
+                        value,
+                        minutes,
+                        ...config,
+                    })
+                    return config
                 },
             },
         ]

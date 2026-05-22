@@ -16,7 +16,7 @@ const mkLimiter = (decisions: Record<string, boolean>): KeyedRateLimiterService 
             return Promise.resolve(
                 requests.map(({ id }): [string, KeyedRateLimit] => [
                     id,
-                    { tokensBefore: 100, tokens: decisions[id] ? 0 : 99, isRateLimited: !!decisions[id] },
+                    { tokensBefore: 100, tokens: decisions[id] ? -1 : 99, isRateLimited: !!decisions[id] },
                 ])
             )
         }),
@@ -106,7 +106,7 @@ describe('createKeyedRateLimiterStep', () => {
         expect(limiter.rateLimitGrouped).not.toHaveBeenCalled()
     })
 
-    it('aggregates cost per unique key in a single Redis call', async () => {
+    it('forwards one request per input so the limiter can perform partial fan-out', async () => {
         const limiter = mkLimiter({})
         const step = createKeyedRateLimiterStep<Input>(baseOpts({ rateLimiter: limiter }))
 
@@ -118,8 +118,47 @@ describe('createKeyedRateLimiterStep', () => {
 
         expect(limiter.rateLimitGrouped).toHaveBeenCalledTimes(1)
         const calledWith = (limiter.rateLimitGrouped as jest.Mock).mock.calls[0][0] as KeyedRateLimitRequest[]
-        const byId = Object.fromEntries(calledWith.map((req) => [req.id, req.cost]))
-        expect(byId).toEqual({ k1: 7, k2: 5 })
+        expect(calledWith.map((req) => ({ id: req.id, cost: req.cost }))).toEqual([
+            { id: 'k1', cost: 3 },
+            { id: 'k1', cost: 4 },
+            { id: 'k2', cost: 5 },
+        ])
+    })
+
+    it('performs partial pass-through within a rate-limited key group', async () => {
+        // Mock a budget of 2 for key 'k' — first 2 inputs allowed, rest denied.
+        const limiter = {
+            rateLimitGrouped: jest.fn((requests: KeyedRateLimitRequest[]) => {
+                let budget = 2
+                return Promise.resolve(
+                    requests.map(({ id, cost }): [string, KeyedRateLimit] => {
+                        if (id !== 'k') {
+                            return [id, { tokensBefore: 100, tokens: 99, isRateLimited: false }]
+                        }
+                        if (budget >= cost) {
+                            budget -= cost
+                            return [id, { tokensBefore: 2, tokens: budget, isRateLimited: false }]
+                        }
+                        return [id, { tokensBefore: budget, tokens: -1, isRateLimited: true }]
+                    })
+                )
+            }),
+        } as unknown as KeyedRateLimiterService
+
+        const step = createKeyedRateLimiterStep<Input>(baseOpts({ rateLimiter: limiter, reportingMode: false }))
+
+        const results = await step([
+            { teamId: 1, key: 'k' },
+            { teamId: 1, key: 'k' },
+            { teamId: 1, key: 'k' },
+            { teamId: 1, key: 'k' },
+        ])
+
+        // First 2 inputs spend the budget (1 and 0 remaining); last 2 hit empty bucket.
+        expect(isOkResult(results[0])).toBe(true)
+        expect(isOkResult(results[1])).toBe(true)
+        expect(isDropResult(results[2])).toBe(true)
+        expect(isDropResult(results[3])).toBe(true)
     })
 
     it('forwards per-input bucket config overrides to the limiter (snapshotted from first input per key)', async () => {
@@ -134,15 +173,20 @@ describe('createKeyedRateLimiterStep', () => {
 
         await step([
             { teamId: 1, key: 'k1', bucketOverride: 5 },
-            { teamId: 1, key: 'k1', bucketOverride: 999 }, // ignored — first wins
+            { teamId: 1, key: 'k1', bucketOverride: 999 }, // ignored — first per key wins
             { teamId: 2, key: 'k2' }, // no override
         ])
 
         const requests = (limiter.rateLimitGrouped as jest.Mock).mock.calls[0][0] as KeyedRateLimitRequest[]
-        const byId = Object.fromEntries(requests.map((req) => [req.id, req]))
-        expect(byId.k1).toMatchObject({ id: 'k1', bucketSize: 5, refillRate: 1 })
-        expect(byId.k2.bucketSize).toBeUndefined()
-        expect(byId.k2.refillRate).toBeUndefined()
+        expect(requests).toHaveLength(3)
+        // first input per key carries the bucket config; later inputs forward without it.
+        expect(requests[0]).toMatchObject({ id: 'k1', bucketSize: 5, refillRate: 1 })
+        expect(requests[1].id).toBe('k1')
+        expect(requests[1].bucketSize).toBeUndefined()
+        expect(requests[1].refillRate).toBeUndefined()
+        expect(requests[2].id).toBe('k2')
+        expect(requests[2].bucketSize).toBeUndefined()
+        expect(requests[2].refillRate).toBeUndefined()
     })
 
     it('emits one app_metrics2 row per (team, key, outcome) with summed counts', async () => {

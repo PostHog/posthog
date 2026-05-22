@@ -493,7 +493,7 @@ describe('ErrorTrackingConsumer', () => {
             jest.spyOn(Date, 'now').mockReturnValue(Date.now() + seconds * 1000)
         }
 
-        it('per-team limit lets early batches through and rate-limits once the budget is exhausted', async () => {
+        it('per-team limit lets early batches through and partially passes through once the budget is exhausted', async () => {
             await upsertSettings({ projectRateLimit: 15 })
             await enableRateLimiter()
 
@@ -508,17 +508,18 @@ describe('ErrorTrackingConsumer', () => {
                     ])
                 )
 
-            // tokens 15 → 11
+            // tokens 15 → 11 (4 allowed)
             await sendBatch()
-            // tokens 11 → 7
+            // tokens 11 → 7 (4 allowed)
             await sendBatch()
-            // tokens 7 → 3
+            // tokens 7 → 3 (4 allowed)
             await sendBatch()
-            // cost 4 > tokens 3 → batch dropped
+            // budget 3, cost 4 → partial pass-through: 3 allowed (the 3rd spends the
+            // last token, bucket lands at 0 but the request is served), 1 dropped.
             await sendBatch()
             await drainProduces()
 
-            expect(producedCount()).toBe(12)
+            expect(producedCount()).toBe(15)
         })
 
         it('per-issue limit applies independently to each stack signature', async () => {
@@ -533,16 +534,18 @@ describe('ErrorTrackingConsumer', () => {
             await send('A')
             // 2 → 1
             await send('A')
-            // 1 → 0 → rate-limited
+            // 1 → 0 — last token spent, request served
+            await send('A')
+            // bucket empty — next A is dropped
             await send('A')
 
-            expect(producedCount()).toBe(3)
+            expect(producedCount()).toBe(4)
 
             // issue B has its own fresh bucket: 4 → 3
             await send('B')
             await drainProduces()
 
-            expect(producedCount()).toBe(4) // 3 from A + 1 from B
+            expect(producedCount()).toBe(5) // 4 from A + 1 from B
         })
 
         it('signature groups by stack and ignores message interpolation', async () => {
@@ -558,20 +561,21 @@ describe('ErrorTrackingConsumer', () => {
             await send('foo')
             // 2 → 1
             await send('foo')
-            // 1 → 0 → rate-limited
+            // 1 → 0 — last token spent, request served
             await send('foo')
 
             // bar has its own bucket: 4 → 3
             await send('bar')
 
-            expect(producedCount()).toBe(4)
+            expect(producedCount()).toBe(5)
 
             // foo with different `value` → same key as foo's burst (value is
-            // dropped from the hash when a stack exists) → still rate-limited.
+            // dropped from the hash when a stack exists) → bucket already empty,
+            // request denied.
             await send('foo', 'different')
             await drainProduces()
 
-            expect(producedCount()).toBe(4)
+            expect(producedCount()).toBe(5)
         })
 
         it('refills tokens over time once the bucket window has elapsed', async () => {
@@ -586,10 +590,10 @@ describe('ErrorTrackingConsumer', () => {
             await send('foo')
             // 2 → 1
             await send('foo')
-            // 1 → 0 → rate-limited
+            // 1 → 0 — last token spent, request served
             await send('foo')
             await drainProduces()
-            expect(producedCount()).toBe(3)
+            expect(producedCount()).toBe(4)
 
             // Advance one full bucket window (60 min); refillRate = 4 / 3600s → bucket back to full.
             advanceTime(60 * 60)
@@ -597,7 +601,7 @@ describe('ErrorTrackingConsumer', () => {
             // tokens 4 → 3
             await send('foo')
             await drainProduces()
-            expect(producedCount()).toBe(4)
+            expect(producedCount()).toBe(5)
         })
     })
 })

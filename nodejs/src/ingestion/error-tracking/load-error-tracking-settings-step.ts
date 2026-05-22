@@ -16,6 +16,12 @@ export function createLoadErrorTrackingSettingsStep<T extends LoadErrorTrackingS
 ): ProcessingStep<T, WithErrorTrackingSettings<T>> {
     return async function loadErrorTrackingSettingsStep(input) {
         const errorTrackingSettings = manager ? await manager.getSettings(input.team.id) : null
+
+        console.log('[ET-RL] settings loaded', {
+            teamId: input.team.id,
+            hasManager: !!manager,
+            settings: errorTrackingSettings,
+        })
         return ok({ ...input, errorTrackingSettings })
     }
 }

@@ -4,7 +4,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 
 import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
-import { drop, ok } from '../pipelines/results'
+import { drop, isDropResult, ok } from '../pipelines/results'
 
 const outcomeCounter = new Counter({
     name: 'keyed_rate_limiter_outcomes_total',
@@ -49,10 +49,16 @@ export interface KeyedRateLimiterStepOptions<T> {
  * - rateLimiter undefined → no-op, all `ok()`.
  * - getKey returns null  → that input bypasses rate limiting (still `ok()`).
  * - reportingMode true   → decisions tracked but never enforced.
- * - reportingMode false  → inputs in rate-limited groups become `drop(dropReason)`.
+ * - reportingMode false  → inputs whose per-input decision is `rate_limited`
+ *   become `drop(dropReason)`. Within a key group, as many inputs as the
+ *   available tokens permit are allowed; the rest are dropped (partial
+ *   pass-through, not all-or-nothing).
  *
- * Cost is summed per unique key within a batch so we make one Redis call per key
- * regardless of how many inputs share it.
+ * Internally we forward one request per input; `rateLimitGrouped` coalesces by
+ * id (one Redis call per unique key) and fans out per-input decisions
+ * client-side from each key's pre-deduction budget. Bucket config (if provided)
+ * is snapshotted from the first input per key — all inputs in a key group are
+ * expected to agree (e.g. team-keyed limits all share a team).
  */
 export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<T>): BatchProcessingStep<T, T> {
     const costFn = opts.getCost ?? (() => 1)
@@ -61,40 +67,68 @@ export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<
 
     return async function keyedRateLimiterStep(inputs) {
         if (!opts.rateLimiter || inputs.length === 0) {
+            console.log('[ET-RL] step entry: no-op', {
+                appSource: opts.appSource,
+                hasRateLimiter: !!opts.rateLimiter,
+                inputCount: inputs.length,
+            })
             return inputs.map((input) => ok(input))
         }
 
-        // Per-input key (null means "skip this input"). Cost summed per unique key
-        // so we issue exactly one Redis call per key — same pattern as logs-rate-limiter.
-        // Bucket config (if provided) snapshots the first input per key — all inputs in
-        // a key group are expected to agree (e.g. team-keyed limits all share a team).
+        console.log('[ET-RL] step entry', {
+            appSource: opts.appSource,
+            inputCount: inputs.length,
+            reportingMode: opts.reportingMode,
+        })
+
         const keyForInput: (string | null)[] = new Array(inputs.length)
-        const requestByKey = new Map<string, KeyedRateLimitRequest>()
+        const requestIndexForInput: (number | null)[] = new Array(inputs.length)
+        const requests: KeyedRateLimitRequest[] = []
+        const seenKey = new Set<string>()
 
         for (let i = 0; i < inputs.length; i++) {
             const key = opts.getKey(inputs[i])
             keyForInput[i] = key
             if (key === null) {
+                requestIndexForInput[i] = null
                 continue
             }
-            const inputCost = costFn(inputs[i])
-            const existing = requestByKey.get(key)
-            if (existing) {
-                existing.cost += inputCost
-            } else {
-                const overrides = opts.getBucketConfig?.(inputs[i]) ?? {}
-                requestByKey.set(key, { id: key, cost: inputCost, ...overrides })
-            }
+            const isFirstForKey = !seenKey.has(key)
+            seenKey.add(key)
+            const overrides = isFirstForKey ? (opts.getBucketConfig?.(inputs[i]) ?? {}) : {}
+            requests.push({ id: key, cost: costFn(inputs[i]), ...overrides })
+            requestIndexForInput[i] = requests.length - 1
         }
 
-        const limitedKeys = new Set<string>()
-        if (requestByKey.size > 0) {
-            const rateLimitResults = await opts.rateLimiter.rateLimitGrouped(Array.from(requestByKey.values()))
-            for (const [key, result] of rateLimitResults) {
-                if (result.isRateLimited) {
-                    limitedKeys.add(key)
-                }
-            }
+        console.log('[ET-RL] requests built', {
+            appSource: opts.appSource,
+            requestCount: requests.length,
+            skippedNullKey: inputs.length - requests.length,
+            uniqueKeys: seenKey.size,
+            requests: requests.map((r) => ({
+                id: r.id,
+                cost: r.cost,
+                bucketSize: r.bucketSize,
+                refillRate: r.refillRate,
+                ttlSeconds: r.ttlSeconds,
+            })),
+        })
+
+        let limitedByRequestIndex: boolean[] = []
+        if (requests.length > 0) {
+            const rateLimitResults = await opts.rateLimiter.rateLimitGrouped(requests)
+            limitedByRequestIndex = rateLimitResults.map(([, result]) => result.isRateLimited)
+
+            console.log('[ET-RL] rate-limit results', {
+                appSource: opts.appSource,
+                results: rateLimitResults.map(([id, result], idx) => ({
+                    idx,
+                    id,
+                    tokensBefore: result.tokensBefore,
+                    tokens: result.tokens,
+                    isRateLimited: result.isRateLimited,
+                })),
+            })
         }
 
         // Aggregate outcomes per (team, key, outcome) so we emit one app_metrics2
@@ -105,10 +139,11 @@ export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<
         >()
         for (let i = 0; i < inputs.length; i++) {
             const key = keyForInput[i]
-            if (key === null) {
+            const requestIndex = requestIndexForInput[i]
+            if (key === null || requestIndex === null) {
                 continue
             }
-            const outcome: RateLimitOutcome = limitedKeys.has(key) ? 'rate_limited' : 'allowed'
+            const outcome: RateLimitOutcome = limitedByRequestIndex[requestIndex] ? 'rate_limited' : 'allowed'
             outcomeCounter.inc({ app_source: opts.appSource, outcome, reporting_mode: reportingModeLabel })
 
             if (opts.appMetricsAggregator) {
@@ -136,12 +171,25 @@ export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<
             }
         }
 
-        return inputs.map((input, i) => {
-            const key = keyForInput[i]
-            if (key === null || !limitedKeys.has(key) || opts.reportingMode) {
+        const finalResults = inputs.map((input, i) => {
+            const requestIndex = requestIndexForInput[i]
+            if (requestIndex === null || !limitedByRequestIndex[requestIndex] || opts.reportingMode) {
                 return ok(input)
             }
             return drop<T>(dropReason)
         })
+
+        const droppedCount = finalResults.filter(isDropResult).length
+        const allowedCount = finalResults.length - droppedCount
+
+        console.log('[ET-RL] step exit', {
+            appSource: opts.appSource,
+            reportingMode: opts.reportingMode,
+            allowed: allowedCount,
+            dropped: droppedCount,
+            dropReason,
+        })
+
+        return finalResults
     }
 }

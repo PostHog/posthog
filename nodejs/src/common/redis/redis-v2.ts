@@ -7,16 +7,18 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { defineLuaTokenBucketV2 } from './redis-token-bucket-v2.lua'
 import { defineLuaTokenBucketV3 } from './redis-token-bucket-v3.lua'
+import { defineLuaTokenBucketV4 } from './redis-token-bucket-v4.lua'
 
-type WithCheckRateLimit<TV2, TV3> = {
+type WithCheckRateLimit<TV2, TV3, TV4> = {
     checkRateLimitV2: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV2
     checkRateLimitV3: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV3
+    checkRateLimitV4: (key: string, now: number, cost: number, poolMax: number, fillRate: number, expiry: number) => TV4
 }
 
-export type RedisClientPipeline = Pipeline & WithCheckRateLimit<[number, number], [number, number]>
+export type RedisClientPipeline = Pipeline & WithCheckRateLimit<[number, number], [number, number], [number, number]>
 
 export type RedisClient = Omit<Redis, 'pipeline'> &
-    WithCheckRateLimit<Promise<[number, number]>, Promise<[number, number]>> & {
+    WithCheckRateLimit<Promise<[number, number]>, Promise<[number, number]>, Promise<[number, number]>> & {
         pipeline: () => RedisClientPipeline
     }
 
@@ -42,6 +44,7 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
 
                 defineLuaTokenBucketV2(client)
                 defineLuaTokenBucketV3(client)
+                defineLuaTokenBucketV4(client)
 
                 return client as RedisClient
             },

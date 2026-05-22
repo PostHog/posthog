@@ -80,9 +80,11 @@ describe('KeyedRateLimiterService', () => {
             let res = await limiter.rateLimitMany([{ id: 'team-1', cost: 99 }])
             expect(res[0][1]).toEqual({ tokensBefore: 100, tokens: 1, isRateLimited: false })
 
+            // Last token is spent — the request is served and bucket lands at 0.
             res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
-            expect(res[0][1]).toEqual({ tokensBefore: 1, tokens: 0, isRateLimited: true })
+            expect(res[0][1]).toEqual({ tokensBefore: 1, tokens: 0, isRateLimited: false })
 
+            // Now the bucket is empty — next call is denied.
             res = await limiter.rateLimitMany([{ id: 'team-1', cost: 20 }])
             expect(res[0][1].isRateLimited).toBe(true)
         })
@@ -218,7 +220,7 @@ describe('KeyedRateLimiterService', () => {
 
             // After call 3 (cost=2) is denied with pool=1, the V2 wedge fix means the
             // bucket retains its 1 token — leftover budget isn't discarded on denial. So
-            // call 4 (cost=1) can spend it and lands at tokens=0.
+            // call 4 (cost=1) can spend it and lands at tokens=0 (served).
             const res = await limiter.rateLimitMany([
                 { id: 'team-1', cost: 90 },
                 { id: 'team-1', cost: 9 },
@@ -230,7 +232,7 @@ describe('KeyedRateLimiterService', () => {
                 ['team-1', { tokensBefore: 100, tokens: 10, isRateLimited: false }],
                 ['team-1', { tokensBefore: 10, tokens: 1, isRateLimited: false }],
                 ['team-1', { tokensBefore: 1, tokens: -1, isRateLimited: true }],
-                ['team-1', { tokensBefore: 1, tokens: 0, isRateLimited: true }],
+                ['team-1', { tokensBefore: 1, tokens: 0, isRateLimited: false }],
             ])
         })
 
@@ -296,10 +298,9 @@ describe('KeyedRateLimiterService', () => {
         })
 
         it('allows the first N inputs of an over-budget batch and denies the rest', async () => {
-            // The user case: 10 cost-1 requests against a bucket of 4. Per the
-            // V2/V3 contract, `isRateLimited = tokens <= 0`, so the 4th request
-            // (which brings tokens to exactly 0) is flagged as rate-limited
-            // even though its cost was paid. The remaining 6 hit tokens=-1.
+            // 10 cost-1 requests against a bucket of 4. The 4th request spends
+            // the last token (bucket lands at 0) and is still served; the
+            // remaining 6 fail to deduct and come back as tokens=-1.
             const limiter = buildLimiter('grouped-fanout', { bucketSize: 4, refillRate: 0 })
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
@@ -311,7 +312,7 @@ describe('KeyedRateLimiterService', () => {
                 false,
                 false,
                 false,
-                true, // tokens=0 — boundary, flagged as rate-limited
+                false, // tokens=0 — last token spent, request served
                 true,
                 true,
                 true,
@@ -347,10 +348,11 @@ describe('KeyedRateLimiterService', () => {
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
             // Two ids interleaved with 3 cost-1 requests each. Each id's budget
-            // of 2 fits its 1st request cleanly (tokens=1), depletes on the 2nd
-            // (tokens=0 → rate-limited boundary), and denies the 3rd (tokens=-1).
-            // If the budgets were shared, t2's first call would already be
-            // rate-limited because t1 would have drained the shared bucket.
+            // of 2 fits its 1st request cleanly (tokens=1), spends the last
+            // token on the 2nd (tokens=0 — still served), and denies the 3rd
+            // (tokens=-1, bucket empty). If the budgets were shared, t2's first
+            // call would already be rate-limited because t1 would have drained
+            // the shared bucket.
             const res = await limiter.rateLimitGrouped([
                 { id: 'team-1', cost: 1 },
                 { id: 'team-2', cost: 1 },
@@ -361,7 +363,7 @@ describe('KeyedRateLimiterService', () => {
             ])
 
             expect(res.map(([, r]) => r.tokens)).toEqual([1, 1, 0, 0, -1, -1])
-            expect(res.map(([, r]) => r.isRateLimited)).toEqual([false, false, true, true, true, true])
+            expect(res.map(([, r]) => r.isRateLimited)).toEqual([false, false, false, false, true, true])
         })
 
         it('issues exactly one Redis dispatch per unique id (call-count win)', async () => {
@@ -495,6 +497,38 @@ describe('KeyedRateLimiterService', () => {
             const stored = await readBucket(key)
             expect(stored.ts).toBe(String(Math.round(now / 1000)))
             expect(stored.pool).toBe('95')
+        })
+
+        // Regression for the V3-era wedge bug. V3 stored pool=-1 on denial,
+        // throwing away any accrued refill credit and wedging the bucket at -1
+        // forever under sustained sub-2 fractional fillRate traffic. V4 (the
+        // default for `rateLimitGrouped`) persists the un-deducted balance on
+        // denial so refill credit accumulates across calls — the bucket
+        // recovers as soon as the running budget catches up to the cost.
+        it('recovers from overdraft under sustained sub-2 fillRate', async () => {
+            const limiter = buildLimiter('grouped-sustained-recovery', { bucketSize: 10, refillRate: 1.5 })
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+            // Drain into denial: 100 cost-1 calls against a 10-token bucket, same now.
+            let lastDuringDrain = 0
+            for (let i = 0; i < 100; i++) {
+                const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
+                lastDuringDrain = res[0][1].tokens
+            }
+            expect(lastDuringDrain).toBe(-1)
+
+            // 1 req/s with refillRate=1.5 → first tick has 1.5 tokens, enough to serve.
+            let firstRecoveryIndex = -1
+            for (let i = 0; i < 10; i++) {
+                advanceTime(1000)
+                const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
+                if (!res[0][1].isRateLimited) {
+                    firstRecoveryIndex = i
+                    break
+                }
+            }
+            expect(firstRecoveryIndex).toBeGreaterThanOrEqual(0)
+            expect(firstRecoveryIndex).toBeLessThan(5)
         })
     })
 })

@@ -119,7 +119,10 @@ export class KeyedRateLimiterService {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
             const tokensBefore = Number(tokenRes[1]?.[0] ?? bucketSizes[index])
             const tokensAfter = Number(tokenRes[1]?.[1] ?? bucketSizes[index])
-            const isRateLimited = tokensAfter <= 0
+            // Lua returns -1 when the cost couldn't be served. tokensAfter=0
+            // means the deduction succeeded and emptied the bucket — that's a
+            // served request, not a denied one.
+            const isRateLimited = tokensAfter < 0
             if (isRateLimited) {
                 limited++
             } else {
@@ -173,7 +176,7 @@ export class KeyedRateLimiterService {
             { name: `keyed-rate-limiter-grouped:${this.config.name}`, failOpen: true },
             (pipeline) => {
                 items.forEach((req) => {
-                    pipeline.checkRateLimitV3(...this.rateLimitArgs(req))
+                    pipeline.checkRateLimitV4(...this.rateLimitArgs(req))
                 })
             }
         )
@@ -210,15 +213,14 @@ export class KeyedRateLimiterService {
         const out: [string, KeyedRateLimit][] = requests.map((req) => {
             const tokensBefore = budgetById.get(req.id) ?? 0
             if (tokensBefore >= req.cost) {
+                // Deduction succeeded — request is served. Landing at exactly 0
+                // means we just spent the last token; the bucket is empty but
+                // this request still got through. Only the *next* call (which
+                // will see budget=0 < cost) is denied.
                 const next = tokensBefore - req.cost
                 budgetById.set(req.id, next)
-                const isRateLimited = next <= 0
-                if (isRateLimited) {
-                    limited++
-                } else {
-                    allowed++
-                }
-                return [req.id, { tokensBefore, tokens: next, isRateLimited }]
+                allowed++
+                return [req.id, { tokensBefore, tokens: next, isRateLimited: false }]
             }
             limited++
             return [req.id, { tokensBefore, tokens: -1, isRateLimited: true }]
