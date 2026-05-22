@@ -95,7 +95,8 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
     console.error('[handleCatchError]', error)
     const authResponse = mapErrorToAuthResponse(error)
     if (authResponse) {
-        authFailuresTotal.inc({ reason: 'inactive_oauth' })
+        const reason = authResponse.status === 403 ? 'insufficient_scope' : 'invalid_token'
+        authFailuresTotal.inc({ reason })
         return authResponse
     }
     try {

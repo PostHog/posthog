@@ -59,7 +59,7 @@ export const toolErrorsTotal = new Counter({
 
 export const redisOperationsTotal = new Counter({
     name: 'mcp_redis_operations_total',
-    help: 'Redis cache operations by outcome.',
+    help: 'Redis cache and connection operations by outcome.',
     labelNames: ['operation', 'status'] as const,
 })
 

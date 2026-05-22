@@ -32,11 +32,13 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
         const scopedKey = this.getScopedKey(key as string)
         try {
             const raw = await this.redis.get(scopedKey)
-            redisOperationsTotal.inc({ operation: 'get', status: 'success' })
             if (raw === null) {
+                redisOperationsTotal.inc({ operation: 'get', status: 'success' })
                 return undefined
             }
-            return JSON.parse(raw) as T[K]
+            const result = JSON.parse(raw) as T[K]
+            redisOperationsTotal.inc({ operation: 'get', status: 'success' })
+            return result
         } catch (error) {
             redisOperationsTotal.inc({ operation: 'get', status: 'error' })
             throw error
