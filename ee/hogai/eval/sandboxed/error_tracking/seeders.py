@@ -8,6 +8,8 @@ Owns the entire error-tracking surface for a per-case team:
     around to confuse the agent.
   * Creates deterministic ``ErrorTrackingIssue`` PSQL rows with
     fresh UUIDs and matching ``ErrorTrackingIssueFingerprintV2`` rows.
+  * Creates matching ClickHouse person rows for the synthetic distinct IDs so
+    person joins and test-account filters can't drop seeded events.
   * Writes the matching ``$exception`` events directly to ClickHouse so
     concurrent setup hooks don't depend on the process-global ``settings.TEST``
     value used by ``ClickhouseProducer``. That makes the seed self-contained —
@@ -30,6 +32,7 @@ from zoneinfo import ZoneInfo
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.event.sql import INSERT_EVENT_SQL
+from posthog.models.person.sql import INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_SQL
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import INSERT_SINGLE_SESSION_REPLAY
 
@@ -42,10 +45,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["EVAL_ISSUE_NAMES", "seed_error_tracking_issues"]
 
 
-# Distinct-id pool used for the seeded ``$exception`` events. Synthetic so
-# the seeder doesn't need to touch ``PersonDistinctId`` (which would force a
-# personhog round-trip) — the query runner counts users by ``person_id``,
-# which we derive deterministically below.
+# Distinct-id pool used for the seeded ``$exception`` events.
 _EVAL_DISTINCT_IDS: tuple[str, ...] = (
     "eval-user-1",
     "eval-user-2",
@@ -60,6 +60,40 @@ _ZERO_CLICKHOUSE_TIMESTAMP = "1970-01-01 00:00:00.000000"
 
 def _person_id_for(distinct_id: str) -> str:
     return str(uuid.uuid5(_EVAL_PERSON_NAMESPACE, distinct_id))
+
+
+def _seed_eval_persons(team: Team, timestamp: datetime) -> None:
+    timestamp_utc = timestamp.astimezone(UTC)
+    created_at = timestamp_utc.strftime("%Y-%m-%d %H:%M:%S.%f")
+    timestamp_value = timestamp_utc.strftime("%Y-%m-%d %H:%M:%S")
+    last_seen_at = timestamp_utc.replace(minute=0, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+    for distinct_id in _EVAL_DISTINCT_IDS:
+        person_id = _person_id_for(distinct_id)
+        sync_execute(
+            INSERT_PERSON_SQL,
+            {
+                "id": person_id,
+                "created_at": created_at,
+                "team_id": team.id,
+                "properties": json.dumps({"email": f"{distinct_id}@hedgebox.example"}),
+                "is_identified": 1,
+                "_timestamp": timestamp_value,
+                "is_deleted": 0,
+                "version": 1,
+                "last_seen_at": last_seen_at,
+            },
+        )
+        sync_execute(
+            INSERT_PERSON_DISTINCT_ID2,
+            {
+                "distinct_id": distinct_id,
+                "person_id": person_id,
+                "team_id": team.id,
+                "is_deleted": 0,
+                "version": 1,
+            },
+        )
 
 
 # Issue specs. Names are the strings scorers match against via
@@ -261,6 +295,7 @@ def seed_error_tracking_issues(context: CustomPromptSandboxContext) -> dict[str,
     ErrorTrackingIssue.objects.filter(team=team).delete()
 
     now = datetime.now(tz=UTC)
+    _seed_eval_persons(team, now)
     lookup: list[dict[str, str]] = []
 
     for spec in _ISSUE_SPECS:
