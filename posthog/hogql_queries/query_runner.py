@@ -1385,7 +1385,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.productKey:
                     product_key = tags.productKey
                     posthoganalytics.tag("product_key", product_key)
-                    tag_queries(product=tags.productKey)
+                    # Client-supplied product tag: recorded separately for observability/attribution.
+                    # It must not feed the server-determined `product` used for infrastructure routing.
+                    tag_queries(client_product=tags.productKey)
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)

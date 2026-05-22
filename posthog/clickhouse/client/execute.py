@@ -364,6 +364,9 @@ def sync_execute(
 
     add_fallback_query_tags(tags)
 
+    # ClickHouse user selection keys off the server-determined `tags.product` only. Client-supplied
+    # product tags live in `tags.client_product` (observability only) and never reach here. Keep the
+    # set of products handled below in sync with _PRODUCTS_WITH_DEDICATED_CH_USER in query_tagging.py.
     if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:

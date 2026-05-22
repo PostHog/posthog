@@ -322,7 +322,13 @@ class QueryTags(BaseModel):
     api_key_mask: Optional[str] = None
     api_key_label: Optional[str] = None
     org_id: Optional[uuid.UUID] = None
+    # Server-determined product. Set only by trusted server-side code (explicit tagging, kind
+    # fallback from the parsed query, etc.) and is the only product used for infrastructure
+    # decisions such as ClickHouse user selection.
     product: Optional[Product | ProductKey] = None
+    # Product claimed by client-supplied query tags (QueryLogTags.productKey). Forgeable, so it is
+    # recorded for observability/attribution only and must never drive infrastructure decisions.
+    client_product: Optional[ProductKey | str] = None
 
     # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
@@ -547,9 +553,20 @@ def reset_query_tags():
     query_tags.set(create_base_tags())
 
 
-def _apply_fallback_tags(tags: QueryTags, mapped: FallbackTags) -> None:
+# Products that map to a dedicated ClickHouse user in client/execute.py. Selection of those users
+# must rely on server-trusted signals only, so a forgeable fallback source (e.g. client-supplied
+# `scene`) is not allowed to attribute a query to one of them. Keep in sync with the routing in
+# posthog/clickhouse/client/execute.py.
+_PRODUCTS_WITH_DEDICATED_CH_USER: frozenset[Product] = frozenset({Product.MAX_AI, Product.ENDPOINTS, Product.BILLING})
+
+
+def _apply_fallback_tags(tags: QueryTags, mapped: FallbackTags, *, trusted: bool = True) -> None:
     if tags.product is None and "product" in mapped:
-        tags.product = mapped["product"]
+        product = mapped["product"]
+        # A forgeable source must not attribute to a product with a dedicated ClickHouse user;
+        # those are reached only via trusted signals (explicit server tagging or the query kind).
+        if trusted or product not in _PRODUCTS_WITH_DEDICATED_CH_USER:
+            tags.product = product
     if tags.feature is None and "feature" in mapped:
         tags.feature = mapped["feature"]
 
@@ -581,7 +598,8 @@ _TABLE_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
 def add_fallback_query_tags(tags: QueryTags) -> None:
     """Order: scene → kind → hogql features (HogQLQuery only) → mcp source. Never overrides set values."""
     if tags.scene and (scene_mapped := SCENE_TO_TAGS.get(tags.scene)) is not None:
-        _apply_fallback_tags(tags, scene_mapped)
+        # `scene` is client-supplied and therefore forgeable.
+        _apply_fallback_tags(tags, scene_mapped, trusted=False)
 
     if tags.product is None and tags.query_type:
         try:

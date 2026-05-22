@@ -137,6 +137,33 @@ def test_tags_context():
     assert get_query_tags() == create_base_tags(team_id=123)
 
 
+def test_client_product_does_not_set_server_product():
+    reset_query_tags()
+    # A client-supplied product tag is recorded separately and never populates the server-determined
+    # product used for infrastructure routing.
+    tag_queries(client_product="billing")
+    tags = get_query_tags()
+    assert tags.client_product == "billing"
+    assert tags.product is None
+
+
+def test_scene_cannot_attribute_product_with_dedicated_ch_user():
+    # EndpointScene maps to ENDPOINTS, which has a dedicated ClickHouse user. Because `scene` is
+    # client-supplied (forgeable), the scene fallback must not attribute the query to that product;
+    # the scene's feature attribution still applies.
+    tags = QueryTags(scene="EndpointScene")
+    add_fallback_query_tags(tags)
+    assert tags.product is None
+    assert tags.feature == Feature.QUERY
+
+
+def test_scene_still_attributes_non_dedicated_product():
+    tags = QueryTags(scene="Cohort")
+    add_fallback_query_tags(tags)
+    assert tags.product == Product.COHORTS
+    assert tags.feature == Feature.COHORT
+
+
 @pytest.mark.asyncio
 async def test_async_tasks_have_isolated_tags():
     reset_query_tags()
