@@ -1329,16 +1329,22 @@ class TaskPresence(TeamScopedRootMixin):
 
     # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="presences")
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="task_presences")
+    # `related_name="+"` on every FK so Django doesn't add reverse accessors
+    # (`user.task_presences`, etc.). Presence is always queried forward — by
+    # (task, user) or by push_token id — and skipping the reverse manager
+    # keeps frameworks that walk all reverse relations on related models
+    # (notably the User activity-logger) from tripping on this model's
+    # fail-closed manager when no team context is set.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
     # Identifies the device that's watching. Push fanout joins on this FK to
     # decide which tokens to suppress, and CASCADE means unregistering the push
     # token automatically clears the presence too.
     push_token = models.ForeignKey(
         "posthog.UserPushToken",
         on_delete=models.CASCADE,
-        related_name="task_presences",
+        related_name="+",
     )
     last_seen_at = models.DateTimeField(auto_now=True)
     expires_at = models.DateTimeField(db_index=True)

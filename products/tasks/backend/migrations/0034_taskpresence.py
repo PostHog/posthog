@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
                     "task",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="presences",
+                        related_name="+",
                         to="tasks.task",
                     ),
                 ),
@@ -33,6 +33,7 @@ class Migration(migrations.Migration):
                     "team",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
                         to="posthog.team",
                     ),
                 ),
@@ -40,7 +41,7 @@ class Migration(migrations.Migration):
                     "user",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="task_presences",
+                        related_name="+",
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
@@ -48,7 +49,7 @@ class Migration(migrations.Migration):
                     "push_token",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="task_presences",
+                        related_name="+",
                         to="posthog.userpushtoken",
                     ),
                 ),
