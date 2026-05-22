@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime
 from typing import Any
 
 import posthoganalytics
@@ -7,7 +6,7 @@ import temporalio.activity
 from prometheus_client import Counter
 from structlog import get_logger
 
-from posthog.api.annotation_context import format_annotations_for_prompt, get_annotations_for_ai_context
+from posthog.api.annotation_context import build_annotations_block, resolve_snapshot_date_range
 from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
 from posthog.models import Insight
 from posthog.models.exported_asset import ExportedAsset
@@ -73,30 +72,6 @@ def _extract_columns(query_results: Any) -> list[str] | None:
     return cleaned or None
 
 
-def _extract_date_window(content_snapshots: list[dict]) -> tuple[datetime, datetime] | None:
-    """Find the widest absolute date window covered by the insights in the given snapshots."""
-    parsed: list[tuple[datetime, datetime]] = []
-    for snap in content_snapshots:
-        for insight_snap in snap.get("insights", []):
-            qr = insight_snap.get("query_results") or {}
-            dr = qr.get("resolved_date_range")
-            if not isinstance(dr, dict):
-                continue
-            raw_from = dr.get("date_from")
-            raw_to = dr.get("date_to")
-            if not (isinstance(raw_from, str) and isinstance(raw_to, str)):
-                continue
-            try:
-                df = datetime.fromisoformat(raw_from.replace("Z", "+00:00"))
-                dt = datetime.fromisoformat(raw_to.replace("Z", "+00:00"))
-            except ValueError:
-                continue
-            parsed.append((df, dt))
-    if not parsed:
-        return None
-    return min(p[0] for p in parsed), max(p[1] for p in parsed)
-
-
 def _load_annotations_section(
     subscription: Subscription,
     content_snapshots: list[dict],
@@ -106,18 +81,12 @@ def _load_annotations_section(
 
     Returns an empty string if there is no usable date window or no annotations match.
     """
-    window = _extract_date_window(content_snapshots)
-    if window is None:
-        return ""
-    date_from, date_to = window
-    annotations = get_annotations_for_ai_context(
+    return build_annotations_block(
         subscription.team,
-        date_from,
-        date_to,
+        resolve_snapshot_date_range(content_snapshots),
         dashboard_id=subscription.dashboard_id,
-        insight_ids=insight_ids or None,
+        insight_ids=insight_ids,
     )
-    return format_annotations_for_prompt(annotations)
 
 
 def _build_states_from_content_snapshot(
@@ -534,18 +503,29 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
         else:
             prompt_guide = ""
         core_memory_text = await database_sync_to_async(_load_core_memory_text, thread_sensitive=False)(subscription)
-        annotations_section = await database_sync_to_async(_load_annotations_section, thread_sensitive=False)(
-            subscription,
-            [
-                s
-                for s in (
-                    current_delivery.content_snapshot,
-                    previous_delivery.content_snapshot if previous_delivery else None,
-                )
-                if s
-            ],
-            insight_ids,
-        )
+        content_snapshots = [
+            s
+            for s in (
+                current_delivery.content_snapshot,
+                previous_delivery.content_snapshot if previous_delivery else None,
+            )
+            if s
+        ]
+        # Annotations are best-effort context — a DB hiccup here should not fail the whole
+        # summary, which would also drop the rest of the digest. Log and continue with an
+        # empty block.
+        try:
+            annotations_section = await database_sync_to_async(_load_annotations_section, thread_sensitive=False)(
+                subscription, content_snapshots, insight_ids
+            )
+        except Exception as annotations_error:
+            annotations_section = ""
+            await LOGGER.awarning(
+                "snapshot_subscription_insights.annotations_load_failed",
+                subscription_id=inputs.subscription_id,
+                error=str(annotations_error),
+                exc_info=True,
+            )
         summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
             previous_states,
             current_states,

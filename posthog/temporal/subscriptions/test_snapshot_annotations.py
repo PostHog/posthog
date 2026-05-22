@@ -8,10 +8,9 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from posthog.api.annotation_context import resolve_snapshot_date_range
 from posthog.models import Annotation, Insight
-from posthog.temporal.subscriptions.snapshot_activities import _extract_date_window, _load_annotations_section
-
-pytestmark = [pytest.mark.django_db]
+from posthog.temporal.subscriptions.snapshot_activities import _load_annotations_section
 
 
 def _snap_with_range(date_from: str | None, date_to: str | None) -> dict:
@@ -21,7 +20,7 @@ def _snap_with_range(date_from: str | None, date_to: str | None) -> dict:
     return {"insights": [{"id": 1, "query_results": qr}]}
 
 
-class TestExtractDateWindow:
+class TestResolveSnapshotDateRange:
     @parameterized.expand(
         [
             ("no_snapshots", [], False),
@@ -50,8 +49,8 @@ class TestExtractDateWindow:
             ),
         ]
     )
-    def test_extract_date_window(self, _name: str, snapshots: list[dict], expect_window: bool) -> None:
-        result = _extract_date_window(snapshots)
+    def test_resolve_snapshot_date_range(self, _name: str, snapshots: list[dict], expect_window: bool) -> None:
+        result = resolve_snapshot_date_range(snapshots)
         assert (result is not None) is expect_window
 
     def test_combines_ranges_across_snapshots(self) -> None:
@@ -59,13 +58,14 @@ class TestExtractDateWindow:
             _snap_with_range("2025-04-01T00:00:00Z", "2025-04-07T00:00:00Z"),
             _snap_with_range("2025-04-10T00:00:00Z", "2025-04-20T00:00:00Z"),
         ]
-        result = _extract_date_window(snapshots)
+        result = resolve_snapshot_date_range(snapshots)
         assert result is not None
         date_from, date_to = result
         assert date_from == datetime(2025, 4, 1, tzinfo=ZoneInfo("UTC"))
         assert date_to == datetime(2025, 4, 20, tzinfo=ZoneInfo("UTC"))
 
 
+@pytest.mark.django_db
 class TestLoadAnnotationsSection(APIBaseTest):
     def _subscription_like(self, dashboard_id: int | None = None) -> Any:
         return SimpleNamespace(team=self.team, dashboard_id=dashboard_id)
