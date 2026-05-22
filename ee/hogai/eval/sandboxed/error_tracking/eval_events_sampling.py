@@ -59,8 +59,8 @@ async def eval_events_sampling(sandboxed_demo_data, pytestconfig, posthog_client
     cases = [
         # One example, modest verbosity — the prompt only asks for "an example",
         # so cranking limit > 3 or asking for raw is wasteful. Issue described
-        # by symptom (team-invite TypeError) because searchQuery doesn't match
-        # the PSQL-only issue name.
+        # by searchable event fields (team-invite TypeError) rather than the
+        # PSQL-only issue name.
         _events_case(
             name="events_default_limit_low",
             prompt="Get me an example exception event for the team-invite TypeError.",

@@ -56,7 +56,7 @@ class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
                     kind="ErrorTrackingQuery",
                     dateRange=DateRange(),
                     status="active",
-                    searchQuery="TypeError",
+                    searchQuery="team-invite TypeError",
                     filterTestAccounts=True,
                     orderBy="occurrences",
                     volumeResolution=0,
@@ -73,6 +73,6 @@ class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
             (
                 target_id,
                 "submitInvite",
-                "https://app.hedgebox.test/static/js/team-settings.js",
+                "https://app.hedgebox.test/static/js/team-invite.js",
             )
         ]
