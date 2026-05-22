@@ -111,24 +111,41 @@ describe('accountsLogic', () => {
         )
     })
 
-    it('loadAccounts sends combined role + unassigned params', async () => {
+    it('setting a role filter clears the all_roles_unassigned flag', async () => {
         logic.actions.setAllRolesUnassigned(true)
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setCsmFilter(7)
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setAccountExecutiveFilter(9)
-        await expectLogic(logic).toFinishAllListeners()
 
+        expect(logic.values.allRolesUnassigned).toBe(false)
+        expect(logic.values.csmFilter).toBe(7)
         expect(mockAccountsList).toHaveBeenLastCalledWith(
             String(MOCK_DEFAULT_TEAM.id),
-            expect.objectContaining({
-                all_roles_unassigned: true,
-                csm: '7',
-                account_executive: '9',
-                limit: ACCOUNTS_PAGE_SIZE,
-                offset: 0,
-            })
+            expect.objectContaining({ csm: '7', limit: ACCOUNTS_PAGE_SIZE, offset: 0 })
         )
+        expect(mockAccountsList.mock.calls.at(-1)?.[1]).not.toHaveProperty('all_roles_unassigned')
+    })
+
+    it('enabling all_roles_unassigned clears any active role filters', async () => {
+        logic.actions.setCsmFilter(7)
+        logic.actions.setAccountExecutiveFilter(9)
+        logic.actions.setAccountOwnerFilter(11)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setAllRolesUnassigned(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.allRolesUnassigned).toBe(true)
+        expect(logic.values.csmFilter).toBeNull()
+        expect(logic.values.accountExecutiveFilter).toBeNull()
+        expect(logic.values.accountOwnerFilter).toBeNull()
+
+        const lastParams = mockAccountsList.mock.calls.at(-1)?.[1]
+        expect(lastParams).toEqual(
+            expect.objectContaining({ all_roles_unassigned: true, limit: ACCOUNTS_PAGE_SIZE, offset: 0 })
+        )
+        expect(lastParams).not.toHaveProperty('csm')
+        expect(lastParams).not.toHaveProperty('account_executive')
+        expect(lastParams).not.toHaveProperty('account_owner')
     })
 
     it('setCurrentPage updates the offset in the next request', async () => {

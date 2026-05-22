@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -114,8 +114,10 @@ export const accountsLogic = kea<accountsLogicType>([
                         breakpoint()
                         return { count: response.count, results: response.results }
                     } catch (error) {
-                        posthog.captureException(error, { scope: 'accountsLogic.loadAccounts' })
-                        lemonToast.error('Failed to load accounts')
+                        if (!isBreakpoint(error)) {
+                            posthog.captureException(error, { scope: 'accountsLogic.loadAccounts' })
+                            lemonToast.error('Failed to load accounts')
+                        }
                         throw error
                     }
                 },
@@ -126,23 +128,43 @@ export const accountsLogic = kea<accountsLogicType>([
         totalCount: [(s) => [s.accounts], (a: AccountsLoadResult): number => a.count],
         results: [(s) => [s.accounts], (a: AccountsLoadResult): AccountApi[] => a.results],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setSearchQuery: () => {
             actions.setCurrentPage(1)
         },
         setTagsFilter: () => {
             actions.setCurrentPage(1)
         },
-        setAllRolesUnassigned: () => {
+        setAllRolesUnassigned: ({ value }) => {
+            if (value) {
+                if (values.csmFilter !== null) {
+                    actions.setCsmFilter(null)
+                }
+                if (values.accountExecutiveFilter !== null) {
+                    actions.setAccountExecutiveFilter(null)
+                }
+                if (values.accountOwnerFilter !== null) {
+                    actions.setAccountOwnerFilter(null)
+                }
+            }
             actions.setCurrentPage(1)
         },
-        setCsmFilter: () => {
+        setCsmFilter: ({ value }) => {
+            if (value !== null && values.allRolesUnassigned) {
+                actions.setAllRolesUnassigned(false)
+            }
             actions.setCurrentPage(1)
         },
-        setAccountExecutiveFilter: () => {
+        setAccountExecutiveFilter: ({ value }) => {
+            if (value !== null && values.allRolesUnassigned) {
+                actions.setAllRolesUnassigned(false)
+            }
             actions.setCurrentPage(1)
         },
-        setAccountOwnerFilter: () => {
+        setAccountOwnerFilter: ({ value }) => {
+            if (value !== null && values.allRolesUnassigned) {
+                actions.setAllRolesUnassigned(false)
+            }
             actions.setCurrentPage(1)
         },
         setCurrentPage: () => {
