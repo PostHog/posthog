@@ -242,8 +242,18 @@ describe('LegacyWebhookService', () => {
             const processEventSpy = jest.spyOn(service, 'processEvent').mockResolvedValue(undefined)
 
             const messages: Message[] = [
-                createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' })),
-                createKafkaMessage(createIncomingEvent(team.id, { event: '$autocapture' })),
+                createKafkaMessage(
+                    createIncomingEvent(team.id, {
+                        event: '$pageview',
+                        properties: JSON.stringify({ $groups: { project: 'p1' } }),
+                    })
+                ),
+                createKafkaMessage(
+                    createIncomingEvent(team.id, {
+                        event: '$autocapture',
+                        properties: JSON.stringify({ $groups: { project: 'p2' } }),
+                    })
+                ),
             ]
 
             const result = await service.processBatch(messages)
