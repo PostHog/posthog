@@ -448,7 +448,9 @@ export function InsightMeta({
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && !canToggleAnnotations && <LemonDivider />}
+                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
+                                    <LemonDivider />
+                                )}
                                 <h5 className="mx-2 my-1">Dashboard</h5>
                                 <DashboardWidgetPlacementMenus
                                     placementDestinations={copyToDestinations}
