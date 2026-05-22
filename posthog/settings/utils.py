@@ -53,5 +53,8 @@ def build_postgres_test_db_name(base_name: str, *, suffix: str = "") -> str:
 
     digest = sha1(candidate.encode("utf-8")).hexdigest()[:10]
     available_base_chars = POSTGRES_IDENTIFIER_MAX_LENGTH - len("test__") - len(digest) - len(suffix)
-    truncated_base_name = normalized_base_name[: max(1, available_base_chars)]
+    if available_base_chars < 1:
+        raise ValueError(f"Suffix '{suffix}' is too long for database name generation")
+
+    truncated_base_name = normalized_base_name[:available_base_chars]
     return f"test_{truncated_base_name}_{digest}{suffix}"
