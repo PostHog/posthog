@@ -1,5 +1,8 @@
+import json
+
 import unittest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.core import mail
 
@@ -10,6 +13,7 @@ from posthog.api.instance_settings import (
     cast_str_to_desired_type,
     get_instance_setting as get_instance_setting_helper,
 )
+from posthog.models import ActivityLog
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
 from posthog.settings import CONSTANCE_CONFIG
 
@@ -53,6 +57,14 @@ class TestInstanceSettings(APIBaseTest):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
+
+    def _instance_setting_logs(self):
+        return ActivityLog.objects.filter(scope="InstanceSetting")
+
+    def _clear_user_org(self):
+        self.user.current_organization = None
+        self.user.current_team = None
+        self.user.save(update_fields=["current_organization", "current_team"])
 
     def test_list_instance_settings(self):
         response = self.client.get(f"/api/instance_settings/")
@@ -219,3 +231,134 @@ class TestInstanceSettings(APIBaseTest):
 
         self.assertEqual(get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value, False)
         self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), False)
+
+    @parameterized.expand(
+        [
+            ("bool", "AUTO_START_ASYNC_MIGRATIONS", False, True),
+            ("int", "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", 30, 60),
+            ("string", "GITHUB_APP_SLUG", "", "posthog-app"),
+        ]
+    )
+    def test_update_setting_writes_activity_log(
+        self,
+        _name: str,
+        key: str,
+        before: object,
+        after: object,
+    ):
+        set_instance_setting(key, before)
+        initial_count = self._instance_setting_logs().count()
+
+        response = self.client.patch(f"/api/instance_settings/{key}", {"value": after})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        logs = self._instance_setting_logs()
+        self.assertEqual(logs.count(), initial_count + 1)
+
+        log = logs.order_by("-created_at").first()
+        assert log is not None
+        self.assertEqual(log.scope, "InstanceSetting")
+        self.assertEqual(log.item_id, key)
+        self.assertEqual(log.activity, "updated")
+        self.assertEqual(log.organization_id, self.organization.id)
+        self.assertIsNone(log.team_id)
+        self.assertEqual(log.user, self.user)
+        self.assertFalse(log.was_impersonated)
+
+        assert log.detail is not None
+        self.assertEqual(log.detail["name"], key)
+        changes = log.detail["changes"]
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["type"], "InstanceSetting")
+        self.assertEqual(changes[0]["field"], key)
+        self.assertEqual(changes[0]["action"], "changed")
+        self.assertEqual(changes[0]["before"], before)
+        self.assertEqual(changes[0]["after"], after)
+
+    @parameterized.expand(
+        [
+            ("install", "", "hunter2", "<unset>", "<redacted>"),
+            ("rotate", "old_secret", "new_secret", "<redacted>", "<redacted>"),
+            ("clear", "old_secret", "", "<redacted>", "<unset>"),
+        ]
+    )
+    def test_update_secret_setting_redacts_value(
+        self,
+        _name: str,
+        before: str,
+        after: str,
+        expected_before: str,
+        expected_after: str,
+    ):
+        set_instance_setting("EMAIL_HOST_PASSWORD", before)
+        initial_count = self._instance_setting_logs().count()
+
+        response = self.client.patch(f"/api/instance_settings/EMAIL_HOST_PASSWORD", {"value": after})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        logs = self._instance_setting_logs()
+        self.assertEqual(logs.count(), initial_count + 1)
+
+        log = logs.order_by("-created_at").first()
+        assert log is not None
+        change = log.detail["changes"][0]
+        self.assertEqual(change["before"], expected_before)
+        self.assertEqual(change["after"], expected_after)
+
+        # Defense in depth: the cleartext must appear nowhere in the serialized row.
+        raw_detail = json.dumps(log.detail)
+        if before:
+            self.assertNotIn(before, raw_detail)
+        if after:
+            self.assertNotIn(after, raw_detail)
+
+    def test_no_op_update_does_not_log(self):
+        set_instance_setting("AUTO_START_ASYNC_MIGRATIONS", True)
+        initial_count = self._instance_setting_logs().count()
+
+        response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(self._instance_setting_logs().count(), initial_count)
+
+    def test_failed_update_does_not_log(self):
+        initial_count = self._instance_setting_logs().count()
+
+        response = self.client.patch(f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertEqual(self._instance_setting_logs().count(), initial_count)
+
+    @patch("posthog.api.instance_settings.is_impersonated_session", return_value=True)
+    def test_update_logs_impersonation(self, _mock_is_impersonated):
+        response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        log = self._instance_setting_logs().order_by("-created_at").first()
+        assert log is not None
+        self.assertTrue(log.was_impersonated)
+
+    def test_update_logs_with_first_organization_when_current_org_unset(self):
+        membership_org_id = self.user.organization_memberships.first().organization_id
+        self._clear_user_org()
+        initial_count = self._instance_setting_logs().count()
+
+        response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        logs = self._instance_setting_logs()
+        self.assertEqual(logs.count(), initial_count + 1)
+
+        log = logs.order_by("-created_at").first()
+        assert log is not None
+        self.assertEqual(log.organization_id, membership_org_id)
+
+    def test_update_with_no_organization_does_not_log(self):
+        self._clear_user_org()
+        self.user.organization_memberships.all().delete()
+        initial_count = self._instance_setting_logs().count()
+
+        response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(self._instance_setting_logs().count(), initial_count)
