@@ -1868,6 +1868,10 @@ snapshots:
         hash: v1.k794b7964.85a7028e6729988dedf767a52640b16c94aa48baf0ab9c89b1085c38d4e8cc8e.wDERvaZQvyEVwZsoj2q7nTwZSDswGOq-6dnRNcvuRpw
     insights-funnelcorrelationtable--default--light:
         hash: v1.k794b7964.a5ccf40b74b63001bb7383ff53cb81b8f4f4a07308e0b6a2ad590ff821efc3ee.wCJ8wpYAyHJfnQB7k7qNZZKqiPtIq2sppx3qVS4IGQQ
+    insights-funnelhistogramchart--default--dark:
+        hash: v1.k794b7964.e0eeac72672d73139955c1822f77a0f4b7c3120ab66b4803b7bdfee62aeaeb52.tdaIqudDsCaiQ8QSe1x2RNTG0QwLiCmTEfhk6_5WEu0
+    insights-funnelhistogramchart--default--light:
+        hash: v1.k794b7964.64f2986bdea7e5f61e7b7900a52c683c8223df30f550701fb08028c8b203c807.tdD0sW9MOaReK_5QRGviTL5QDK2jG126L3hQj5pd2Cw
     insights-funnellinechart--default--dark:
         hash: v1.k794b7964.88b532c89fa992eac628ca0a779b0889d74e00e650284960e1d935f5e7e8704c.9XjpRbnpuvI56K35oITlbW-Z4_d8VXboPy03ork9yaY
     insights-funnellinechart--default--light:
