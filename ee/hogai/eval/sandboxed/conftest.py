@@ -498,11 +498,19 @@ def _llm_gateway(_django_live_server, sandboxed_demo_data):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _mcp_server(_django_live_server, _sandbox_settings):
+def _mcp_server(_django_live_server, _sandbox_settings, pytestconfig):
     """Start the MCP server as a subprocess for the eval session.
 
     Pointed at the in-process Django live server (which uses the test DB).
     Uses a non-default port to avoid conflicts with a running dev MCP server.
+
+    ``--mcp-runtime`` selects which MCP implementation to run:
+
+    * ``cf`` (default): the Cloudflare Worker via ``pnpm wrangler dev``.
+    * ``hono``: the Node-native Hono server via ``pnpm dev:hono``. In production
+      the CF worker is now a proxy that forwards to a regional Hono deployment,
+      so this is what real users hit — eval against it when validating Hono
+      changes.
     """
     mcp_dir = Path(settings.BASE_DIR) / "services" / "mcp"
     if not (mcp_dir / "node_modules").exists():
@@ -510,6 +518,7 @@ def _mcp_server(_django_live_server, _sandbox_settings):
         subprocess.run(["pnpm", "install", "--frozen-lockfile"], cwd=mcp_dir, check=True, capture_output=True)
 
     api_url = str(_django_live_server)
+    runtime = pytestconfig.getoption("--mcp-runtime")
 
     env = {
         **os.environ,
@@ -519,22 +528,33 @@ def _mcp_server(_django_live_server, _sandbox_settings):
         "NODE_ENV": "development",
     }
 
-    # Wrangler's .dev.vars file (committed) overrides process env, so we must
-    # pass --var on the CLI to point the MCP at our in-process Django test DB.
-    wrangler_vars = [
-        f"POSTHOG_API_BASE_URL:{api_url}",
-        f"POSTHOG_MCP_APPS_ANALYTICS_BASE_URL:{api_url}",
-        f"MCP_APPS_BASE_URL:http://localhost:{MCP_PORT}",
-    ]
-    var_args: list[str] = []
-    for v in wrangler_vars:
-        var_args.extend(["--var", v])
+    if runtime == "hono":
+        # The Hono server reads config directly from process env — no
+        # wrangler --var wiring needed. PORT picks the listen port; the
+        # dev:hono script bundles via esbuild then spawns Node on the bundle.
+        env["PORT"] = str(MCP_PORT)
+        env["HOST"] = "0.0.0.0"
+        cmd = ["pnpm", "dev:hono"]
+        runtime_label = "Hono"
+    else:
+        # Wrangler's .dev.vars file (committed) overrides process env, so we must
+        # pass --var on the CLI to point the MCP at our in-process Django test DB.
+        wrangler_vars = [
+            f"POSTHOG_API_BASE_URL:{api_url}",
+            f"POSTHOG_MCP_APPS_ANALYTICS_BASE_URL:{api_url}",
+            f"MCP_APPS_BASE_URL:http://localhost:{MCP_PORT}",
+        ]
+        var_args: list[str] = []
+        for v in wrangler_vars:
+            var_args.extend(["--var", v])
+        cmd = ["pnpm", "wrangler", "dev", "--port", str(MCP_PORT), *var_args]
+        runtime_label = "Cloudflare Worker"
 
-    logger.info("Starting MCP server on port %d (API: %s)", MCP_PORT, api_url)
+    logger.info("Starting MCP server (%s runtime) on port %d (API: %s)", runtime_label, MCP_PORT, api_url)
     _, stop = _LONG_LIVED_SUBPROCESSES.start(
         name="MCP server",
         port=MCP_PORT,
-        cmd=["pnpm", "wrangler", "dev", "--port", str(MCP_PORT), *var_args],
+        cmd=cmd,
         cwd=mcp_dir,
         env=env,
         log_prefix="mcp",
