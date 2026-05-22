@@ -76,7 +76,10 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             # workflow loops every 6h on the same error forever — see ER #019dd535,
             # #019dffc9, #019e4fa0.
             error_msg = str(e)
-            non_retryable_matches = {**dict.fromkeys(_DISCOVER_NON_RETRYABLE_ERRORS), **new_source.get_non_retryable_errors()}
+            non_retryable_matches = {
+                **dict.fromkeys(_DISCOVER_NON_RETRYABLE_ERRORS),
+                **new_source.get_non_retryable_errors(),
+            }
             if any(marker in error_msg for marker in non_retryable_matches.keys()):
                 logger.warning(f"Non-retryable error discovering schemas for source {inputs.source_id}: {error_msg}")
                 raise NonRetryableException() from e
