@@ -313,11 +313,29 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        // Split into fixed-size chunks and delete concurrently. Each chunk
-        // runs in its own transaction. The per-chunk rows_affected metrics
-        // give visibility into how delete work is distributed across chunks.
+        // Resolve UUIDs to integer IDs in one query, then chunk and delete
+        // by ID. This avoids scanning the UUID index per-chunk.
+        let person_ids: Vec<i64> = sqlx::query_scalar!(
+            r#"
+            SELECT id::bigint as "id!" FROM posthog_person
+            WHERE team_id = $1 AND uuid = ANY($2)
+            "#,
+            team_id as i32,
+            uuids
+        )
+        .fetch_all(&self.bulk_primary_pool)
+        .await?;
+
+        if person_ids.is_empty() {
+            return Ok(0);
+        }
+
+        // Split into fixed-size chunks and delete concurrently. On the first
+        // error, stop starting new chunks and return the error. Chunks that
+        // already committed are durable; the caller retries the full UUID
+        // list and already-deleted UUIDs are idempotent no-ops.
         let pool = self.bulk_primary_pool.clone();
-        let chunks: Vec<Vec<Uuid>> = uuids
+        let chunks: Vec<Vec<i64>> = person_ids
             .chunks(self.bulk_chunk_size)
             .map(|c| c.to_vec())
             .collect();
@@ -329,7 +347,7 @@ impl PersonLookup for PostgresStorage {
         let results: Vec<i64> = stream::iter(chunks.into_iter().map(|chunk| {
             let pool = pool.clone();
             let client = client.clone();
-            async move { delete_persons_chunk(&pool, team_id, &chunk, &client).await }
+            async move { delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client).await }
         }))
         .buffer_unordered(self.bulk_max_concurrent_chunks)
         .try_collect()
@@ -358,16 +376,12 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        // Select up to batch_size person IDs. FOR UPDATE SKIP LOCKED reduces
-        // the chance of concurrent callers claiming the same rows, though
-        // the locks are released before the chunk deletes begin since they
-        // run in separate transactions.
+        // Select up to batch_size person IDs.
         let person_ids: Vec<i64> = sqlx::query_scalar!(
             r#"
             SELECT id::bigint as "id!" FROM posthog_person
             WHERE team_id = $1
             LIMIT $2
-            FOR UPDATE SKIP LOCKED
             "#,
             team_id as i32,
             batch_size
@@ -492,83 +506,6 @@ impl PersonLookup for PostgresStorage {
             })
             .collect())
     }
-}
-
-/// Delete a chunk of persons in a single transaction: distinct_ids first,
-/// then persons. Used both for small direct deletes and as the unit of
-/// work for parallel chunked deletes.
-async fn delete_persons_chunk(
-    pool: &PgPool,
-    team_id: i64,
-    uuids: &[Uuid],
-    client: &str,
-) -> StorageResult<i64> {
-    if uuids.is_empty() {
-        return Ok(0);
-    }
-
-    let chunk_labels = [
-        ("operation".to_string(), "delete_persons_chunk".to_string()),
-        ("pool".to_string(), "bulk_primary".to_string()),
-        ("client".to_string(), client.to_string()),
-    ];
-    let _chunk_timer = common_metrics::timing_guard(DB_QUERY_DURATION, &chunk_labels);
-
-    let mut tx = pool.begin().await?;
-
-    // Delete distinct_id rows first — the FK on posthog_persondistinctid.person_id
-    // is NO ACTION, so the person delete would fail if these still exist.
-    let did_result = sqlx::query!(
-        r#"
-        DELETE FROM posthog_persondistinctid
-        WHERE team_id = $1
-          AND person_id IN (SELECT id FROM posthog_person WHERE team_id = $1 AND uuid = ANY($2))
-        "#,
-        team_id as i32,
-        uuids
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    common_metrics::histogram(
-        DB_ROWS_RETURNED,
-        &[
-            (
-                "operation".to_string(),
-                "delete_distinct_ids_for_persons".to_string(),
-            ),
-            ("pool".to_string(), "bulk_primary".to_string()),
-            ("client".to_string(), client.to_string()),
-        ],
-        did_result.rows_affected() as f64,
-    );
-
-    // Delete person rows. posthog_featureflaghashkeyoverride rows cascade
-    // automatically at the DB level (ON DELETE CASCADE).
-    let result = sqlx::query!(
-        r#"
-        DELETE FROM posthog_person
-        WHERE team_id = $1 AND uuid = ANY($2)
-        "#,
-        team_id as i32,
-        uuids
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    common_metrics::histogram(
-        DB_ROWS_RETURNED,
-        &[
-            ("operation".to_string(), "delete_persons".to_string()),
-            ("pool".to_string(), "bulk_primary".to_string()),
-            ("client".to_string(), client.to_string()),
-        ],
-        result.rows_affected() as f64,
-    );
-
-    tx.commit().await?;
-
-    Ok(result.rows_affected() as i64)
 }
 
 /// Delete a chunk of persons by integer ID in a single transaction:

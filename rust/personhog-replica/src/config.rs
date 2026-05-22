@@ -56,8 +56,9 @@ pub struct Config {
 
     /// Maximum number of chunks to execute concurrently. Each concurrent
     /// chunk holds a connection from the bulk pool, so this should not
-    /// exceed bulk_max_pg_connections.
-    #[envconfig(default = "5")]
+    /// exceed bulk_max_pg_connections. Kept conservative to limit burst
+    /// load on the database when multiple callers delete concurrently.
+    #[envconfig(default = "2")]
     pub bulk_max_concurrent_chunks: usize,
 
     /// Maximum number of server-side (PgBouncer → Postgres) connections to
