@@ -317,7 +317,7 @@ tools:
             - error_tracking:write
         annotations:
             readOnly: false
-            destructive: false
+            destructive: true
             idempotent: false
         title: Create error tracking suppression rule
         description: >
@@ -325,9 +325,9 @@ tools:
             indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted.
             Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT
             create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and
-            cause data loss that is hard to detect after the fact. Prefer `sampling_rate` to dampen noisy issues rather
-            than fully suppressing when uncertain. Confirm with the user before creating any rule that could match more
-            than one distinct error.
+            cause data loss that is hard to detect after the fact. If unsure, set `sampling_rate` below `1.0` so only a
+            fraction of matches are dropped (e.g. `0.5` drops half) rather than all of them. Confirm with the user
+            before creating any rule that could match more than one distinct error.
     error-tracking-suppression-rules-destroy:
         operation: error_tracking_suppression_rules_destroy
         enabled: false
@@ -355,7 +355,21 @@ tools:
         enabled: false
     error-tracking-suppression-rules-update:
         operation: error_tracking_suppression_rules_update
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update error tracking suppression rule
+        description: >
+            Update an error tracking suppression rule by ID. Only the fields you include in the request body are
+            applied; omitted fields keep their existing values. Supports updating `filters` and `sampling_rate`.
+            WARNING: broadening `filters` will start dropping additional events at ingestion silently. Keep filters
+            tightly scoped to the exact errors you want gone. Prefer raising `sampling_rate` to dampen volume over
+            widening the match. Confirm with the user before changing a rule's filters in a way that could match more
+            than one distinct error.
     error-tracking-symbol-sets-bulk-delete-create:
         operation: error_tracking_symbol_sets_bulk_delete_create
         enabled: false

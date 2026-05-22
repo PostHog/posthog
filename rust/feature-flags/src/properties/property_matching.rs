@@ -2349,6 +2349,30 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
+        // Leading zero in a single component is also invalid (was the user-visible HogQL bug
+        // where "3.07" silently became [3, 7] and matched a "version >= 3.7" filter).
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.07"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        // Two-part versions are not valid semver (must be X.Y.Z)
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.7"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
+        assert!(!match_property(
+            &property,
+            &HashMap::from([("version".to_string(), json!("3.0"))]),
+            true
+        )
+        .expect("expected match to exist"));
+
         // Too many version components (common in .NET)
         assert!(!match_property(
             &property,

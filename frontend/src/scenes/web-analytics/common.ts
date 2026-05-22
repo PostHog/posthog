@@ -1,5 +1,7 @@
 import { BreakPointFunction } from 'kea'
 
+import { LemonMenuItem } from '@posthog/lemon-ui'
+
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'
 
@@ -269,6 +271,7 @@ export interface QueryTile extends BaseTile {
     insightProps: InsightLogicProps
     canOpenModal?: boolean
     canOpenInsight?: boolean
+    extraMenuItems?: LemonMenuItem[]
 }
 
 export interface TabsTileTab {
@@ -282,6 +285,7 @@ export interface TabsTileTab {
     canOpenModal?: boolean
     canOpenInsight?: boolean
     docs?: Docs
+    extraMenuItems?: LemonMenuItem[]
 }
 
 export interface TabsTile extends BaseTile {

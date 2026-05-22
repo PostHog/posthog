@@ -52,6 +52,7 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.api.external_data_schema import (
     ExternalDataSchemaSerializer,
     SimpleExternalDataSchemaSerializer,
@@ -73,16 +74,7 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
     get_or_create_webhook_hog_function,
     get_webhook_url,
 )
-from products.data_warehouse.backend.models import (
-    DataWarehouseManagedViewSet,
-    DataWarehouseTable,
-    ExternalDataJob,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
-from products.data_warehouse.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
 from products.data_warehouse.backend.postgres_helpers import (
     filter_dwh_columns_by_enabled_columns,
     get_postgres_source_location,
@@ -96,6 +88,14 @@ from products.data_warehouse.backend.postgres_warehouse_migration import (
 )
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    sync_old_schemas_with_new_schemas,
+)
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
 
 logger = structlog.get_logger(__name__)
 
@@ -1514,7 +1514,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     @action(methods=["POST"], detail=True)
     @extend_schema(
         responses={
-            200: {"type": "object", "properties": {"added": {"type": "integer"}, "deleted": {"type": "integer"}}}
+            200: {
+                "type": "object",
+                "properties": {
+                    "added": {"type": "integer"},
+                    "deleted": {"type": "integer"},
+                    "total_tables_seen": {"type": "integer"},
+                },
+            }
         }
     )
     def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1582,6 +1589,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": error_message},
             )
+
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
@@ -1624,10 +1632,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             team_id=self.team_id,
             added=len(schemas_created),
             deleted=len(schemas_deleted),
+            total_tables_seen=len(schemas),
         )
         return Response(
             status=status.HTTP_200_OK,
-            data={"added": len(schemas_created), "deleted": len(schemas_deleted)},
+            data={
+                "added": len(schemas_created),
+                "deleted": len(schemas_deleted),
+                "total_tables_seen": len(schemas),
+            },
         )
 
     @extend_schema(request=DatabaseSchemaRequestSerializer)

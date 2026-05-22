@@ -1,5 +1,7 @@
 import { ScopedCache } from '@/lib/cache/ScopedCache'
 
+import { redisOperationsTotal } from '../metrics'
+
 export interface RedisLike {
     get(key: string): Promise<string | null>
     set(key: string, value: string, ...args: (string | number)[]): Promise<string | null>
@@ -9,9 +11,6 @@ export interface RedisLike {
 }
 
 const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days
-// Cap on clear()'s SCAN/UNLINK pass. A user with more than this many cache
-// entries either deserves an explicit GC pass or is misbehaving — either way
-// we don't want a single request to stall on an unbounded loop.
 const CLEAR_MAX_ITERATIONS = 50
 const CLEAR_SCAN_COUNT = 100
 
@@ -31,16 +30,30 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
 
     async get<K extends keyof T>(key: K): Promise<T[K] | undefined> {
         const scopedKey = this.getScopedKey(key as string)
-        const raw = await this.redis.get(scopedKey)
-        if (raw === null) {
-            return undefined
+        try {
+            const raw = await this.redis.get(scopedKey)
+            if (raw === null) {
+                redisOperationsTotal.inc({ operation: 'get', status: 'success' })
+                return undefined
+            }
+            const result = JSON.parse(raw) as T[K]
+            redisOperationsTotal.inc({ operation: 'get', status: 'success' })
+            return result
+        } catch (error) {
+            redisOperationsTotal.inc({ operation: 'get', status: 'error' })
+            throw error
         }
-        return JSON.parse(raw) as T[K]
     }
 
     async set<K extends keyof T>(key: K, value: T[K]): Promise<void> {
         const scopedKey = this.getScopedKey(key as string)
-        await this.redis.set(scopedKey, JSON.stringify(value), 'EX', this.ttl)
+        try {
+            await this.redis.set(scopedKey, JSON.stringify(value), 'EX', this.ttl)
+            redisOperationsTotal.inc({ operation: 'set', status: 'success' })
+        } catch (error) {
+            redisOperationsTotal.inc({ operation: 'set', status: 'error' })
+            throw error
+        }
     }
 
     async delete<K extends keyof T>(key: K): Promise<void> {
@@ -51,10 +64,6 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
     async clear(): Promise<void> {
         const pattern = `mcp:user:${this.scope}:*`
         let cursor = '0'
-        // UNLINK lets Redis free memory in a background thread; falls back to DEL
-        // for clients that don't expose it. Iteration cap is a guard against
-        // pathological scans on outlier accounts — a partial clear is acceptable
-        // (the remaining entries will TTL-evict).
         const unlink = this.redis.unlink?.bind(this.redis) ?? this.redis.del.bind(this.redis)
         for (let i = 0; i < CLEAR_MAX_ITERATIONS; i += 1) {
             const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', CLEAR_SCAN_COUNT)

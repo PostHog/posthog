@@ -209,12 +209,22 @@ def _normalize_error(msg: str) -> str:
     return _GOT_RE.sub("got <X>", msg)[:120]
 
 
+def _strip_locations() -> bool:
+    """Whether to apply `clear_locations()` to parsed ASTs before the
+    oracle-vs-candidate `==` check. Off by default — diagnostics include
+    per-node `start` / `end` positions in the parity check now that the
+    rust backend emits them with cpp-parity spans. Set `CLEAR_LOCATIONS=1`
+    to revert to the structural-only comparison."""
+    return os.environ.get("CLEAR_LOCATIONS", "").lower() in ("1", "true", "yes")
+
+
 def _safe_parse(query: str, rule: str, backend: str) -> tuple[str, Any, str | None]:
     """Parse `query` for a diagnostic that must not abort mid-grind.
     Returns `(status, ast_or_none, detail)`:
 
-    - `("ok", ast, None)` — parsed; AST is `clear_locations`-normalised
-      so callers can `==`-compare oracle vs candidate.
+    - `("ok", ast, None)` — parsed; AST keeps per-node `start` / `end`
+      positions unless `CLEAR_LOCATIONS=1` strips them. Either way,
+      callers can `==`-compare oracle vs candidate.
     - `("reject", None, signature)` — `BaseHogQLError`; a legitimate
       "not valid HogQL". `signature` is the normalised error message.
     - `("crash", None, signature)` — any other exception
@@ -232,7 +242,7 @@ def _safe_parse(query: str, rule: str, backend: str) -> tuple[str, Any, str | No
         return "reject", None, _normalize_error(str(e))
     except Exception as e:
         return "crash", None, _normalize_error(f"{type(e).__name__}: {e}")
-    return "ok", clear_locations(node), None
+    return "ok", clear_locations(node) if _strip_locations() else node, None
 
 
 # ---------------------------------------------------------------------------
@@ -497,13 +507,14 @@ def crash_signature(tb: str) -> str:
 
 def corpus_try_parse(query: str, rule: str, backend: str) -> tuple[str, Any, str | None]:
     """Parse `query` for the corpus grind. Returns `(status, ast, detail)`:
-    `ok` (AST `clear_locations`-normalised), `reject` (detail = the raw
-    `BaseHogQLError` message), or `crash` (detail = full traceback).
-    Ctrl-C still propagates (`BaseException`, not `Exception`)."""
+    `ok` (AST keeps positions by default; `CLEAR_LOCATIONS=1` to strip),
+    `reject` (detail = the raw `BaseHogQLError` message), or `crash`
+    (detail = full traceback). Ctrl-C still propagates (`BaseException`,
+    not `Exception`)."""
     parser_fn = _PARSER_FOR_RULE[rule]
     try:
         node = parser_fn(query, backend=backend)
-        return "ok", clear_locations(node), None
+        return "ok", clear_locations(node) if _strip_locations() else node, None
     except BaseHogQLError as e:
         return "reject", None, str(e)
     except Exception:

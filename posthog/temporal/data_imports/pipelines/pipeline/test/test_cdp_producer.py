@@ -14,10 +14,10 @@ from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 def _patch_async_producer_scope(mock_producer):

@@ -1,4 +1,5 @@
 name: Build and cache Docker image test
+description: Build the PostHog Docker image via Depot, optionally caching it in the ephemeral registry and pushing to ECR/DockerHub.
 
 inputs:
     actions-id-token-request-url:
