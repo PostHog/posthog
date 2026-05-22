@@ -1,7 +1,7 @@
 import uuid
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -70,6 +70,31 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": s2, "$host": "other.com", "$current_url": "https://other.com/x"},
         )
         self._wait_for_raw_sessions(expected=2)
+
+    def _wait_for_raw_sessions_rows(self, expected: int, timeout_s: float = 5.0) -> None:
+        # Variant of `_wait_for_raw_sessions` that polls total row count instead
+        # of distinct session_id_v7 count. Useful when a test adds a *late event
+        # to an existing session* — the MV still emits a new row, so the row
+        # count goes up even though distinct session_id_v7 stays the same.
+        import time
+
+        from posthog.clickhouse.client import sync_execute
+
+        deadline = time.monotonic() + timeout_s
+        last_count = -1
+        while time.monotonic() < deadline:
+            row = sync_execute(
+                "SELECT count() FROM raw_sessions WHERE team_id = %(tid)s",
+                {"tid": self.team.pk},
+            )
+            last_count = int(row[0][0]) if row else 0
+            if last_count >= expected:
+                return
+            time.sleep(0.05)
+        raise AssertionError(
+            f"raw_sessions row count did not reach expected for team_id={self.team.pk} "
+            f"within {timeout_s}s — got {last_count}, expected >= {expected}."
+        )
 
     def _wait_for_raw_sessions(self, expected: int, timeout_s: float = 5.0) -> None:
         # In CI, `bulk_create_events` writes directly to `sharded_events`, which
@@ -625,10 +650,15 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                     "$current_url": "https://example.com/second",
                 },
             )
-            # Same session_id as before, so the distinct count stays at 1 — the
-            # MV updates the existing row. We don't need a sessions count
-            # change to verify event visibility; the next `_run` flushes
-            # persons_and_events anyway. Skip the wait here.
+            # Force the late event into ClickHouse and wait for the sessions MV
+            # to materialize it as a second raw_sessions row (same session_id_v7,
+            # so distinct_session_ids stays at 1, but row count goes 1 → 2 as the
+            # MV emits a new row per event-batch before ReplacingMergeTree
+            # collapses them). Without this, the next `_run` triggers the lazy
+            # INSERT-SELECT before the MV has reflected the late event and the
+            # join only sees the first event — recomputed views=1 instead of 2.
+            flush_persons_and_events()
+            self._wait_for_raw_sessions_rows(expected=2)
 
             # Invalidate the cache by deleting the READY job rows. This
             # simulates TTL expiry; the next ensure_precomputed cycle will
