@@ -200,6 +200,32 @@ describe('GroupTypeManager()', () => {
             })
         })
 
+        it.each([
+            { desc: 'historicalMigration=true inserts NULL created_at', historicalMigration: true },
+            { desc: 'historicalMigration=false inserts a non-null created_at', historicalMigration: false },
+            {
+                desc: 'historicalMigration default (undefined) inserts a non-null created_at',
+                historicalMigration: undefined,
+            },
+        ])('$desc', async ({ historicalMigration }) => {
+            expect(
+                await groupTypeManager.fetchGroupTypeIndex(2, 2 as ProjectId, 'historical_group', historicalMigration)
+            ).toEqual(0)
+
+            const result = await hub.postgres.query<{ created_at: Date | null }>(
+                PostgresUse.PERSONS_WRITE,
+                "SELECT created_at FROM posthog_grouptypemapping WHERE project_id = 2 AND group_type = 'historical_group'",
+                undefined,
+                'selectGroupTypeCreatedAt'
+            )
+            expect(result.rows).toHaveLength(1)
+            if (historicalMigration === true) {
+                expect(result.rows[0].created_at).toBeNull()
+            } else {
+                expect(result.rows[0].created_at).not.toBeNull()
+            }
+        })
+
         it('uses next available index after a group type is deleted', async () => {
             await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'A', 0)
             await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'B', 1)
