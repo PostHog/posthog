@@ -319,7 +319,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
         self.user.refresh_from_db()
 
-        settings = self.user.notification_settings
+        settings = self.user.notification_settings or {}
         project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
         assert project_enabled[str(self.team.pk)] is True
 
@@ -335,7 +335,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
         self.user.refresh_from_db()
 
-        settings = self.user.notification_settings
+        settings = self.user.notification_settings or {}
         project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
         assert project_enabled == {}
 
@@ -353,7 +353,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
         self.user.refresh_from_db()
 
-        settings = self.user.notification_settings
+        settings = self.user.notification_settings or {}
         assert settings["error_tracking_weekly_digest_project_enabled"] == {str(self.team.pk): True}
 
     def test_auto_select_project_noop_when_no_exceptions(self):

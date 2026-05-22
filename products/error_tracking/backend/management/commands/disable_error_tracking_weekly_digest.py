@@ -38,9 +38,9 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--organization-id",
-            type=int,
+            type=str,
             default=None,
-            help="Disable digest for all users in this organization.",
+            help="Disable digest for all users in this organization (UUID).",
         )
         parser.add_argument(
             "--dry-run",
@@ -50,7 +50,7 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         emails: list[str] = options["email"]
-        organization_id: int | None = options["organization_id"]
+        organization_id: str | None = options["organization_id"]
         dry_run: bool = options["dry_run"]
 
         if not emails and not organization_id:
@@ -101,7 +101,7 @@ class Command(BaseCommand):
                 self.style.SUCCESS(f"Done. Updated {updated_count} user(s), {skipped_count} already disabled.")
             )
 
-    def _get_users(self, *, emails: list[str], organization_id: int | None) -> list[User]:
+    def _get_users(self, *, emails: list[str], organization_id: str | None) -> list[User]:
         user_ids: set[int] = set()
 
         if emails:
