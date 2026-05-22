@@ -3,11 +3,14 @@ import { useMemo, type FocusEvent } from 'react'
 import { IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
+import { findQuietHoursIssues, MAX_BLOCKED_WINDOWS } from 'lib/components/Alerts/scheduleRestrictionValidation'
+import type { BlockedWindow, ScheduleRestriction } from 'lib/components/Alerts/types'
+
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
-import { estimateHourlyCheckSlotsNext24h } from '../scheduleRestrictionPreview'
-import { findQuietHoursIssues, MAX_BLOCKED_WINDOWS } from '../scheduleRestrictionValidation'
-import type { BlockedWindow, ScheduleRestriction } from '../types'
+import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { estimateCheckSlotsNext24h } from 'products/alerts/frontend/logic/scheduleRestrictionPreview'
+
 import { QuietHoursDayTimeline } from './QuietHoursDayTimeline'
 
 const DEFAULT_OVERNIGHT: BlockedWindow = { start: '22:00', end: '07:00' }
@@ -76,24 +79,41 @@ export function QuietHoursFields({
         setWindows([{ ...DEFAULT_OVERNIGHT }])
     }
 
-    const hourlyApprox = enabled
-        ? estimateHourlyCheckSlotsNext24h(scheduleRestriction?.blocked_windows, teamTimezone)
-        : null
+    const highFrequencySlotPreview = useMemo(() => {
+        const cadenceMinutes =
+            calculationInterval === AlertCalculationInterval.EVERY_15_MINUTES
+                ? 15
+                : calculationInterval === AlertCalculationInterval.HOURLY
+                  ? 60
+                  : null
+        if (!enabled || cadenceMinutes == null) {
+            return null
+        }
+        const slotApprox = estimateCheckSlotsNext24h(scheduleRestriction?.blocked_windows, teamTimezone, cadenceMinutes)
+        const totalSlots = (24 * 60) / cadenceMinutes
+        if (slotApprox >= totalSlots) {
+            return null
+        }
+        return {
+            slotApprox,
+            totalSlots,
+            cadenceLabel: cadenceMinutes === 15 ? '15-minute' : 'hourly',
+            intervalLabel: cadenceMinutes === 15 ? '15 minutes' : 'clock hour',
+        }
+    }, [enabled, calculationInterval, scheduleRestriction?.blocked_windows, teamTimezone])
 
     const quietIssue = useMemo(
         () => (enabled && windows.length > 0 ? findQuietHoursIssues(windows) : null),
         [enabled, windows]
     )
 
-    const nonHourlyInterval =
-        calculationInterval === AlertCalculationInterval.EVERY_15_MINUTES ||
-        calculationInterval === AlertCalculationInterval.HOURLY
-            ? null
-            : calculationInterval === AlertCalculationInterval.DAILY
-              ? 'day'
-              : calculationInterval === AlertCalculationInterval.WEEKLY
-                ? 'week'
-                : 'month'
+    const nonHighFrequencyInterval = !isHighFrequencyAlertInterval(calculationInterval)
+        ? calculationInterval === AlertCalculationInterval.DAILY
+            ? 'day'
+            : calculationInterval === AlertCalculationInterval.WEEKLY
+              ? 'week'
+              : 'month'
+        : null
 
     const atWindowLimit = windows.length >= MAX_BLOCKED_WINDOWS
     const addWindowButtonLabel = atWindowLimit ? `Maximum of ${MAX_BLOCKED_WINDOWS} time windows` : 'Add time window'
@@ -110,10 +130,10 @@ export function QuietHoursFields({
             />
             {enabled ? (
                 <>
-                    {nonHourlyInterval ? (
+                    {nonHighFrequencyInterval ? (
                         <LemonBanner type="info">
                             If a scheduled run would fall during quiet hours, it runs at the next allowed time in that
-                            same day or cycle instead of waiting until the next {nonHourlyInterval}.
+                            same day or cycle instead of waiting until the next {nonHighFrequencyInterval}.
                         </LemonBanner>
                     ) : null}
                     <div className="flex flex-wrap gap-2">
@@ -121,13 +141,11 @@ export function QuietHoursFields({
                             Preset: overnight (10pm–7am)
                         </LemonButton>
                     </div>
-                    {(calculationInterval === AlertCalculationInterval.EVERY_15_MINUTES ||
-                        calculationInterval === AlertCalculationInterval.HOURLY) &&
-                    hourlyApprox != null &&
-                    hourlyApprox < 24 ? (
+                    {highFrequencySlotPreview ? (
                         <div className="text-muted text-sm">
-                            For hourly alerts we schedule about one check per clock hour. Roughly {hourlyApprox} of the
-                            next 24 hours would still run outside quiet hours.
+                            For {highFrequencySlotPreview.cadenceLabel} alerts we schedule about one check every{' '}
+                            {highFrequencySlotPreview.intervalLabel}. Roughly {highFrequencySlotPreview.slotApprox} of
+                            the next {highFrequencySlotPreview.totalSlots} slots would still run outside quiet hours.
                         </div>
                     ) : null}
                     {quietIssue ? <LemonBanner type="error">{quietIssue.message}</LemonBanner> : null}

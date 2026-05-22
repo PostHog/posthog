@@ -1,5 +1,8 @@
-import { blockedAndAllowedMinuteIntervalsForQuietHours, MINUTES_PER_DAY } from '../scheduleRestrictionValidation'
-import type { BlockedWindow } from '../types'
+import {
+    blockedAndAllowedMinuteIntervalsForQuietHours,
+    MINUTES_PER_DAY,
+} from 'lib/components/Alerts/scheduleRestrictionValidation'
+import type { BlockedWindow } from 'lib/components/Alerts/types'
 
 type TimelineSegment = { kind: 'blocked' | 'allowed'; from: number; to: number }
 
