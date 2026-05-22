@@ -1,3 +1,6 @@
+import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
+import { toJsonSchemaCompat } from '@modelcontextprotocol/sdk/server/zod-json-schema-compat.js'
+
 import { hasScopes } from '@/lib/api'
 import {
     type ToolDefinition,
@@ -6,6 +9,8 @@ import {
     getToolsForFeatures,
 } from '@/tools/toolDefinitions'
 import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
+
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 interface PreBuiltTool {
     base: ToolBase<ZodObjectAny>
@@ -20,8 +25,14 @@ export interface ToolCatalogFilterOptions extends ToolFilterOptions {
     excludeTools?: string[]
 }
 
+export type { PreBuiltTool }
+
+const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} }
+
 export class ToolCatalog {
     private _preBuilt: Map<string, PreBuiltTool> = new Map()
+    private _entries: McpTool[] = []
+    private _entriesByName = new Map<string, McpTool>()
     private _warmedUp = false
 
     get warmedUp(): boolean {
@@ -59,10 +70,66 @@ export class ToolCatalog {
             })
         }
 
+        this._buildEntries()
+
         this._warmedUp = true
         console.info(
             `[ToolCatalog] warmup complete: ${this._preBuilt.size} tools in ${(performance.now() - start).toFixed(0)}ms`
         )
+    }
+
+    private _buildEntries(): void {
+        this._entries = []
+        this._entriesByName = new Map()
+
+        for (const [name, preBuilt] of this._preBuilt) {
+            const def = preBuilt.definitions.v1 ?? preBuilt.definitions.v2
+            if (!def) {continue}
+
+            let jsonSchema: Record<string, unknown>
+            try {
+                jsonSchema = toJsonSchemaCompat(preBuilt.base.schema, { strictUnions: true }) as Record<string, unknown>
+                delete jsonSchema['$schema']
+                delete jsonSchema['additionalProperties']
+            } catch {
+                jsonSchema = EMPTY_OBJECT_JSON_SCHEMA
+            }
+
+            let meta = preBuilt.base._meta as Record<string, unknown> | undefined
+            if (meta?.ui && typeof meta.ui === 'object' && 'resourceUri' in meta.ui && !meta[RESOURCE_URI_META_KEY]) {
+                meta = {
+                    ...meta,
+                    [RESOURCE_URI_META_KEY]: (meta.ui as Record<string, unknown>).resourceUri,
+                }
+            }
+
+            const entry: McpTool = {
+                name,
+                title: def.title,
+                description: def.description,
+                inputSchema: jsonSchema as McpTool['inputSchema'],
+                annotations: def.annotations as McpTool['annotations'],
+                ...(meta ? { _meta: meta } : {}),
+            }
+            this._entries.push(entry)
+            this._entriesByName.set(name, entry)
+        }
+    }
+
+    getAllPreBuilt(): ReadonlyMap<string, PreBuiltTool> {
+        return this._preBuilt
+    }
+
+    getToolByName(name: string): PreBuiltTool | undefined {
+        return this._preBuilt.get(name)
+    }
+
+    getPreBuiltEntries(): McpTool[] {
+        return this._entries
+    }
+
+    getPreBuiltEntry(name: string): McpTool | undefined {
+        return this._entriesByName.get(name)
     }
 
     getFilteredTools(options: ToolCatalogFilterOptions): Tool<ZodObjectAny>[] {

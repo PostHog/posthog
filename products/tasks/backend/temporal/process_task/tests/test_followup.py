@@ -390,7 +390,7 @@ class TestCIFollowUpLoop:
                 )
                 near_delay = CI_FOLLOW_UP_DELAY.total_seconds() - 30
                 await env.sleep(near_delay)
-                await handle.signal(ProcessTaskWorkflow.heartbeat, args=[True])
+                await handle.signal(ProcessTaskWorkflow.heartbeat, arg=True)
                 await env.sleep(60)
                 followups_at_original_deadline = list(_ci_followup_calls)
 
@@ -399,9 +399,33 @@ class TestCIFollowUpLoop:
                 await handle.result()
 
         assert followups_at_original_deadline == [], (
-            "heartbeat(agent_active=True) should have pushed the CI follow-up past the original 15m boundary"
+            "heartbeat should have pushed the CI follow-up past the original 15m boundary"
         )
         assert _ci_followup_calls, "follow-up should still fire after the rescheduled deadline"
+
+    @pytest.mark.timeout(90)
+    async def test_idle_heartbeat_does_not_extend_ci_follow_up_clock(self):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=2),
+                )
+                near_delay = CI_FOLLOW_UP_DELAY.total_seconds() - 30
+                await env.sleep(near_delay)
+                await handle.signal(ProcessTaskWorkflow.heartbeat)
+                await env.sleep(60)
+                followups_at_original_deadline = list(_ci_followup_calls)
+
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                await handle.result()
+
+        assert followups_at_original_deadline, "idle heartbeat should not push the CI follow-up deadline"
 
 
 class TestFollowupGuards:

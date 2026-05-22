@@ -1,43 +1,19 @@
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
-
-import type { ContextMillResource } from '@/resources/manifest-types'
-
 import type { Lifecycle } from './app'
 import type { RedisLike } from './cache/RedisCache'
-import { HonoMcpServer } from './mcp-server'
-import { authenticateAndParse, handleCatchError, passThrough } from './request-utils'
+import { McpDispatcher } from './dispatcher'
+import { authenticateAndParse, handleCatchError } from './request-utils'
 import { ToolCatalog } from './tool-catalog'
 import type { HonoCtx } from './types'
 
 export class StreamableMcpHandler {
-    private readonly catalog = new ToolCatalog()
-    private _resourceEntries: readonly ContextMillResource[] = []
+    private readonly dispatcher: McpDispatcher
 
-    constructor(
-        private readonly redis: RedisLike,
-        private readonly lifecycle: Lifecycle
-    ) {}
-
-    get resourceEntries(): readonly ContextMillResource[] {
-        return this._resourceEntries
+    constructor(redis: RedisLike, private readonly lifecycle: Lifecycle) {
+        this.dispatcher = new McpDispatcher(new ToolCatalog(), redis)
     }
 
     async warmup(): Promise<void> {
-        await Promise.all([this.catalog.warmup(), this._warmupResources()])
-    }
-
-    private async _warmupResources(): Promise<void> {
-        try {
-            const { fetchContextMillResources, filterValidEntries, loadManifestFromArchive, clearResourceCache } =
-                await import('@/resources/internals')
-            const archive = await fetchContextMillResources()
-            const manifest = loadManifestFromArchive(archive)
-            this._resourceEntries = filterValidEntries(manifest.resources, archive)
-            clearResourceCache()
-        } catch (error) {
-            console.error('[StreamableMcpHandler] Failed to pre-load context-mill resources:', error)
-            this._resourceEntries = []
-        }
+        await this.dispatcher.warmup()
     }
 
     fetch = async (c: HonoCtx): Promise<Response> => {
@@ -54,14 +30,7 @@ export class StreamableMcpHandler {
         }
 
         try {
-            const mcpServer = new HonoMcpServer(this.redis, auth.props, {
-                catalog: this.catalog,
-                resourceEntries: this._resourceEntries,
-            })
-            await mcpServer.init()
-            const transport = new WebStandardStreamableHTTPServerTransport({})
-            await mcpServer.server.connect(transport)
-            return passThrough(await transport.handleRequest(c.req.raw))
+            return await this.dispatcher.handleRequest(c.req.raw, auth.props)
         } catch (error) {
             return handleCatchError(error, auth.props)
         }
