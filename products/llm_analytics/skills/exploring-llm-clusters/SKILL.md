@@ -212,9 +212,9 @@ posthog:query-llm-trace
 
 ## Constructing UI links
 
-- **Clusters overview**: `https://app.posthog.com/llm-analytics/clusters`
-- **Specific run**: `https://app.posthog.com/llm-analytics/clusters/<url_encoded_run_id>`
-- **Cluster detail**: `https://app.posthog.com/llm-analytics/clusters/<url_encoded_run_id>/<cluster_id>`
+- **Clusters overview**: `https://app.posthog.com/ai-observability/clusters`
+- **Specific run**: `https://app.posthog.com/ai-observability/clusters/<url_encoded_run_id>`
+- **Cluster detail**: `https://app.posthog.com/ai-observability/clusters/<url_encoded_run_id>/<cluster_id>`
 
 Always surface these links so the user can verify visually in the PostHog UI.
 

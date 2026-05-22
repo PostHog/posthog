@@ -3,8 +3,8 @@
 Reuses the strategies from `test_parser_grammar_pbt.py` (the
 auto-generated grammar PBT introduced in PR #58627) but runs as an
 ad-hoc CLI rather than a pytest collection. Backend-agnostic:
-defaults to `cpp-json` vs `python` (the two backends shipped in
-master); point `--candidate` at any other backend in a feature
+defaults to `cpp-json` vs `rust-json` (the two compiled backends);
+point `--candidate` at `python` or any other backend in a feature
 branch that adds one.
 
 Distinct from the pytest PBT in five ways:
@@ -210,8 +210,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--candidate",
-        default=os.environ.get("CANDIDATE_BACKEND", "python"),
-        help="Backend under test (default: python; override in feature branches that add a third backend)",
+        default=os.environ.get("CANDIDATE_BACKEND", "rust-json"),
+        help="Backend under test (default: rust-json; override in feature branches that add a fourth backend)",
     )
     parser.add_argument(
         "--max-mismatch-samples",

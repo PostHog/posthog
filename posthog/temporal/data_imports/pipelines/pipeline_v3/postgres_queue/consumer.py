@@ -334,7 +334,7 @@ ProcessBatchFn = Callable[[PendingBatch], Coroutine[Any, Any, None]]
 def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:
     """Sync helper to mark the ExternalDataJob and its schema as failed via Django ORM."""
     from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-    from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     existing = ExternalDataJob.objects.filter(id=job_id, team_id=team_id, status=ExternalDataJob.Status.FAILED).first()
     if existing is not None:

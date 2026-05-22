@@ -169,6 +169,7 @@ export const FEATURE_FLAGS = {
     UX_HIDE_PROJECT_NOTICE: 'ux-hide-project-notice', // owner: #team-platform-ux, hides the project notice banner across all scenes
 
     // Feature flags used to control opt-in for different behaviors, should not be removed
+    AI_TRAINING: 'ai-training', // owner: @nicowaltz #team-replay #ai-research, gates the AI training opt-out UI and API enforcement
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-platform-features, used to control access to audit logs
     BATCH_EXPORT_EARLIEST_BACKFILL: 'batch-export-earliest-backfill', // owner: #team-batch-exports, allow backfilling from beginning of time
     CONTROL_SUPPORT_LOGIN: 'control_support_login', // owner: #team-security, used to control whether users can opt out of support impersonation
@@ -367,6 +368,7 @@ export const FEATURE_FLAGS = {
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
     MAX_DEEP_RESEARCH: 'max-deep-research', // owner: @kappa90 #team-posthog-ai
+    MAX_HANDS_FREE: 'max-hands-free', // owner: #team-posthog-ai
     MCP_ANALYTICS: 'mcp-analytics', // owner: #project-mcp-analytics
     MCP_ANALYTICS_INTENT_ROUTING: 'mcp-analytics-intent-routing', // owner: #project-mcp-analytics
     MCP_HINTS: 'mcp-hints', // owner: @rafaeelaudibert #team-growth, gates in-app MCP hint toasts and empty-state cards
@@ -437,6 +439,7 @@ export const FEATURE_FLAGS = {
     PROVISION_MANAGED_WAREHOUSE_BETA: 'provision-managed-warehouse-beta', // owner: @EDsCODE #team-managed-warehouse
     QUICK_START_PULSE_INDICATOR: 'quick-start-pulse-indicator', // owner: @fercgomes #team-growth multivariate=control,test
     RBAC_UI_REDESIGN: 'rbac-ui-redesign', // owner: @reece #team-platform-features
+    READ_ONLY_MODE: 'read-only-mode', // owner: @pauldambra, experiment: force users into read-only and steer mutations through Max/MCP
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
     REALTIME_COHORT_FLAG_TARGETING: 'realtime-cohort-flag-targeting', // owner: @dmarticus #team-feature-flags
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
@@ -505,8 +508,10 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_LIVE_REFERRERS: 'web-analytics-live-referrers', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_OPEN_URL: 'web-analytics-open-url', // owner: @lricoy #team-web-analytics
+    WEB_ANALYTICS_PRECOMPUTE_TOGGLE: 'web-analytics-precompute-toggle', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_REGIONS_MAP: 'web-analytics-regions-map', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_SESSION_PROPERTY_CHARTS: 'web-analytics-session-property-charts', // owner: @lricoy #team-web-analytics
+    WEB_ANALYTICS_TILE_HEADER_V2: 'web-analytics-tile-header-v2', // owner: @jordanm-posthog #team-web-analytics multivariate=control,test
     WEB_ANALYTICS_TILE_SKELETONS: 'web-analytics-tile-skeletons', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
@@ -519,7 +524,15 @@ export const FEATURE_FLAGS = {
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
-export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS)
+// Flags that affect globally-mounted UI (e.g. floating widgets in
+// AuthenticatedShell). Scene stories that opt into STORYBOOK_FEATURE_FLAGS
+// shouldn't accidentally enable these, because the resulting widgets render
+// in every snapshot and pollute visual regression.
+const STORYBOOK_OPT_OUT_FLAGS: FeatureFlagKey[] = [FEATURE_FLAGS.READ_ONLY_MODE]
+
+export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
+    (flag) => !STORYBOOK_OPT_OUT_FLAGS.includes(flag)
+)
 
 export const INSIGHT_VISUAL_ORDER = {
     trends: 10,

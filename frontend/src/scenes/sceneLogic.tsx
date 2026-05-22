@@ -11,6 +11,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
@@ -1019,6 +1020,7 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         removeTab: ({ tab, options }) => {
+            tabUiStateLogic.findMounted()?.actions.clearTabUiState(tab.id)
             const closeSource = options?.source ?? 'unknown'
             posthog.capture('tab closed', {
                 tab_id: tab.id,

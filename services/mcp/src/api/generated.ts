@@ -89,6 +89,9 @@ export namespace Schemas {
       zendesk_id?: string | null;
     } | null;
 
+    /**
+     * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+     */
     export interface Account {
       readonly id: string;
       /**
@@ -107,6 +110,8 @@ export namespace Schemas {
          * @nullable
          */
       properties?: AccountProperties;
+      /** Tag names attached to the account. Pass a list to replace existing tags. */
+      tags?: string[];
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -1455,6 +1460,16 @@ export namespace Schemas {
       Optimized: 'optimized',
     } as const;
 
+    export type ParserMode = typeof ParserMode[keyof typeof ParserMode];
+
+
+    export const ParserMode = {
+      CppOnly: 'cpp_only',
+      CppWithRustShadow: 'cpp_with_rust_shadow',
+      RustWithCppShadow: 'rust_with_cpp_shadow',
+      RustOnly: 'rust_only',
+    } as const;
+
     export type PersonsArgMaxVersion = typeof PersonsArgMaxVersion[keyof typeof PersonsArgMaxVersion];
 
 
@@ -1525,6 +1540,8 @@ export namespace Schemas {
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
+      /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. */
+      parserMode?: ParserMode | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
@@ -2456,6 +2473,8 @@ export namespace Schemas {
       aggregationPropertyType?: AggregationPropertyType1 | null;
       /** The aggregation type to use for retention */
       aggregationType?: AggregationType | null;
+      /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
+      cohortLabelStartIndex?: number | null;
       cumulative?: boolean | null;
       /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
       customAggregationTarget?: boolean | null;
@@ -2960,6 +2979,7 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -2987,6 +3007,8 @@ export namespace Schemas {
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
+      /** Opt this specific query into the web_overview_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+      useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -4457,10 +4479,10 @@ export namespace Schemas {
     * `P3` - P3
     * `P4` - P4
      */
-    export type AutostartPriorityEnum = typeof AutostartPriorityEnum[keyof typeof AutostartPriorityEnum];
+    export type AutonomyPriorityEnum = typeof AutonomyPriorityEnum[keyof typeof AutonomyPriorityEnum];
 
 
-    export const AutostartPriorityEnum = {
+    export const AutonomyPriorityEnum = {
       P0: 'P0',
       P1: 'P1',
       P2: 'P2',
@@ -8176,6 +8198,86 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Typed configuration for a FileDownload batch-export destination.
+     */
+    export interface FileDownloadDestinationFileConfig {
+      /** File format
+
+      * `Parquet` - Parquet
+      * `JSONLines` - JSONLines */
+      format?: FileFormatEnum;
+      /** Compress the file with a supported compression format
+
+      * `zstd` - zstd
+      * `gzip` - gzip
+      * `brotli` - brotli
+      * `lz4` - lz4
+      * `snappy` - snappy */
+      compression?: CompressionEnum | null;
+      /**
+         * Split download into multiple files of at most this size in MB
+         * @minimum 0
+         * @nullable
+         */
+      max_size_mb?: number | null;
+    }
+
+    export type FileDownloadEventsRequestModel = typeof FileDownloadEventsRequestModel[keyof typeof FileDownloadEventsRequestModel];
+
+
+    export const FileDownloadEventsRequestModel = {
+      Events: 'events',
+    } as const;
+
+    /**
+     * Typed configuration for the events model.
+     */
+    export interface FileDownloadEventsRequest {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadEventsRequestModel;
+      include?: string[];
+      exclude?: string[];
+      data_interval_start: string;
+      data_interval_end: string;
+    }
+
+    export type FileDownloadPersonsRequestModel = typeof FileDownloadPersonsRequestModel[keyof typeof FileDownloadPersonsRequestModel];
+
+
+    export const FileDownloadPersonsRequestModel = {
+      Persons: 'persons',
+    } as const;
+
+    /**
+     * Typed configuration for the persons model.
+     */
+    export interface FileDownloadPersonsRequest {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadPersonsRequestModel;
+      data_interval_start: string;
+      data_interval_end: string;
+    }
+
+    export type FileDownloadSessionsRequestModel = typeof FileDownloadSessionsRequestModel[keyof typeof FileDownloadSessionsRequestModel];
+
+
+    export const FileDownloadSessionsRequestModel = {
+      Sessions: 'sessions',
+    } as const;
+
+    /**
+     * Typed configuration for the sessions model.
+     */
+    export interface FileDownloadSessionsRequest {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadSessionsRequestModel;
+      data_interval_start: string;
+      data_interval_end: string;
+    }
+
+    export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest;
+
+    /**
      * * `cost` - cost
     * `latency` - latency
     * `eval_pass_rate` - eval_pass_rate
@@ -8258,6 +8360,13 @@ export namespace Schemas {
       company_address: string;
       /** Email the signed PandaDoc envelope is sent to (PandaDoc's Client.Email). */
       representative_email: string;
+    }
+
+    /**
+     * Typed output for view set `create`.
+     */
+    export interface CreateOutput {
+      id: string;
     }
 
     /**
@@ -8962,6 +9071,7 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -14647,7 +14757,18 @@ export namespace Schemas {
       /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
       filters?: PropertyGroupFilterValue;
       /**
-         * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+         * Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; `0.5` drops half. Higher values suppress more.
+         * @minimum 0
+         * @maximum 1
+         */
+      sampling_rate?: number;
+    }
+
+    export interface ErrorTrackingSuppressionRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /**
+         * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
          * @minimum 0
          * @maximum 1
          */
@@ -16906,6 +17027,36 @@ export namespace Schemas {
          */
       readonly modified_by: number | null;
     }
+
+    /**
+     * * `events` - events
+     */
+    export type FileDownloadEventsRequestModelEnum = typeof FileDownloadEventsRequestModelEnum[keyof typeof FileDownloadEventsRequestModelEnum];
+
+
+    export const FileDownloadEventsRequestModelEnum = {
+      Events: 'events',
+    } as const;
+
+    /**
+     * * `persons` - persons
+     */
+    export type FileDownloadPersonsRequestModelEnum = typeof FileDownloadPersonsRequestModelEnum[keyof typeof FileDownloadPersonsRequestModelEnum];
+
+
+    export const FileDownloadPersonsRequestModelEnum = {
+      Persons: 'persons',
+    } as const;
+
+    /**
+     * * `sessions` - sessions
+     */
+    export type FileDownloadSessionsRequestModelEnum = typeof FileDownloadSessionsRequestModelEnum[keyof typeof FileDownloadSessionsRequestModelEnum];
+
+
+    export const FileDownloadSessionsRequestModelEnum = {
+      Sessions: 'sessions',
+    } as const;
 
     export interface FileSystem {
       readonly id: string;
@@ -20419,7 +20570,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` (integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -25480,6 +25631,8 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
+      /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      readonly requires_credential_review: boolean;
     }
 
     export interface PaginatedUserList {
@@ -25656,6 +25809,9 @@ export namespace Schemas {
       zendesk_id?: string | null;
     } | null;
 
+    /**
+     * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+     */
     export interface PatchedAccount {
       readonly id?: string;
       /**
@@ -25674,6 +25830,8 @@ export namespace Schemas {
          * @nullable
          */
       properties?: PatchedAccountProperties;
+      /** Tag names attached to the account. Pass a list to replace existing tags. */
+      tags?: string[];
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -26964,6 +27122,17 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedErrorTrackingSuppressionRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /**
+         * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
+         * @minimum 0
+         * @maximum 1
+         */
+      sampling_rate?: number;
+    }
+
     /**
      * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
      */
@@ -28124,7 +28293,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` (integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -31202,6 +31371,8 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
+      /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      readonly requires_credential_review?: boolean;
     }
 
     export interface PatchedUserInterview {
@@ -33201,6 +33372,7 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -33575,6 +33747,7 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -34471,6 +34644,100 @@ export namespace Schemas {
       password: string;
     }
 
+    export type RetrieveBasicOutputStatus = typeof RetrieveBasicOutputStatus[keyof typeof RetrieveBasicOutputStatus];
+
+
+    export const RetrieveBasicOutputStatus = {
+      Starting: 'Starting',
+      Running: 'Running',
+      Cancelled: 'Cancelled',
+    } as const;
+
+    /**
+     * Typed output for view set `retrieve` with any of the statuses without extra output.
+     */
+    export interface RetrieveBasicOutput {
+      status: RetrieveBasicOutputStatus;
+    }
+
+    /**
+     * * `Starting` - Starting
+    * `Running` - Running
+    * `Cancelled` - Cancelled
+     */
+    export type RetrieveBasicOutputStatusEnum = typeof RetrieveBasicOutputStatusEnum[keyof typeof RetrieveBasicOutputStatusEnum];
+
+
+    export const RetrieveBasicOutputStatusEnum = {
+      Starting: 'Starting',
+      Running: 'Running',
+      Cancelled: 'Cancelled',
+    } as const;
+
+    export type RetrieveCompletedOutputStatus = typeof RetrieveCompletedOutputStatus[keyof typeof RetrieveCompletedOutputStatus];
+
+
+    export const RetrieveCompletedOutputStatus = {
+      Completed: 'Completed',
+    } as const;
+
+    /**
+     * Typed output for view set `retrieve` with completed status.
+     */
+    export interface RetrieveCompletedOutput {
+      status: RetrieveCompletedOutputStatus;
+      files: string[];
+    }
+
+    /**
+     * * `Completed` - Completed
+     */
+    export type RetrieveCompletedOutputStatusEnum = typeof RetrieveCompletedOutputStatusEnum[keyof typeof RetrieveCompletedOutputStatusEnum];
+
+
+    export const RetrieveCompletedOutputStatusEnum = {
+      Completed: 'Completed',
+    } as const;
+
+    export type RetrieveFailedOutputStatus = typeof RetrieveFailedOutputStatus[keyof typeof RetrieveFailedOutputStatus];
+
+
+    export const RetrieveFailedOutputStatus = {
+      Failed: 'Failed',
+      FailedRetryable: 'FailedRetryable',
+      FailedBilling: 'FailedBilling',
+      TimedOut: 'TimedOut',
+      Terminated: 'Terminated',
+    } as const;
+
+    /**
+     * Typed output for view set `retrieve` with any of the failed statuses.
+     */
+    export interface RetrieveFailedOutput {
+      status: RetrieveFailedOutputStatus;
+      error: string;
+    }
+
+    /**
+     * * `Failed` - Failed
+    * `FailedRetryable` - FailedRetryable
+    * `FailedBilling` - FailedBilling
+    * `Terminated` - Terminated
+    * `TimedOut` - TimedOut
+     */
+    export type RetrieveFailedOutputStatusEnum = typeof RetrieveFailedOutputStatusEnum[keyof typeof RetrieveFailedOutputStatusEnum];
+
+
+    export const RetrieveFailedOutputStatusEnum = {
+      Failed: 'Failed',
+      FailedRetryable: 'FailedRetryable',
+      FailedBilling: 'FailedBilling',
+      Terminated: 'Terminated',
+      TimedOut: 'TimedOut',
+    } as const;
+
+    export type RetrieveFileDownloadResponse = RetrieveBasicOutput | RetrieveCompletedOutput | RetrieveFailedOutput;
+
     export interface ReviewQueueCreate {
       /**
          * Human-readable queue name.
@@ -34880,7 +35147,26 @@ export namespace Schemas {
     export interface SignalUserAutonomyConfig {
       readonly id: string;
       readonly user: _User;
-      autostart_priority?: AutostartPriorityEnum | BlankEnum | null;
+      autostart_priority?: AutonomyPriorityEnum | BlankEnum | null;
+      /**
+         * ID of the Slack Integration to deliver inbox-item notifications through, or null when notifications are disabled.
+         * @nullable
+         */
+      readonly slack_notification_integration_id: number | null;
+      /**
+         * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
+         * @maxLength 255
+         * @nullable
+         */
+      slack_notification_channel?: string | null;
+      /** Minimum report priority that triggers a Slack notification. P0 is highest. Null means notify on every priority (and reports without a priority judgment).
+
+      * `P0` - P0
+      * `P1` - P1
+      * `P2` - P2
+      * `P3` - P3
+      * `P4` - P4 */
+      slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -34908,6 +35194,8 @@ export namespace Schemas {
          * @nullable
          */
       lastRefreshedAt?: string | null;
+      /** Whether more channels match the current search beyond this page. */
+      has_more?: boolean;
     }
 
     /**
@@ -35517,6 +35805,14 @@ export namespace Schemas {
       stats: SurveyStatsResponseStats;
       /** Calculated response and dismissal rates. */
       rates: SurveyStatsResponseRates;
+    }
+
+    export interface Synthesize {
+      /**
+         * The text the assistant should speak aloud.
+         * @maxLength 2000
+         */
+      text: string;
     }
 
     export interface TaggerCreate {
@@ -37835,7 +38131,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EnvironmentsEndpointsOpenapiJsonRetrieveParams = {
+    export type EnvironmentsEndpointsOpenapiSpecRetrieveParams = {
     /**
      * Specific endpoint version to generate the spec for. Defaults to latest.
      */
@@ -38064,6 +38360,38 @@ export namespace Schemas {
     offset?: number;
     /**
      * A search term.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsFileDownloadBatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
      */
     search?: string;
     };
@@ -39086,6 +39414,24 @@ export namespace Schemas {
       Vercel: 'vercel',
     } as const;
 
+    export type EnvironmentsIntegrationsChannelsRetrieveParams = {
+    /**
+     * Maximum number of channels to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Number of channels to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string;
+    };
+
     export type EnvironmentsIntegrationsGithubBranchesRetrieveParams = {
     /**
      * Maximum number of branches to return
@@ -39863,6 +40209,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
+     */
+    tags?: string;
     };
 
     export type ApprovalPoliciesListParams = {
@@ -40629,6 +40979,8 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
 
     export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
 
@@ -41658,6 +42010,7 @@ export namespace Schemas {
     * `AlertSubscription` - AlertSubscription
     * `ExternalDataSource` - ExternalDataSource
     * `ExternalDataSchema` - ExternalDataSchema
+    * `Evaluation` - Evaluation
     * `LLMTrace` - LLMTrace
     * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
     * `CustomerProfileConfig` - CustomerProfileConfig
@@ -41733,6 +42086,7 @@ export namespace Schemas {
       AlertSubscription: 'AlertSubscription',
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
+      Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
@@ -41794,6 +42148,7 @@ export namespace Schemas {
     * `AlertSubscription` - AlertSubscription
     * `ExternalDataSource` - ExternalDataSource
     * `ExternalDataSchema` - ExternalDataSchema
+    * `Evaluation` - Evaluation
     * `LLMTrace` - LLMTrace
     * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
     * `CustomerProfileConfig` - CustomerProfileConfig
@@ -41857,6 +42212,7 @@ export namespace Schemas {
       AlertSubscription: 'AlertSubscription',
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
+      Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
@@ -42742,7 +43098,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EndpointsOpenapiJsonRetrieveParams = {
+    export type EndpointsOpenapiSpecRetrieveParams = {
     /**
      * Specific endpoint version to generate the spec for. Defaults to latest.
      */
@@ -43236,6 +43592,38 @@ export namespace Schemas {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string;
+    };
+
+    export type FileDownloadBatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type FileSystemListParams = {
@@ -44296,6 +44684,24 @@ export namespace Schemas {
       Twilio: 'twilio',
       Vercel: 'vercel',
     } as const;
+
+    export type IntegrationsChannelsRetrieveParams = {
+    /**
+     * Maximum number of channels to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Number of channels to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string;
+    };
 
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**

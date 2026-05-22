@@ -1,6 +1,6 @@
 {
     "accounts-create": {
-        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), and optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`).",
+        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account",
@@ -32,7 +32,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), and creation/update metadata. Use `accounts-retrieve` for a single account by id.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",
@@ -48,7 +48,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-partial-update": {
-        "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged.",
+        "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged. Pass `tags` to replace the full set of tags on the account.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Update account",
@@ -64,7 +64,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers).",
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get account",
@@ -1497,7 +1497,7 @@
         }
     },
     "error-tracking-suppression-rules-create": {
-        "description": "Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted. Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and cause data loss that is hard to detect after the fact. Prefer `sampling_rate` to dampen noisy issues rather than fully suppressing when uncertain. Confirm with the user before creating any rule that could match more than one distinct error.",
+        "description": "Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted. Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and cause data loss that is hard to detect after the fact. If unsure, set `sampling_rate` below `1.0` so only a fraction of matches are dropped (e.g. `0.5` drops half) rather than all of them. Confirm with the user before creating any rule that could match more than one distinct error.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Create error tracking suppression rule",
@@ -1505,7 +1505,7 @@
         "required_scopes": ["error_tracking:write"],
         "new_mcp": true,
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -1524,6 +1524,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "error-tracking-suppression-rules-update": {
+        "description": "Update an error tracking suppression rule by ID. Only the fields you include in the request body are applied; omitted fields keep their existing values. Supports updating `filters` and `sampling_rate`. WARNING: broadening `filters` will start dropping additional events at ingestion silently. Keep filters tightly scoped to the exact errors you want gone. Prefer raising `sampling_rate` to dampen volume over widening the match. Confirm with the user before changing a rule's filters in a way that could match more than one distinct error.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking suppression rule",
+        "title": "Update error tracking suppression rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "error-tracking-symbol-sets-download-retrieve": {
@@ -1886,10 +1901,10 @@
         }
     },
     "experiment-results-get": {
-        "description": "Get comprehensive experiment results including all metrics data (primary and secondary) and exposure data. This tool fetches the experiment details and executes the necessary queries to get complete experiment results. Only works with new experiments (not legacy experiments).",
+        "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` — `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs — check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself — the result rows already merge inline and shared. UI-only bulk fields are stripped from each `data` payload: `clickhouse_sql`, `hogql`, the legacy `insight` visualization payload, and the per-funnel-step session samples — `step_sessions` is removed from `baseline`, each `variant_results` entry, and from `baseline` / `variants[]` inside every `breakdown_results` entry. Statistical fields (`sum`, `sum_squares`, `step_counts`, `number_of_samples`, `credible_intervals`, per-breakdown stats, etc.) are preserved. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
         "category": "Experiments",
         "feature": "experiments",
-        "summary": "Get comprehensive experiment results including metrics and exposure data.",
+        "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
         "title": "Get experiment results",
         "required_scopes": ["experiment:read"],
         "new_mcp": true,

@@ -7,6 +7,7 @@ export interface ChartTheme {
     crosshairColor?: string
     tooltipBackground?: string
     tooltipColor?: string
+    tooltipZIndex?: number | string
 }
 
 /** Default axis id used when a series doesn't specify one. */

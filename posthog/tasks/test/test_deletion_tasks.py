@@ -162,7 +162,7 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
         Verify that Node.saved_query doesn't block organization and team deletion.
         """
         from products.data_modeling.backend.models import DAG, Node
-        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
         org = Organization.objects.create(name="Org to delete")
         org.members.add(self.user)

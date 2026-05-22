@@ -147,11 +147,14 @@ export const urls = {
     /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
     accountSocialConnected: (): string => '/account/social-connected',
     /**
-     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO) or
-     * `github-integration` (user GitHub App integration); see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
+     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO),
+     * `github-integration` (user GitHub App integration), or `slack-integration` (team Slack integration);
+     * see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
      */
     accountConnected: (kind: string = ':kind'): string =>
         kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
+    /** One-shot credential review interstitial shown to users with existing API keys they haven't acknowledged. */
+    credentialReview: (): string => '/account/credential-review',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     emailMFAVerify: (): string => '/login/verify',

@@ -300,12 +300,10 @@ async def disable_evaluation_activity(evaluation_id: str, team_id: int, status_r
     """
 
     def _disable():
-        # We bypass save() by using .update() to avoid triggering bytecode recompilation on every run,
-        # so we must explicitly write all three fields of the status trio together.
         reason = status_reason or "trial_limit_reached"
-        Evaluation.objects.filter(id=evaluation_id, team_id=team_id).update(
-            enabled=False, status="error", status_reason=reason
-        )
+        evaluation = Evaluation.objects.filter(id=evaluation_id, team_id=team_id).first()
+        if evaluation is not None:
+            evaluation.set_status("error", reason)
 
     await database_sync_to_async(_disable)()
 
@@ -355,7 +353,7 @@ async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> 
         affected_evals = list(affected_qs.values_list("name", flat=True)[:max_listed])
         affected_evals_overflow = max(0, total_affected - max_listed)
 
-        settings_url = f"/project/{team.pk}/settings/environment-llm-analytics#llm-analytics-byok"
+        settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
         campaign_key = f"llm_analytics_trial_{inputs.threshold_pct}pct_{team.id}"
         is_exhausted = inputs.threshold_pct >= 100
 
@@ -437,8 +435,8 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             logger.warning("Team not found for evaluation disabled email", team_id=inputs.team_id)
             return
 
-        settings_url = f"/project/{team.pk}/settings/environment-llm-analytics#llm-analytics-byok"
-        evaluation_url = f"/project/{team.pk}/llm-analytics/evaluations/{inputs.evaluation_id}"
+        settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
+        evaluation_url = f"/project/{team.pk}/ai-evals/evaluations/{inputs.evaluation_id}"
         # Campaign key includes the reason so users get a fresh notification if an eval errors for a
         # different reason later (e.g. model was allowed, then the provider key got deleted).
         campaign_key = f"llm_analytics_eval_disabled_{inputs.evaluation_id}_{inputs.status_reason}"

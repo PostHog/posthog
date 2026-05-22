@@ -184,7 +184,7 @@ description: >
 
 description: >
   Debug and inspect LLM/AI agent traces using PostHog's MCP tools.
-  Use when the user pastes a trace URL (e.g. /llm-observability/traces/<id>),
+  Use when the user pastes a trace URL (e.g. /ai-observability/traces/<id>),
   asks to debug a trace, figure out what went wrong, check if an agent used a tool correctly,
   verify context/files were surfaced, inspect subagent behavior, investigate LLM decisions,
   or analyze token usage and costs.
