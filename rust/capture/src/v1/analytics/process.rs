@@ -282,7 +282,7 @@ fn apply_overflow_stamping(limiter: &OverflowLimiter, ctx: &Context, events: &mu
         buf.clear();
         event.partition_key(ctx, &mut buf);
 
-        match limiter.is_limited(buf.as_str()) {
+        match limiter.is_limited(&buf) {
             OverflowLimiterResult::ForceLimited => {
                 event.destination = Destination::Overflow;
                 // Disables person processing AND nulls partition key at sink.
