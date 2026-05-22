@@ -488,19 +488,28 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     try:
 
         @transaction.atomic
-        def do_update() -> int:
+        def do_update() -> tuple[int, bool]:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
+            if report.status == SignalReport.Status.FAILED:
+                return report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.FAILED, error=input.error)
             report.save(update_fields=updated_fields)
-            return report.run_count
+            return report.run_count, False
 
-        run_count = await database_sync_to_async(do_update, thread_sensitive=False)()
+        run_count, was_already_failed = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as failed: {e}",
             report_id=input.report_id,
         )
         raise
+
+    if was_already_failed:
+        logger.info(
+            f"Report {input.report_id} already in failed status, skipping duplicate transition",
+            report_id=input.report_id,
+        )
+        return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(

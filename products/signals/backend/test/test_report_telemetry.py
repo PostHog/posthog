@@ -116,3 +116,33 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
     assert kwargs["properties"]["failure_reason"] == "safety_judge_rejected"
     assert kwargs["properties"]["signal_count"] == 3
     assert kwargs["properties"]["source_products"] == ["zendesk"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_failed_is_idempotent_when_already_failed(ateam):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.FAILED,
+        signal_count=3,
+        total_weight=2.0,
+        error="Original failure",
+    )
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
+        await mark_report_failed_activity(
+            MarkReportFailedInput(
+                team_id=ateam.id,
+                report_id=report_id,
+                error="Retry-attempt error message",
+                failure_reason="agentic_activity_error",
+                signal_count=3,
+                source_products=["zendesk"],
+            )
+        )
+
+    capture.assert_not_called()
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
+    assert refreshed.status == SignalReport.Status.FAILED
+    assert refreshed.error == "Original failure"
