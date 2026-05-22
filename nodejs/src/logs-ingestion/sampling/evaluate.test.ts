@@ -461,7 +461,41 @@ describe('evaluateLogRecord', () => {
         // ALWAYS resolve a record before rate_limit can claim it, even when rate_limit
         // appears first in the priority-ordered rule list.
 
-        it('path_drop wins when rate_limit appears earlier in rule order', () => {
+        it.each([
+            {
+                label: 'path_drop wins when rate_limit appears earlier in rule order',
+                extraRule: {
+                    id: 'pd-second',
+                    rule_type: 'path_drop' as const,
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: { patterns: ['/healthz'] },
+                },
+                patchRecord: (_rec: LogRecord) => {},
+                expected: { kind: 'resolved', decision: SAMPLING_DECISION_DROP, ruleId: 'pd-second' },
+            },
+            {
+                label: 'severity_sampling drop wins when rate_limit appears earlier in rule order',
+                extraRule: {
+                    id: 'ss-second',
+                    rule_type: 'severity_sampling' as const,
+                    scope_service: null,
+                    scope_path_pattern: null,
+                    scope_attribute_filters: [],
+                    config: {
+                        actions: {
+                            DEBUG: { type: 'keep' },
+                            INFO: { type: 'drop' },
+                            WARN: { type: 'keep' },
+                            ERROR: { type: 'keep' },
+                        },
+                    },
+                },
+                patchRecord: (rec: LogRecord) => { rec.severity_text = 'info' },
+                expected: { kind: 'resolved', decision: SAMPLING_DECISION_DROP, ruleId: 'ss-second' },
+            },
+        ])('$label', ({ extraRule, patchRecord, expected }) => {
             const rules = compileRuleSet([
                 {
                     id: 'rl-first',
@@ -471,22 +505,12 @@ describe('evaluateLogRecord', () => {
                     scope_attribute_filters: [],
                     config: { logs_per_second: 10 },
                 },
-                {
-                    id: 'pd-second',
-                    rule_type: 'path_drop',
-                    scope_service: null,
-                    scope_path_pattern: null,
-                    scope_attribute_filters: [],
-                    config: { patterns: ['/healthz'] },
-                },
+                extraRule,
             ])
             const rec = baseRecord()
             rec.service_name = 'api'
-            expect(classifySamplingRecord(rules, rec)).toEqual({
-                kind: 'resolved',
-                decision: SAMPLING_DECISION_DROP,
-                ruleId: 'pd-second',
-            })
+            patchRecord(rec)
+            expect(classifySamplingRecord(rules, rec)).toEqual(expected)
         })
 
         it('severity_sampling drop wins when rate_limit appears earlier in rule order', () => {
