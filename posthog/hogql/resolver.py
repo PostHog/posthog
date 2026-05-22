@@ -1108,7 +1108,16 @@ class Resolver(CloningVisitor):
                 node_type = ast.ColumnAliasedTableType(
                     alias=table_alias, table_type=node_table_type, alias_to_original=alias_to_original
                 )
-            elif table_alias != table_name_alias or isinstance(database_table, FunctionCallTable):
+            elif (
+                table_alias != table_name_alias
+                or isinstance(database_table, FunctionCallTable)
+                or (isinstance(database_table, LazyTable) and len(table_name_chain) > 1)
+            ):
+                # Multi-segment LazyTable references (e.g. `FROM posthog.foo`) get registered in
+                # `scope.tables` under the joined alias (`posthog__foo`), but `get_long_table_name`
+                # falls back to `LazyTable.to_printed_hogql()` for unwrapped `LazyTableType`, which
+                # returns the short name. Wrap in `TableAliasType` so both sides agree on the key
+                # and the lazy-table resolver in `transforms/lazy_tables.py` can look the table up.
                 node_type = ast.TableAliasType(alias=table_alias, table_type=node_table_type)
             else:
                 node_type = node_table_type
