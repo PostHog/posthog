@@ -10,7 +10,7 @@
         },
         "posthog-local": {
             "command": "npx",
-            "args": ["-y", "mcp-remote@latest", "http://localhost:8787/mcp"]
+            "args": ["-y", "mcp-remote@0.1.38", "http://localhost:8787/mcp"]
         }
     }
 }
