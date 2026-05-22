@@ -29,28 +29,26 @@ export function GitLabIntegration(): JSX.Element {
     )
 }
 
-const ERROR_TRACKING_INTEGRATIONS_NEXT = urls.settings('environment-error-tracking', 'error-tracking-integrations')
-
-export function LinearIntegration(): JSX.Element {
-    return <OAuthIntegration kind="linear" connectText="Connect workspace" next={ERROR_TRACKING_INTEGRATIONS_NEXT} />
+export function LinearIntegration({ next }: { next?: string }): JSX.Element {
+    return <OAuthIntegration kind="linear" connectText="Connect workspace" next={next} />
 }
 
-export function LinearAgentIntegration(): JSX.Element {
+export function LinearAgentIntegration({ next }: { next?: string }): JSX.Element {
     return (
         <OAuthIntegration
             kind="linear-agent"
             connectText="Connect workspace"
-            next={urls.settings('environment-integrations', 'integration-linear-agent')}
+            next={next ?? urls.settings('environment-integrations', 'integration-linear-agent')}
         />
     )
 }
 
-export function GithubIntegration(): JSX.Element {
-    return <OAuthIntegration kind="github" connectText="Connect organization" next={ERROR_TRACKING_INTEGRATIONS_NEXT} />
+export function GithubIntegration({ next }: { next?: string }): JSX.Element {
+    return <OAuthIntegration kind="github" connectText="Connect organization" next={next} />
 }
 
-export function JiraIntegration(): JSX.Element {
-    return <OAuthIntegration kind="jira" connectText="Connect site" next={ERROR_TRACKING_INTEGRATIONS_NEXT} />
+export function JiraIntegration({ next }: { next?: string }): JSX.Element {
+    return <OAuthIntegration kind="jira" connectText="Connect site" next={next} />
 }
 
 const OAuthIntegration = ({
@@ -60,14 +58,14 @@ const OAuthIntegration = ({
 }: {
     kind: IntegrationKind
     connectText: string
-    next: string
+    next?: string
 }): JSX.Element => {
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
     const authorizationUrl = api.integrations.authorizeUrl({
-        next,
+        next: next ?? urls.settings('environment-integrations'),
         kind,
     })
 
