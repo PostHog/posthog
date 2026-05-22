@@ -114,8 +114,8 @@ export const accountsLogic = kea<accountsLogicType>([
                         breakpoint()
                         return { count: response.count, results: response.results }
                     } catch (error) {
-                        if (!isBreakpoint(error)) {
-                            posthog.captureException(error, { scope: 'accountsLogic.loadAccounts' })
+                        if (!isBreakpoint(error as Error)) {
+                            posthog.captureException(error as Error, { scope: 'accountsLogic.loadAccounts' })
                             lemonToast.error('Failed to load accounts')
                         }
                         throw error
