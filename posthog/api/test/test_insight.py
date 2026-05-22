@@ -884,6 +884,47 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "explicit order=-id should override relevance ranking and put newer insight first"
         )
 
+    @parameterized.expand(
+        [
+            ("dashboards", "dashboards"),
+            ("events", "events"),
+            ("tags", "tags"),
+            ("created_by", "created_by"),
+        ]
+    )
+    def test_list_filter_with_malformed_json_returns_400(self, _name: str, param: str) -> None:
+        # Bare non-JSON value (e.g. from a double-URL-encoded array like %255B1%255D decoding to %5B1%5D)
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {param: "%5B1%5D"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        body = response.json()
+        assert body["attr"] == param, f"expected error scoped to '{param}', got {body}"
+
+    @parameterized.expand(
+        [
+            ("dashboards", "dashboards"),
+            ("events", "events"),
+            ("tags", "tags"),
+            ("created_by", "created_by"),
+        ]
+    )
+    def test_list_filter_with_trailing_junk_returns_400(self, _name: str, param: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {param: "[1,2]extra"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        body = response.json()
+        assert body["attr"] == param, f"expected error scoped to '{param}', got {body}"
+
+    @parameterized.expand(
+        [
+            ("dashboards", "dashboards", "[]"),
+            ("events", "events", "[]"),
+            ("tags", "tags", "[]"),
+            ("created_by", "created_by", "[]"),
+        ]
+    )
+    def test_list_filter_with_valid_json_returns_200(self, _name: str, param: str, value: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {param: value})
+        assert response.status_code == status.HTTP_200_OK, response.content
+
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @snapshot_postgres_queries

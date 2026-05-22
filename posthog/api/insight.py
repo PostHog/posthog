@@ -1673,9 +1673,13 @@ class InsightViewSet(
                 )
             elif key == "events":
                 events_filter = request.GET["events"]
-                events = json.loads(events_filter) if events_filter else []
-                for event in events:
-                    queryset = queryset.filter(Q(query_metadata__events__contains=[event]))
+                if events_filter:
+                    try:
+                        events = json.loads(events_filter)
+                    except json.JSONDecodeError:
+                        raise ValidationError({"events": "Expected a JSON array, got invalid JSON."})
+                    for event in events:
+                        queryset = queryset.filter(Q(query_metadata__events__contains=[event]))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
@@ -1736,7 +1740,10 @@ class InsightViewSet(
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
-                    dashboards_ids = json.loads(dashboards_filter)
+                    try:
+                        dashboards_ids = json.loads(dashboards_filter)
+                    except json.JSONDecodeError:
+                        raise ValidationError({"dashboards": "Expected a JSON array, got invalid JSON."})
                     for dashboard_id in dashboards_ids:
                         # filter by dashboards one at a time so the filter is AND not OR
                         queryset = queryset.filter(
@@ -1747,13 +1754,19 @@ class InsightViewSet(
             elif key == "tags":
                 tags_filter = request.GET["tags"]
                 if tags_filter:
-                    tags_list = json.loads(tags_filter)
+                    try:
+                        tags_list = json.loads(tags_filter)
+                    except json.JSONDecodeError:
+                        raise ValidationError({"tags": "Expected a JSON array, got invalid JSON."})
                     if tags_list:
                         queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
                 if created_by_filter:
-                    created_by_ids = json.loads(created_by_filter)
+                    try:
+                        created_by_ids = json.loads(created_by_filter)
+                    except json.JSONDecodeError:
+                        raise ValidationError({"created_by": "Expected a JSON array, got invalid JSON."})
                     if created_by_ids:
                         queryset = queryset.filter(created_by__id__in=created_by_ids)
             elif key == "created_date_from":
