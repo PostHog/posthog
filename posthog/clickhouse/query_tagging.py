@@ -43,7 +43,8 @@ class Product(StrEnum):
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX_AI = "max_ai"
-    MCP = "mcp"
+    MCP = "mcp"  # queries originating through the MCP server (agent tool calls)
+    MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
     MOBILE_REPLAY = "mobile_replay"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
