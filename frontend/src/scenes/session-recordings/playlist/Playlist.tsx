@@ -313,6 +313,7 @@ export function Playlist({
                                                 <SectionContent
                                                     section={s}
                                                     loading={!!sessionRecordingsResponseLoading}
+                                                    globalLoading={!!sessionRecordingsResponseLoading}
                                                     setActiveItemId={onChangeActiveItem}
                                                     activeItemId={activeItemId}
                                                     emptyState={listEmptyState}
@@ -330,6 +331,7 @@ export function Playlist({
                                 <SectionContent
                                     section={sections[0]}
                                     loading={!!sessionRecordingsResponseLoading}
+                                    globalLoading={!!sessionRecordingsResponseLoading}
                                     setActiveItemId={onChangeActiveItem}
                                     activeItemId={activeItemId}
                                     emptyState={listEmptyState}
@@ -426,15 +428,17 @@ const CollectionEmptyState = ({
     )
 }
 
-function SectionContent({
+export function SectionContent({
     section,
     loading,
+    globalLoading,
     activeItemId,
     setActiveItemId,
     emptyState,
 }: {
     section: PlaylistSection
     loading: boolean
+    globalLoading: boolean
     activeItemId: SessionRecordingType['id'] | null
     setActiveItemId: (item: SessionRecordingType) => void
     emptyState: JSX.Element
@@ -443,7 +447,7 @@ function SectionContent({
         <>{section.content}</>
     ) : 'items' in section && !!section.items.length ? (
         <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} />
-    ) : loading ? (
+    ) : loading || globalLoading ? (
         <LoadingState />
     ) : (
         emptyState
