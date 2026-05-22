@@ -19,8 +19,8 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 ADD_POSTHOG_IDENTITY_COLUMNS_REPLICATED = """
 ALTER TABLE IF EXISTS {table}
-    ADD COLUMN IF NOT EXISTS posthog_session_id String MATERIALIZED attributes_map_str['posthog.session_id_str'] CODEC(ZSTD(1)),
-    ADD COLUMN IF NOT EXISTS posthog_distinct_id String MATERIALIZED attributes_map_str['posthog.distinct_id_str'] CODEC(ZSTD(1)),
+    ADD COLUMN IF NOT EXISTS posthog_session_id String MATERIALIZED attributes_map_str['posthog.session_id__str'] CODEC(ZSTD(1)),
+    ADD COLUMN IF NOT EXISTS posthog_distinct_id String MATERIALIZED attributes_map_str['posthog.distinct_id__str'] CODEC(ZSTD(1)),
     ADD INDEX IF NOT EXISTS idx_posthog_session_id posthog_session_id TYPE bloom_filter(0.01) GRANULARITY 1,
     ADD INDEX IF NOT EXISTS idx_posthog_distinct_id posthog_distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
 """
