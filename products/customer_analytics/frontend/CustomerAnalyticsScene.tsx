@@ -205,7 +205,11 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
                                         icon={<IconGear />}
                                         size="small"
                                         type="secondary"
-                                        to={urls.customerAnalyticsConfiguration()}
+                                        to={
+                                            activeTab === 'accounts'
+                                                ? `${urls.customerAnalyticsConfiguration()}?tab=customer-analytics-accounts`
+                                                : urls.customerAnalyticsConfiguration()
+                                        }
                                         onClick={() => {
                                             addProductIntent({
                                                 product_type: ProductKey.CUSTOMER_ANALYTICS,
