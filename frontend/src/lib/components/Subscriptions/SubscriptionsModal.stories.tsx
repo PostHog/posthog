@@ -9,17 +9,19 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { useAvailableFeatures } from '~/mocks/features'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
-import { AvailableFeature, InsightShortId, Realm } from '~/types'
+import { InsightShortId, Realm } from '~/types'
 
 import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
 
 type StoryArgs = SubscriptionsModalProps & {
     noIntegrations?: boolean
-    featureAvailable?: boolean
     aiSummaryAtLimit?: boolean
+    // Team-wide subscription count returned to the free-tier create gate (subscriptionCountLogic).
+    // Free orgs (the Storybook default has no SUBSCRIPTIONS entitlement) see the create form while
+    // under FREE_LIMIT and the upsell once at/over it.
+    freeTierSubscriptionCount?: number
 }
 
 const meta: Meta<StoryArgs> = {
@@ -31,11 +33,9 @@ const meta: Meta<StoryArgs> = {
         mockDate: '2023-01-31 12:00:00',
     },
     render: (args) => {
-        const { noIntegrations = false, featureAvailable = true, aiSummaryAtLimit = false, ...props } = args
+        const { noIntegrations = false, aiSummaryAtLimit = false, freeTierSubscriptionCount, ...props } = args
         const insightShortIdRef = useRef(props.insightShortId || (uuid() as InsightShortId))
         const [modalOpen, setModalOpen] = useState(false)
-
-        useAvailableFeatures(featureAvailable ? [AvailableFeature.SUBSCRIPTIONS] : [])
 
         useEffect(() => {
             if (!aiSummaryAtLimit) {
@@ -95,6 +95,10 @@ const meta: Meta<StoryArgs> = {
                               ],
                 },
                 '/api/environments/:id/subscriptions/:subId': createMockSubscription(),
+                // Feeds the free-tier create gate (subscriptionCountLogic → GET /subscriptions?limit=1).
+                ...(freeTierSubscriptionCount !== undefined
+                    ? { '/api/projects/:id/subscriptions/': { count: freeTierSubscriptionCount, results: [] } }
+                    : {}),
                 '/api/projects/:id/subscriptions/summary_quota': aiSummaryAtLimit
                     ? { active_count: 10, limit: 10, at_limit: true }
                     : { active_count: 0, limit: 10, at_limit: false },
@@ -156,10 +160,16 @@ export const SubscriptionsEdit: Story = {
     args: { subscriptionId: 1 },
 }
 
-export const SubscriptionsUnavailable: Story = {
-    args: { featureAvailable: false },
-}
-
 export const SubscriptionAtAISummaryLimit: Story = {
     args: { subscriptionId: 'new', aiSummaryAtLimit: true },
+}
+
+// Freemium gate: a free org under the 5-subscription limit sees the normal create form.
+export const SubscriptionsNewFreeUnderLimit: Story = {
+    args: { subscriptionId: 'new', freeTierSubscriptionCount: 2 },
+}
+
+// Freemium gate: a free org at the limit sees the upgrade paywall instead of the create form.
+export const SubscriptionsNewFreeAtLimit: Story = {
+    args: { subscriptionId: 'new', freeTierSubscriptionCount: 5 },
 }

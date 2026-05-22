@@ -26,14 +26,13 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
 from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
-from posthog.permissions import PremiumFeaturePermission
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.security.url_validation import is_url_allowed
@@ -188,6 +187,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return info.name if info else None
 
     def validate(self, attrs):
+        request = self.context.get("request")
+        if request is not None and request.method == "POST":
+            msg = Subscription.check_subscription_limit(self.context["team_id"], self.context["get_organization"]())
+            if msg:
+                raise ValidationError({"subscription": [msg]})
+
         if not self.initial_data:
             # Create
             if not attrs.get("dashboard") and not attrs.get("insight"):
@@ -624,8 +629,6 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     scope_object = "subscription"
     queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
-    permission_classes = [PremiumFeaturePermission]
-    premium_feature = AvailableFeature.SUBSCRIPTIONS
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = [
         "title",
@@ -888,8 +891,6 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
     scope_object = "subscription"
     queryset = SubscriptionDelivery.objects.all()
     serializer_class = SubscriptionDeliverySerializer
-    permission_classes = [PremiumFeaturePermission]
-    premium_feature = AvailableFeature.SUBSCRIPTIONS
     pagination_class = SubscriptionDeliveryCursorPagination
     ordering = "-created_at"
 

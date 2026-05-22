@@ -6,6 +6,7 @@ import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-u
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
@@ -26,10 +27,12 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { userLogic } from 'scenes/userLogic'
 
-import { DashboardType, InsightShortId } from '~/types'
+import { AvailableFeature, DashboardType, InsightShortId } from '~/types'
 
 import { InsightSelector } from '../InsightSelector'
+import { subscriptionCountLogic } from '../subscriptionCountLogic'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
@@ -53,7 +56,47 @@ interface EditSubscriptionProps {
     onDelete: () => void
 }
 
-export function EditSubscription({
+// Must match the backend free-tier limit (AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER, read by
+// Subscription.check_subscription_limit). Subscriptions are freemium: free orgs get this many, then
+// the paywall appears on the next create. Edits are never gated.
+export const FREE_LIMIT = 5
+
+// A free org's next create is blocked once it's at/over the limit. A null count is "unknown"
+// (still loading or fetch failed) — fail open and let the form through; the backend POST check is
+// the hard limit. Exported so the boundary behavior is unit-testable without rendering the form.
+export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
+    return subscriptionCount !== null && subscriptionCount >= FREE_LIMIT
+}
+
+export function EditSubscription(props: EditSubscriptionProps): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
+    const isCreating = props.id === 'new'
+    const hasSubscriptionsFeature = hasAvailableFeature(AvailableFeature.SUBSCRIPTIONS)
+
+    // Editing existing subscriptions, and any paid org, are never gated and never fetch the count.
+    if (!isCreating || hasSubscriptionsFeature) {
+        return <EditSubscriptionForm {...props} />
+    }
+    return <FreeTierCreateGate {...props} />
+}
+
+function FreeTierCreateGate(props: EditSubscriptionProps): JSX.Element {
+    const { subscriptionCount } = useValues(subscriptionCountLogic)
+
+    if (isFreeTierCreateAtLimit(subscriptionCount)) {
+        return (
+            <PayGateMini
+                feature={AvailableFeature.SUBSCRIPTIONS}
+                background={false}
+                className="py-8 flex-1 min-h-0 flex flex-col"
+                docsLink="https://posthog.com/docs/user-guides/subscriptions"
+            />
+        )
+    }
+    return <EditSubscriptionForm {...props} />
+}
+
+function EditSubscriptionForm({
     id,
     insightShortId,
     dashboard,
