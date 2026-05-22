@@ -104,6 +104,13 @@ def format_annotations_for_prompt(annotations: list[dict[str, Any]]) -> str:
         # LLM tokenizers split on \u2028 and \u2029 the same as \n, so a hand-crafted
         # annotation could otherwise inject a fake new section after the delimited block.
         clean = content.translate(_LINE_BREAK_TRANSLATION)
+        # Neutralise angle brackets so a malicious annotation cannot close the
+        # `<annotations>` delimiter and inject a fake `<core_memory>` or
+        # `<insight_data>` block the surrounding system prompt treats as trusted
+        # tag-scoped context. Replaced with the unicode-lookalike single guillemets
+        # so a reader can still see the original intent without the LLM parsing
+        # them as tag boundaries.
+        clean = clean.replace("<", "‹").replace(">", "›")
         if len(clean) > MAX_ANNOTATION_CONTENT_CHARS:
             clean = clean[:MAX_ANNOTATION_CONTENT_CHARS] + "…"
         lines.append(f"- {date_marker.date().isoformat()} ({a['scope']}): {clean}")
