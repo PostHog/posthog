@@ -1301,6 +1301,9 @@ class DashboardsViewSet(
         Generate AI analysis comparing before/after dashboard refresh.
         Expects cache_key in request body pointing to the stored 'before' state.
         """
+        if not self.organization.is_ai_data_processing_approved:
+            raise exceptions.PermissionDenied("AI data processing must be approved by your organization")
+
         dashboard = self.get_object()
         cache_key = request.data.get("cache_key")
 
