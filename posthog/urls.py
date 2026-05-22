@@ -57,6 +57,7 @@ from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
+from products.slack_app.backend.audit_command import posthog_code_slash_command_handler
 from products.surveys.backend.api.survey import public_survey_page
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
@@ -404,6 +405,7 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
+    opt_slash_path("slack/slash-command", posthog_code_slash_command_handler),
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),

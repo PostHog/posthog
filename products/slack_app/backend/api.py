@@ -42,6 +42,13 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
+from products.slack_app.backend.audit_command import (
+    AUDIT_CANCEL_ACTION_ID,
+    AUDIT_CONFIRM_ACTION_ID,
+    extract_audit_hints,
+    handle_audit_cancel,
+    handle_audit_confirm,
+)
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
 
 logger = structlog.get_logger(__name__)
@@ -1663,6 +1670,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     context = _decode_picker_context(context_token) if context_token else None
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
+    audit_integration_id, audit_user_id = extract_audit_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
 
@@ -1684,6 +1692,12 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind="slack-posthog-code",
+            integration_id=slack_team_id,
+        ).exists()
+    elif slack_team_id and audit_integration_id and (not audit_user_id or requesting_user == audit_user_id):
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=audit_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind="slack-posthog-code",
             integration_id=slack_team_id,
         ).exists()
@@ -1734,5 +1748,9 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_no_repo_needed_submit(payload)
             if action.get("action_id") == "posthog_code_terminate_task":
                 return _handle_terminate_task_submit(payload)
+            if action.get("action_id") == AUDIT_CONFIRM_ACTION_ID:
+                return handle_audit_confirm(payload)
+            if action.get("action_id") == AUDIT_CANCEL_ACTION_ID:
+                return handle_audit_cancel(payload)
 
     return HttpResponse(status=200)
