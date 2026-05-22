@@ -1058,6 +1058,93 @@ class TestIntegrationAPIKeyAccess:
         elif expected_detail_substring is not None:
             assert expected_detail_substring in response.json()["detail"]
 
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_search_and_pagination(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_SEARCH",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_channels.return_value = [
+            {
+                "id": "C1",
+                "name": "general",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+            {
+                "id": "C2",
+                "name": "random",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+            {
+                "id": "C3",
+                "name": "engineering",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+            {
+                "id": "CPRIVATE",
+                "name": PRIVATE_CHANNEL_WITHOUT_ACCESS,
+                "is_private": True,
+                "is_member": False,
+                "is_ext_shared": False,
+                "is_private_without_access": True,
+            },
+        ]
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_search"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        base_url = f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/"
+
+        response = client.get(
+            f"{base_url}?search=eng&limit=10",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["channels"] == [
+            {
+                "id": "C3",
+                "name": "engineering",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            }
+        ]
+        assert data["has_more"] is False
+
+        response = client.get(
+            f"{base_url}?limit=1&offset=1",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["channels"]) == 1
+        assert data["channels"][0]["id"] == "C2"
+        assert data["has_more"] is True
+
+        mock_slack_instance.list_channels.assert_called_once()
+
     def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
         slack_integration = Integration.objects.create(
             team=self.team,
