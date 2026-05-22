@@ -21,7 +21,9 @@ class TestInternalAPIAuth(APIBaseTest):
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_valid_secret_allows_access(self):
         request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET="test-secret-123"))
-        user, auth = self.authentication.authenticate(request)
+        result = self.authentication.authenticate(request)
+        assert result is not None
+        user, auth = result
         self.assertTrue(user.is_authenticated)
         self.assertFalse(user.is_anonymous)
         self.assertIsNone(auth)
@@ -67,8 +69,10 @@ class TestInternalAPIAuth(APIBaseTest):
             team_model.objects.only.return_value.get.return_value = mocked_team
             mock_get_model.return_value = team_model
 
-            user, auth = self.authentication.authenticate(request)
+            result = self.authentication.authenticate(request)
 
+        assert result is not None
+        user, auth = result
         self.assertEqual(user.current_team_id, mocked_team.id)
         self.assertEqual(user.current_organization_id, mocked_team.organization_id)
         self.assertIsNone(auth)
@@ -87,7 +91,9 @@ class TestInternalAPIAuth(APIBaseTest):
             parser_context={"kwargs": {"team_id": str(self.team.id)}},
         )
 
-        user, _ = self.authentication.authenticate(request)
+        result = self.authentication.authenticate(request)
+        assert result is not None
+        user, _ = result
 
         self.assertEqual(user.current_organization_id, self.organization.id)
         self.assertEqual(user.current_team_id, self.team.id)

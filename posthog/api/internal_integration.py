@@ -282,7 +282,7 @@ class InternalIntegrationViewSet(viewsets.ViewSet):
         if user_match is not None:
             user = user_match.user
             cache_key = _cache_key(scope_id, kind, integration_id, str(user_match.id))
-            if user.current_team_id is None or user.current_organization_id is None:
+            if user.current_team_id is None or user.current_organization_id is None or user.current_team is None:
                 return Response({"error": "User has no current team"}, status=404)
             # Personal integrations must not keep granting a token to a user who
             # has been disabled, removed from the organization, or lost project
