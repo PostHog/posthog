@@ -80,7 +80,7 @@ import {
     TaggersCreateBody,
     TaggersListQueryParams,
     TaggersTestHogCreateBody,
-} from '@/generated/llm_analytics/api'
+} from '@/generated/ai_observability/api'
 import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
