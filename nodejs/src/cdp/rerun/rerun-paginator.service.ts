@@ -2,7 +2,6 @@ import { ClickHouseClient } from '@clickhouse/client'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
 import { HogInputsService } from '../services/hog-inputs.service'
@@ -12,7 +11,10 @@ import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-pos
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
-import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
+import {
+    HogInvocationResultsService,
+    decodeInvocationGlobals,
+} from '../services/monitoring/hog-invocation-results.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -483,7 +485,7 @@ export class RerunPaginatorService {
     ): Promise<CyclotronJobInvocation | null> {
         let parsedGlobals: unknown
         try {
-            parsedGlobals = parseJSON(row.invocation_globals)
+            parsedGlobals = await decodeInvocationGlobals(row.invocation_globals)
         } catch {
             return null
         }

@@ -39,6 +39,7 @@ interface PersistedRow {
     attempts: number
     error_kind: string
     function_kind: string
+    invocation_globals: string
 }
 
 /**
@@ -261,13 +262,19 @@ describe('CDP hog invocation rerun e2e', () => {
         }, 30_000)
 
         const originalRows = await clickhouse.query<PersistedRow>(
-            `SELECT invocation_id, status, is_retry, attempts, error_kind, function_kind
+            `SELECT invocation_id, status, is_retry, attempts, error_kind, function_kind, invocation_globals
              FROM hog_invocation_results
              WHERE team_id = ${team.id} AND function_id = '${fnFetch.id}' AND status = 'succeeded'`
         )
         const originalInvocationId = originalRows[0].invocation_id
         expect(originalRows[0].is_retry).toBe(0)
         expect(originalRows[0].function_kind).toBe('hog_function')
+        // invocation_globals is stored gzip+base64'd, not raw JSON — base64
+        // never starts with `{`. The rerun below proves the round-trip: it can
+        // only rehydrate and re-run if `decodeInvocationGlobals` decompresses
+        // this value correctly.
+        expect(originalRows[0].invocation_globals.length).toBeGreaterThan(0)
+        expect(originalRows[0].invocation_globals.startsWith('{')).toBe(false)
         // The prior cyclotron_jobs row is in a terminal 'completed' state by
         // this point. The rerun path's `overwriteExisting: true` upsert
         // (cyclotron-v2 ON CONFLICT) handles the PK collision without us

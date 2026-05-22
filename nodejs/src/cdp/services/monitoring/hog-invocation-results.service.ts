@@ -1,9 +1,12 @@
+import { promisify } from 'node:util'
+import { gunzip, gzip } from 'node:zlib'
 import { Counter, Gauge } from 'prom-client'
 
 import { HOG_INVOCATION_RESULTS_OUTPUT, HogInvocationResultsOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 
 import { safeClickhouseString } from '../../../utils/db/utils'
+import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import type { CdpOutput } from '../../cdp-services'
@@ -68,7 +71,7 @@ export interface HogInvocationResultRow {
     event_uuid: string
     distinct_id: string
     person_id: string
-    invocation_globals: string // pre-serialized JSON
+    invocation_globals: string // stripped globals JSON — gzip+base64'd on produce
     version: string // microsecond-precision UInt64; serialized as string to dodge JS's 53-bit precision
     is_deleted: 0 | 1
 }
@@ -218,6 +221,31 @@ const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string 
         return JSON.stringify(stripInputs(invocation.state ?? {}))
     }
     return '{}'
+}
+
+const gzipAsync = promisify(gzip)
+const gunzipAsync = promisify(gunzip)
+
+// `invocation_globals` is the bulk of every lifecycle row. Warpstream meters
+// the uncompressed message bytes, so gzipping this one field before produce
+// directly cuts cyclotron throughput. The row envelope stays plain JSON — only
+// this field is opaque — so the ClickHouse Kafka engine still parses the
+// message as JSONEachRow. `decodeInvocationGlobals` is the inverse.
+const compressInvocationGlobals = async (globalsJson: string): Promise<string> => {
+    return (await gzipAsync(globalsJson)).toString('base64')
+}
+
+/**
+ * Inverse of `compressInvocationGlobals`. Used by the rerun paginator to read
+ * `invocation_globals` back off ClickHouse. Rows written before field
+ * compression landed are still raw JSON — base64 can never start with `{`, so
+ * the prefix is an unambiguous discriminator for the legacy fallback.
+ */
+export const decodeInvocationGlobals = async (stored: string): Promise<unknown> => {
+    if (stored.startsWith('{')) {
+        return parseJSON(stored)
+    }
+    return parseJSON((await gunzipAsync(Buffer.from(stored, 'base64'))).toString('utf8'))
 }
 
 const sumDurationMs = (invocation: CyclotronJobInvocation): number | null => {
@@ -457,8 +485,15 @@ export class HogInvocationResultsService {
         hogInvocationResultsPendingMessages.set(0)
 
         await Promise.all(
-            rows.map((row) => {
-                const value = Buffer.from(safeClickhouseString(JSON.stringify(row)))
+            rows.map(async (row) => {
+                const value = Buffer.from(
+                    safeClickhouseString(
+                        JSON.stringify({
+                            ...row,
+                            invocation_globals: await compressInvocationGlobals(row.invocation_globals),
+                        })
+                    )
+                )
                 return this.outputs
                     .produce(HOG_INVOCATION_RESULTS_OUTPUT, {
                         // Partition by invocation_id so all rows for a single
