@@ -280,6 +280,33 @@ class IssuesListToolUsed(_ToolUsedScorer):
     def __init__(self, *, name: str = "issues_list_tool_used"):
         super().__init__(name=name)
 
+    def _evaluate(self, output: dict | None) -> Score:
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log to parse"})
+        successful_calls = [call for call in parser.get_tool_calls(self._tool_name) if not call.is_error]
+        if not successful_calls:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": f"Agent never ran {self._tool_name} successfully"},
+            )
+        non_empty_positions = [call.position for call in successful_calls if _query_output_has_results(call.output)]
+        if not non_empty_positions:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": f"{self._tool_name} returned no issues",
+                    "successful_call_positions": [call.position for call in successful_calls],
+                },
+            )
+        return Score(
+            name=self._name(),
+            score=1.0,
+            metadata={"tool": self._tool_name, "non_empty_positions": non_empty_positions},
+        )
+
 
 class EventsToolUsed(_ToolUsedScorer):
     """Floor scorer for ``query-error-tracking-issue-events``.

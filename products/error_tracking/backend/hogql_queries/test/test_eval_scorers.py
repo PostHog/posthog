@@ -8,6 +8,7 @@ from ee.hogai.eval.sandboxed.error_tracking.scorers import (
     QUERY_ISSUES_LIST_TOOL,
     EventsToolUsed,
     IssueDrilldownOrder,
+    IssuesListToolUsed,
     _recordings_text_has_results,
 )
 
@@ -83,6 +84,19 @@ def test_events_tool_used_rejects_empty_results() -> None:
 
     assert score.score == 0.0
     assert score.metadata["reason"] == f"{QUERY_ISSUE_EVENTS_TOOL} returned no sampled events"
+
+
+def test_issues_list_tool_used_rejects_empty_results() -> None:
+    score = IssuesListToolUsed()._run_eval_sync(
+        {
+            "raw_log": _raw_tool_log(
+                [(QUERY_ISSUES_LIST_TOOL, {"searchQuery": "TypeError"}, {"results": [], "hasMore": False})]
+            )
+        }
+    )
+
+    assert score.score == 0.0
+    assert score.metadata["reason"] == f"{QUERY_ISSUES_LIST_TOOL} returned no issues"
 
 
 def test_issue_drilldown_order_requires_non_empty_events() -> None:
