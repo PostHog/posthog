@@ -1,12 +1,14 @@
 import { IconClock } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import { AlertType } from 'lib/components/Alerts/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { AlertFormType, selectAlertCalculationInterval } from '../../alertFormLogic'
-import { AlertType } from '../../types'
+import { selectAlertCalculationInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+
 import { getAlertIntervalOptions } from './editAlertModalUtils'
 
 export interface AlertIntervalRowProps {

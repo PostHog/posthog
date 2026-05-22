@@ -3,12 +3,14 @@ import { useMemo, type FocusEvent } from 'react'
 import { IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 
+import { findQuietHoursIssues, MAX_BLOCKED_WINDOWS } from 'lib/components/Alerts/scheduleRestrictionValidation'
+import type { BlockedWindow, ScheduleRestriction } from 'lib/components/Alerts/types'
+
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
-import { isHighFrequencyAlertInterval } from '../alertFormLogic'
-import { estimateCheckSlotsNext24h } from '../scheduleRestrictionPreview'
-import { findQuietHoursIssues, MAX_BLOCKED_WINDOWS } from '../scheduleRestrictionValidation'
-import type { BlockedWindow, ScheduleRestriction } from '../types'
+import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+import { estimateCheckSlotsNext24h } from 'products/alerts/frontend/logic/scheduleRestrictionPreview'
+
 import { QuietHoursDayTimeline } from './QuietHoursDayTimeline'
 
 const DEFAULT_OVERNIGHT: BlockedWindow = { start: '22:00', end: '07:00' }

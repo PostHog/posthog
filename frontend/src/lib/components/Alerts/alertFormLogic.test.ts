@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
-import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -19,15 +18,9 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, InsightLogicProps, InsightShortId } from '~/types'
+import { InsightLogicProps, InsightShortId } from '~/types'
 
-import {
-    alertFormLogic,
-    getDefaultSimulationRange,
-    isHighFrequencyAlertInterval,
-    selectAlertCalculationInterval,
-    type AlertFormType,
-} from './alertFormLogic'
+import { alertFormLogic, type AlertFormType } from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
@@ -258,83 +251,5 @@ describe('alertFormLogic', () => {
             '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
         )
         expect(successToastSpy).not.toHaveBeenCalled()
-    })
-})
-
-describe('getDefaultSimulationRange', () => {
-    it.each([
-        [AlertCalculationInterval.EVERY_15_MINUTES, '-12h'],
-        [AlertCalculationInterval.HOURLY, '-48h'],
-        [AlertCalculationInterval.DAILY, '-30d'],
-        [AlertCalculationInterval.WEEKLY, '-12w'],
-        [AlertCalculationInterval.MONTHLY, '-12m'],
-    ])('%s returns %s', (interval, expected) => {
-        expect(getDefaultSimulationRange(interval)).toBe(expected)
-    })
-})
-
-describe('selectAlertCalculationInterval', () => {
-    beforeEach(() => {
-        userLogic.mount()
-        upgradeModalLogic.mount()
-    })
-
-    it('opens upgrade modal and does not update interval when 15-minute is selected without entitlement', () => {
-        const onSelect = jest.fn()
-
-        const applied = selectAlertCalculationInterval(AlertCalculationInterval.EVERY_15_MINUTES, {
-            guardAvailableFeature: upgradeModalLogic.values.guardAvailableFeature,
-            onSelect,
-            hasHighFrequencyAlertsEntitlement: false,
-        })
-
-        expect(applied).toBe(false)
-        expect(onSelect).not.toHaveBeenCalled()
-        expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBe(AvailableFeature.HIGH_FREQUENCY_ALERTS)
-    })
-
-    it('updates interval when 15-minute is selected with entitlement', () => {
-        const onSelect = jest.fn()
-        const guardAvailableFeature: GuardAvailableFeatureFn = (_feature, callback) => {
-            callback?.()
-            return true
-        }
-
-        const applied = selectAlertCalculationInterval(AlertCalculationInterval.EVERY_15_MINUTES, {
-            guardAvailableFeature,
-            onSelect,
-            hasHighFrequencyAlertsEntitlement: true,
-        })
-
-        expect(applied).toBe(true)
-        expect(onSelect).toHaveBeenCalledWith(AlertCalculationInterval.EVERY_15_MINUTES)
-    })
-
-    it('updates interval for non-15-minute options without calling the guard', () => {
-        const onSelect = jest.fn()
-        const guardAvailableFeature = jest.fn<ReturnType<GuardAvailableFeatureFn>, Parameters<GuardAvailableFeatureFn>>(
-            () => true
-        )
-
-        selectAlertCalculationInterval(AlertCalculationInterval.HOURLY, {
-            guardAvailableFeature,
-            onSelect,
-            hasHighFrequencyAlertsEntitlement: false,
-        })
-
-        expect(onSelect).toHaveBeenCalledWith(AlertCalculationInterval.HOURLY)
-        expect(guardAvailableFeature).not.toHaveBeenCalled()
-    })
-})
-
-describe('isHighFrequencyAlertInterval', () => {
-    it.each([
-        [AlertCalculationInterval.EVERY_15_MINUTES, true],
-        [AlertCalculationInterval.HOURLY, true],
-        [AlertCalculationInterval.DAILY, false],
-        [AlertCalculationInterval.WEEKLY, false],
-        [AlertCalculationInterval.MONTHLY, false],
-    ])('%s → %s', (interval, expected) => {
-        expect(isHighFrequencyAlertInterval(interval)).toBe(expected)
     })
 })

@@ -21,7 +21,13 @@ import { userLogic } from 'scenes/userLogic'
 import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { alertFormLogic, canCheckOngoingInterval, isHighFrequencyAlertInterval } from '../alertFormLogic'
+import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
+import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
+import { AlertIntervalRow } from 'products/alerts/frontend/components/editAlertModal/AlertIntervalRow'
+import { AlertNotificationSection } from 'products/alerts/frontend/components/editAlertModal/AlertNotificationSection'
+import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+
+import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
@@ -29,10 +35,6 @@ import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
 import type { AlertType } from '../types'
 import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
-import { AlertAdvancedOptionsSection } from './editAlertModal/AlertAdvancedOptionsSection'
-import { AlertDefinitionSection } from './editAlertModal/AlertDefinitionSection'
-import { AlertIntervalRow } from './editAlertModal/AlertIntervalRow'
-import { AlertNotificationSection } from './editAlertModal/AlertNotificationSection'
 
 interface EditAlertModalProps {
     isOpen: boolean | undefined

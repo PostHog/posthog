@@ -11,15 +11,17 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import { AlertSimulationResult } from 'lib/components/Alerts/types'
+import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
+import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
-import { AlertFormType, getDefaultSimulationRange } from '../../alertFormLogic'
-import { AlertSimulationResult } from '../../types'
-import { DetectorSelector, getDefaultWindow } from '../DetectorSelector'
-import { SimulationSummary } from '../SimulationSummary'
+import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+
 import { getSimulationRangeOptions } from './editAlertModalUtils'
 
 export interface AlertDefinitionSectionProps {

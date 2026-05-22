@@ -1,11 +1,10 @@
+import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import { AlertType } from 'lib/components/Alerts/types'
+import { AlertDestinationSelector } from 'lib/components/Alerts/views/AlertDestinationSelector'
+import { InlineAlertNotifications } from 'lib/components/Alerts/views/InlineAlertNotifications'
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 
 import { InsightShortId } from '~/types'
-
-import { AlertFormType } from '../../alertFormLogic'
-import { AlertType } from '../../types'
-import { AlertDestinationSelector } from '../AlertDestinationSelector'
-import { InlineAlertNotifications } from '../InlineAlertNotifications'
 
 export interface AlertNotificationSectionProps {
     alertForm: AlertFormType

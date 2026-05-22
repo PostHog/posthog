@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
-import type { GuardAvailableFeatureFn } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -18,6 +17,13 @@ import {
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+
+import {
+    blockSubmitWithoutHighFrequencyAlertsEntitlement,
+    getDefaultSimulationRange,
+    HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE,
+    isHighFrequencyAlertInterval,
+} from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import type { alertFormLogicType } from './alertFormLogicType'
 import { alertLogic } from './alertLogic'
@@ -57,59 +63,6 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
         upper != null &&
         !isNaN(upper)
     )
-}
-
-export function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
-    switch (interval) {
-        case AlertCalculationInterval.EVERY_15_MINUTES:
-            return '-12h'
-        case AlertCalculationInterval.HOURLY:
-            return '-48h'
-        case AlertCalculationInterval.DAILY:
-            return '-30d'
-        case AlertCalculationInterval.WEEKLY:
-            return '-12w'
-        case AlertCalculationInterval.MONTHLY:
-            return '-12m'
-    }
-}
-
-export function isHighFrequencyAlertInterval(interval: AlertCalculationInterval): boolean {
-    return interval === AlertCalculationInterval.HOURLY || interval === AlertCalculationInterval.EVERY_15_MINUTES
-}
-
-const HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE =
-    '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
-
-export function blockSubmitWithoutHighFrequencyAlertsEntitlement(
-    interval: AlertCalculationInterval,
-    hasHighFrequencyAlertsEntitlement: boolean
-): boolean {
-    return interval === AlertCalculationInterval.EVERY_15_MINUTES && !hasHighFrequencyAlertsEntitlement
-}
-
-export function selectAlertCalculationInterval(
-    value: AlertCalculationInterval,
-    {
-        guardAvailableFeature,
-        onSelect,
-        hasHighFrequencyAlertsEntitlement,
-    }: {
-        guardAvailableFeature: GuardAvailableFeatureFn
-        onSelect: (interval: AlertCalculationInterval) => void
-        hasHighFrequencyAlertsEntitlement: boolean
-    }
-): boolean {
-    if (value === AlertCalculationInterval.EVERY_15_MINUTES) {
-        posthog.capture('alert 15 min interval selected', {
-            has_entitlement: hasHighFrequencyAlertsEntitlement,
-        })
-        return guardAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS, () => {
-            onSelect(value)
-        })
-    }
-    onSelect(value)
-    return true
 }
 
 export interface AlertFormLogicProps {
