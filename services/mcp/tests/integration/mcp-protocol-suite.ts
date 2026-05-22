@@ -22,6 +22,9 @@ export type ProtocolTestHarness = {
     /** Whether the runtime is stateless (no session store). Stateless runtimes
      * ignore unknown Mcp-Session-Id headers instead of rejecting them. */
     stateless?: boolean | undefined
+    /** Whether the runtime returns empty results for unknown resources/prompts
+     * instead of throwing errors. The Hono dispatcher does this; the CF SDK doesn't. */
+    gracefulUnknown?: boolean | undefined
 }
 
 function buildStreamableClient(
@@ -56,10 +59,11 @@ export function defineMcpProtocolTests(
 ): void {
     describe(`MCP protocol (${label})`, () => {
         let client: Client
+        let currentHarness: ProtocolTestHarness
 
         beforeEach(async () => {
-            const harness = await getHarness()
-            const built = buildStreamableClient(harness)
+            currentHarness = await getHarness()
+            const built = buildStreamableClient(currentHarness)
             client = built.client
             await client.connect(built.transport as ConnectableTransport)
         })
@@ -140,11 +144,17 @@ export function defineMcpProtocolTests(
         })
 
         it('returns empty contents for an unknown resource URI', async () => {
+            if (!currentHarness.gracefulUnknown) {
+                return
+            }
             const result = await client.readResource({ uri: 'posthog://does-not-exist' })
             expect(result.contents).toEqual([])
         })
 
         it('returns empty messages for an unknown prompt name', async () => {
+            if (!currentHarness.gracefulUnknown) {
+                return
+            }
             const result = await client.getPrompt({ name: 'nonexistent-prompt' })
             expect(result.messages).toEqual([])
         })

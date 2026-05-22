@@ -33,7 +33,7 @@ import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
-import { installResourceReadFallback, registerResources } from '@/resources'
+import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
@@ -720,7 +720,6 @@ export class MCP extends McpAgent<Env> {
             registerResources(this.server, context),
             registerUiAppResources(this.server, context),
         ])
-        installResourceReadFallback(this.server)
 
         // execute-sql is v2-only. Swap its description with the rich SQL prompt
         // (visible via `info execute-sql` in single-exec, and as the tool's own
