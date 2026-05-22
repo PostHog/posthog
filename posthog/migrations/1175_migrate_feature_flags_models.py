@@ -24,9 +24,7 @@ def update_content_type(apps, schema_editor):
         old = ContentType.objects.filter(app_label="posthog", model=model).first()
         if old is None:
             continue
-        new_exists = ContentType.objects.filter(
-            app_label="feature_flags", model=model
-        ).exists()
+        new_exists = ContentType.objects.filter(app_label="feature_flags", model=model).exists()
         if new_exists:
             old.delete()
         else:
@@ -40,9 +38,7 @@ def reverse_content_type(apps, schema_editor):
         new = ContentType.objects.filter(app_label="feature_flags", model=model).first()
         if new is None:
             continue
-        old_exists = ContentType.objects.filter(
-            app_label="posthog", model=model
-        ).exists()
+        old_exists = ContentType.objects.filter(app_label="posthog", model=model).exists()
         if old_exists:
             new.delete()
         else:
