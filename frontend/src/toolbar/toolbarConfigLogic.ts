@@ -107,37 +107,14 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         // returns the canonical `origin` (lowercased hostname, no trailing slash, no
         // path/query/hash). This keeps every downstream comparison and display string
         // byte-for-byte consistent regardless of which branch resolved.
+        //
+        // The final value is run through rewriteCloudIngestionUiHost so any
+        // Cloud ingestion host (us.i.posthog.com, eu.i.posthog.com, app.i.posthog.com)
+        // is mapped to its matching app host — older posthog-js versions occasionally
+        // hand us the ingestion host as uiHost, which doesn't mount /toolbar_oauth/*.
         uiHost: [
             (s) => [s.props],
-            (props: ToolbarProps): string => {
-                const propsUiHost = canonicalizeUiHost(props.uiHost)
-                if (propsUiHost) {
-                    return propsUiHost
-                }
-                if (props.uiHost) {
-                    toolbarLogger.warn('config', 'Invalid uiHost URL provided', { uiHost: props.uiHost })
-                }
-
-                // requestRouter.uiHost honours explicit ui_host config and derives from
-                // api_host for Cloud (strips the .i. ingestion infix).
-                const fromRouter = canonicalizeUiHost(
-                    (props.posthog as any)?.requestRouter?.uiHost as string | undefined
-                )
-                if (fromRouter) {
-                    return fromRouter
-                }
-
-                // Fallback for old posthog-js without requestRouter.
-                const fromConfig = canonicalizeUiHost(props.posthog?.config?.ui_host)
-                if (fromConfig) {
-                    return fromConfig
-                }
-                const fromApi = canonicalizeUiHost(props.apiURL)
-                if (fromApi) {
-                    return fromApi
-                }
-                return window.location.origin
-            },
+            (props: ToolbarProps): string => rewriteCloudIngestionUiHost(resolveUiHostCandidate(props)),
         ],
         // Host for static assets (the toolbar CSS `<link href>`) and for the
         // `api_host` property emitted on toolbar telemetry. NEVER use for
@@ -396,6 +373,69 @@ export function isPostHogCloudHost(uiHost: string): boolean {
     } catch {
         return false
     }
+}
+
+// Cloud ingestion hostnames that should be rewritten to their app-host equivalent
+// when they show up as a uiHost candidate. The toolbar's /toolbar_oauth/* routes
+// are mounted only on the app host (see posthog/urls.py), so a HEAD probe to
+// ${ingestionHost}/toolbar_oauth/check legitimately 404s — that 404 then bubbles
+// up to error tracking as a noise issue. posthog-js's requestRouter normally
+// strips the `.i.` infix, but older or misconfigured clients still surface the
+// ingestion host here. Keep this table aligned with TRUSTED_POSTHOG_CLOUD_HOSTNAMES.
+const POSTHOG_CLOUD_INGESTION_TO_APP_HOST: Record<string, string> = {
+    'us.i.posthog.com': 'us.posthog.com',
+    'eu.i.posthog.com': 'eu.posthog.com',
+    'app.i.posthog.com': 'app.posthog.com',
+}
+
+/**
+ * If `uiHost` is a known PostHog Cloud ingestion hostname, return the equivalent
+ * app hostname (preserving the scheme). Otherwise return the input unchanged.
+ *
+ * Only rewrites the canonical Cloud regions — never customer reverse-proxy
+ * domains, since we don't know whether a given proxy serves the app or only
+ * ingestion. Those cases are handled by the catch-branch suppression in
+ * verifyUiHostReachability.
+ */
+export function rewriteCloudIngestionUiHost(uiHost: string): string {
+    try {
+        const parsed = new URL(uiHost)
+        const mapped = POSTHOG_CLOUD_INGESTION_TO_APP_HOST[parsed.hostname]
+        if (mapped) {
+            return `${parsed.protocol}//${mapped}`
+        }
+    } catch {
+        // fall through
+    }
+    return uiHost
+}
+
+function resolveUiHostCandidate(props: ToolbarProps): string {
+    const propsUiHost = canonicalizeUiHost(props.uiHost)
+    if (propsUiHost) {
+        return propsUiHost
+    }
+    if (props.uiHost) {
+        toolbarLogger.warn('config', 'Invalid uiHost URL provided', { uiHost: props.uiHost })
+    }
+
+    // requestRouter.uiHost honours explicit ui_host config and derives from
+    // api_host for Cloud (strips the .i. ingestion infix).
+    const fromRouter = canonicalizeUiHost((props.posthog as any)?.requestRouter?.uiHost as string | undefined)
+    if (fromRouter) {
+        return fromRouter
+    }
+
+    // Fallback for old posthog-js without requestRouter.
+    const fromConfig = canonicalizeUiHost(props.posthog?.config?.ui_host)
+    if (fromConfig) {
+        return fromConfig
+    }
+    const fromApi = canonicalizeUiHost(props.apiURL)
+    if (fromApi) {
+        return fromApi
+    }
+    return window.location.origin
 }
 
 /**
@@ -659,13 +699,21 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // A 404 here means uiHost is reachable but doesn't mount /toolbar_oauth/check —
+            // the classic symptom of a customer reverse-proxy (e.g. /dachshund/<id>/static/...)
+            // or an ingestion-only host. It's a known host misconfiguration, not a code bug,
+            // so suppress the error-tracking capture but keep the telemetry event and the
+            // config-modal flow so the user can still fix it.
+            const isKnownHostMisconfig =
+                errorType === 'http_error' && error instanceof Error && error.message === 'HTTP 404'
+            if (!isKnownHostMisconfig) {
+                captureToolbarException(error, 'ui_host_check', { error_type: errorType })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 

@@ -4,10 +4,12 @@ import { initKeaTests } from '~/test/init'
 import {
     canonicalizeApiHost,
     canonicalizeUiHost,
+    rewriteCloudIngestionUiHost,
     toolbarConfigLogic,
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -331,6 +333,77 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(headCalls).toHaveLength(1)
         })
 
+        it.each([
+            ['https://us.i.posthog.com', 'https://us.posthog.com'],
+            ['https://eu.i.posthog.com', 'https://eu.posthog.com'],
+            ['https://app.i.posthog.com', 'https://app.posthog.com'],
+        ])(
+            'rewrites Cloud ingestion uiHost %s to app host %s before probing /toolbar_oauth/check',
+            (ingestionHost, expectedAppHost) => {
+                // Regression: posthog-js requestRouter.uiHost occasionally surfaces the
+                // ingestion host, where /toolbar_oauth/check is not mounted and would
+                // legitimately 404. Rewriting to the app host both fixes the probe and
+                // lets isPostHogCloudHost skip the probe entirely.
+                const logic = toolbarConfigLogic.build({
+                    posthog: { requestRouter: { uiHost: ingestionHost }, config: {} } as any,
+                } as any)
+                logic.mount()
+                expect(logic.values.uiHost).toBe(expectedAppHost)
+                // Rewritten to a trusted Cloud host, so the HEAD probe is skipped entirely.
+                const headCalls = (global.fetch as jest.Mock).mock.calls.filter(
+                    (c) => typeof c[0] === 'string' && c[0].endsWith('/toolbar_oauth/check')
+                )
+                expect(headCalls).toHaveLength(0)
+            }
+        )
+
+        it('does not capture HTTP 404 from /toolbar_oauth/check as an error-tracking exception', async () => {
+            // Reverse-proxy customers (e.g. /dachshund/<id>/static/...) legitimately 404
+            // on /toolbar_oauth/check. We still mark authStatus=error so the config modal
+            // appears, but we must not pollute error tracking.
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            const captureSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation()
+            ;(global.fetch as jest.Mock).mockImplementation(() =>
+                Promise.resolve({ ok: false, status: 404 } as any as Response)
+            )
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://customer-proxy.example.com',
+            } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            // No call to captureException should originate from this test's 404 path.
+            const fromThisTest = captureSpy.mock.calls.filter(
+                ([, props]) => (props as any)?.toolbar_context === 'ui_host_check'
+            )
+            expect(fromThisTest).toEqual([])
+            captureSpy.mockRestore()
+        })
+
+        it.each([
+            ['network error', () => Promise.reject(new TypeError('Failed to fetch')), 'network_or_cors'],
+            ['500 server error', () => Promise.resolve({ ok: false, status: 500 } as any as Response), 'http_error'],
+            ['403 forbidden', () => Promise.resolve({ ok: false, status: 403 } as any as Response), 'http_error'],
+        ])('still captures non-404 reachability errors: %s', async (_label, mockImpl, expectedErrorType) => {
+            // Drain any pending microtasks from earlier tests before installing the spy
+            // so we only count captureException calls triggered by this test's mount.
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            const captureSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockImplementation()
+            ;(global.fetch as jest.Mock).mockImplementation(mockImpl)
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://selfhosted.example.com',
+            } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            // Must have captured the failure with the expected error_type tag.
+            expect(captureSpy).toHaveBeenCalled()
+            const matchingCall = captureSpy.mock.calls.find(
+                ([, props]) => (props as any)?.error_type === expectedErrorType
+            )
+            expect(matchingCall).not.toBeUndefined()
+            expect((matchingCall![1] as any).toolbar_context).toBe('ui_host_check')
+            captureSpy.mockRestore()
+        })
+
         it('runs the HEAD check when a pending code exchange is present, even if already authenticated', () => {
             window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
             const logic = toolbarConfigLogic.build({
@@ -366,6 +439,30 @@ describe('toolbar toolbarConfigLogic', () => {
             ['//protocol-relative.example.com', null],
         ])('canonicalizeUiHost(%p) === %p', (input, expected) => {
             expect(canonicalizeUiHost(input as any)).toBe(expected)
+        })
+    })
+
+    describe('rewriteCloudIngestionUiHost', () => {
+        it.each([
+            // rewritten — Cloud ingestion hosts
+            ['https://us.i.posthog.com', 'https://us.posthog.com'],
+            ['https://eu.i.posthog.com', 'https://eu.posthog.com'],
+            ['https://app.i.posthog.com', 'https://app.posthog.com'],
+            // unchanged — already app hosts
+            ['https://us.posthog.com', 'https://us.posthog.com'],
+            ['https://eu.posthog.com', 'https://eu.posthog.com'],
+            // unchanged — self-hosted / reverse-proxy / unknown
+            ['https://selfhosted.example.com', 'https://selfhosted.example.com'],
+            [
+                'https://customer-proxy.example.com/dachshund/123/static',
+                'https://customer-proxy.example.com/dachshund/123/static',
+            ],
+            ['http://localhost:8000', 'http://localhost:8000'],
+            // invalid URLs pass through
+            ['not a url', 'not a url'],
+            ['', ''],
+        ])('rewriteCloudIngestionUiHost(%p) === %p', (input, expected) => {
+            expect(rewriteCloudIngestionUiHost(input)).toBe(expected)
         })
     })
 
