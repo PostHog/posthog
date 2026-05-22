@@ -106,6 +106,10 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
             schema_id=str(instance.id),
             exc_info=e,
         )
+        # Roll the status back so the Syncs UI doesn't show RUNNING for a workflow that never started.
+        # The sync_type_config mutations stay — the schema's intent is still "do a re-snapshot next run".
+        instance.status = ExternalDataSchema.Status.FAILED
+        instance.save(update_fields=["status"])
 
 
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
