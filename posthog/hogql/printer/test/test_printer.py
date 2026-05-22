@@ -6201,6 +6201,36 @@ class TestPostgresPrinter(BaseTest):
             "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())",
         )
 
+    # Postgres rejects ``LIMIT``/``OFFSET``/``ORDER BY`` on a bare union branch — the auto-injected
+    # ``LIMIT 50000`` made every multi-branch query produced by the postgres printer a syntax error
+    # against direct Postgres / DuckLake connections. Each branch must be parenthesized.
+    def test_union_all_branches_are_parenthesized(self):
+        self.assertEqual(
+            self._select("select 1 as id union all select 2 as id union all select 3 as id"),
+            "(SELECT 1 AS id LIMIT 50000) UNION ALL (SELECT 2 AS id LIMIT 50000) UNION ALL (SELECT 3 AS id LIMIT 50000)",
+        )
+
+    def test_union_branch_with_order_by_is_parenthesized(self):
+        self.assertEqual(
+            self._select("select 1 union all select 2 order by 1"),
+            "(SELECT 1 LIMIT 50000) UNION ALL (SELECT 2 ORDER BY 1 ASC LIMIT 50000)",
+        )
+
+    def test_intersect_and_union_branches_are_parenthesized(self):
+        # Only the outermost SELECT receives the auto-injected LIMIT 50000; the nested set query's
+        # branches are not "top level" and so don't get a limit. But every union branch — at every
+        # nesting level — must still be parenthesized so Postgres parses the resulting SQL.
+        self.assertEqual(
+            self._select("select 1 as id intersect (select 2 as id union all select 3 as id)"),
+            "(SELECT 1 AS id LIMIT 50000) INTERSECT ((SELECT 2 AS id) UNION ALL (SELECT 3 AS id))",
+        )
+
+    def test_except_branches_are_parenthesized(self):
+        self.assertEqual(
+            self._select("select 1 as id except select 2 as id"),
+            "(SELECT 1 AS id LIMIT 50000) EXCEPT (SELECT 2 AS id LIMIT 50000)",
+        )
+
     @parameterized.expand(
         [
             ("semicolon_injection", "evil; DROP TABLE users --"),
@@ -6338,6 +6368,14 @@ class TestDuckDBPrinter(BaseTest):
 
         printer = DuckDBPrinter(context=HogQLContext(team_id=self.team.pk))
         self.assertEqual(printer._print_identifier(name), f'"{name}"')
+
+    def test_union_branches_are_parenthesized(self):
+        # DuckLake's Flight SQL surface (postwh.com) returns the same `Parser Error … near "UNION"`
+        # when branches carry a bare ``LIMIT``/``ORDER BY``. DuckDB inherits the postgres paren-wrap.
+        self.assertEqual(
+            self._select("select 1 as id union all select 2 as id"),
+            "(SELECT 1 AS id LIMIT 50000) UNION ALL (SELECT 2 AS id LIMIT 50000)",
+        )
 
     def test_percent_in_identifier_rejected_postgres_family(self):
         # ``%`` in an identifier would confuse psycopg's parameter-placeholder scanning.

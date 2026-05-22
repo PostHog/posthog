@@ -57,6 +57,13 @@ class PostgresPrinter(BasePrinter):
     def _assert_with_ties_supported(self) -> None:
         raise QueryError("WITH TIES is not supported in postgres dialect")
 
+    def _paren_wrap_union_branches(self) -> bool:
+        # Postgres rejects ``SELECT … LIMIT 50000 UNION ALL SELECT … LIMIT 50000`` because each branch
+        # is parsed as part of a single set query and ``LIMIT``/``OFFSET``/``ORDER BY`` can only attach
+        # to a parenthesized branch. The auto-injected 50k limit guard turned every union into a hard
+        # syntax error against direct Postgres / DuckLake connections, so wrap unconditionally.
+        return True
+
     def _render_column_aliases_inline_suffix(self, column_aliases: list[str]) -> str:
         col_names = ", ".join(self._print_identifier(c) for c in column_aliases)
         return f" ({col_names})"

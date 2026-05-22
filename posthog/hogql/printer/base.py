@@ -131,6 +131,15 @@ class BasePrinter(Visitor[str]):
         """Raise if this dialect does not support WITH TIES. Postgres overrides to reject."""
         return
 
+    def _paren_wrap_union_branches(self) -> bool:
+        """Return True if each ``SELECT`` branch inside a ``UNION``/``INTERSECT``/``EXCEPT`` set query
+        must be wrapped in parentheses. Standard Postgres and DuckDB reject a bare ``LIMIT``/``OFFSET``/
+        ``ORDER BY`` on a union branch — the auto-injected ``LIMIT 50000`` made every multi-branch query
+        produced by this printer a syntax error against direct Postgres / DuckLake connections.
+        ClickHouse accepts the unwrapped form, so the default is False.
+        """
+        return False
+
     def _render_column_aliases_inline_suffix(self, column_aliases: list[str]) -> str:
         """Suffix appended to ``AS alias`` when ``column_aliases`` are present. Postgres emits ``(col_a, col_b)``."""
         return ""
@@ -476,7 +485,12 @@ class BasePrinter(Visitor[str]):
             response = " ".join([clause for clause in clauses if clause is not None])
 
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
-        if not part_of_select_union and not is_top_level_query:
+        # Dialects whose union branches reject a bare `LIMIT`/`OFFSET`/`ORDER BY` (standard Postgres, DuckDB)
+        # opt in via ``_paren_wrap_union_branches`` so each branch becomes a parenthesized select.
+        needs_paren = not is_top_level_query and not part_of_select_union
+        if part_of_select_union and self._paren_wrap_union_branches():
+            needs_paren = True
+        if needs_paren:
             if self.pretty:
                 response = f"({response.strip()})"
             else:

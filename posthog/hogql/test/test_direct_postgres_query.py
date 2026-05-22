@@ -228,6 +228,52 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn("ph3.posthog_dashboard", sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
 
+    def test_generate_sql_for_direct_postgres_union_parenthesizes_branches(self):
+        # Postgres rejects ``SELECT … LIMIT 50000 UNION ALL SELECT … LIMIT 50000``; the auto-injected
+        # 50k limit guard turned every multi-branch HogQL query into a ``Parser Error … near "UNION"``
+        # against direct Postgres / DuckLake connections. Each branch must be parenthesized.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="users",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM users UNION ALL SELECT id FROM users",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        # The printed SQL is multi-line pretty form; collapse to single-spaced for shape assertions.
+        flat = " ".join(sql.split())
+        # The set-operator must be sandwiched by branch-closing/opening parens, with the auto-injected
+        # ``LIMIT`` sitting inside the branch — never adjacent to the bare ``UNION ALL``.
+        self.assertNotRegex(flat, r"LIMIT \d+ UNION ALL")
+        self.assertRegex(flat, r"LIMIT \d+\) UNION ALL \(SELECT")
+
     def test_generate_sql_for_direct_postgres_struct_field_access(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
