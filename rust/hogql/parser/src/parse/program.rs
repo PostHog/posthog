@@ -26,7 +26,6 @@
 //!   - Block { declarations: [decl, ...] }
 //!   - Program { declarations: [decl, ...] }
 
-
 use super::{identifier_text, kw_valid_as_identifier, Parser};
 use crate::emit::Emitter;
 use crate::error::ParseError;
@@ -52,11 +51,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // source length explicitly rather than `last_consumed_end` so
         // `let x := 1\n` ends at 11 (matching cpp) not 10 (the `1`).
         let prog_end = self.src.len();
-        Ok(self.wrap_pos_to(
-            self.emit.program(declarations),
-            prog_start,
-            prog_end,
-        ))
+        Ok(self.wrap_pos_to(self.emit.program(declarations), prog_start, prog_end))
     }
 
     fn parse_declaration(&mut self) -> Result<E::Value, ParseError> {
@@ -221,7 +216,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     fn parse_return_stmt(&mut self) -> Result<E::Value, ParseError> {
         self.expect_kw(Kw::Return, "return")?;
         let mut expr_val = self.emit.null();
-        
+
         // `returnStmt: RETURN expression? SEMICOLON?` — the expression
         // is optional. cpp's ANTLR takes the `?` only when an
         // `expression` actually parses. Two filters mirror that:
@@ -315,7 +310,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         } else {
             None
         };
-        Ok(self.emit.if_statement(cond, then, else_.unwrap_or_else(|| self.emit.null())))
+        Ok(self
+            .emit
+            .if_statement(cond, then, else_.unwrap_or_else(|| self.emit.null())))
     }
 
     fn parse_while_stmt(&mut self) -> Result<E::Value, ParseError> {
@@ -381,9 +378,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             self.expect(TokenKind::RParen, ")")?;
             let body = self.parse_statement()?;
             let _ = self.eat(TokenKind::Semicolon)?;
-            let key_var = key_var.map(|s| self.emit.string(&s)).unwrap_or_else(|| self.emit.null());
+            let key_var = key_var
+                .map(|s| self.emit.string(&s))
+                .unwrap_or_else(|| self.emit.null());
             let value_var = self.emit.string(&value_var);
-            return Ok(self.emit.for_in_statement(key_var, value_var, iter_expr, body));
+            return Ok(self
+                .emit
+                .for_in_statement(key_var, value_var, iter_expr, body));
         }
         // C-style: (init?; cond?; incr?) body
         let initializer = if self.peek() != TokenKind::Semicolon {
@@ -443,8 +444,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let name = identifier_text(self.text(id), id.kind);
             self.bump()?; // `:=`
             let right = self.parse_stmt_rhs_expr()?;
-            let left =
-                self.wrap_pos_to(self.emit.field(vec![self.emit.string(&name)]), id_start, id_end);
+            let left = self.wrap_pos_to(
+                self.emit.field(vec![self.emit.string(&name)]),
+                id_start,
+                id_end,
+            );
             return Ok(self.wrap_pos(self.emit.variable_assignment(left, right), clause_start));
         }
         // Leading expression — parsed without the
@@ -611,8 +615,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 (None, None)
             };
             let catch_block = self.parse_block()?;
-            let v = var.map(|s| self.emit.string(&s)).unwrap_or_else(|| self.emit.null());
-            let t = ty.map(|s| self.emit.string(&s)).unwrap_or_else(|| self.emit.null());
+            let v = var
+                .map(|s| self.emit.string(&s))
+                .unwrap_or_else(|| self.emit.null());
+            let t = ty
+                .map(|s| self.emit.string(&s))
+                .unwrap_or_else(|| self.emit.null());
             catches.push(self.emit.catch_clause(v, t, catch_block));
         }
         let finally_stmt = if self.eat_kw(Kw::Finally)? {
@@ -620,7 +628,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         } else {
             None
         };
-        Ok(self.emit.try_catch_statement(try_stmt, catches, finally_stmt.unwrap_or_else(|| self.emit.null())))
+        Ok(self.emit.try_catch_statement(
+            try_stmt,
+            catches,
+            finally_stmt.unwrap_or_else(|| self.emit.null()),
+        ))
     }
 
     /// `self.peek()` is `{` — scan to its matching `}` and report
@@ -724,8 +736,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // expression)? SEMICOLON?`) — consume the optional trailing
             // `;` so `if (c) a := b ; else d` sees the `else`.
             let _ = self.eat(TokenKind::Semicolon)?;
-            let left =
-                self.wrap_pos_to(self.emit.field(vec![self.emit.string(&name)]), id_start, id_end);
+            let left = self.wrap_pos_to(
+                self.emit.field(vec![self.emit.string(&name)]),
+                id_start,
+                id_end,
+            );
             return Ok(self.emit.variable_assignment(left, right));
         }
         // The leading expression is parsed WITHOUT the

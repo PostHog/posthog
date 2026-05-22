@@ -6,7 +6,6 @@
 //! qualifier. ARRAY JOIN is *not* here — it belongs to the SELECT
 //! statement (see `parse_select_stmt_body` in `select.rs`).
 
-
 use super::{
     chain_join, check_alias_not_reserved, identifier_text, kw_valid_as_identifier, Parser,
 };
@@ -209,7 +208,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // keep it as is since that decoration belongs *inside* the PIVOT.
         // `start` / `end` are position metadata, not grammar decoration —
         // exclude from the decoration probe.
-let pivot_input = if joined_any {
+        let pivot_input = if joined_any {
             left
         } else if self.emit.node_kind(&left).is_some() {
             // For abstract values we can't enumerate fields, so we use
@@ -241,7 +240,9 @@ let pivot_input = if joined_any {
         let (alias, column_aliases) = self.consume_table_alias_chain()?;
         let table_final = self.eat_kw(Kw::Final)?;
         let sample = self.try_consume_sample()?;
-        let outer = self.emit.join_expr(wrapped, alias, None, column_aliases, table_final, sample);
+        let outer = self
+            .emit
+            .join_expr(wrapped, alias, None, column_aliases, table_final, sample);
         // Wrap before returning so the JoinExpr carries positions even
         // when a later wrap_pivot_chain stacks it as the inner table of
         // a fresh outer PivotExpr / UnpivotExpr. The outer parse_join_expr
@@ -483,10 +484,9 @@ let pivot_input = if joined_any {
                     end,
                 ));
             }
-            return Ok(Some(self.wrap_pos(
-                self.emit.join_constraint(expr, "ON"),
-                cons_start,
-            )));
+            return Ok(Some(
+                self.wrap_pos(self.emit.join_constraint(expr, "ON"), cons_start),
+            ));
         }
         if self.eat_kw(Kw::Using)? {
             // The grammar `joinConstraintClause` admits two USING shapes:
@@ -509,10 +509,9 @@ let pivot_input = if joined_any {
             } else {
                 self.emit.tuple_(exprs)
             };
-            return Ok(Some(self.wrap_pos(
-                self.emit.join_constraint(expr, "USING"),
-                cons_start,
-            )));
+            return Ok(Some(
+                self.wrap_pos(self.emit.join_constraint(expr, "USING"), cons_start),
+            ));
         }
         Ok(None)
     }
@@ -594,7 +593,14 @@ let pivot_input = if joined_any {
         // each individual atom — `FROM a JOIN b PIVOT (...)` wraps the
         // entire `a JOIN b`, not just `b`. parse_table_atom only handles
         // the immediate table + its alias / sample / final decoration.
-        let obj = self.emit.join_expr(table_expr, alias, table_args, column_aliases, final_, sample);
+        let obj = self.emit.join_expr(
+            table_expr,
+            alias,
+            table_args,
+            column_aliases,
+            final_,
+            sample,
+        );
         // Three position-end regimes match cpp's three wrapping points:
         //   - `TableFunctionExpr` (cpp lines 2797-2817): ctx covers
         //     `name(args)` only; alias / FINAL / SAMPLE never widen it.
@@ -814,9 +820,10 @@ let pivot_input = if joined_any {
             // `addPositionInfo` — only the wrapping JoinExpr carries the
             // span. Emit position-less here too so the deserialised
             // Field's `start` / `end` stay `None`, matching cpp.
-let chain = vec![self.emit.string(&name)];
+            let chain = vec![self.emit.string(&name)];
             let mut field = self.emit.field(chain);
-            self.emit.set_field(&mut field, "__rust_table_args", self.emit.list_value(args));
+            self.emit
+                .set_field(&mut field, "__rust_table_args", self.emit.list_value(args));
             return Ok(self.emit.no_pos(field));
         }
         // Field chain.
@@ -826,10 +833,16 @@ let chain = vec![self.emit.string(&name)];
             let part = self.bump()?;
             match part.kind {
                 TokenKind::Ident | TokenKind::QuotedIdent => {
-                    chain.push(self.emit.string(&identifier_text(self.text(part), part.kind)));
+                    chain.push(
+                        self.emit
+                            .string(&identifier_text(self.text(part), part.kind)),
+                    );
                 }
                 TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
-                    chain.push(self.emit.string(&identifier_text(self.text(part), part.kind)));
+                    chain.push(
+                        self.emit
+                            .string(&identifier_text(self.text(part), part.kind)),
+                    );
                 }
                 _ => {
                     return Err(self.err(format!(
@@ -942,7 +955,7 @@ let chain = vec![self.emit.string(&name)];
             let _ = self.bump()?;
             self.expect(TokenKind::RParen, ")")?;
         }
-let sample = self.emit.sample_expr(sample_value, offset_value);
+        let sample = self.emit.sample_expr(sample_value, offset_value);
         Ok(Some(self.wrap_pos(sample, sample_start)))
     }
 
@@ -1047,7 +1060,11 @@ let sample = self.emit.sample_expr(sample_value, offset_value);
         {
             self.bump()?;
             if self.emit.node_kind(&val).as_deref() == Some("Constant") {
-                if let Some(n) = self.emit.get_field(&val, "value").and_then(|v| self.emit.as_i64(&v)) {
+                if let Some(n) = self
+                    .emit
+                    .get_field(&val, "value")
+                    .and_then(|v| self.emit.as_i64(&v))
+                {
                     let fv = self.emit.float(n as f64);
                     self.emit.set_field(&mut val, "value", fv);
                 }
@@ -1075,7 +1092,7 @@ let sample = self.emit.sample_expr(sample_value, offset_value);
         } else {
             None
         };
-let ratio = self.emit.ratio_expr(left, right);
+        let ratio = self.emit.ratio_expr(left, right);
         Ok(self.wrap_pos(ratio, ratio_start))
     }
 
@@ -1185,7 +1202,11 @@ let ratio = self.emit.ratio_expr(left, right);
                     self.expect(TokenKind::LParen, "(")?;
                     let unpivot_values = self.parse_expr_list_until_paren()?;
                     self.expect(TokenKind::RParen, ")")?;
-                    columns.push(self.emit.unpivot_column(value_columns, name_columns, unpivot_values));
+                    columns.push(self.emit.unpivot_column(
+                        value_columns,
+                        name_columns,
+                        unpivot_values,
+                    ));
                     // Additional `tos IN ( list )` groups (no FOR, no
                     // comma) extend the SAME unpivotColumn; they are
                     // discarded to match cpp.

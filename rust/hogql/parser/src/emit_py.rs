@@ -77,7 +77,8 @@ impl PyAst {
     /// on first access. Used by the rare `set_field` site that's
     /// routing a `__rust_*` sentinel.
     fn sentinels_mut(&mut self) -> &mut HashMap<String, Py<PyAny>> {
-        self.rust_sentinels.get_or_insert_with(|| Box::new(HashMap::new()))
+        self.rust_sentinels
+            .get_or_insert_with(|| Box::new(HashMap::new()))
     }
 }
 
@@ -370,11 +371,7 @@ impl<'py> PyEmitter<'py> {
 
     /// Construct a node by invoking `class(**kwargs)`. Wraps the result
     /// in [`PyAst`] with `positions_locked = false`.
-    fn build(
-        &self,
-        class: &Bound<'py, PyAny>,
-        kwargs: &Bound<'py, PyDict>,
-    ) -> PyAst {
+    fn build(&self, class: &Bound<'py, PyAny>, kwargs: &Bound<'py, PyDict>) -> PyAst {
         let obj = class
             .call(PyTuple::empty_bound(self.py), Some(kwargs))
             .expect("ast class construction failed (validate kwargs / class shape)")
@@ -498,8 +495,13 @@ impl<'py> Emitter for PyEmitter<'py> {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("left", left.obj.bind(self.py)).unwrap();
         let null_constant = self.constant(self.null());
-        kw.set_item("right", null_constant.obj.bind(self.py)).unwrap();
-        let op_member = if negated { &self.compare_op_not_eq } else { &self.compare_op_eq };
+        kw.set_item("right", null_constant.obj.bind(self.py))
+            .unwrap();
+        let op_member = if negated {
+            &self.compare_op_not_eq
+        } else {
+            &self.compare_op_eq
+        };
         kw.set_item("op", op_member).unwrap();
         kw.set_item("is_null_comparison_style", true).unwrap();
         self.build(&self.cls_compare_op, &kw)
@@ -600,7 +602,8 @@ impl<'py> Emitter for PyEmitter<'py> {
             kw.set_item("filter_expr", fe.obj.bind(self.py)).unwrap();
         }
         if let Some(wg) = within_group {
-            kw.set_item("within_group", build_list(self.py, wg)).unwrap();
+            kw.set_item("within_group", build_list(self.py, wg))
+                .unwrap();
         }
         self.build(&self.cls_call, &kw)
     }
@@ -727,12 +730,14 @@ impl<'py> Emitter for PyEmitter<'py> {
 
     fn program(&self, declarations: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
-        kw.set_item("declarations", build_list(self.py, declarations)).unwrap();
+        kw.set_item("declarations", build_list(self.py, declarations))
+            .unwrap();
         self.build(&self.cls_program, &kw)
     }
     fn block(&self, declarations: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
-        kw.set_item("declarations", build_list(self.py, declarations)).unwrap();
+        kw.set_item("declarations", build_list(self.py, declarations))
+            .unwrap();
         self.build(&self.cls_block, &kw)
     }
     fn expr_statement(&self, expr: PyAst) -> PyAst {
@@ -762,7 +767,8 @@ impl<'py> Emitter for PyEmitter<'py> {
     ) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("keyVar", key_var.obj.bind(self.py)).unwrap();
-        kw.set_item("valueVar", value_var.obj.bind(self.py)).unwrap();
+        kw.set_item("valueVar", value_var.obj.bind(self.py))
+            .unwrap();
         kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
         kw.set_item("body", body.obj.bind(self.py)).unwrap();
         self.build(&self.cls_for_in_statement, &kw)
@@ -775,9 +781,12 @@ impl<'py> Emitter for PyEmitter<'py> {
         body: PyAst,
     ) -> PyAst {
         let kw = PyDict::new_bound(self.py);
-        kw.set_item("initializer", initializer.obj.bind(self.py)).unwrap();
-        kw.set_item("condition", condition.obj.bind(self.py)).unwrap();
-        kw.set_item("increment", increment.obj.bind(self.py)).unwrap();
+        kw.set_item("initializer", initializer.obj.bind(self.py))
+            .unwrap();
+        kw.set_item("condition", condition.obj.bind(self.py))
+            .unwrap();
+        kw.set_item("increment", increment.obj.bind(self.py))
+            .unwrap();
         kw.set_item("body", body.obj.bind(self.py)).unwrap();
         self.build(&self.cls_for_statement, &kw)
     }
@@ -807,8 +816,10 @@ impl<'py> Emitter for PyEmitter<'py> {
     ) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("try_stmt", try_stmt.obj.bind(self.py)).unwrap();
-        kw.set_item("catches", build_list(self.py, catches)).unwrap();
-        kw.set_item("finally_stmt", finally_stmt.obj.bind(self.py)).unwrap();
+        kw.set_item("catches", build_list(self.py, catches))
+            .unwrap();
+        kw.set_item("finally_stmt", finally_stmt.obj.bind(self.py))
+            .unwrap();
         self.build(&self.cls_try_catch_statement, &kw)
     }
     fn throw_statement(&self, expr: PyAst) -> PyAst {
@@ -898,9 +909,12 @@ impl<'py> Emitter for PyEmitter<'py> {
         unpivot_values: Vec<PyAst>,
     ) -> PyAst {
         let kw = PyDict::new_bound(self.py);
-        kw.set_item("value_columns", value_columns.obj.bind(self.py)).unwrap();
-        kw.set_item("name_columns", name_columns.obj.bind(self.py)).unwrap();
-        kw.set_item("unpivot_values", build_list(self.py, unpivot_values)).unwrap();
+        kw.set_item("value_columns", value_columns.obj.bind(self.py))
+            .unwrap();
+        kw.set_item("name_columns", name_columns.obj.bind(self.py))
+            .unwrap();
+        kw.set_item("unpivot_values", build_list(self.py, unpivot_values))
+            .unwrap();
         self.build(&self.cls_unpivot_column, &kw)
     }
     fn grouping_set(&self, exprs: Vec<PyAst>) -> PyAst {
@@ -911,7 +925,8 @@ impl<'py> Emitter for PyEmitter<'py> {
     fn hogqlx_tag(&self, kind: &str, attributes: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("kind", kind).unwrap();
-        kw.set_item("attributes", build_list(self.py, attributes)).unwrap();
+        kw.set_item("attributes", build_list(self.py, attributes))
+            .unwrap();
         self.build(&self.cls_hogqlx_tag, &kw)
     }
     fn hogqlx_attribute(&self, name: &str, value: PyAst) -> PyAst {
@@ -932,7 +947,8 @@ impl<'py> Emitter for PyEmitter<'py> {
         kw.set_item("frame_type", frame_type).unwrap();
         kw.set_item("frame_start_type", start_type).unwrap();
         if let Some(se) = start_expr {
-            kw.set_item("frame_start_expr", se.obj.bind(self.py)).unwrap();
+            kw.set_item("frame_start_expr", se.obj.bind(self.py))
+                .unwrap();
         }
         if let Some(et) = end_type {
             kw.set_item("frame_end_type", et).unwrap();
@@ -944,7 +960,8 @@ impl<'py> Emitter for PyEmitter<'py> {
     }
     fn select_set_query(&self, initial: PyAst, subsequent: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
-        kw.set_item("initial_select_query", initial.obj.bind(self.py)).unwrap();
+        kw.set_item("initial_select_query", initial.obj.bind(self.py))
+            .unwrap();
         kw.set_item("subsequent_select_queries", build_list(self.py, subsequent))
             .unwrap();
         self.build(&self.cls_select_set_query, &kw)
@@ -956,7 +973,8 @@ impl<'py> Emitter for PyEmitter<'py> {
     fn window_frame_bound(&self, frame_type: &str, frame_value: PyAst) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("frame_type", frame_type).unwrap();
-        kw.set_item("frame_value", frame_value.obj.bind(self.py)).unwrap();
+        kw.set_item("frame_value", frame_value.obj.bind(self.py))
+            .unwrap();
         self.build(&self.cls_window_frame_expr, &kw)
     }
     fn interpolate_expr(&self, expr: PyAst, value: Option<PyAst>) -> PyAst {
@@ -989,7 +1007,8 @@ impl<'py> Emitter for PyEmitter<'py> {
     }
     fn select_set_node(&self, select_query: PyAst, set_operator: Option<&str>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
-        kw.set_item("select_query", select_query.obj.bind(self.py)).unwrap();
+        kw.set_item("select_query", select_query.obj.bind(self.py))
+            .unwrap();
         if let Some(op) = set_operator {
             kw.set_item("set_operator", op).unwrap();
         }
@@ -997,7 +1016,8 @@ impl<'py> Emitter for PyEmitter<'py> {
     }
     fn sample_expr(&self, sample_value: PyAst, offset_value: Option<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
-        kw.set_item("sample_value", sample_value.obj.bind(self.py)).unwrap();
+        kw.set_item("sample_value", sample_value.obj.bind(self.py))
+            .unwrap();
         if let Some(o) = offset_value {
             kw.set_item("offset_value", o.obj.bind(self.py)).unwrap();
         }
@@ -1020,8 +1040,10 @@ impl<'py> Emitter for PyEmitter<'py> {
     ) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("table", table.obj.bind(self.py)).unwrap();
-        kw.set_item("aggregates", build_list(self.py, aggregates)).unwrap();
-        kw.set_item("columns", build_list(self.py, columns)).unwrap();
+        kw.set_item("aggregates", build_list(self.py, aggregates))
+            .unwrap();
+        kw.set_item("columns", build_list(self.py, columns))
+            .unwrap();
         if let Some(g) = group_by {
             kw.set_item("group_by", build_list(self.py, g)).unwrap();
         }
@@ -1030,7 +1052,8 @@ impl<'py> Emitter for PyEmitter<'py> {
     fn unpivot_expr(&self, table: PyAst, columns: Vec<PyAst>, include_nulls: bool) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("table", table.obj.bind(self.py)).unwrap();
-        kw.set_item("columns", build_list(self.py, columns)).unwrap();
+        kw.set_item("columns", build_list(self.py, columns))
+            .unwrap();
         kw.set_item("include_nulls", include_nulls).unwrap();
         self.build(&self.cls_unpivot_expr, &kw)
     }
@@ -1219,7 +1242,10 @@ impl<'py> Emitter for PyEmitter<'py> {
         // (wrap_pivot_chain's decoration check, the array-join FROM
         // check). The `not None` semantic matches the JSON Map "key
         // exists" check for those uses.
-        if v.rust_sentinels.as_ref().is_some_and(|m| m.contains_key(name)) {
+        if v.rust_sentinels
+            .as_ref()
+            .is_some_and(|m| m.contains_key(name))
+        {
             return true;
         }
         let bound = v.obj.bind(self.py);
@@ -1354,4 +1380,3 @@ fn build_list(py: Python<'_>, items: Vec<PyAst>) -> Bound<'_, PyList> {
     }
     list
 }
-

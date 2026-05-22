@@ -104,7 +104,9 @@ fn parse_expr_py(py: Python<'_>, statement: &str, is_internal: bool) -> PyResult
 
 #[pyfunction]
 fn parse_order_expr_py(py: Python<'_>, statement: &str) -> PyResult<PyObject> {
-    run_py(py, |emit| parse::parse_order_expr_with_emit(emit, statement))
+    run_py(py, |emit| {
+        parse::parse_order_expr_with_emit(emit, statement)
+    })
 }
 
 #[pyfunction]

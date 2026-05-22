@@ -723,7 +723,11 @@ fn emit_float_constant<E: Emitter>(emit: &E, f: f64) -> E::Value {
     emit.constant(emit.float(f))
 }
 
-pub(crate) fn parse_number_literal<E: Emitter>(emit: &E, src: &str, negative: bool) -> Result<E::Value, ParseError> {
+pub(crate) fn parse_number_literal<E: Emitter>(
+    emit: &E,
+    src: &str,
+    negative: bool,
+) -> Result<E::Value, ParseError> {
     // Hex literal — `0x…`. Three cases:
     //   - Contains `p`/`P`: hex-float (`FLOATING_LITERAL` strict C99
     //     `HEX (DOT HEX*)? P [+-]? DEC+`). Parse to f64 — Rust's f64
@@ -1054,7 +1058,11 @@ pub(crate) fn kw_acts_as_ident_in_primary(kw: Kw) -> bool {
 /// **appends** the outer CTEs after any existing inner CTEs — so if the
 /// inner already has `WITH a AS ...`, the outer's CTEs come *after* `a`
 /// in declaration order. Match that.
-pub(crate) fn inject_ctes_into_select<E: Emitter>(emit: &E, node: &mut E::Value, ctes: Vec<E::Value>) {
+pub(crate) fn inject_ctes_into_select<E: Emitter>(
+    emit: &E,
+    node: &mut E::Value,
+    ctes: Vec<E::Value>,
+) {
     // Walk to the inner SelectQuery; the outer wrapper may be a
     // SelectSetQuery that holds the SelectQuery in its
     // `initial_select_query` slot. The walk uses owned recursion via
@@ -1063,7 +1071,8 @@ pub(crate) fn inject_ctes_into_select<E: Emitter>(emit: &E, node: &mut E::Value,
     fn walk<E: Emitter>(emit: &E, mut node: E::Value, ctes: Vec<E::Value>) -> E::Value {
         match emit.node_kind(&node).as_deref() {
             Some("SelectQuery") => {
-                let existing = emit.get_field(&node, "ctes")
+                let existing = emit
+                    .get_field(&node, "ctes")
                     .and_then(|v| emit.as_list(&v))
                     .unwrap_or_default();
                 let mut combined = existing;
@@ -1111,7 +1120,11 @@ pub(crate) fn format_set_op(base: &str, modifier: Option<&str>, by_name: bool) -
 /// SELECT/SelectSetQuery node. When the target is a SelectSetQuery they
 /// land on the wrapper; for a single SelectQuery they merge into its
 /// existing fields. We pass through whatever shape we have.
-pub(crate) fn merge_select_decorators<E: Emitter>(emit: &E, mut node: E::Value, decorators: Vec<(String, E::Value)>) -> E::Value {
+pub(crate) fn merge_select_decorators<E: Emitter>(
+    emit: &E,
+    mut node: E::Value,
+    decorators: Vec<(String, E::Value)>,
+) -> E::Value {
     if decorators.is_empty() {
         return node;
     }

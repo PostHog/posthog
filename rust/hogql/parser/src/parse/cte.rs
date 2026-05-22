@@ -9,7 +9,6 @@
 //! token is an identifier-or-keyword-acting-as-identifier and the
 //! follow-up sequence ends with `AS (`, we commit to subquery form.
 
-
 use super::{identifier_text, kw_valid_as_identifier, Parser, BP_ALIAS};
 use crate::emit::Emitter;
 use crate::error::ParseError;
@@ -193,10 +192,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 )));
             }
         };
-        Ok(self.wrap_pos(
-            self.emit.cte(&name, expr, "column"),
-            cte_start,
-        ))
+        Ok(self.wrap_pos(self.emit.cte(&name, expr, "column"), cte_start))
     }
 
     fn parse_with_expr_subquery(&mut self) -> Result<E::Value, ParseError> {
@@ -268,6 +264,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.expect(TokenKind::LParen, "(")?;
         let sub = self.parse_select_set_stmt()?;
         self.expect(TokenKind::RParen, ")")?;
-        Ok(self.emit.cte_subquery(&name, sub, columns, using_key, materialized))
+        Ok(self
+            .emit
+            .cte_subquery(&name, sub, columns, using_key, materialized))
     }
 }

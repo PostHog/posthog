@@ -24,7 +24,6 @@
 //! Parser API is identical across the two backends so no rewrites are
 //! needed here.
 
-
 use super::{identifier_text, unquote_single_string, Parser};
 use crate::emit::Emitter;
 use crate::error::ParseError;
@@ -78,10 +77,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             match self.peek() {
                 TokenKind::SlashGt => {
                     self.bump()?;
-                    return Ok(self.wrap_pos(
-                        self.emit.hogqlx_tag(&kind, attributes),
-                        tag_start,
-                    ));
+                    return Ok(self.wrap_pos(self.emit.hogqlx_tag(&kind, attributes), tag_start));
                 }
                 TokenKind::Gt => {
                     self.bump()?;
@@ -110,10 +106,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                         let kids = self.emit.list_value(children);
                         attributes.push(self.emit.hogqlx_attribute("children", kids));
                     }
-                    return Ok(self.wrap_pos(
-                        self.emit.hogqlx_tag(&kind, attributes),
-                        tag_start,
-                    ));
+                    return Ok(self.wrap_pos(self.emit.hogqlx_tag(&kind, attributes), tag_start));
                 }
                 TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
                     attributes.push(self.parse_hogqlx_attribute()?);
@@ -139,7 +132,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let name = self.parse_hogqlx_identifier("attribute name")?;
         // No `=` → bare attribute, value is Constant(true).
         if self.peek() != TokenKind::EqDouble {
-            return Ok(self.emit.hogqlx_attribute(&name, self.emit.constant(self.emit.bool(true))));
+            return Ok(self
+                .emit
+                .hogqlx_attribute(&name, self.emit.constant(self.emit.bool(true))));
         }
         self.bump()?; // `=`
         let value = match self.peek() {

@@ -155,7 +155,8 @@ pub trait Emitter {
     /// `ExprStatement(expr)`.
     fn expr_statement(&self, expr: Self::Value) -> Self::Value;
     /// `IfStatement(expr, then, else_)`.
-    fn if_statement(&self, cond: Self::Value, then: Self::Value, else_: Self::Value) -> Self::Value;
+    fn if_statement(&self, cond: Self::Value, then: Self::Value, else_: Self::Value)
+        -> Self::Value;
     /// `WhileStatement(expr, body)`.
     fn while_statement(&self, cond: Self::Value, body: Self::Value) -> Self::Value;
     /// `ForInStatement(keyVar, valueVar, expr, body)`.
@@ -239,11 +240,7 @@ pub trait Emitter {
         end_expr: Option<Self::Value>,
     ) -> Self::Value;
     /// `SelectSetQuery(initial_select_query, subsequent_select_queries)`.
-    fn select_set_query(
-        &self,
-        initial: Self::Value,
-        subsequent: Vec<Self::Value>,
-    ) -> Self::Value;
+    fn select_set_query(&self, initial: Self::Value, subsequent: Vec<Self::Value>) -> Self::Value;
     /// Empty `WindowExpr` shell — caller adds fields via `set_field`.
     fn window_expr_empty(&self) -> Self::Value;
     /// `WindowFrameExpr(frame_type, frame_value)`. `frame_value` may
@@ -265,9 +262,14 @@ pub trait Emitter {
     fn select_query_empty(&self) -> Self::Value;
     /// `SelectSetNode(select_query, set_operator)`. Used inside the
     /// SelectSetQuery `subsequent_select_queries` list.
-    fn select_set_node(&self, select_query: Self::Value, set_operator: Option<&str>) -> Self::Value;
+    fn select_set_node(&self, select_query: Self::Value, set_operator: Option<&str>)
+        -> Self::Value;
     /// `SampleExpr(sample_value, offset_value?)`.
-    fn sample_expr(&self, sample_value: Self::Value, offset_value: Option<Self::Value>) -> Self::Value;
+    fn sample_expr(
+        &self,
+        sample_value: Self::Value,
+        offset_value: Option<Self::Value>,
+    ) -> Self::Value;
     /// `RatioExpr(left, right?)`.
     fn ratio_expr(&self, left: Self::Value, right: Option<Self::Value>) -> Self::Value;
     /// `PivotExpr(table, aggregates, columns, group_by?)`.
@@ -420,7 +422,9 @@ impl Emitter for JsonEmitter {
         Value::String(v.into())
     }
     fn float(&self, v: f64) -> Value {
-        serde_json::Number::from_f64(v).map(Value::Number).unwrap_or(Value::Null)
+        serde_json::Number::from_f64(v)
+            .map(Value::Number)
+            .unwrap_or(Value::Null)
     }
     fn uint(&self, v: u64) -> Value {
         Value::Number(v.into())
@@ -639,7 +643,13 @@ impl Emitter for JsonEmitter {
     fn while_statement(&self, cond: Value, body: Value) -> Value {
         json!({"node": "WhileStatement", "expr": cond, "body": body})
     }
-    fn for_in_statement(&self, key_var: Value, value_var: Value, expr: Value, body: Value) -> Value {
+    fn for_in_statement(
+        &self,
+        key_var: Value,
+        value_var: Value,
+        expr: Value,
+        body: Value,
+    ) -> Value {
         json!({
             "node": "ForInStatement",
             "keyVar": key_var,
@@ -648,7 +658,13 @@ impl Emitter for JsonEmitter {
             "body": body,
         })
     }
-    fn for_statement(&self, initializer: Value, condition: Value, increment: Value, body: Value) -> Value {
+    fn for_statement(
+        &self,
+        initializer: Value,
+        condition: Value,
+        increment: Value,
+        body: Value,
+    ) -> Value {
         json!({
             "node": "ForStatement",
             "initializer": initializer,
@@ -669,7 +685,12 @@ impl Emitter for JsonEmitter {
         obj.insert("expr".into(), expr);
         Value::Object(obj)
     }
-    fn try_catch_statement(&self, try_stmt: Value, catches: Vec<Value>, finally_stmt: Value) -> Value {
+    fn try_catch_statement(
+        &self,
+        try_stmt: Value,
+        catches: Vec<Value>,
+        finally_stmt: Value,
+    ) -> Value {
         json!({
             "node": "TryCatchStatement",
             "try_stmt": try_stmt,
@@ -703,10 +724,16 @@ impl Emitter for JsonEmitter {
         obj.insert("expr".into(), expr);
         obj.insert("cte_type".into(), Value::String("subquery".into()));
         if let Some(c) = columns {
-            obj.insert("columns".into(), Value::Array(c.into_iter().map(Value::String).collect()));
+            obj.insert(
+                "columns".into(),
+                Value::Array(c.into_iter().map(Value::String).collect()),
+            );
         }
         if let Some(uk) = using_key {
-            obj.insert("using_key".into(), Value::Array(uk.into_iter().map(Value::String).collect()));
+            obj.insert(
+                "using_key".into(),
+                Value::Array(uk.into_iter().map(Value::String).collect()),
+            );
         }
         if let Some(m) = materialized {
             obj.insert("materialized".into(), Value::Bool(m));
@@ -869,12 +896,7 @@ impl Emitter for JsonEmitter {
         }
         Value::Object(obj)
     }
-    fn unpivot_expr(
-        &self,
-        table: Value,
-        columns: Vec<Value>,
-        include_nulls: bool,
-    ) -> Value {
+    fn unpivot_expr(&self, table: Value, columns: Vec<Value>, include_nulls: bool) -> Value {
         let mut obj = serde_json::Map::new();
         obj.insert("node".into(), Value::String("UnpivotExpr".into()));
         obj.insert("table".into(), table);
@@ -914,11 +936,7 @@ impl Emitter for JsonEmitter {
         }
         Value::Object(obj)
     }
-    fn select_set_query(
-        &self,
-        initial: Value,
-        subsequent: Vec<Value>,
-    ) -> Value {
+    fn select_set_query(&self, initial: Value, subsequent: Vec<Value>) -> Value {
         json!({
             "node": "SelectSetQuery",
             "initial_select_query": initial,
@@ -1222,4 +1240,3 @@ mod compat {
         JsonEmitter.replace_pos(value, start, end)
     }
 }
-

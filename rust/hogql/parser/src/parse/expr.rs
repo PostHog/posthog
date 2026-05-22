@@ -8,7 +8,6 @@
 //! `parse.rs` because both the SELECT/JOIN/CTE modules and the
 //! expression parser reach them.
 
-
 use super::template::parse_template_body;
 use super::{
     build_infix, fold_call_or_exprcall, identifier_text, infix_bp, interval_call_name,
@@ -768,7 +767,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         } else {
             let cp = self.checkpoint();
             match self.parse_expr_bp(0) {
-                Ok(s) if self.peek() == TokenKind::Keyword(Kw::When) && !is_bare_field(&self.emit, &s) => {
+                Ok(s)
+                    if self.peek() == TokenKind::Keyword(Kw::When)
+                        && !is_bare_field(&self.emit, &s) =>
+                {
                     Some(s)
                 }
                 _ => {
@@ -2612,7 +2614,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     )))
                 }
             }
-            chain.push(self.emit.string(&identifier_text(self.text(part), part.kind)));
+            chain.push(
+                self.emit
+                    .string(&identifier_text(self.text(part), part.kind)),
+            );
             ended_with_star = false;
         }
         // `IDENT(.IDENT)*.* EXCLUDE (…)` — the grammar's `ColumnExprAsterisk`
@@ -2758,13 +2763,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 };
                 (None, Some(id))
             };
-            return Ok(self.emit.window_function(
-                name,
-                params,
-                args,
-                over_expr,
-                over_identifier,
-            ));
+            return Ok(self
+                .emit
+                .window_function(name, params, args, over_expr, over_identifier));
         }
         Ok(self.emit.call_full(
             name,
@@ -3452,7 +3453,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(out)
     }
 
-    pub(crate) fn parse_expr_list_until_terminators(&mut self) -> Result<Vec<E::Value>, ParseError> {
+    pub(crate) fn parse_expr_list_until_terminators(
+        &mut self,
+    ) -> Result<Vec<E::Value>, ParseError> {
         let mut out = Vec::new();
         out.push(self.parse_expr_bp(0)?);
         // cpp's `columnExprList: columnExpr (COMMA columnExpr)*` — after
@@ -3862,7 +3865,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let result = self.parse_select_set_stmt();
         self.suppress_setstmt_trailing_order_by = prev;
         let v = result?;
-        let kind = self.emit.node_kind(&v); let kind = kind.as_deref();
+        let kind = self.emit.node_kind(&v);
+        let kind = kind.as_deref();
         if matches!(
             kind,
             Some("SelectQuery") | Some("SelectSetQuery") | Some("Placeholder")
@@ -4518,7 +4522,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     ///
     /// Both alts share the same post-parse split + literal-AND
     /// fallback; the difference is just the starting BP.
-    fn parse_between_body(&mut self, outer_min_bp: u8) -> Result<BetweenSplit<E::Value>, ParseError> {
+    fn parse_between_body(
+        &mut self,
+        outer_min_bp: u8,
+    ) -> Result<BetweenSplit<E::Value>, ParseError> {
         // Depth-aware arm ordering:
         //   - OUTERMOST call (depth=0): WIDE first. The body greedy
         //     parse maximizes what's inside the OUTER BETWEEN; split
@@ -4591,7 +4598,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// Shared body of `parse_between_body`'s two `try_alt` arms,
     /// parameterized by the starting binding power. See
     /// `parse_between_body` for the narrow/wide rationale.
-    fn parse_between_body_arm(&mut self, start_bp: u8) -> Result<BetweenSplit<E::Value>, ParseError> {
+    fn parse_between_body_arm(
+        &mut self,
+        start_bp: u8,
+    ) -> Result<BetweenSplit<E::Value>, ParseError> {
         let chain = self.parse_expr_bp(start_bp)?;
         if let Some((low, high, hoisted)) = split_at_rightmost_and(&self.emit, &chain) {
             return Ok((low, high, hoisted));
@@ -4950,7 +4960,11 @@ fn hoist_min_bp<V>(hoist: &BetweenHoist<V>) -> u8 {
 }
 
 /// Apply one outer wrapper around an in-progress BetweenExpr.
-fn apply_between_hoist<E: Emitter>(emit: &E, expr: E::Value, hoist: BetweenHoist<E::Value>) -> E::Value {
+fn apply_between_hoist<E: Emitter>(
+    emit: &E,
+    expr: E::Value,
+    hoist: BetweenHoist<E::Value>,
+) -> E::Value {
     match hoist {
         BetweenHoist::Alias(name) => emit.alias(expr, &name),
         BetweenHoist::Between { low, high, negated } => emit.between(expr, low, high, negated),
@@ -4974,9 +4988,7 @@ fn apply_between_hoist<E: Emitter>(emit: &E, expr: E::Value, hoist: BetweenHoist
         BetweenHoist::ArrayAccess { property, nullish } => {
             emit.array_access(expr, property, nullish)
         }
-        BetweenHoist::ExprCall { args } => {
-            emit.expr_call(expr, args)
-        }
+        BetweenHoist::ExprCall { args } => emit.expr_call(expr, args),
         BetweenHoist::TypeCast { type_name } => {
             // Reconstruct the TypeCast node the WIDE parse produced.
             // Inner field is `expr`; the type identifier is on
@@ -4991,9 +5003,7 @@ fn apply_between_hoist<E: Emitter>(emit: &E, expr: E::Value, hoist: BetweenHoist
             // index on `index`. Mirror that.
             emit.tuple_access(expr, index, nullish)
         }
-        BetweenHoist::ArithmeticOperation { op, right } => {
-            emit.arith(expr, &op, right)
-        }
+        BetweenHoist::ArithmeticOperation { op, right } => emit.arith(expr, &op, right),
     }
 }
 
@@ -5006,7 +5016,11 @@ fn apply_between_hoist<E: Emitter>(emit: &E, expr: E::Value, hoist: BetweenHoist
 /// expressions that the pratt loop wraps). Derive the span from the
 /// first child's `start` and the last child's `end` so the inner
 /// synthetic node carries a non-null span.
-fn stamp_span_from_children<E: Emitter>(emit: &E, node: E::Value, children: &[E::Value]) -> E::Value {
+fn stamp_span_from_children<E: Emitter>(
+    emit: &E,
+    node: E::Value,
+    children: &[E::Value],
+) -> E::Value {
     if children.is_empty() {
         return node;
     }
@@ -5034,7 +5048,9 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     let node_name = emit.node_kind(node);
     let node_name = node_name.as_deref();
     if node_name == Some("And") {
-        let exprs = emit.get_field(node, "exprs").and_then(|v| emit.as_list(&v))?;
+        let exprs = emit
+            .get_field(node, "exprs")
+            .and_then(|v| emit.as_list(&v))?;
         if exprs.len() < 2 {
             return None;
         }
@@ -5072,9 +5088,12 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
         return Some((left, right, Vec::new()));
     }
     if node_name == Some("Or") {
-        let exprs = emit.get_field(node, "exprs").and_then(|v| emit.as_list(&v))?;
+        let exprs = emit
+            .get_field(node, "exprs")
+            .and_then(|v| emit.as_list(&v))?;
         for i in (0..exprs.len()).rev() {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &exprs[i]) {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &exprs[i])
+            {
                 if hoisted.is_empty() {
                     // AND was found directly inside the Or's child (no
                     // looser-wrapper between them). cpp's grammar lets
@@ -5190,7 +5209,10 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
         }
         if let Some(inner) = emit.get_field(node, "left") {
             if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
-                let op = emit.get_field(node, "op").and_then(|v| emit.as_str(&v).map(|s| s.into_owned())).unwrap_or_default();
+                let op = emit
+                    .get_field(node, "op")
+                    .and_then(|v| emit.as_str(&v).map(|s| s.into_owned()))
+                    .unwrap_or_default();
                 let right = emit.get_field(node, "right").unwrap_or_else(|| emit.null());
                 hoisted.push(BetweenHoist::ArithmeticOperation { op, right });
                 return Some((left_in, right_in, hoisted));
@@ -5206,7 +5228,13 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
             }
         }
     }
-    if node_name == Some("Call") && emit.get_field(node, "name").and_then(|v| emit.as_str(&v).map(|s| s.into_owned())).as_deref() == Some("if") {
+    if node_name == Some("Call")
+        && emit
+            .get_field(node, "name")
+            .and_then(|v| emit.as_str(&v).map(|s| s.into_owned()))
+            .as_deref()
+            == Some("if")
+    {
         if let Some(args) = emit.get_field(node, "args").and_then(|v| emit.as_list(&v)) {
             if args.len() == 3 {
                 // Try the else-branch (args[2]) first: `cond ? then :
@@ -5227,7 +5255,9 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
                 // BetweenExpr the caller builds. The if-call node
                 // itself dissolves: its then/else go to the hoist, its
                 // cond's split becomes BETWEEN's low/high.
-                if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &args[0]) {
+                if let Some((left_in, right_in, mut hoisted)) =
+                    split_at_rightmost_and(emit, &args[0])
+                {
                     hoisted.push(BetweenHoist::Ternary {
                         then_branch: args[1].clone(),
                         else_branch: args[2].clone(),
@@ -5244,7 +5274,10 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
                 // with each hoisted item in order (innermost first),
                 // which matches cpp's `Alias(BetweenExpr(...),
                 // outer_name)` shape.
-                let name = emit.get_field(node, "alias").and_then(|v| emit.as_str(&v).map(|s| s.into_owned())).unwrap_or_default();
+                let name = emit
+                    .get_field(node, "alias")
+                    .and_then(|v| emit.as_str(&v).map(|s| s.into_owned()))
+                    .unwrap_or_default();
                 hoisted.push(BetweenHoist::Alias(name));
                 return Some((left_in, right_in, hoisted));
             }
@@ -5264,7 +5297,10 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
         if let Some(inner) = emit.get_field(node, "left") {
             if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
                 let right = emit.get_field(node, "right").unwrap_or_else(|| emit.null());
-                let negated = emit.get_field(node, "negated").and_then(|v| emit.as_bool(&v)).unwrap_or(false);
+                let negated = emit
+                    .get_field(node, "negated")
+                    .and_then(|v| emit.as_bool(&v))
+                    .unwrap_or(false);
                 hoisted.push(BetweenHoist::IsDistinctFrom { right, negated });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5279,7 +5315,11 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
         if let Some(inner) = emit.get_field(node, "left") {
             if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
                 // `op` is "==" for IS NULL, "!=" for IS NOT NULL.
-                let negated = emit.get_field(node, "op").and_then(|v| emit.as_str(&v).map(|s| s.into_owned())).as_deref() == Some("!=");
+                let negated = emit
+                    .get_field(node, "op")
+                    .and_then(|v| emit.as_str(&v).map(|s| s.into_owned()))
+                    .as_deref()
+                    == Some("!=");
                 hoisted.push(BetweenHoist::IsNull { negated });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5292,8 +5332,13 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     if node_name == Some("ArrayAccess") {
         if let Some(inner) = emit.get_field(node, "array") {
             if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
-                let property = emit.get_field(node, "property").unwrap_or_else(|| emit.null());
-                let nullish = emit.get_field(node, "nullish").and_then(|v| emit.as_bool(&v)).unwrap_or(false);
+                let property = emit
+                    .get_field(node, "property")
+                    .unwrap_or_else(|| emit.null());
+                let nullish = emit
+                    .get_field(node, "nullish")
+                    .and_then(|v| emit.as_bool(&v))
+                    .unwrap_or(false);
                 hoisted.push(BetweenHoist::ArrayAccess { property, nullish });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5323,7 +5368,10 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     if node_name == Some("TypeCast") {
         if let Some(inner) = emit.get_field(node, "expr") {
             if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
-                let type_name = emit.get_field(node, "type_name").and_then(|v| emit.as_str(&v).map(|s| s.into_owned())).unwrap_or_default();
+                let type_name = emit
+                    .get_field(node, "type_name")
+                    .and_then(|v| emit.as_str(&v).map(|s| s.into_owned()))
+                    .unwrap_or_default();
                 hoisted.push(BetweenHoist::TypeCast { type_name });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5336,8 +5384,14 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     if node_name == Some("TupleAccess") {
         if let Some(inner) = emit.get_field(node, "tuple") {
             if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner) {
-                let index = emit.get_field(node, "index").and_then(|v| emit.as_i64(&v)).unwrap_or(0);
-                let nullish = emit.get_field(node, "nullish").and_then(|v| emit.as_bool(&v)).unwrap_or(false);
+                let index = emit
+                    .get_field(node, "index")
+                    .and_then(|v| emit.as_i64(&v))
+                    .unwrap_or(0);
+                let nullish = emit
+                    .get_field(node, "nullish")
+                    .and_then(|v| emit.as_bool(&v))
+                    .unwrap_or(false);
                 hoisted.push(BetweenHoist::TupleAccess { index, nullish });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5371,7 +5425,9 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
     //    (no AND), so the `low` peel above fails. Fall through to
     //    `expr`: split And(d,e), hoist (f, g, neg=true).
     if node_name == Some("BetweenExpr") {
-        if let (Some(inner_low), Some(inner_high)) = (emit.get_field(node, "low"), emit.get_field(node, "high")) {
+        if let (Some(inner_low), Some(inner_high)) =
+            (emit.get_field(node, "low"), emit.get_field(node, "high"))
+        {
             if let Some((new_low, new_high, hoisted)) = split_at_rightmost_and(emit, &inner_low) {
                 let mut new_inner = node.clone();
                 emit.set_field(&mut new_inner, "low", new_low);
@@ -5380,10 +5436,15 @@ fn split_at_rightmost_and<E: Emitter>(emit: &E, node: &E::Value) -> Option<Betwe
             }
         }
         if let Some(inner_expr) = emit.get_field(node, "expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(emit, &inner_expr) {
+            if let Some((left_in, right_in, mut hoisted)) =
+                split_at_rightmost_and(emit, &inner_expr)
+            {
                 let low = emit.get_field(node, "low").unwrap_or_else(|| emit.null());
                 let high = emit.get_field(node, "high").unwrap_or_else(|| emit.null());
-                let negated = emit.get_field(node, "negated").and_then(|v| emit.as_bool(&v)).unwrap_or(false);
+                let negated = emit
+                    .get_field(node, "negated")
+                    .and_then(|v| emit.as_bool(&v))
+                    .unwrap_or(false);
                 hoisted.push(BetweenHoist::Between { low, high, negated });
                 return Some((left_in, right_in, hoisted));
             }
@@ -5420,8 +5481,14 @@ fn is_paren_form_columns_replace<E: Emitter>(emit: &E, v: &E::Value) -> bool {
     if emit.node_kind(v).as_deref() != Some("ColumnsExpr") {
         return false;
     }
-    if emit.get_field(v, "all_columns").and_then(|v| emit.as_bool(&v)) != Some(true) {
+    if emit
+        .get_field(v, "all_columns")
+        .and_then(|v| emit.as_bool(&v))
+        != Some(true)
+    {
         return false;
     }
-    emit.get_field(v, "replace").map(|v| !emit.is_null(&v)).unwrap_or(false)
+    emit.get_field(v, "replace")
+        .map(|v| !emit.is_null(&v))
+        .unwrap_or(false)
 }

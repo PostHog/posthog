@@ -8,7 +8,6 @@
 //! ARRAY JOIN is handled here (not in `join.rs`) because the grammar
 //! attaches it to the SELECT, not to the join chain.
 
-
 use super::expr::is_bare_field;
 use super::{
     check_alias_not_reserved, format_set_op, identifier_text, inject_ctes_into_select,
@@ -144,7 +143,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // after-the-fact `trailing.iter()` check misses it).
         let inner_offset = if let Some(last) = subsequent.last_mut() {
             if let Some(mut sq) = self.emit.get_field(last, "select_query") {
-                let liftable = self.emit
+                let liftable = self
+                    .emit
                     .remove_field(&mut sq, "__rust_offset_liftable")
                     .and_then(|v| self.emit.as_bool(&v))
                     == Some(true);
@@ -403,7 +403,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let stmt_start = override_start.unwrap_or(self.peek0.start);
         let mut obj = self.emit.select_query_empty();
         if let Some(ctes) = pre_parsed_ctes {
-            self.emit.set_field(&mut obj, "ctes", self.emit.list_value(ctes));
+            self.emit
+                .set_field(&mut obj, "ctes", self.emit.list_value(ctes));
         }
 
         // Catch typo'd SELECT keyword (e.g. `SELEC`) with a message close
@@ -425,7 +426,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.bump()?;
         let distinct = self.eat_kw(Kw::Distinct)?;
         if distinct {
-            self.emit.set_field(&mut obj, "distinct", self.emit.bool(true));
+            self.emit
+                .set_field(&mut obj, "distinct", self.emit.bool(true));
         }
         // `topClause: TOP DECIMAL_LITERAL (WITH TIES)?` — accepted by
         // the grammar, rejected by the cpp visitor as unsupported. A
@@ -451,7 +453,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 self.peek0.start, self.peek0.end,
             ));
         }
-        self.emit.set_field(&mut obj, "select", self.emit.list_value(columns));
+        self.emit
+            .set_field(&mut obj, "select", self.emit.list_value(columns));
 
         if self.eat_kw(Kw::From)? {
             let join = self.parse_join_expr()?;
@@ -495,7 +498,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 Some("INNER") => "INNER ARRAY JOIN",
                 _ => "ARRAY JOIN",
             };
-            self.emit.set_field(&mut obj, "array_join_op", self.emit.string(op));
+            self.emit
+                .set_field(&mut obj, "array_join_op", self.emit.string(op));
             // Inline expr-list parsing so we can capture each item's span
             // for the alias-required error.
             let mut exprs: Vec<E::Value> = Vec::new();
@@ -534,7 +538,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     break;
                 }
             }
-            self.emit.set_field(&mut obj, "array_join_list", self.emit.list_value(exprs));
+            self.emit
+                .set_field(&mut obj, "array_join_list", self.emit.list_value(exprs));
         }
         if self.eat_kw(Kw::Prewhere)? {
             let _v = self.parse_expr_bp(0)?;
@@ -564,7 +569,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 // ALL(*) falls back to `columnExprList` with ALL as a
                 // plain Field.
                 self.bump()?;
-                self.emit.set_field(&mut obj, "group_by_mode", self.emit.string("all"));
+                self.emit
+                    .set_field(&mut obj, "group_by_mode", self.emit.string("all"));
             } else if matches!(self.peek(), TokenKind::Keyword(Kw::Cube | Kw::Rollup))
                 && self.peek_next() == TokenKind::LParen
                 && !self.peek_lparen_is_empty()
@@ -579,8 +585,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 self.expect(TokenKind::LParen, "(")?;
                 let exprs = self.parse_expr_list_until_paren()?;
                 self.expect(TokenKind::RParen, ")")?;
-                self.emit.set_field(&mut obj, "group_by", self.emit.list_value(exprs));
-                self.emit.set_field(&mut obj, "group_by_mode", self.emit.string(kw));
+                self.emit
+                    .set_field(&mut obj, "group_by", self.emit.list_value(exprs));
+                self.emit
+                    .set_field(&mut obj, "group_by_mode", self.emit.string(kw));
             } else if matches!(self.peek(), TokenKind::Keyword(Kw::Grouping))
                 && self.peek_next() == TokenKind::Keyword(Kw::Sets)
             {
@@ -610,11 +618,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     }
                 }
                 self.expect(TokenKind::RParen, ")")?;
-                self.emit.set_field(&mut obj, "group_by", self.emit.list_value(sets));
-                self.emit.set_field(&mut obj, "group_by_mode", self.emit.string("grouping_sets"));
+                self.emit
+                    .set_field(&mut obj, "group_by", self.emit.list_value(sets));
+                self.emit
+                    .set_field(&mut obj, "group_by_mode", self.emit.string("grouping_sets"));
             } else {
                 let exprs = self.parse_expr_list_until_terminators()?;
-                self.emit.set_field(&mut obj, "group_by", self.emit.list_value(exprs));
+                self.emit
+                    .set_field(&mut obj, "group_by", self.emit.list_value(exprs));
             }
         }
         // `WITH (CUBE | ROLLUP | TOTALS)` after the GROUP BY position —
@@ -667,7 +678,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         self.try_attach_select_level_sample(&mut obj)?;
         // WINDOW clause — minimal: WINDOW name AS (...) [, ...].
         if self.eat_kw(Kw::Window)? {
-            let mut windows: std::collections::BTreeMap<String, E::Value> = std::collections::BTreeMap::new();
+            let mut windows: std::collections::BTreeMap<String, E::Value> =
+                std::collections::BTreeMap::new();
             loop {
                 let name_tok = self.bump()?;
                 let name = match name_tok.kind {
@@ -690,7 +702,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
             }
             let windows_pairs: Vec<(String, E::Value)> = windows.into_iter().collect();
-            self.emit.set_field(&mut obj, "window_exprs", self.emit.string_keyed_map(windows_pairs));
+            self.emit.set_field(
+                &mut obj,
+                "window_exprs",
+                self.emit.string_keyed_map(windows_pairs),
+            );
         }
         if matches!(self.peek(), TokenKind::Keyword(Kw::Order))
             && self.peek_next() == TokenKind::Keyword(Kw::By)
@@ -698,7 +714,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             self.bump()?;
             self.bump()?;
             let ob = self.parse_order_expr_list()?;
-            self.emit.set_field(&mut obj, "order_by", self.emit.list_value(ob));
+            self.emit
+                .set_field(&mut obj, "order_by", self.emit.list_value(ob));
             // Optional `INTERPOLATE [(expr [AS expr], …)]` after ORDER BY.
             if self.eat_kw(Kw::Interpolate)? {
                 let items = if self.eat(TokenKind::LParen)? {
@@ -742,7 +759,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 } else {
                     Vec::new()
                 };
-                self.emit.set_field(&mut obj, "interpolate", self.emit.list_value(items));
+                self.emit
+                    .set_field(&mut obj, "interpolate", self.emit.list_value(items));
             }
         }
         // LIMIT / LIMIT BY / OFFSET handling. The grammar allows both
@@ -855,10 +873,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// anything else means regular limit-and-offset. `%` (PERCENT) and
     /// `WITH TIES` rule out limit-by mid-parse — they are only valid in the
     /// limit-and-offset form.
-    fn parse_limit_clauses(
-        &mut self,
-        obj: &mut E::Value,
-    ) -> Result<(), ParseError> {
+    fn parse_limit_clauses(&mut self, obj: &mut E::Value) -> Result<(), ParseError> {
         // Capture the LIMIT keyword's start so the eventual LimitByExpr
         // (cpp's `limitByClause` ctx, `LIMIT limitExpr BY columnExprList`)
         // gets a span starting at LIMIT, not at the first BY-expr.
@@ -867,7 +882,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // No LIMIT — accept a standalone OFFSET clause (offsetOnlyClause).
             if self.eat_kw(Kw::Offset)? {
                 let _v = self.parse_expr_bp(0)?;
-            self.emit.set_field(obj, "offset", _v);
+                self.emit.set_field(obj, "offset", _v);
             }
             return Ok(());
         }
@@ -961,7 +976,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 Tail::Offset(s) => (first, Some(s)),
             };
             let lb = self.emit.limit_by_expr(n, cols, offset_value);
-            self.emit.set_field(obj, "limit_by", self.wrap_pos(lb, limit_start));
+            self.emit
+                .set_field(obj, "limit_by", self.wrap_pos(lb, limit_start));
 
             // After the limit-by clause, an optional outer
             // limit-and-offset (or bare OFFSET) may follow.
@@ -975,7 +991,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // See `parse_select_set_stmt` for the lift logic.
         self.emit.set_field(obj, "limit", first);
         if percent {
-            self.emit.set_field(obj, "limit_percent", self.emit.bool(true));
+            self.emit
+                .set_field(obj, "limit_percent", self.emit.bool(true));
         }
         match tail {
             Tail::Comma(s) => {
@@ -983,12 +1000,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             }
             Tail::Offset(s) => {
                 self.emit.set_field(obj, "offset", s);
-                self.emit.set_field(obj, "__rust_offset_liftable", self.emit.bool(true));
+                self.emit
+                    .set_field(obj, "__rust_offset_liftable", self.emit.bool(true));
             }
             Tail::None => {}
         }
         if with_ties {
-            self.emit.set_field(obj, "limit_with_ties", self.emit.bool(true));
+            self.emit
+                .set_field(obj, "limit_with_ties", self.emit.bool(true));
         }
         Ok(())
     }
@@ -996,10 +1015,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// Outer limit/offset that may follow a `LIMIT BY` clause. Same
     /// grammar as `limitAndOffsetClause | offsetOnlyClause`, but `BY` is
     /// not legal here.
-    fn parse_trailing_limit_and_offset(
-        &mut self,
-        obj: &mut E::Value,
-    ) -> Result<(), ParseError> {
+    fn parse_trailing_limit_and_offset(&mut self, obj: &mut E::Value) -> Result<(), ParseError> {
         if self.eat_kw(Kw::Limit)? {
             // Full `columnExpr` body — `parse_limit_body` covers the
             // compound case (`limit (x) ?? y`) and the `%`/PERCENT
@@ -1011,7 +1027,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             let (limit, percent) = body?;
             self.emit.set_field(obj, "limit", limit);
             if percent {
-                self.emit.set_field(obj, "limit_percent", self.emit.bool(true));
+                self.emit
+                    .set_field(obj, "limit_percent", self.emit.bool(true));
             }
             // Grammar (line 107–110): limitAndOffsetClause has two
             // alternatives that differ in where WITH TIES sits relative
@@ -1031,26 +1048,29 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             if self.eat(TokenKind::Comma)? {
                 // Compact form.
                 let _v = self.parse_expr_bp(0)?;
-            self.emit.set_field(obj, "offset", _v);
+                self.emit.set_field(obj, "offset", _v);
                 if self.peek_kw2(Kw::With, Kw::Ties) {
                     self.bump()?;
                     self.bump()?;
-                    self.emit.set_field(obj, "limit_with_ties", self.emit.bool(true));
+                    self.emit
+                        .set_field(obj, "limit_with_ties", self.emit.bool(true));
                 }
             } else {
                 // Verbose form (or no second operand).
                 if self.peek_kw2(Kw::With, Kw::Ties) {
                     self.bump()?;
                     self.bump()?;
-                    self.emit.set_field(obj, "limit_with_ties", self.emit.bool(true));
+                    self.emit
+                        .set_field(obj, "limit_with_ties", self.emit.bool(true));
                 }
                 if self.eat_kw(Kw::Offset)? {
                     let _v = self.parse_expr_bp(0)?;
-            self.emit.set_field(obj, "offset", _v);
+                    self.emit.set_field(obj, "offset", _v);
                     // Sentinel for the SelectSetStmt wrapper's
                     // conditional lift logic — only the verbose form
                     // is liftable.
-                    self.emit.set_field(obj, "__rust_offset_liftable", self.emit.bool(true));
+                    self.emit
+                        .set_field(obj, "__rust_offset_liftable", self.emit.bool(true));
                 }
             }
         } else if self.eat_kw(Kw::Offset)? {
@@ -1256,10 +1276,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// building the JoinExpr) ends up on `JoinExpr.sample`. We mirror
     /// the silent-drop behaviour here so the parser accepts the syntax
     /// without diverging from cpp.
-    fn try_attach_select_level_sample(
-        &mut self,
-        _obj: &mut E::Value,
-    ) -> Result<(), ParseError> {
+    fn try_attach_select_level_sample(&mut self, _obj: &mut E::Value) -> Result<(), ParseError> {
         let saw_sample = if self.peek_kw2(Kw::Using, Kw::Sample) {
             self.bump()?; // USING
             true
@@ -1407,7 +1424,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // following frame/order keywords (RANGE / ROWS / ORDER) or
             // the closing paren of the windowExpr.
             let exprs = self.parse_window_partition_by_exprs()?;
-            self.emit.set_field(&mut obj, "partition_by", self.emit.list_value(exprs));
+            self.emit
+                .set_field(&mut obj, "partition_by", self.emit.list_value(exprs));
         }
         if matches!(self.peek(), TokenKind::Keyword(Kw::Order))
             && self.peek_next() == TokenKind::Keyword(Kw::By)
@@ -1415,7 +1433,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             self.bump()?;
             self.bump()?;
             let ob = self.parse_order_expr_list()?;
-            self.emit.set_field(&mut obj, "order_by", self.emit.list_value(ob));
+            self.emit
+                .set_field(&mut obj, "order_by", self.emit.list_value(ob));
         }
         // Frame clause: ROWS|RANGE bound [BETWEEN bound AND bound].
         let frame_method = if self.eat_kw(Kw::Rows)? {
@@ -1426,7 +1445,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             None
         };
         if let Some(m) = frame_method {
-            self.emit.set_field(&mut obj, "frame_method", self.emit.string(m));
+            self.emit
+                .set_field(&mut obj, "frame_method", self.emit.string(m));
             // `BETWEEN` after ROWS / RANGE is ambiguous: the
             // `frameBetween` alt (`BETWEEN bound AND bound`) or a
             // `frameStart` bound whose `columnExpr` is the `between`
@@ -1467,7 +1487,10 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if self.eat_kw(Kw::Current)? {
             self.expect_kw(Kw::Row, "ROW")?;
             let null_val = self.emit.null();
-            return Ok(self.wrap_pos(self.emit.window_frame_bound("CURRENT ROW", null_val), bound_start));
+            return Ok(self.wrap_pos(
+                self.emit.window_frame_bound("CURRENT ROW", null_val),
+                bound_start,
+            ));
         }
         if self.eat_kw(Kw::Unbounded)? {
             let ty = if self.eat_kw(Kw::Preceding)? {
@@ -1637,7 +1660,9 @@ fn is_bare_from_field<E: Emitter>(emit: &E, expr: &E::Value) -> bool {
     match emit.get_field(expr, "chain").and_then(|c| emit.as_list(&c)) {
         Some(chain) => {
             chain.len() == 1
-                && emit.as_str(&chain[0]).is_some_and(|s| s.eq_ignore_ascii_case("from"))
+                && emit
+                    .as_str(&chain[0])
+                    .is_some_and(|s| s.eq_ignore_ascii_case("from"))
         }
         None => false,
     }
