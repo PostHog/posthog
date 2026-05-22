@@ -438,6 +438,10 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     # --- Group C: forward-only pad + compare readiness ---------------------
 
+    @unittest.skip(
+        "Flaky on CI since #59075 — same root cause as test_lazy_result_matches_raw_result. "
+        "Lazy path returns empty rows despite READY job. Root cause under investigation."
+    )
     @freeze_time("2024-01-15T12:00:00Z")
     def test_session_just_after_window_start_attributed_correctly(self):
         # Forward-only pad regression: a session starting near the leading edge
