@@ -8,28 +8,28 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import type { replayLensSceneLogicType } from './replayLensSceneLogicType'
+import type { replayScannerSceneLogicType } from './replayScannerSceneLogicType'
 import { ALL_EDITOR_TABS, EditorTab } from './types'
 
-export interface ReplayLensSceneLogicProps {
+export interface ReplayScannerSceneLogicProps {
     tabId: string
 }
 
-export const replayLensSceneLogic = kea<replayLensSceneLogicType>([
-    path(['products', 'replay_vision', 'frontend', 'replay_lenses', 'replayLensSceneLogic']),
-    props({} as ReplayLensSceneLogicProps),
+export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
+    path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannerSceneLogic']),
+    props({} as ReplayScannerSceneLogicProps),
     tabAwareScene(),
 
     actions({
-        setLensId: (lensId: string) => ({ lensId }),
+        setScannerId: (scannerId: string) => ({ scannerId }),
         setActiveTab: (tab: EditorTab) => ({ tab }),
     }),
 
     reducers({
-        lensId: [
+        scannerId: [
             'new' as string,
             {
-                setLensId: (_, { lensId }) => lensId,
+                setScannerId: (_, { scannerId }) => scannerId,
             },
         ],
         activeTab: [
@@ -42,8 +42,8 @@ export const replayLensSceneLogic = kea<replayLensSceneLogicType>([
 
     selectors({
         breadcrumbs: [
-            (s) => [s.lensId],
-            (lensId: string): Breadcrumb[] => [
+            (s) => [s.scannerId],
+            (scannerId: string): Breadcrumb[] => [
                 {
                     key: 'replay-vision',
                     name: 'Replay vision',
@@ -51,9 +51,9 @@ export const replayLensSceneLogic = kea<replayLensSceneLogicType>([
                     iconType: 'replay_vision',
                 },
                 {
-                    key: lensId === 'new' ? 'new-lens' : `lens-${lensId}`,
-                    name: lensId === 'new' ? 'New lens' : 'Lens',
-                    path: urls.replayVision(lensId),
+                    key: scannerId === 'new' ? 'new-scanner' : `scanner-${scannerId}`,
+                    name: scannerId === 'new' ? 'New scanner' : 'Scanner',
+                    path: urls.replayVision(scannerId),
                 },
             ],
         ],
@@ -61,10 +61,10 @@ export const replayLensSceneLogic = kea<replayLensSceneLogicType>([
 
     tabAwareActionToUrl(({ values }) => ({
         setActiveTab: () => {
-            const defaultTab: EditorTab = values.lensId === 'new' ? 'configuration' : 'observations'
+            const defaultTab: EditorTab = values.scannerId === 'new' ? 'configuration' : 'observations'
             const tab = values.activeTab === defaultTab ? undefined : values.activeTab
             return [
-                urls.replayVision(values.lensId),
+                urls.replayVision(values.scannerId),
                 { ...router.values.searchParams, tab },
                 undefined,
                 { replace: true },
@@ -74,12 +74,12 @@ export const replayLensSceneLogic = kea<replayLensSceneLogicType>([
 
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.replayVision(':id')]: ({ id }, searchParams) => {
-            const lensId = id || 'new'
-            if (lensId !== values.lensId) {
-                actions.setLensId(lensId)
+            const scannerId = id || 'new'
+            if (scannerId !== values.scannerId) {
+                actions.setScannerId(scannerId)
             }
             const raw = typeof searchParams.tab === 'string' ? searchParams.tab : ''
-            const defaultTab: EditorTab = lensId === 'new' ? 'configuration' : 'observations'
+            const defaultTab: EditorTab = scannerId === 'new' ? 'configuration' : 'observations'
             const tab: EditorTab = (ALL_EDITOR_TABS as string[]).includes(raw) ? (raw as EditorTab) : defaultTab
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)

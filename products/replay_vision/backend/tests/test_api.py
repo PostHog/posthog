@@ -11,13 +11,21 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 
-from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType, ReplayLens
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.temporal.constants import APPLY_LENS_WORKFLOW_NAME, build_apply_lens_workflow_id
+from products.replay_vision.backend.models.replay_scanner import (
+    ReplayScanner,
+    ScannerModel,
+    ScannerProvider,
+    ScannerType,
+)
+from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_WORKFLOW_NAME,
+    build_apply_scanner_workflow_id,
+)
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
@@ -35,33 +43,33 @@ class _VisionAPITestCase(APIBaseTest):
         super().tearDown()
 
     @property
-    def lenses_url(self) -> str:
-        return f"/api/environments/{self.team.id}/vision/lenses/"
+    def scanners_url(self) -> str:
+        return f"/api/environments/{self.team.id}/vision/scanners/"
 
-    def observations_url(self, lens_id: str) -> str:
-        return f"/api/environments/{self.team.id}/vision/lenses/{lens_id}/observations/"
+    def observations_url(self, scanner_id: str) -> str:
+        return f"/api/environments/{self.team.id}/vision/scanners/{scanner_id}/observations/"
 
-    def _create_lens(self, **overrides) -> ReplayLens:
+    def _create_scanner(self, **overrides) -> ReplayScanner:
         defaults = {
             "team": self.team,
-            "name": "my-lens",
-            "lens_type": LensType.MONITOR,
-            "lens_config": {"prompt": "did the user check out?"},
-            "model": LensModel.GEMINI_3_FLASH,
+            "name": "my-scanner",
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "did the user check out?"},
+            "model": ScannerModel.GEMINI_3_FLASH,
         }
         defaults.update(overrides)
-        return ReplayLens.objects.create(**defaults)
+        return ReplayScanner.objects.create(**defaults)
 
 
-class TestReplayLensViewSet(_VisionAPITestCase):
+class TestReplayScannerViewSet(_VisionAPITestCase):
     def test_create_minimal(self) -> None:
         resp = self.client.post(
-            self.lenses_url,
+            self.scanners_url,
             data={
                 "name": "checkout-monitor",
-                "lens_type": LensType.MONITOR,
-                "lens_config": {"prompt": "did checkout complete?"},
-                "model": LensModel.GEMINI_3_FLASH,
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "did checkout complete?"},
+                "model": ScannerModel.GEMINI_3_FLASH,
             },
             format="json",
         )
@@ -70,46 +78,46 @@ class TestReplayLensViewSet(_VisionAPITestCase):
         self.assertEqual(body["name"], "checkout-monitor")
         self.assertTrue(body["enabled"])
         self.assertEqual(body["sampling_rate"], 1.0)
-        self.assertEqual(body["lens_version"], 1)
+        self.assertEqual(body["scanner_version"], 1)
         self.assertEqual(body["created_by"]["id"], self.user.id)
 
-    @parameterized.expand(["name", "lens_type", "lens_config", "model"])
+    @parameterized.expand(["name", "scanner_type", "scanner_config", "model"])
     def test_create_validates_required_field(self, missing_field: str) -> None:
         payload = {
             "name": f"missing-{missing_field}",
-            "lens_type": LensType.MONITOR,
-            "lens_config": {"prompt": "p"},
-            "model": LensModel.GEMINI_3_FLASH,
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_FLASH,
         }
         del payload[missing_field]
-        resp = self.client.post(self.lenses_url, data=payload, format="json")
+        resp = self.client.post(self.scanners_url, data=payload, format="json")
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["attr"], missing_field)
 
     def test_create_round_trips_provider(self) -> None:
         resp = self.client.post(
-            self.lenses_url,
+            self.scanners_url,
             data={
                 "name": "explicit-provider",
-                "lens_type": LensType.MONITOR,
-                "lens_config": {"prompt": "p"},
-                "model": LensModel.GEMINI_3_FLASH,
-                "provider": LensProvider.GOOGLE,
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_FLASH,
+                "provider": ScannerProvider.GOOGLE,
             },
             format="json",
         )
         self.assertEqual(resp.status_code, 201)
-        self.assertEqual(resp.json()["provider"], LensProvider.GOOGLE)
+        self.assertEqual(resp.json()["provider"], ScannerProvider.GOOGLE)
 
     @parameterized.expand([("below", -0.1), ("above", 1.5)])
     def test_create_rejects_out_of_range_sampling_rate(self, _label: str, value: float) -> None:
         resp = self.client.post(
-            self.lenses_url,
+            self.scanners_url,
             data={
                 "name": f"rate-{value}",
-                "lens_type": LensType.MONITOR,
-                "lens_config": {"prompt": "p"},
-                "model": LensModel.GEMINI_3_FLASH,
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_FLASH,
                 "sampling_rate": value,
             },
             format="json",
@@ -118,81 +126,81 @@ class TestReplayLensViewSet(_VisionAPITestCase):
         self.assertEqual(resp.json()["attr"], "sampling_rate")
 
     def test_create_duplicate_name_rejected(self) -> None:
-        self._create_lens(name="dup")
+        self._create_scanner(name="dup")
         resp = self.client.post(
-            self.lenses_url,
+            self.scanners_url,
             data={
                 "name": "dup",
-                "lens_type": LensType.MONITOR,
-                "lens_config": {"prompt": "p"},
-                "model": LensModel.GEMINI_3_FLASH,
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_FLASH,
             },
             format="json",
         )
         self.assertEqual(resp.status_code, 400)
 
-    def test_list_returns_only_team_lenses(self) -> None:
-        self._create_lens(name="ours")
+    def test_list_returns_only_team_scanners(self) -> None:
+        self._create_scanner(name="ours")
         other_org = Organization.objects.create(name="other")
         other_team = Team.objects.create(organization=other_org, name="other-team")
-        ReplayLens.objects.create(
+        ReplayScanner.objects.create(
             team=other_team,
             name="theirs",
-            lens_type=LensType.MONITOR,
-            lens_config={"prompt": "p"},
-            model=LensModel.GEMINI_3_FLASH,
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_FLASH,
         )
-        resp = self.client.get(self.lenses_url)
+        resp = self.client.get(self.scanners_url)
         self.assertEqual(resp.status_code, 200)
         names = [r["name"] for r in resp.json()["results"]]
         self.assertEqual(names, ["ours"])
 
     def test_retrieve(self) -> None:
-        lens = self._create_lens()
-        resp = self.client.get(f"{self.lenses_url}{lens.id}/")
+        scanner = self._create_scanner()
+        resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["id"], str(lens.id))
+        self.assertEqual(resp.json()["id"], str(scanner.id))
 
-    def test_patch_bumps_lens_version_on_tracked_change(self) -> None:
-        lens = self._create_lens()
+    def test_patch_bumps_scanner_version_on_tracked_change(self) -> None:
+        scanner = self._create_scanner()
         resp = self.client.patch(
-            f"{self.lenses_url}{lens.id}/",
+            f"{self.scanners_url}{scanner.id}/",
             data={"sampling_rate": 0.5},
             format="json",
         )
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(resp.json()["lens_version"], 2)
+        self.assertEqual(resp.json()["scanner_version"], 2)
         self.assertEqual(resp.json()["sampling_rate"], 0.5)
 
     def test_patch_does_not_bump_on_metadata_change(self) -> None:
-        lens = self._create_lens()
+        scanner = self._create_scanner()
         resp = self.client.patch(
-            f"{self.lenses_url}{lens.id}/",
+            f"{self.scanners_url}{scanner.id}/",
             data={"description": "now described"},
             format="json",
         )
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["lens_version"], 1)
+        self.assertEqual(resp.json()["scanner_version"], 1)
 
     @parameterized.expand(
         [
-            ("monitor", LensType.MONITOR, {"prompt": "p"}),
-            ("classifier", LensType.CLASSIFIER, {"prompt": "p", "tags": ["a", "b"]}),
-            ("scorer", LensType.SCORER, {"prompt": "p", "scale": {"min": 0, "max": 10}}),
-            ("summarizer", LensType.SUMMARIZER, {"prompt": "p"}),
-            ("indexer", LensType.INDEXER, {}),
+            ("monitor", ScannerType.MONITOR, {"prompt": "p"}),
+            ("classifier", ScannerType.CLASSIFIER, {"prompt": "p", "tags": ["a", "b"]}),
+            ("scorer", ScannerType.SCORER, {"prompt": "p", "scale": {"min": 0, "max": 10}}),
+            ("summarizer", ScannerType.SUMMARIZER, {"prompt": "p"}),
+            ("indexer", ScannerType.INDEXER, {}),
         ]
     )
-    def test_create_accepts_valid_lens_config_per_type(
-        self, label: str, lens_type: LensType, lens_config: dict
+    def test_create_accepts_valid_scanner_config_per_type(
+        self, label: str, scanner_type: ScannerType, scanner_config: dict
     ) -> None:
         resp = self.client.post(
-            self.lenses_url,
+            self.scanners_url,
             data={
                 "name": f"valid-{label}",
-                "lens_type": lens_type,
-                "lens_config": lens_config,
-                "model": LensModel.GEMINI_3_FLASH,
+                "scanner_type": scanner_type,
+                "scanner_config": scanner_config,
+                "model": ScannerModel.GEMINI_3_FLASH,
             },
             format="json",
         )
@@ -200,58 +208,58 @@ class TestReplayLensViewSet(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("classifier_without_tags", LensType.CLASSIFIER, {"prompt": "p"}),
-            ("classifier_empty_tags", LensType.CLASSIFIER, {"prompt": "p", "tags": []}),
-            ("scorer_inverted_scale", LensType.SCORER, {"prompt": "p", "scale": {"min": 10, "max": 0}}),
-            ("monitor_missing_prompt", LensType.MONITOR, {}),
-            ("not_a_dict", LensType.MONITOR, "just a string"),
+            ("classifier_without_tags", ScannerType.CLASSIFIER, {"prompt": "p"}),
+            ("classifier_empty_tags", ScannerType.CLASSIFIER, {"prompt": "p", "tags": []}),
+            ("scorer_inverted_scale", ScannerType.SCORER, {"prompt": "p", "scale": {"min": 10, "max": 0}}),
+            ("monitor_missing_prompt", ScannerType.MONITOR, {}),
+            ("not_a_dict", ScannerType.MONITOR, "just a string"),
         ]
     )
-    def test_create_rejects_invalid_lens_config_per_type(
-        self, label: str, lens_type: LensType, lens_config: Any
+    def test_create_rejects_invalid_scanner_config_per_type(
+        self, label: str, scanner_type: ScannerType, scanner_config: Any
     ) -> None:
         resp = self.client.post(
-            self.lenses_url,
+            self.scanners_url,
             data={
                 "name": f"invalid-{label}",
-                "lens_type": lens_type,
-                "lens_config": lens_config,
-                "model": LensModel.GEMINI_3_FLASH,
+                "scanner_type": scanner_type,
+                "scanner_config": scanner_config,
+                "model": ScannerModel.GEMINI_3_FLASH,
             },
             format="json",
         )
         self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "lens_config")
+        self.assertEqual(resp.json()["attr"], "scanner_config")
 
-    def test_patch_lens_type_validates_against_existing_config(self) -> None:
-        # Existing monitor lens has {"prompt": "..."}; switching to classifier without tags must 400.
-        lens = self._create_lens()
+    def test_patch_scanner_type_validates_against_existing_config(self) -> None:
+        # Existing monitor scanner has {"prompt": "..."}; switching to classifier without tags must 400.
+        scanner = self._create_scanner()
         resp = self.client.patch(
-            f"{self.lenses_url}{lens.id}/",
-            data={"lens_type": LensType.CLASSIFIER},
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_type": ScannerType.CLASSIFIER},
             format="json",
         )
         self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "lens_config")
+        self.assertEqual(resp.json()["attr"], "scanner_config")
 
-    def test_patch_can_change_lens_type_with_matching_config(self) -> None:
-        lens = self._create_lens()
+    def test_patch_can_change_scanner_type_with_matching_config(self) -> None:
+        scanner = self._create_scanner()
         resp = self.client.patch(
-            f"{self.lenses_url}{lens.id}/",
-            data={"lens_type": LensType.CLASSIFIER, "lens_config": {"prompt": "p", "tags": ["x"]}},
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_type": ScannerType.CLASSIFIER, "scanner_config": {"prompt": "p", "tags": ["x"]}},
             format="json",
         )
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(resp.json()["lens_type"], LensType.CLASSIFIER)
+        self.assertEqual(resp.json()["scanner_type"], ScannerType.CLASSIFIER)
 
     def test_create_accepts_valid_query(self) -> None:
         resp = self.client.post(
-            self.lenses_url,
+            self.scanners_url,
             data={
                 "name": "with-query",
-                "lens_type": LensType.MONITOR,
-                "lens_config": {"prompt": "p"},
-                "model": LensModel.GEMINI_3_FLASH,
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_FLASH,
                 "query": {"filter_test_accounts": True},
             },
             format="json",
@@ -262,12 +270,12 @@ class TestReplayLensViewSet(_VisionAPITestCase):
     def test_create_strips_date_fields_from_query(self) -> None:
         # The schedule controls time, not the user.
         resp = self.client.post(
-            self.lenses_url,
+            self.scanners_url,
             data={
                 "name": "stripped",
-                "lens_type": LensType.MONITOR,
-                "lens_config": {"prompt": "p"},
-                "model": LensModel.GEMINI_3_FLASH,
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_FLASH,
                 "query": {"date_from": "-7d", "date_to": "-1d", "filter_test_accounts": True},
             },
             format="json",
@@ -280,12 +288,12 @@ class TestReplayLensViewSet(_VisionAPITestCase):
 
     def test_create_rejects_invalid_query(self) -> None:
         resp = self.client.post(
-            self.lenses_url,
+            self.scanners_url,
             data={
                 "name": "bad-query",
-                "lens_type": LensType.MONITOR,
-                "lens_config": {"prompt": "p"},
-                "model": LensModel.GEMINI_3_FLASH,
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_FLASH,
                 "query": {"this_field_does_not_exist": True},
             },
             format="json",
@@ -294,128 +302,128 @@ class TestReplayLensViewSet(_VisionAPITestCase):
         self.assertEqual(resp.json()["attr"], "query")
 
     def test_delete(self) -> None:
-        lens = self._create_lens()
-        resp = self.client.delete(f"{self.lenses_url}{lens.id}/")
+        scanner = self._create_scanner()
+        resp = self.client.delete(f"{self.scanners_url}{scanner.id}/")
         self.assertEqual(resp.status_code, 204)
-        self.assertFalse(ReplayLens.objects.filter(id=lens.id).exists())
+        self.assertFalse(ReplayScanner.objects.filter(id=scanner.id).exists())
 
     @parameterized.expand(
         [
             ("enabled", "false", 1),
-            ("lens_type", LensType.CLASSIFIER, 1),
+            ("scanner_type", ScannerType.CLASSIFIER, 1),
             ("emits_signals", "true", 1),
         ]
     )
     def test_filterset(self, field: str, value: str, expected_count: int) -> None:
         if field == "enabled":
-            self._create_lens(name="enabled-lens")
-            self._create_lens(name="disabled-lens", enabled=False)
-        elif field == "lens_type":
-            self._create_lens(name="monitor-lens")
-            self._create_lens(name="classifier-lens", lens_type=LensType.CLASSIFIER)
+            self._create_scanner(name="enabled-scanner")
+            self._create_scanner(name="disabled-scanner", enabled=False)
+        elif field == "scanner_type":
+            self._create_scanner(name="monitor-scanner")
+            self._create_scanner(name="classifier-scanner", scanner_type=ScannerType.CLASSIFIER)
         elif field == "emits_signals":
-            self._create_lens(name="silent")
-            self._create_lens(name="loud", emits_signals=True)
-        resp = self.client.get(f"{self.lenses_url}?{field}={value}")
+            self._create_scanner(name="silent")
+            self._create_scanner(name="loud", emits_signals=True)
+        resp = self.client.get(f"{self.scanners_url}?{field}={value}")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), expected_count)
 
     def test_order_by_descending(self) -> None:
-        self._create_lens(name="a-lens")
-        self._create_lens(name="b-lens")
-        resp = self.client.get(f"{self.lenses_url}?order_by=-name")
+        self._create_scanner(name="a-scanner")
+        self._create_scanner(name="b-scanner")
+        resp = self.client.get(f"{self.scanners_url}?order_by=-name")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual([r["name"] for r in resp.json()["results"]], ["b-lens", "a-lens"])
+        self.assertEqual([r["name"] for r in resp.json()["results"]], ["b-scanner", "a-scanner"])
 
 
-class TestReplayLensViewSetFeatureFlag(APIBaseTest):
+class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
     @property
-    def lenses_url(self) -> str:
-        return f"/api/environments/{self.team.id}/vision/lenses/"
+    def scanners_url(self) -> str:
+        return f"/api/environments/{self.team.id}/vision/scanners/"
 
     @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
     def test_flag_off_returns_404_on_list(self, _flag_mock) -> None:
-        resp = self.client.get(self.lenses_url)
+        resp = self.client.get(self.scanners_url)
         self.assertEqual(resp.status_code, 404)
 
     @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
     def test_flag_off_returns_404_on_create(self, _flag_mock) -> None:
-        resp = self.client.post(self.lenses_url, data={"name": "x"}, format="json")
+        resp = self.client.post(self.scanners_url, data={"name": "x"}, format="json")
         self.assertEqual(resp.status_code, 404)
 
 
 class TestReplayObservationViewSet(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.lens = self._create_lens()
+        self.scanner = self._create_scanner()
 
     def _create_observation(self, **overrides) -> ReplayObservation:
         defaults = {
-            "lens": self.lens,
+            "scanner": self.scanner,
             "session_id": "sess-1",
-            "lens_snapshot": _snapshot_for(self.lens),
+            "scanner_snapshot": _snapshot_for(self.scanner),
             "triggered_by": ObservationTrigger.SCHEDULE,
         }
         defaults.update(overrides)
         return ReplayObservation.objects.create(**defaults)
 
-    def test_list_observations_for_lens(self) -> None:
+    def test_list_observations_for_scanner(self) -> None:
         self._create_observation(session_id="s1")
         self._create_observation(session_id="s2")
-        resp = self.client.get(self.observations_url(str(self.lens.id)))
+        resp = self.client.get(self.observations_url(str(self.scanner.id)))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), 2)
 
-    def test_malformed_lens_id_returns_404(self) -> None:
+    def test_malformed_scanner_id_returns_404(self) -> None:
         resp = self.client.get(self.observations_url("not-a-uuid"))
         self.assertEqual(resp.status_code, 404)
 
-    def test_unknown_lens_id_returns_404(self) -> None:
+    def test_unknown_scanner_id_returns_404(self) -> None:
         import uuid as _uuid
 
         resp = self.client.get(self.observations_url(str(_uuid.uuid4())))
         self.assertEqual(resp.status_code, 404)
 
-    def test_other_team_lens_id_returns_404(self) -> None:
+    def test_other_team_scanner_id_returns_404(self) -> None:
         other_org = Organization.objects.create(name="other")
         other_team = Team.objects.create(organization=other_org, name="other")
-        other_lens = ReplayLens.objects.create(
+        other_scanner = ReplayScanner.objects.create(
             team=other_team,
             name="theirs",
-            lens_type=LensType.MONITOR,
-            lens_config={"prompt": "p"},
-            model=LensModel.GEMINI_3_FLASH,
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_FLASH,
         )
-        resp = self.client.get(self.observations_url(str(other_lens.id)))
+        resp = self.client.get(self.observations_url(str(other_scanner.id)))
         self.assertEqual(resp.status_code, 404)
 
-    def test_list_excludes_observations_from_other_lens(self) -> None:
-        other_lens = self._create_lens(name="other-lens")
+    def test_list_excludes_observations_from_other_scanner(self) -> None:
+        other_scanner = self._create_scanner(name="other-scanner")
         self._create_observation(session_id="ours")
         ReplayObservation.objects.create(
-            lens=other_lens,
+            scanner=other_scanner,
             session_id="theirs",
-            lens_snapshot=_snapshot_for(other_lens),
+            scanner_snapshot=_snapshot_for(other_scanner),
             triggered_by=ObservationTrigger.SCHEDULE,
         )
-        resp = self.client.get(self.observations_url(str(self.lens.id)))
+        resp = self.client.get(self.observations_url(str(self.scanner.id)))
         sessions = [r["session_id"] for r in resp.json()["results"]]
         self.assertEqual(sessions, ["ours"])
 
     def test_retrieve_observation(self) -> None:
         obs = self._create_observation()
-        resp = self.client.get(f"{self.observations_url(str(self.lens.id))}{obs.id}/")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}{obs.id}/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["session_id"], obs.session_id)
-        self.assertIsNone(resp.json()["lens_result"])  # null until succeeded
+        self.assertIsNone(resp.json()["scanner_result"])  # null until succeeded
 
-    def test_retrieve_observation_exposes_lens_result_when_succeeded(self) -> None:
+    def test_retrieve_observation_exposes_scanner_result_when_succeeded(self) -> None:
         obs = self._create_observation(
             status=ObservationStatus.SUCCEEDED,
             completed_at=timezone.now(),
-            lens_result={
+            scanner_result={
                 "model_output": {
-                    "lens_type": "monitor",
+                    "scanner_type": "monitor",
                     "verdict": True,
                     "reasoning": "user completed checkout",
                     "confidence": 0.9,
@@ -423,12 +431,12 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
                 "signals_count": 0,
             },
         )
-        resp = self.client.get(f"{self.observations_url(str(self.lens.id))}{obs.id}/")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}{obs.id}/")
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
-        self.assertEqual(body["lens_result"]["signals_count"], 0)
-        self.assertEqual(body["lens_result"]["model_output"]["verdict"], True)
-        self.assertEqual(body["lens_result"]["model_output"]["confidence"], 0.9)
+        self.assertEqual(body["scanner_result"]["signals_count"], 0)
+        self.assertEqual(body["scanner_result"]["model_output"]["verdict"], True)
+        self.assertEqual(body["scanner_result"]["model_output"]["confidence"], 0.9)
 
     @parameterized.expand(
         [
@@ -452,14 +460,14 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         elif field == "session_id":
             self._create_observation(session_id="needle")
             self._create_observation(session_id="haystack")
-        resp = self.client.get(f"{self.observations_url(str(self.lens.id))}?{field}={value}")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?{field}={value}")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), expected_count)
 
     def test_order_by_created_at_descending(self) -> None:
         first = self._create_observation(session_id="first")
         second = self._create_observation(session_id="second")
-        resp = self.client.get(f"{self.observations_url(str(self.lens.id))}?order_by=-created_at")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=-created_at")
         self.assertEqual(resp.status_code, 200)
         ids = [r["id"] for r in resp.json()["results"]]
         self.assertEqual(ids, [str(second.id), str(first.id)])
@@ -467,22 +475,22 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
     def test_pagination(self) -> None:
         for i in range(3):
             self._create_observation(session_id=f"s{i}")
-        resp = self.client.get(f"{self.observations_url(str(self.lens.id))}?limit=2")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?limit=2")
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(len(body["results"]), 2)
         self.assertIsNotNone(body.get("next"))
 
 
-@patch("products.replay_vision.backend.api.lenses.async_to_sync")
-@patch("products.replay_vision.backend.api.lenses.sync_connect")
+@patch("products.replay_vision.backend.api.scanners.async_to_sync")
+@patch("products.replay_vision.backend.api.scanners.sync_connect")
 class TestObserveAction(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.lens = self._create_lens()
+        self.scanner = self._create_scanner()
 
-    def observe_url(self, lens_id: str) -> str:
-        return f"{self.lenses_url}{lens_id}/observe/"
+    def observe_url(self, scanner_id: str) -> str:
+        return f"{self.scanners_url}{scanner_id}/observe/"
 
     def test_observe_returns_workflow_id_and_starts_workflow(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
@@ -492,21 +500,21 @@ class TestObserveAction(_VisionAPITestCase):
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
 
-        resp = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-42"}, format="json")
+        resp = self.client.post(self.observe_url(str(self.scanner.id)), data={"session_id": "sess-42"}, format="json")
         self.assertEqual(resp.status_code, 202, resp.json())
 
-        expected_workflow_id = build_apply_lens_workflow_id(self.lens.id, "sess-42")
+        expected_workflow_id = build_apply_scanner_workflow_id(self.scanner.id, "sess-42")
         self.assertEqual(resp.json(), {"workflow_id": expected_workflow_id})
 
-        self.assertFalse(ReplayObservation.objects.filter(lens=self.lens, session_id="sess-42").exists())
+        self.assertFalse(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-42").exists())
 
         mock_async_to_sync.assert_called_once_with(mock_client.start_workflow)
         args, kwargs = start_workflow.call_args
-        self.assertEqual(args[0], APPLY_LENS_WORKFLOW_NAME)
+        self.assertEqual(args[0], APPLY_SCANNER_WORKFLOW_NAME)
         self.assertEqual(kwargs["id"], expected_workflow_id)
         self.assertEqual(kwargs["execution_timeout"], timedelta(hours=1))
         inputs = args[1]
-        self.assertEqual(inputs.lens_id, self.lens.id)
+        self.assertEqual(inputs.scanner_id, self.scanner.id)
         self.assertEqual(inputs.session_id, "sess-42")
         self.assertEqual(inputs.team_id, self.team.id)
         self.assertEqual(inputs.triggered_by, ObservationTrigger.ON_DEMAND)
@@ -519,14 +527,16 @@ class TestObserveAction(_VisionAPITestCase):
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
 
-        first = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-dup"}, format="json")
-        second = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-dup"}, format="json")
+        first = self.client.post(self.observe_url(str(self.scanner.id)), data={"session_id": "sess-dup"}, format="json")
+        second = self.client.post(
+            self.observe_url(str(self.scanner.id)), data={"session_id": "sess-dup"}, format="json"
+        )
         self.assertEqual(first.json()["workflow_id"], second.json()["workflow_id"])
 
     def test_observe_rejects_missing_session_id(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
-        resp = self.client.post(self.observe_url(str(self.lens.id)), data={}, format="json")
+        resp = self.client.post(self.observe_url(str(self.scanner.id)), data={}, format="json")
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["attr"], "session_id")
 
@@ -534,7 +544,7 @@ class TestObserveAction(_VisionAPITestCase):
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
         resp = self.client.post(
-            self.observe_url(str(self.lens.id)),
+            self.observe_url(str(self.scanner.id)),
             data={"session_id": "x" * 129},
             format="json",
         )
@@ -549,7 +559,9 @@ class TestObserveAction(_VisionAPITestCase):
         mock_async_to_sync.return_value = MagicMock()
         max_session_id = "x" * 128
 
-        resp = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": max_session_id}, format="json")
+        resp = self.client.post(
+            self.observe_url(str(self.scanner.id)), data={"session_id": max_session_id}, format="json"
+        )
         self.assertEqual(resp.status_code, 202, resp.json())
         workflow_id = resp.json()["workflow_id"]
         max_length = ReplayObservation._meta.get_field("workflow_id").max_length
@@ -563,25 +575,27 @@ class TestObserveAction(_VisionAPITestCase):
         start_workflow = MagicMock(side_effect=RuntimeError("temporal unavailable"))
         mock_async_to_sync.return_value = start_workflow
 
-        resp = self.client.post(self.observe_url(str(self.lens.id)), data={"session_id": "sess-broken"}, format="json")
+        resp = self.client.post(
+            self.observe_url(str(self.scanner.id)), data={"session_id": "sess-broken"}, format="json"
+        )
         self.assertEqual(resp.status_code, 503)
-        self.assertFalse(ReplayObservation.objects.filter(lens=self.lens, session_id="sess-broken").exists())
+        self.assertFalse(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-broken").exists())
 
     def test_observe_workflow_already_started_is_treated_as_success(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
-        coalesced_workflow_id = build_apply_lens_workflow_id(self.lens.id, "sess-coalesce")
+        coalesced_workflow_id = build_apply_scanner_workflow_id(self.scanner.id, "sess-coalesce")
         mock_sync_connect.return_value = MagicMock()
         start_workflow = MagicMock(
             side_effect=WorkflowAlreadyStartedError(
                 workflow_id=coalesced_workflow_id,
-                workflow_type=APPLY_LENS_WORKFLOW_NAME,
+                workflow_type=APPLY_SCANNER_WORKFLOW_NAME,
             )
         )
         mock_async_to_sync.return_value = start_workflow
 
         resp = self.client.post(
-            self.observe_url(str(self.lens.id)), data={"session_id": "sess-coalesce"}, format="json"
+            self.observe_url(str(self.scanner.id)), data={"session_id": "sess-coalesce"}, format="json"
         )
         self.assertEqual(resp.status_code, 202, resp.json())
         self.assertEqual(resp.json(), {"workflow_id": coalesced_workflow_id})
@@ -594,34 +608,34 @@ class TestObserveAction(_VisionAPITestCase):
         start_workflow = MagicMock(
             side_effect=WorkflowAlreadyStartedError(
                 workflow_id="some-unrelated-workflow-id",
-                workflow_type=APPLY_LENS_WORKFLOW_NAME,
+                workflow_type=APPLY_SCANNER_WORKFLOW_NAME,
             )
         )
         mock_async_to_sync.return_value = start_workflow
 
         resp = self.client.post(
-            self.observe_url(str(self.lens.id)), data={"session_id": "sess-mismatch"}, format="json"
+            self.observe_url(str(self.scanner.id)), data={"session_id": "sess-mismatch"}, format="json"
         )
         self.assertEqual(resp.status_code, 503, resp.json())
 
 
-@patch("products.replay_vision.backend.api.lenses.async_to_sync")
-@patch("products.replay_vision.backend.api.lenses.sync_connect")
+@patch("products.replay_vision.backend.api.scanners.async_to_sync")
+@patch("products.replay_vision.backend.api.scanners.sync_connect")
 class TestObserveActionFeatureFlag(APIBaseTest):
     def test_flag_off_returns_404(self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock) -> None:
         with patch(
             "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
             return_value=False,
         ):
-            lens = ReplayLens.objects.create(
+            scanner = ReplayScanner.objects.create(
                 team=self.team,
                 name="off",
-                lens_type=LensType.MONITOR,
-                lens_config={"prompt": "p"},
-                model=LensModel.GEMINI_3_FLASH,
+                scanner_type=ScannerType.MONITOR,
+                scanner_config={"prompt": "p"},
+                model=ScannerModel.GEMINI_3_FLASH,
             )
             resp = self.client.post(
-                f"/api/environments/{self.team.id}/vision/lenses/{lens.id}/observe/",
+                f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/observe/",
                 data={"session_id": "s"},
                 format="json",
             )

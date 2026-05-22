@@ -7,8 +7,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
-import { replayLensLogic } from '../replayLensLogic'
-import { LensType, ObservationStatus, ReplayObservation } from '../types'
+import { replayScannerLogic } from '../replayScannerLogic'
+import { ScannerType, ObservationStatus, ReplayObservation } from '../types'
 
 function StatusTag({ status }: { status: ObservationStatus }): JSX.Element {
     if (status === 'succeeded') {
@@ -27,7 +27,13 @@ function StatusTag({ status }: { status: ObservationStatus }): JSX.Element {
     return <LemonTag type="default">Pending</LemonTag>
 }
 
-function ResultPreview({ lensType, observation }: { lensType: LensType; observation: ReplayObservation }): JSX.Element {
+function ResultPreview({
+    scannerType,
+    observation,
+}: {
+    scannerType: ScannerType
+    observation: ReplayObservation
+}): JSX.Element {
     if (observation.status === 'failed') {
         return (
             <Tooltip title={observation.error_reason || 'Unknown error'}>
@@ -41,7 +47,7 @@ function ResultPreview({ lensType, observation }: { lensType: LensType; observat
         return <span className="text-muted text-sm">—</span>
     }
     const r = observation.result
-    if (lensType === 'monitor') {
+    if (scannerType === 'monitor') {
         const verdict = Boolean(r.verdict)
         return (
             <div className="flex flex-col gap-1 max-w-md">
@@ -50,7 +56,7 @@ function ResultPreview({ lensType, observation }: { lensType: LensType; observat
             </div>
         )
     }
-    if (lensType === 'summarizer') {
+    if (scannerType === 'summarizer') {
         return (
             <div className="flex flex-col max-w-md">
                 {typeof r.title === 'string' && <span className="font-semibold text-sm truncate">{r.title}</span>}
@@ -58,7 +64,7 @@ function ResultPreview({ lensType, observation }: { lensType: LensType; observat
             </div>
         )
     }
-    if (lensType === 'classifier') {
+    if (scannerType === 'classifier') {
         const tags = Array.isArray(r.tags) ? (r.tags as string[]) : []
         return (
             <div className="flex flex-wrap gap-1 max-w-md">
@@ -74,7 +80,7 @@ function ResultPreview({ lensType, observation }: { lensType: LensType; observat
             </div>
         )
     }
-    if (lensType === 'scorer') {
+    if (scannerType === 'scorer') {
         const score = typeof r.score === 'number' ? r.score : null
         const label = typeof r.label === 'string' ? r.label : null
         return (
@@ -84,7 +90,7 @@ function ResultPreview({ lensType, observation }: { lensType: LensType; observat
             </div>
         )
     }
-    if (lensType === 'indexer') {
+    if (scannerType === 'indexer') {
         const keywords = Array.isArray(r.keywords) ? (r.keywords as string[]) : []
         return (
             <div className="flex flex-col max-w-md">
@@ -105,12 +111,12 @@ function ResultPreview({ lensType, observation }: { lensType: LensType; observat
     return <span className="text-muted text-sm">—</span>
 }
 
-export function LensObservationsTable({ lensId, tabId }: { lensId: string; tabId: string }): JSX.Element {
-    const logic = replayLensLogic({ id: lensId, tabId })
-    const { lens, observations, observationsLoading } = useValues(logic)
+export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
+    const logic = replayScannerLogic({ id: scannerId, tabId })
+    const { scanner, observations, observationsLoading } = useValues(logic)
     const { loadObservations } = useActions(logic)
 
-    if (!lens) {
+    if (!scanner) {
         return <div className="text-muted">Loading…</div>
     }
 
@@ -148,7 +154,7 @@ export function LensObservationsTable({ lensId, tabId }: { lensId: string; tabId
         {
             title: 'Result',
             key: 'result',
-            render: (_, obs) => <ResultPreview lensType={lens.lens_type} observation={obs} />,
+            render: (_, obs) => <ResultPreview scannerType={scanner.scanner_type} observation={obs} />,
         },
         {
             title: 'Triggered by',
@@ -176,7 +182,7 @@ export function LensObservationsTable({ lensId, tabId }: { lensId: string; tabId
         <div className="space-y-4 max-w-6xl">
             <div className="flex items-start justify-between gap-4">
                 <p className="text-muted text-sm m-0">
-                    Past applications of this lens to session recordings. Each row is one observation.
+                    Past applications of this scanner to session recordings. Each row is one observation.
                 </p>
                 <div className="flex items-center gap-4">
                     {stats.total > 0 && (
@@ -225,7 +231,8 @@ export function LensObservationsTable({ lensId, tabId }: { lensId: string; tabId
                 nouns={['observation', 'observations']}
                 emptyState={
                     <span className="text-muted">
-                        No observations yet. Once this lens runs against matching recordings, results will appear here.
+                        No observations yet. Once this scanner runs against matching recordings, results will appear
+                        here.
                     </span>
                 }
             />

@@ -5,7 +5,7 @@ import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 import { Sparkline } from 'lib/components/Sparkline'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
-import { replayLensesLogic } from '../replayLensesLogic'
+import { replayScannersLogic } from '../replayScannersLogic'
 
 const RANGE_OPTIONS: { value: 7 | 30 | 90; label: string }[] = [
     { value: 7, label: '7 days' },
@@ -14,8 +14,8 @@ const RANGE_OPTIONS: { value: 7 | 30 | 90; label: string }[] = [
 ]
 
 export function VisionQuotaMeter(): JSX.Element | null {
-    const { quota, usageRangeDays } = useValues(replayLensesLogic)
-    const { setUsageRangeDays } = useActions(replayLensesLogic)
+    const { quota, usageRangeDays } = useValues(replayScannersLogic)
+    const { setUsageRangeDays } = useActions(replayScannersLogic)
 
     if (!quota) {
         return null

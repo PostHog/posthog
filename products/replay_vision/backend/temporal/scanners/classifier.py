@@ -1,4 +1,4 @@
-"""Classifier lens: assigns one or more tags from a fixed vocabulary, optionally plus freeform tags."""
+"""Classifier scanner: assigns one or more tags from a fixed vocabulary, optionally plus freeform tags."""
 
 import re
 import typing
@@ -7,8 +7,8 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, create_model, field_validator
 
-from products.replay_vision.backend.models.replay_lens import LensType
-from products.replay_vision.backend.temporal.lenses.base import BaseLens, BaseLensOutput
+from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput
 
 _MAX_FREEFORM_TAGS = 5
 # Anything that isn't a-z, 0-9, underscore, or dash collapses to a single underscore.
@@ -20,13 +20,13 @@ def _slugify_tag(value: str) -> str:
     return _FREEFORM_NORMALIZE_RE.sub("_", value.lower()).strip("_")
 
 
-class ClassifierOutput(BaseLensOutput, frozen=True):
-    lens_type: Literal[LensType.CLASSIFIER] = LensType.CLASSIFIER
-    tags: list[str] = Field(description="Subset of the lens's configured tag vocabulary.")
+class ClassifierOutput(BaseScannerOutput, frozen=True):
+    scanner_type: Literal[ScannerType.CLASSIFIER] = ScannerType.CLASSIFIER
+    tags: list[str] = Field(description="Subset of the scanner's configured tag vocabulary.")
     tags_freeform: list[str] = Field(
         default_factory=list,
         description=(
-            "Open-text tags emitted by the LLM when the lens has `allow_freeform_tags=True`; lowercase, deduped."
+            "Open-text tags emitted by the LLM when the scanner has `allow_freeform_tags=True`; lowercase, deduped."
         ),
     )
     reasoning: str = Field(description="One paragraph grounding the tag choice in concrete moments.")
@@ -38,12 +38,12 @@ class ClassifierOutput(BaseLensOutput, frozen=True):
         return list(dict.fromkeys(slug for tag in value if (slug := _slugify_tag(tag))))
 
 
-class ClassifierLens(BaseLens, frozen=True):
-    lens_type: Literal[LensType.CLASSIFIER] = LensType.CLASSIFIER
+class ClassifierScanner(BaseScanner, frozen=True):
+    scanner_type: Literal[ScannerType.CLASSIFIER] = ScannerType.CLASSIFIER
     prompt: str
     prompt_template: ClassVar[str] = "classifier.jinja"
     citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
-    output_cls: ClassVar[type[BaseLensOutput]] = ClassifierOutput
+    output_cls: ClassVar[type[BaseScannerOutput]] = ClassifierOutput
     tags: list[str] = Field(min_length=1, description="Fixed vocabulary the model picks from.")
     multi_label: bool = True
     allow_freeform_tags: bool = Field(
@@ -82,14 +82,14 @@ class ClassifierLens(BaseLens, frozen=True):
                     ),
                 ),
             )
-        return create_model("ClassifierLlmResponse", __base__=BaseLensOutput, **fields)
+        return create_model("ClassifierLlmResponse", __base__=BaseScannerOutput, **fields)
 
     @cached_property
     def _fixed_vocab_slugs(self) -> frozenset[str]:
         """Slug-normalized fixed-vocab tags; cached so per-observation finalize doesn't re-walk the regex."""
         return frozenset(_slugify_tag(t) for t in self.tags)
 
-    def finalize(self, llm_response: BaseModel) -> BaseLensOutput:
+    def finalize(self, llm_response: BaseModel) -> BaseScannerOutput:
         # Cast the dynamic `Literal`-typed response to the static `ClassifierOutput` for downstream consumers.
         raw_freeform = list(getattr(llm_response, "tags_freeform", []))
         output = ClassifierOutput(
@@ -113,7 +113,7 @@ class ClassifierLens(BaseLens, frozen=True):
             "max_freeform_tags": _MAX_FREEFORM_TAGS,
         }
 
-    def validate_semantics(self, output: BaseLensOutput) -> str | None:
+    def validate_semantics(self, output: BaseScannerOutput) -> str | None:
         # Defense in depth — `llm_response_schema` already enforces these at parse time, but `ClassifierOutput`'s `list[str]` doesn't.
         if not isinstance(output, ClassifierOutput):
             return f"Expected ClassifierOutput, got {type(output).__name__}"

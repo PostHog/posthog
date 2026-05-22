@@ -1,4 +1,4 @@
-"""Jinja2 environment for lens prompts: templates under `prompts/`, custom escape that uses `<` instead of HTML's `&lt;`."""
+"""Jinja2 environment for scanner prompts: templates under `prompts/`, custom escape that uses `<` instead of HTML's `&lt;`."""
 
 from typing import Any
 
@@ -16,7 +16,7 @@ def _prompt_escape(value: Any) -> Markup:
 
 
 _env = Environment(
-    loader=PackageLoader("products.replay_vision.backend.temporal.lenses", "prompts"),
+    loader=PackageLoader("products.replay_vision.backend.temporal.scanners", "prompts"),
     autoescape=True,
     trim_blocks=False,
     lstrip_blocks=False,
@@ -29,5 +29,5 @@ _env.policies["json.dumps_kwargs"] = {"separators": (",", ":")}
 
 
 def render_prompt(template_name: str, **context: Any) -> str:
-    """Render a lens prompt template with the given context."""
+    """Render a scanner prompt template with the given context."""
     return _env.get_template(template_name).render(**context)
