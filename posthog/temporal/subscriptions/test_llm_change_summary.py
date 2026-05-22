@@ -717,22 +717,22 @@ class TestAnnotationsSection:
 
         assert "Annotations during this period" not in messages[1]["content"]
 
-    def test_change_prompt_includes_annotations_block_when_provided(self):
+    @pytest.mark.parametrize(
+        "builder_name,marker_text",
+        [
+            ("build_prompt_messages", "rolled out new home page"),
+            ("build_initial_prompt_messages", "release v2"),
+        ],
+    )
+    def test_both_builders_include_annotations_block_when_provided(self, builder_name, marker_text):
         previous = [_make_state(1, "Pageviews", "avg 100/day")]
         current = [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")]
-        annotations_section = (
-            "Annotations during this period (...):\n- 2025-04-14 (project): rolled out new home page\n\n"
-        )
+        annotations_section = f"Annotations during this period (...):\n- 2025-04-14 (project): {marker_text}\n\n"
 
-        messages = build_prompt_messages(previous, current, annotations_section=annotations_section)
+        if builder_name == "build_prompt_messages":
+            messages = build_prompt_messages(previous, current, annotations_section=annotations_section)
+        else:
+            messages = build_initial_prompt_messages(current, annotations_section=annotations_section)
 
-        assert "rolled out new home page" in messages[1]["content"]
+        assert marker_text in messages[1]["content"]
         assert "Annotations during this period" in messages[1]["content"]
-
-    def test_initial_prompt_includes_annotations_block_when_provided(self):
-        current = [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")]
-        annotations_section = "Annotations during this period (...):\n- 2025-04-14 (project): release v2\n\n"
-
-        messages = build_initial_prompt_messages(current, annotations_section=annotations_section)
-
-        assert "release v2" in messages[1]["content"]
