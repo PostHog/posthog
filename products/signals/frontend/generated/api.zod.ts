@@ -20,9 +20,18 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
 
 export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
     source_product: zod
-        .enum(['session_replay', 'llm_analytics', 'github', 'linear', 'zendesk', 'conversations', 'error_tracking'])
+        .enum([
+            'session_replay',
+            'llm_analytics',
+            'github',
+            'linear',
+            'zendesk',
+            'conversations',
+            'error_tracking',
+            'pganalyze',
+        ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze'
         ),
     source_type: zod
         .enum([
@@ -43,9 +52,18 @@ export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
 
 export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
     source_product: zod
-        .enum(['session_replay', 'llm_analytics', 'github', 'linear', 'zendesk', 'conversations', 'error_tracking'])
+        .enum([
+            'session_replay',
+            'llm_analytics',
+            'github',
+            'linear',
+            'zendesk',
+            'conversations',
+            'error_tracking',
+            'pganalyze',
+        ])
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze'
         ),
     source_type: zod
         .enum([
@@ -66,10 +84,19 @@ export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
 
 export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     source_product: zod
-        .enum(['session_replay', 'llm_analytics', 'github', 'linear', 'zendesk', 'conversations', 'error_tracking'])
+        .enum([
+            'session_replay',
+            'llm_analytics',
+            'github',
+            'linear',
+            'zendesk',
+            'conversations',
+            'error_tracking',
+            'pganalyze',
+        ])
         .optional()
         .describe(
-            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking'
+            '\* `session_replay` - Session replay\n\* `llm_analytics` - LLM analytics\n\* `github` - GitHub\n\* `linear` - Linear\n\* `zendesk` - Zendesk\n\* `conversations` - Conversations\n\* `error_tracking` - Error tracking\n\* `pganalyze` - pganalyze'
         ),
     source_type: zod
         .enum([

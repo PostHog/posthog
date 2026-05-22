@@ -17,6 +17,7 @@ class HogFlowScheduleInline(admin.TabularInline):
     show_change_link = False
 
 
+@admin.register(HogFlow)
 class HogFlowAdmin(admin.ModelAdmin):
     inlines = [HogFlowScheduleInline]
     list_display = ("id", "name", "status", "version", "team_link", "created_at")

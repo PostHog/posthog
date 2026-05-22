@@ -570,10 +570,7 @@ export const AvailableSetupTaskIdsEnumApi = {
 } as const
 
 /**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
+ * Mixin for serializers to add user access control fields
  */
 export interface ProjectBackwardCompatApi {
     readonly id: number
@@ -1366,10 +1363,7 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
 }
 
 /**
- * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
-passthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking
-backward compatibility of the REST API.
-Do not use this in greenfield endpoints!
+ * Mixin for serializers to add user access control fields
  */
 export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
@@ -2380,8 +2374,7 @@ export interface ProjectSecretAPIKeyApi {
     /** @nullable */
     readonly mask_value: string | null
     readonly created_at: string
-    /** @nullable */
-    readonly created_by: number | null
+    readonly created_by: UserBasicApi
     /** @nullable */
     readonly last_used_at: string | null
     /** @nullable */
@@ -2406,8 +2399,7 @@ export interface PatchedProjectSecretAPIKeyApi {
     /** @nullable */
     readonly mask_value?: string | null
     readonly created_at?: string
-    /** @nullable */
-    readonly created_by?: number | null
+    readonly created_by?: UserBasicApi
     /** @nullable */
     readonly last_used_at?: string | null
     /** @nullable */
@@ -2546,8 +2538,7 @@ export const TargetTypeEnumApi = {
 } as const
 
 /**
- * * `hourly` - Hourly
- * `daily` - Daily
+ * * `daily` - Daily
  * `weekly` - Weekly
  * `monthly` - Monthly
  * `yearly` - Yearly
@@ -2556,7 +2547,6 @@ export type SubscriptionFrequencyEnumApi =
     (typeof SubscriptionFrequencyEnumApi)[keyof typeof SubscriptionFrequencyEnumApi]
 
 export const SubscriptionFrequencyEnumApi = {
-    Hourly: 'hourly',
     Daily: 'daily',
     Weekly: 'weekly',
     Monthly: 'monthly',
@@ -2614,9 +2604,8 @@ export interface SubscriptionApi {
     target_type: TargetTypeEnumApi
     /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
     target_value: string
-    /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
+    /** How often to deliver: daily, weekly, monthly, or yearly.
 
-  * `hourly` - Hourly
   * `daily` - Daily
   * `weekly` - Weekly
   * `monthly` - Monthly
@@ -2745,9 +2734,8 @@ export interface PatchedSubscriptionApi {
     target_type?: TargetTypeEnumApi
     /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook. */
     target_value?: string
-    /** How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.
+    /** How often to deliver: daily, weekly, monthly, or yearly.
 
-  * `hourly` - Hourly
   * `daily` - Daily
   * `weekly` - Weekly
   * `monthly` - Monthly
@@ -2913,6 +2901,23 @@ export interface OrganizationApi {
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
+    /**
+     * When True, this organization allows its data to be used to train PostHog AI models.
+     * @nullable
+     */
+    is_ai_training_opted_in?: boolean | null
+    /**
+     * When True, the AI training opt-out setting cannot be modified through the UI or API.
+     * @nullable
+     */
+    readonly is_ai_training_locked: boolean | null
+    /**
+     * When True, in-app callouts inviting members to enable AI training are shown.
+     * @nullable
+     */
+    readonly is_ai_training_cta_shown: boolean | null
+    /** @nullable */
+    readonly is_hipaa: boolean | null
     /** Default statistical method for new experiments in this organization.
 
   * `bayesian` - Bayesian
@@ -3103,6 +3108,8 @@ export interface UserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+    hide_mcp_hints?: boolean
     /** @nullable */
     readonly onboarding_skipped_at: string | null
     readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | null
@@ -3122,6 +3129,8 @@ export interface UserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types: readonly string[]
     readonly pending_invites: readonly PendingInviteApi[]
+    /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    readonly requires_credential_review: boolean
 }
 
 export interface PaginatedUserListApi {
@@ -3201,6 +3210,8 @@ export interface PatchedUserApi {
      * @nullable
      */
     passkeys_enabled_for_2fa?: boolean | null
+    /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
+    hide_mcp_hints?: boolean
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
     readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | null
@@ -3220,6 +3231,8 @@ export interface PatchedUserApi {
     /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
     readonly active_realtime_notification_types?: readonly string[]
     readonly pending_invites?: readonly PendingInviteApi[]
+    /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+    readonly requires_credential_review?: boolean
 }
 
 /**
@@ -3442,6 +3455,10 @@ export type PropertyDefinitionsListParams = {
      * Whether to exclude properties marked as hidden
      */
     exclude_hidden?: boolean
+    /**
+     * Whether to exclude properties that the current user does not have read access to via field-level access control
+     */
+    exclude_restricted?: boolean
     /**
      * JSON-encoded list of excluded properties
      * @minLength 1

@@ -3,9 +3,11 @@ from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
-from posthog.models import AlertConfiguration
+
+from products.alerts.backend.models.alert import AlertConfiguration
 
 
+@admin.register(AlertConfiguration)
 class AlertConfigurationAdmin(admin.ModelAdmin):
     show_full_result_count = False
     paginator = NoCountPaginator

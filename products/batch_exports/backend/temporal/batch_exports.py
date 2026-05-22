@@ -14,7 +14,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExportRun
+from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.kafka_client.routing import async_producer_scope
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.team.team import Team
@@ -100,16 +100,16 @@ def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) ->
     """
     try:
         run = BatchExportRun.objects.select_related("batch_export__team").get(id=batch_export_run_id)
-        team = run.batch_export.team
+        team = run.parent.team
         # failure_rate=1.0 mirrors the email path (send_batch_export_run_failure default) — a fully
         # failed run is treated as 100%, so users are filtered only by their data_pipeline_error_threshold.
         memberships = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
         if not memberships:
             return
-        name = (run.batch_export.name or "")[:80]
+        name = (run.parent.name if isinstance(run.parent, BatchExport) else "on demand")[:80]
         title = f"Batch export {name} failed"
         body = f"Last failure at {run.last_updated_at.strftime('%I:%M%p %Z on %B %d, %Y')}"
-        source_url = f"/project/{team.project_id}/pipeline/batch-exports/{run.batch_export.id}"
+        source_url = f"/project/{team.project_id}/pipeline/batch-exports/{run.parent.id}"
         for membership in memberships:
             try:
                 create_notification(
@@ -122,7 +122,7 @@ def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) ->
                         target_type=TargetType.USER,
                         target_id=str(membership.user_id),
                         resource_type=NotificationOnlyResourceType.PIPELINE,
-                        resource_id=str(run.batch_export.id),
+                        resource_id=str(run.parent.id),
                         source_url=source_url,
                     )
                 )

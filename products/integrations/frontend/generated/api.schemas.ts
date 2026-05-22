@@ -316,6 +316,22 @@ export interface GitHubReposRefreshResponseApi {
     repositories: GitHubRepoApi[]
 }
 
+export interface GitHubTeamApi {
+    /** GitHub team numeric identifier. */
+    id: number
+    /** GitHub team slug. */
+    slug: string
+    /** GitHub team display name. */
+    name: string
+}
+
+export interface GitHubTeamsResponseApi {
+    /** List of GitHub teams available to the installation organization. */
+    teams: GitHubTeamApi[]
+    /** Whether more teams are available beyond this page. */
+    has_more: boolean
+}
+
 export interface UserGitHubAccountApi {
     /**
      * GitHub account type for the installation (e.g. User or Organization).
@@ -558,6 +574,24 @@ export type IntegrationsGithubReposRetrieveParams = {
     offset?: number
     /**
      * Optional case-insensitive repository name search query.
+     */
+    search?: string
+}
+
+export type IntegrationsGithubTeamsRetrieveParams = {
+    /**
+     * Maximum number of teams to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of teams to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive team name or slug search query.
      */
     search?: string
 }

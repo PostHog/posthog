@@ -6,6 +6,7 @@ from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models import Subscription
 
 
+@admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):
     show_full_result_count = False
     paginator = NoCountPaginator

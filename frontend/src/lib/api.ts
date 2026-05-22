@@ -19,7 +19,7 @@ import { SessionSummaryContent } from 'scenes/session-recordings/player/player-m
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
+import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
     AggregatedSpanRow,
@@ -174,6 +174,7 @@ import {
     ProductTour,
     ProductTourAIGenerationResponse,
     ProductTourStep,
+    ProjectSecretAPIKeyRequest,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -244,7 +245,7 @@ import type {
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
-import { MaxUIContext } from '../scenes/max/maxTypes'
+import type { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
@@ -537,7 +538,7 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
     }
 
-    // # LLM Analytics
+    // # AI observability
 
     public llmAnalyticsTranslate(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('llm_analytics').addPathComponent('translate')
@@ -1446,6 +1447,10 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_dags')
     }
 
+    public dataModelingDag(id: DataModelingDAG['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataModelingDags(teamId).addPathComponent(id)
+    }
+
     // # Data Modeling Nodes
     public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
@@ -1827,6 +1832,15 @@ export class ApiRequest {
 
     public personalApiKey(id: PersonalAPIKeyType['id']): ApiRequest {
         return this.personalApiKeys().addPathComponent(id)
+    }
+
+    // Project API Keys
+    public projectSecretApiKeys(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('project_secret_api_keys')
+    }
+
+    public projectSecretApiKey(id: ProjectSecretAPIKeyApi['id'], projectId?: ProjectType['id']): ApiRequest {
+        return this.projectSecretApiKeys(projectId).addPathComponent(id)
     }
 
     // Request finalization
@@ -2226,15 +2240,6 @@ const api = {
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
         },
-        async getSuggestions(id: number, context?: string): Promise<any> {
-            if (context) {
-                return await new ApiRequest().insight(id).withAction('suggestions').create({ data: { context } })
-            }
-            return await new ApiRequest().insight(id).withAction('suggestions').get()
-        },
-        async analyze(id: number): Promise<{ result: string }> {
-            return await new ApiRequest().insight(id).withAction('analyze').get()
-        },
         async generateMetadata(query: Record<string, any>): Promise<{ name: string; description: string }> {
             return await new ApiRequest().insights().withAction('generate_metadata').create({ data: { query } })
         },
@@ -2631,6 +2636,7 @@ const api = {
                     ActivityScope.ENDPOINT,
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
+                    ActivityScope.COHORT,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2889,6 +2895,7 @@ const api = {
         async tree(
             query: {
                 spanName: string
+                serviceName: string
                 dateRange?: { date_from?: string | null; date_to?: string | null }
                 serviceNames?: string[]
                 filterGroup?: PropertyGroupFilter
@@ -5041,6 +5048,17 @@ const api = {
                 .withQueryString(surveyIds ? { survey_ids: surveyIds } : undefined)
                 .get()
         },
+        async questionLabels(): Promise<{
+            labels: {
+                question_id: string
+                question_text: string
+                question_index: number
+                survey_id: string
+                survey_name: string
+            }[]
+        }> {
+            return await new ApiRequest().surveys().withAction('question_labels').get()
+        },
         async summarize_responses(
             surveyId: Survey['id'],
             questionIndex: number | undefined,
@@ -5331,6 +5349,15 @@ const api = {
         async create(data: { name: string; description?: string; sync_frequency?: string }): Promise<DataModelingDAG> {
             return await new ApiRequest().dataModelingDags().create({ data })
         },
+        async update(
+            dagId: DataModelingDAG['id'],
+            data: Partial<Pick<DataModelingDAG, 'name' | 'description' | 'sync_frequency'>>
+        ): Promise<DataModelingDAG> {
+            return await new ApiRequest().dataModelingDag(dagId).update({ data })
+        },
+        async delete(dagId: DataModelingDAG['id']): Promise<void> {
+            await new ApiRequest().dataModelingDag(dagId).delete()
+        },
     },
 
     dataModelingNodes: {
@@ -5454,7 +5481,11 @@ const api = {
         }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('delete_webhook').create()
         },
-        async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{ added: number; deleted: number }> {
+        async refreshSchemas(sourceId: ExternalDataSource['id']): Promise<{
+            added: number
+            deleted: number
+            total_tables_seen: number
+        }> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('refresh_schemas').create()
         },
         async bulkUpdateSchemas(
@@ -5469,6 +5500,7 @@ const api = {
                 | 'sync_frequency'
                 | 'sync_time_of_day'
                 | 'cdc_table_mode'
+                | 'enabled_columns'
             >[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
@@ -5998,6 +6030,30 @@ const api = {
         },
         async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
             return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        },
+    },
+
+    projectSecretApiKeys: {
+        async list(): Promise<ProjectSecretAPIKeyApi[]> {
+            const response: CountedPaginatedResponse<ProjectSecretAPIKeyApi> = await new ApiRequest()
+                .projectSecretApiKeys()
+                .get()
+            return response.results
+        },
+        async create(data: ProjectSecretAPIKeyRequest): Promise<ProjectSecretAPIKeyApi> {
+            return await new ApiRequest().projectSecretApiKeys().create({ data })
+        },
+        async update(
+            id: ProjectSecretAPIKeyApi['id'],
+            data: Partial<ProjectSecretAPIKeyRequest>
+        ): Promise<ProjectSecretAPIKeyApi> {
+            return await new ApiRequest().projectSecretApiKey(id).update({ data })
+        },
+        async delete(id: ProjectSecretAPIKeyApi['id']): Promise<void> {
+            return await new ApiRequest().projectSecretApiKey(id).delete()
+        },
+        async roll(id: ProjectSecretAPIKeyApi['id']): Promise<ProjectSecretAPIKeyApi> {
+            return await new ApiRequest().projectSecretApiKey(id).withAction('roll').create()
         },
     },
 
@@ -6562,6 +6618,7 @@ const api = {
             message: string
             recipient_email: string
             email_config_id: string
+            recipient_distinct_id?: string
             email_subject?: string
             rich_content?: Record<string, unknown> | null
         }): Promise<{ id: string; ticket_number: number }> {
@@ -7004,6 +7061,10 @@ async function handleFetch(url: string, method: string, fetcher: () => Promise<R
 
             if (typeof data.detail === 'string') {
                 throw new ApiError(data.detail, response.status, response.headers, data)
+            }
+
+            if (typeof data.message === 'string') {
+                throw new ApiError(data.message, response.status, response.headers, data)
             }
         }
 

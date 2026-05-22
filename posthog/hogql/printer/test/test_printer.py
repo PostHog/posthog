@@ -14,6 +14,7 @@ from posthog.test.base import (
     cleanup_materialized_columns,
     flush_persons_and_events,
     get_index_from_explain,
+    get_inner_person_subquery_clickhouse_sql,
     materialized,
     snapshot_clickhouse_queries,
 )
@@ -61,11 +62,13 @@ from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 from products.event_definitions.backend.models.property_definition import PropertyType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ee.clickhouse.materialized_columns.columns import (
     get_bloom_filter_index_name,
+    get_bloom_filter_lower_index_name,
     get_minmax_index_name,
     get_ngram_lower_index_name,
     materialize,
@@ -1617,15 +1620,17 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("gte", ast.CompareOperationOp.GtEq, True),
-            ("gt", ast.CompareOperationOp.Gt, True),
-            ("lte", ast.CompareOperationOp.LtEq, True),
-            ("lt", ast.CompareOperationOp.Lt, True),
-            ("not_eq", ast.CompareOperationOp.NotEq, True),
-            ("eq", ast.CompareOperationOp.Eq, False),
+            ("gte", ast.CompareOperationOp.GtEq),
+            ("gt", ast.CompareOperationOp.Gt),
+            ("lte", ast.CompareOperationOp.LtEq),
+            ("lt", ast.CompareOperationOp.Lt),
+            ("not_eq", ast.CompareOperationOp.NotEq),
+            ("eq", ast.CompareOperationOp.Eq),
         ],
     )
-    def test_join_analyzer_by_comparison_op(self, _name: str, op: ast.CompareOperationOp, expects_analyzer: bool):
+    def test_join_comparison_op_does_not_emit_query_level_analyzer_setting(
+        self, _name: str, op: ast.CompareOperationOp
+    ):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         settings = HogQLGlobalSettings()
 
@@ -1655,10 +1660,7 @@ class TestPrinter(BaseTest):
         )
         result = print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[], settings=settings)
 
-        if expects_analyzer:
-            self.assertIn("enable_analyzer=1", result)
-        else:
-            self.assertNotIn("enable_analyzer=1", result)
+        self.assertNotIn("enable_analyzer=1", result)
 
     def test_select_array_join(self):
         self.assertEqual(
@@ -2026,6 +2028,12 @@ class TestPrinter(BaseTest):
             f"SELECT count(DISTINCT events.event) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    def test_count_distinct_function(self):
+        self.assertEqual(
+            self._select("SELECT countDistinct(event) as count FROM events"),
+            f"SELECT countDistinct(events.event) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_count_star(self):
         self.assertEqual(
             self._select("SELECT count(*) as count FROM events"),
@@ -2099,6 +2107,25 @@ class TestPrinter(BaseTest):
                 context,
             )
         self.assertEqual(str(error_context.exception), "Unknown timezone: 'Europe/PostHogLandia'")
+
+    def test_to_datetime_does_not_double_parse_datetime_property(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="dt_prop", property_type="DateTime", type=PropertyDefinition.Type.EVENT
+        )
+        printed = self._expr("toDateTime(properties.dt_prop)")
+        # The property-type swapper already wraps a DateTime property in toDateTime;
+        # an outer toDateTime must not re-parse the resulting datetime.
+        self.assertEqual(printed.count("parseDateTime64BestEffortOrNull"), 1, printed)
+
+    def test_to_datetime_does_not_double_parse_aliased_datetime_property(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="dt_prop", property_type="DateTime", type=PropertyDefinition.Type.EVENT
+        )
+        # The toDateTime arg is an Alias whose declared type is stale after the
+        # swapper rewrites the inner DateTime property; the printer must look
+        # through the Alias to resolve the already-a-datetime overload.
+        printed = self._expr("toDateTime(properties.dt_prop AS d)")
+        self.assertEqual(printed.count("parseDateTime64BestEffortOrNull"), 1, printed)
 
     def test_window_functions(self):
         self.assertEqual(
@@ -2986,12 +3013,13 @@ class TestPrinter(BaseTest):
             """,
             settings=HogQLGlobalSettings(max_execution_time=10),
         )
+        strict_regex = "^\\\\s*v?((0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*)\\\\.(0|[1-9]\\\\d*))(?:[-+][^\\\\s]*)?\\\\s*$"
         self.assertEqual(
             (
-                f"SELECT arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_0)s), '(\\d+(\\.\\d+)+)'))) AS semver1, "
-                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_1)s), '(\\d+(\\.\\d+)+)'))) AS semver2, "
-                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_2)s), '(\\d+(\\.\\d+)+)'))) AS semver3, "
-                f"arrayMap(x -> toInt64OrZero(x),  splitByChar('.', extract(assumeNotNull(%(hogql_val_3)s), '(\\d+(\\.\\d+)+)'))) AS semver4 "
+                f"SELECT arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_0)s), '{strict_regex}'), ''), '_'))) AS semver1, "
+                f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_1)s), '{strict_regex}'), ''), '_'))) AS semver2, "
+                f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_2)s), '{strict_regex}'), ''), '_'))) AS semver3, "
+                f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_3)s), '{strict_regex}'), ''), '_'))) AS semver4 "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
@@ -4480,6 +4508,81 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
+    def test_materialized_column_lower_in_uses_bloom_filter_lower_index_non_nullable(self) -> None:
+        # lower(property) IN (...) is rewritten to has([...], lower(column)) so it can hit a bloom_filter_lower index
+        with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "lower(properties.test_prop) in ('value1', 'value2')",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(events.{mat_col.name}))",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_lower_not_in_uses_bloom_filter_lower_index_non_nullable(self) -> None:
+        with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "lower(properties.test_prop) not in ('value1', 'value2')",
+                f"notIn(lower(events.{mat_col.name}), tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_lower_in_uses_bloom_filter_lower_index_nullable(self) -> None:
+        # The index is built on lower(coalesce(column, '')) so the printed expression must match it exactly
+        with materialized("events", "test_prop", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "lower(properties.test_prop) in ('value1', 'value2')",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(coalesce(events.{mat_col.name}, '')))",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_lower_not_in_nullable(self) -> None:
+        with materialized("events", "test_prop", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "lower(properties.test_prop) not in ('value1', 'value2')",
+                f"notIn(lower(coalesce(events.{mat_col.name}, '')), tuple(%(hogql_val_0)s, %(hogql_val_1)s))",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_lower_in_matches_case_insensitive_lower_call(self) -> None:
+        # HogQL `lower` is case-insensitive, so `LOWER(...)` must still hit the optimization
+        with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "LOWER(properties.test_prop) in ('value1', 'value2')",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(events.{mat_col.name}))",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_lower_in_uses_ngram_lower_index(self) -> None:
+        # An ngram_lower index also serves IN lookups, so the rewrite fires for it too
+        with materialized("events", "test_prop", is_nullable=False, create_ngram_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "lower(properties.test_prop) in ('value1', 'value2')",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(events.{mat_col.name}))",
+                {"hogql_val_0": "value1", "hogql_val_1": "value2"},
+            )
+
+    def test_materialized_column_lower_in_not_optimized_without_a_lower_index(self) -> None:
+        # Without a bloom_filter_lower or ngram_lower index there's nothing to hit - leave the generic path
+        with materialized("events", "test_prop", is_nullable=False) as mat_col:
+            printed = self._expr("lower(properties.test_prop) in ('value1', 'value2')")
+            assert "has(" not in printed, printed
+            assert mat_col.name in printed
+
+    def test_materialized_column_lower_in_bails_out_for_sentinel_value(self) -> None:
+        # '' and 'null' are NULL sentinels for non-nullable columns - bail so the generic path stays correct
+        with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_lower_index=True):
+            assert "has(" not in self._expr("lower(properties.test_prop) in ('null', 'value2')")
+            assert "has(" not in self._expr("lower(properties.test_prop) in ('', 'value2')")
+
+    def test_materialized_column_lower_in_sentinels_for_nullable(self) -> None:
+        # Nullable columns only alias NULL to '' (via coalesce); 'null' is a real value, so it still optimizes
+        with materialized("events", "test_prop", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
+            self._test_materialized_column_comparison(
+                "lower(properties.test_prop) in ('null', 'value2')",
+                f"has([%(hogql_val_0)s, %(hogql_val_1)s], lower(coalesce(events.{mat_col.name}, '')))",
+                {"hogql_val_0": "null", "hogql_val_1": "value2"},
+            )
+            assert "has(" not in self._expr("lower(properties.test_prop) in ('', 'value2')")
+
     def test_force_data_skipping_indices_works_with_simple_equality(self) -> None:
         with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_index=True) as mat_col:
             _create_event(team=self.team, distinct_id="test", event="test", properties={"test_prop": "foo"})
@@ -4514,6 +4617,78 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 )
 
             assert "index" in str(exc_info.value).lower()
+
+    def test_lower_in_optimization_on_persons(self) -> None:
+        # The persons table hides the property filter in a subquery; the helper extracts it (see its docstring)
+        with materialized("person", "email", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
+            _create_person(
+                distinct_ids=["p_foo"], team=self.team, properties={"email": "Foo@Example.com"}, immediate=True
+            )
+            _create_person(
+                distinct_ids=["p_bar"], team=self.team, properties={"email": "bar@example.com"}, immediate=True
+            )
+            _create_person(
+                distinct_ids=["p_other"], team=self.team, properties={"email": "other@example.com"}, immediate=True
+            )
+
+            result = execute_hogql_query(
+                team=self.team,
+                query="SELECT id, properties.email FROM persons "
+                "WHERE lower(properties.email) IN {emails} ORDER BY properties.email",
+                placeholders={"emails": ast.Constant(value=["foo@example.com", "bar@example.com"])},
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+            )
+            # Correctness: case-insensitive match through the deduplication subquery
+            assert {email for (_id, email) in result.results} == {"Foo@Example.com", "bar@example.com"}
+            assert result.clickhouse
+
+            # Index usage: EXPLAIN the person-filter subquery from the SQL that actually ran.
+            subquery = get_inner_person_subquery_clickhouse_sql(result.clickhouse)
+            index_name = get_bloom_filter_lower_index_name(mat_col.name)
+            index_info = get_index_from_explain(subquery, index_name)
+            assert index_info is not None, (
+                f"Expected skip index {index_name} to be used in the persons filter subquery:\n{subquery}"
+            )
+
+    def test_lower_in_uses_bloom_filter_lower_index_on_events(self) -> None:
+        # Events are a single direct scan, so EXPLAIN of the executed query exposes the skip index directly
+        with materialized("events", "email", is_nullable=True, create_bloom_filter_lower_index=True) as mat_col:
+            _create_event(team=self.team, distinct_id="u1", event="e", properties={"email": "Foo@Example.com"})
+
+            result = execute_hogql_query(
+                team=self.team,
+                query="SELECT count() FROM events WHERE lower(properties.email) IN {emails}",
+                placeholders={"emails": ast.Constant(value=["foo@example.com", "bar@example.com"])},
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+            )
+            assert result.results == [(1,)]
+            assert result.clickhouse
+
+            index_name = get_bloom_filter_lower_index_name(mat_col.name)
+            index_info = get_index_from_explain(result.clickhouse, index_name)
+            assert index_info is not None, (
+                f"Expected skip index {index_name} to be used in EXPLAIN output for:\n{result.clickhouse}"
+            )
+
+    def test_lower_in_uses_ngram_lower_index_on_events(self) -> None:
+        # The rewrite must also let an ngram_lower index serve the IN lookup end to end.
+        with materialized("events", "email", is_nullable=True, create_ngram_lower_index=True) as mat_col:
+            _create_event(team=self.team, distinct_id="u1", event="e", properties={"email": "Foo@Example.com"})
+
+            result = execute_hogql_query(
+                team=self.team,
+                query="SELECT count() FROM events WHERE lower(properties.email) IN {emails}",
+                placeholders={"emails": ast.Constant(value=["foo@example.com", "bar@example.com"])},
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+            )
+            assert result.results == [(1,)]
+            assert result.clickhouse
+
+            index_name = get_ngram_lower_index_name(mat_col.name)
+            index_info = get_index_from_explain(result.clickhouse, index_name)
+            assert index_info is not None, (
+                f"Expected skip index {index_name} to be used in EXPLAIN output for:\n{result.clickhouse}"
+            )
 
     @parameterized.expand(
         [
@@ -4714,6 +4889,44 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             )
             not_in_matches = {d for (d,) in not_in_result.results}
             assert not_in_matches == not_in_expected, f"NOT IN {in_values}"
+
+    @parameterized.expand([("nullable", True), ("non_nullable", False)])
+    def test_lower_in_optimization_handles_null_and_sentinel_rows(self, _, is_nullable) -> None:
+        # The rewrite must stay correct for NULL/missing, empty-string, and literal-"null" property rows
+        with materialized("events", "test_prop", is_nullable=is_nullable, create_bloom_filter_lower_index=True):
+            events: list[tuple[str, dict]] = [
+                ("mixed_case", {"test_prop": "Hello@PostHog.com"}),
+                ("lower_case", {"test_prop": "hello@posthog.com"}),
+                ("other", {"test_prop": "OTHER"}),
+                ("literal_null_str", {"test_prop": "null"}),
+                ("empty_str", {"test_prop": ""}),
+                ("missing_key", {}),
+                ("json_null", {"test_prop": None}),
+            ]
+            for distinct_id, properties in events:
+                _create_event(team=self.team, distinct_id=distinct_id, event="e", properties=properties)
+            all_ids = {distinct_id for distinct_id, _ in events}
+
+            def run(op: str) -> tuple[set[str], str]:
+                result = execute_hogql_query(
+                    team=self.team,
+                    query=(
+                        f"SELECT distinct_id FROM events "
+                        f"WHERE lower(properties.test_prop) {op} ('hello@posthog.com') ORDER BY distinct_id"
+                    ),
+                    modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+                )
+                assert result.clickhouse
+                return {d for (d,) in result.results}, result.clickhouse
+
+            # Case-insensitive IN: matches the mixed-case and already-lowercase rows, nothing else.
+            in_matches, in_sql = run("IN")
+            assert "has(" in in_sql, f"expected the bloom_filter_lower rewrite to fire: {in_sql}"
+            assert in_matches == {"mixed_case", "lower_case"}
+
+            # NOT IN returns the exact complement, including the NULL / missing / empty-string rows.
+            not_in_matches, _ = run("NOT IN")
+            assert not_in_matches == all_ids - {"mixed_case", "lower_case"}
 
     def test_recursive_cte_raises(self):
         query = """

@@ -131,7 +131,7 @@ const Component = ({
 
         if (isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source)) {
             modifiedQuery.source.fixedProperties = canvasFiltersOverride
-            updateAttributes({ ...attributes, isDefaultFilterApplied: true })
+            updateAttributes({ isDefaultFilterApplied: true })
         }
 
         return modifiedQuery
@@ -282,12 +282,12 @@ export const Settings = ({
             !isDefaultFilterApplied
         ) {
             modifiedQuery.source.properties = canvasFiltersOverride
-            updateAttributes({ ...attributes, isDefaultFilterApplied: true })
+            updateAttributes({ isDefaultFilterApplied: true })
         }
 
         if (isDataTableNode(modifiedQuery) && isEventsQuery(modifiedQuery.source) && !isDefaultFilterApplied) {
             modifiedQuery.source.fixedProperties = canvasFiltersOverride
-            updateAttributes({ ...attributes, isDefaultFilterApplied: true })
+            updateAttributes({ isDefaultFilterApplied: true })
         }
 
         return modifiedQuery

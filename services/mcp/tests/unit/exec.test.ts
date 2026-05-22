@@ -303,6 +303,33 @@ describe('exec tool', () => {
             expect(typeof parsed.inputSchema).toBe('object')
         })
 
+        it('bakes the drill-down imperative into each complex field hint when info is summarized', async () => {
+            const wideShape: Record<string, z.ZodType> = {}
+            for (let i = 0; i < 1500; i++) {
+                wideShape[`field_${i}`] = z.string().describe(`Description for field ${i} with extra padding text`)
+            }
+            const tool = makeMockTool({
+                schema: z.object({
+                    name: z.string(),
+                    filter: z.object({ key: z.string() }),
+                    wide: z.object(wideShape),
+                }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'info mock-tool' })) as string
+            const envelope = parseYaml(result) as { note?: string; inputSchema: string }
+            // The directive lives on the field the model is about to populate,
+            // not as a separate top-level note it can skim past.
+            expect(envelope.note).toBeUndefined()
+            const parsedSchema = JSON.parse(envelope.inputSchema)
+            expect(parsedSchema.properties.filter.hint).toContain('DO NOT GUESS')
+            expect(parsedSchema.properties.filter.hint).toContain('schema mock-tool filter')
+            expect(parsedSchema.properties.filter.hint).toContain('before populating this field')
+            expect(parsedSchema.properties.wide.hint).toContain('schema mock-tool wide')
+            // Scalar fields carry no hint — nothing to drill into.
+            expect(parsedSchema.properties.name.hint).toBeUndefined()
+        })
+
         it('throws usage error for bare info', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'info' })).rejects.toThrow(
@@ -315,6 +342,174 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'info --json' })).rejects.toThrow(
                 'Usage: info [--json] <tool_name>'
             )
+        })
+    })
+
+    describe('schema command', () => {
+        it('throws usage error for bare schema', async () => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: 'schema' })).rejects.toThrow(
+                'Usage: schema <tool_name> [field_path]'
+            )
+        })
+
+        it('returns the resolved sub-schema inline when small enough', async () => {
+            const tool = makeMockTool({
+                schema: z.object({
+                    name: z.string(),
+                    filter: z.object({ key: z.string(), value: z.number() }),
+                }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'schema mock-tool filter' })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed.field).toBe('filter')
+            // Small sub-schema: the full resolved JSON Schema is inlined as-is
+            expect(parsed.schema.type).toBe('object')
+            expect(parsed.schema.properties).toEqual(
+                expect.objectContaining({
+                    key: expect.objectContaining({ type: 'string' }),
+                    value: expect.objectContaining({ type: 'number' }),
+                })
+            )
+            // No drill-down note for an already-inlined schema
+            expect(parsed.note).toBeUndefined()
+        })
+
+        // The bare `schema <tool>` view is the recursive step where models
+        // historically guessed the deeper shape of complex fields (like `series`
+        // or `retentionFilter`) rather than running another `schema` for the
+        // sub-path. The imperative now rides on each complex field's `hint` —
+        // the runtime nudge that pairs with the prompt-side guidance in
+        // `cli-schema-drilldown.md`.
+        it('bakes the drill-down imperative into each complex field hint of the bare schema view', async () => {
+            const tool = makeMockTool({
+                schema: z.object({
+                    name: z.string(),
+                    filter: z.object({ key: z.string() }),
+                }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'schema mock-tool' })) as string
+            const parsed = JSON.parse(result)
+            // Flat summary, no separate note wrapper.
+            expect(parsed.note).toBeUndefined()
+            expect(parsed.schema).toBeUndefined()
+            expect(parsed.properties.filter.hint).toContain('DO NOT GUESS')
+            expect(parsed.properties.filter.hint).toContain('schema mock-tool filter')
+            expect(parsed.properties.filter.hint).toContain('before populating this field')
+            // Scalar fields do not earn a hint
+            expect(parsed.properties.name.hint).toBeUndefined()
+        })
+
+        it('does not attach a drill-down directive when no field carries a hint', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string(), count: z.number() }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'schema mock-tool' })) as string
+            const parsed = JSON.parse(result)
+            // Without hints, the response is just the raw summary — no `note`
+            // wrapper to distract the model when there's nothing to drill into.
+            expect(parsed.note).toBeUndefined()
+            expect(parsed.schema).toBeUndefined()
+            expect(parsed.type).toBe('object')
+            expect(parsed.properties.name.type).toBe('string')
+        })
+
+        it('returns a summary in the same { field, schema } shape when a sub-field overflows the budget', async () => {
+            // Build a sub-field large enough to exceed TOKEN_CHAR_LIMIT (~48k chars)
+            // once serialized. Each property entry is ~70 chars, so 1500 of them
+            // comfortably crosses the threshold.
+            const wideShape: Record<string, z.ZodType> = {}
+            for (let i = 0; i < 1500; i++) {
+                wideShape[`field_${i}`] = z.string().describe(`Description for field ${i} with extra padding text`)
+            }
+            const tool = makeMockTool({
+                schema: z.object({ wide: z.object(wideShape) }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'schema mock-tool wide' })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed.field).toBe('wide')
+            // No top-level note — `hint` is the only drill-down signal in the response.
+            expect(parsed.note).toBeUndefined()
+            // Summary still preserves field names so the model can pick where to drill
+            expect(Object.keys(parsed.schema.properties).length).toBeGreaterThan(0)
+        })
+
+        it('errors with available paths when the field path is unknown', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string(), filter: z.object({ key: z.string() }) }),
+            })
+            const exec = createExec([tool])
+            await expect(exec.handler(mockContext, { command: 'schema mock-tool nope' })).rejects.toThrow(
+                /Unknown path "nope"\. Available: name, filter/
+            )
+        })
+
+        // Eval case for `query-retention`, the canonical large-schema query tool
+        // (>200k chars when fully serialized). Validates the end-to-end drill-down
+        // flow against the real tool: bare schema → imperative hints → drill
+        // → resolved sub-schema. If the hint imperative ever loosens or the
+        // schema-summary pipeline regresses, this test catches it.
+        it('eval: query-retention bare schema view produces imperative hints, and a drilled sub-field resolves', async () => {
+            const context: Context = {
+                api: {} as any,
+                cache: {} as any,
+                env: {
+                    MCP_APPS_BASE_URL: undefined,
+                    POSTHOG_ANALYTICS_API_KEY: undefined,
+                    POSTHOG_ANALYTICS_HOST: undefined,
+                    POSTHOG_API_BASE_URL: undefined,
+                    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+                    POSTHOG_UI_APPS_TOKEN: undefined,
+                },
+                stateManager: {
+                    getApiKey: async () => ({ scopes: ['*'] }),
+                    getAiConsentGiven: async () => true,
+                } as any,
+                sessionManager: new SessionManager({} as any),
+                getDistinctId: async () => 'test-distinct-id',
+                trackEvent: async () => {},
+            }
+            const v2Tools = await getToolsFromContext(context, { version: 2 })
+            const queryRetention = v2Tools.find((t) => t.name === 'query-retention')
+            expect(queryRetention).not.toBeUndefined()
+            const exec = createExecTool(v2Tools, context, 'test', 'test', undefined)
+
+            // 1. Bare `schema query-retention` returns a flat summary whose
+            // complex fields carry the drill-down imperative in their hints.
+            const bare = JSON.parse((await exec.handler(context, { command: 'schema query-retention' })) as string) as {
+                note?: string
+                properties: Record<string, { hint?: string; type?: string }>
+            }
+            expect(bare.note).toBeUndefined()
+            // At least one of retention's complex fields must surface a hint —
+            // the exact set varies with schema generation, so we assert by shape
+            // (presence of any hint) rather than naming a specific field.
+            const hintedFields = Object.entries(bare.properties).filter(([, v]) => v.hint !== undefined)
+            expect(hintedFields.length).toBeGreaterThan(0)
+            for (const [, v] of hintedFields) {
+                expect(v.hint).toMatch(
+                    /^DO NOT GUESS — you MUST run `schema query-retention [\w.]+` before populating this field$/
+                )
+            }
+
+            // 2. Drill into the first hinted sub-field. The follow-up always
+            // returns the same `{ field, schema }` shape — either with the full
+            // resolved JSON Schema (small enough to inline) or with a summary
+            // whose complex sub-fields carry their own hints. No top-level note
+            // distinguishes the two; the model reads the hints either way.
+            const [firstHintedField] = hintedFields[0]!
+            const drilled = JSON.parse(
+                (await exec.handler(context, {
+                    command: `schema query-retention ${firstHintedField}`,
+                })) as string
+            ) as { field?: string; note?: string; schema?: unknown }
+            expect(drilled.field).toBe(firstHintedField)
+            expect(drilled.note).toBeUndefined()
+            expect(drilled.schema).not.toBeUndefined()
         })
     })
 

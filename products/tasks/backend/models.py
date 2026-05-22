@@ -120,6 +120,15 @@ class Task(DeletedMetaFields, models.Model):
         help_text="If true, this task is for internal use and should not be exposed to end users.",
     )
 
+    archived = models.BooleanField(
+        default=False,
+        help_text=(
+            "If true, the task is hidden from default list responses. Used by PostHog Code clients "
+            "to share archive state across desktop and mobile."
+        ),
+    )
+    archived_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     ci_prompt = models.TextField(
@@ -133,6 +142,7 @@ class Task(DeletedMetaFields, models.Model):
         managed = True
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
+            models.Index(fields=["archived"], name="posthog_task_archived_idx"),
         ]
 
     def __str__(self):
@@ -700,10 +710,13 @@ class TaskRun(models.Model):
         """Get the Temporal workflow ID for this task run."""
         return self.get_workflow_id(self.task_id, self.id)
 
-    def heartbeat_workflow(self) -> None:
+    def heartbeat_workflow(self, agent_active: bool = False) -> None:
+        if not agent_active:
+            return
+
         from django.core.cache import cache
 
-        cache_key = f"tasks:task_run:heartbeat:{self.id}"
+        cache_key = f"tasks:task_run:heartbeat:{self.id}:active"
         if not cache.add(cache_key, True, timeout=60):
             return
 
@@ -716,7 +729,7 @@ class TaskRun(models.Model):
         try:
             client = sync_connect()
             handle = client.get_workflow_handle(self.workflow_id)
-            asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat))
+            asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat, arg=agent_active))
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 

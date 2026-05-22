@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconLetter } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,16 +12,23 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { composeTicketLogic } from './composeTicketLogic'
-import { ComposeTicketModal } from './ComposeTicketModal'
 
 interface ComposeTicketButtonProps {
     size?: LemonButtonProps['size']
     type?: LemonButtonProps['type']
+    distinctId?: string
+    email?: string
+    iconOnly?: boolean
+    onCompose?: () => void
 }
 
 export function ComposeTicketButton({
     size = 'small',
     type = 'primary',
+    distinctId,
+    email,
+    iconOnly,
+    onCompose,
 }: ComposeTicketButtonProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -62,20 +69,21 @@ export function ComposeTicketButton({
                 <LemonButton
                     type={type}
                     size={size}
-                    icon={<IconPlus />}
+                    icon={<IconLetter />}
+                    tooltip={iconOnly ? 'New ticket' : undefined}
                     onClick={() => {
                         if (conversationsEnabled) {
-                            openComposeModal()
+                            openComposeModal({ distinctId, email })
+                            onCompose?.()
                         } else {
                             setShowDisabledPopover(true)
                         }
                     }}
                     data-attr="compose-ticket-button"
                 >
-                    New ticket
+                    {iconOnly ? null : 'New ticket'}
                 </LemonButton>
             </Popover>
-            <ComposeTicketModal />
         </>
     )
 }

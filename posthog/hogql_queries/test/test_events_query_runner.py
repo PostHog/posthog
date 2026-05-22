@@ -1067,3 +1067,80 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0]["event"], "$pageview")
+
+    @freeze_time("2020-01-11T12:00:05Z")
+    def test_restricted_person_properties_stripped_from_person_column(self):
+        from posthog.models import PropertyDefinition
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"email": "secret@example.com", "name": "Test User"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:01Z",
+            properties={"$browser": "Chrome"},
+        )
+        flush_persons_and_events()
+
+        # restrict "email" person property
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="email",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        query = EventsQuery(select=["person"], after="2020-01-10")
+        runner = EventsQueryRunner(query=query, team=self.team, user=self.user)
+        response = runner.run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) > 0
+        person_data = response.results[0][0]
+        assert "email" not in person_data["properties"]
+        assert "name" in person_data["properties"]
+
+    @freeze_time("2020-01-11T12:00:05Z")
+    def test_restricted_event_property_in_select_raises_error(self):
+        from posthog.hogql.errors import ResolutionError
+
+        from posthog.models import PropertyDefinition
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:01Z",
+            properties={"secret_field": "hidden"},
+        )
+        flush_persons_and_events()
+
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="secret_field",
+            type=PropertyDefinition.Type.EVENT,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        query = EventsQuery(select=["properties.secret_field"], after="2020-01-10")
+        runner = EventsQueryRunner(query=query, team=self.team, user=self.user)
+        with self.assertRaises(ResolutionError):
+            runner.run()
