@@ -287,6 +287,16 @@ procs:
             layer: Ingestion pipeline
             tech: Rust
 
+    property-vals-rs:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service property-vals-rs
+        capability: property_values
+        ready_pattern: 'Subscribed to topic: *'
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
+
     capture:
         shell: |-
             bin/wait-for-docker && \
