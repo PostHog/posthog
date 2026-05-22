@@ -792,8 +792,16 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         chunk_size = chunk_size_override
                         logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                     else:
+                        # `inner_query_with_limit` is a `psycopg.sql.Composed`
+                        # rather than a `str`; the override on
+                        # `fetch_average_row_size` accepts it via `Any`.
                         chunk_size = self.get_chunk_size(
-                            cursor, schema, table_name, inner_query_with_limit, None, logger
+                            cursor,
+                            schema,
+                            table_name,
+                            inner_query_with_limit,  # type: ignore[arg-type]
+                            None,
+                            logger,
                         )
                     logger.debug("Getting rows to sync...")
                     rows_to_sync = self.get_rows_to_sync(cursor, inner_query_without_limit, None, logger)

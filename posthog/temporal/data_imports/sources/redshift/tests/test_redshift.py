@@ -450,18 +450,15 @@ def build_pipeline_mocks(mocker):
     streaming_cursor.description[0].name = "id"
     streaming_cursor.fetchmany.return_value = []
 
-    metadata_cursor = MagicMock()
-    metadata_cursor.__enter__.return_value = metadata_cursor
-
+    # The metadata pass uses the patched `RedshiftImplementation`
+    # methods, so a single cursor mock can serve both connections —
+    # only the streaming connection requires `conn.adapters` to be set.
     state = {"first_conn": True}
-
-    def cursor_factory(*args, **kwargs):
-        return streaming_cursor if not state["first_conn"] else metadata_cursor
 
     def connect_side_effect(*args, **kwargs):
         conn = MagicMock()
         conn.__enter__.return_value = conn
-        conn.cursor.side_effect = cursor_factory
+        conn.cursor.return_value = streaming_cursor
         if not state["first_conn"]:
             conn.adapters = MagicMock()
         state["first_conn"] = False
