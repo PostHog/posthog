@@ -17359,6 +17359,11 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface GitHubPrepareCallbackRequest {
+      /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+      next?: string;
+    }
+
     export interface GitHubRepo {
       id: number;
       name: string;

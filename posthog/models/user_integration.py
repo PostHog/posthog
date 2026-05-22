@@ -10,6 +10,7 @@ import structlog
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.integration import invalidate_github_repository_caches_for_installation
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
@@ -351,4 +352,5 @@ def user_github_integration_from_installation(
                 "sensitive_config": sensitive_config,
             },
         )
+        invalidate_github_repository_caches_for_installation(installation.installation_id)
     return integration

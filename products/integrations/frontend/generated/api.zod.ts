@@ -355,6 +355,21 @@ export const IntegrationsGithubOauthAuthorizeCreateBody = /* @__PURE__ */ zod
     .describe('Standard Integration serializer.')
 
 /**
+ * Seed GitHub setup callback state without redirecting to GitHub.
+
+Used when the user opens an existing installation's settings on github.com (e.g. PostHog
+Code "Update in GitHub") so the subsequent Setup URL redirect can be validated.
+ */
+export const IntegrationsGithubPrepareCallbackCreateBody = /* @__PURE__ */ zod.object({
+    next: zod
+        .string()
+        .optional()
+        .describe(
+            'Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code).'
+        ),
+})
+
+/**
  * Start GitHub linking: either full App install or OAuth-only (user-to-server).
 
 ``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested

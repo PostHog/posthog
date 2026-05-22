@@ -38,6 +38,7 @@ from posthog.models.integration import (
     OauthIntegration,
     PostgreSQLIntegration,
     SlackIntegration,
+    invalidate_github_repository_caches_for_installation,
     raise_if_github_rate_limited,
 )
 from posthog.models.organization import Organization
@@ -1528,6 +1529,36 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.repository_cache == []
         assert integration.repository_cache_updated_at is None
         mock_list_all.assert_called_once_with()
+
+    def test_invalidate_github_repository_caches_for_installation_clears_team_and_personal_rows(self):
+        from posthog.models.user_integration import UserIntegration
+
+        team_integration = self.create_integration(
+            {"installation_id": "12345", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        team_integration.integration_id = "12345"
+        team_integration.repository_cache = [{"id": 1, "name": "a", "full_name": "org/a"}]
+        team_integration.repository_cache_updated_at = timezone.now()
+        team_integration.save(update_fields=["integration_id", "repository_cache", "repository_cache_updated_at"])
+
+        user_integration = UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ACCESS_TOKEN"},
+            repository_cache=[{"id": 2, "name": "b", "full_name": "org/b"}],
+            repository_cache_updated_at=timezone.now(),
+        )
+
+        invalidate_github_repository_caches_for_installation("12345")
+
+        team_integration = Integration.objects.get(pk=team_integration.pk)
+        user_integration = UserIntegration.objects.get(pk=user_integration.pk)
+        assert team_integration.repository_cache_updated_at is None
+        assert user_integration.repository_cache_updated_at is None
+        assert team_integration.repository_cache == [{"id": 1, "name": "a", "full_name": "org/a"}]
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_repositories")
     def test_list_cached_repositories_pages_with_full_cached_snapshot(self, mock_list_all):

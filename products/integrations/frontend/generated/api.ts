@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     GitHubBranchesResponseApi,
+    GitHubPrepareCallbackRequestApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
@@ -704,6 +705,29 @@ export const integrationsGithubOauthAuthorizeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(integrationConfigApi),
+    })
+}
+
+export const getIntegrationsGithubPrepareCallbackCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/prepare_callback/`
+}
+
+/**
+ * Seed GitHub setup callback state without redirecting to GitHub.
+
+Used when the user opens an existing installation's settings on github.com (e.g. PostHog
+Code "Update in GitHub") so the subsequent Setup URL redirect can be validated.
+ */
+export const integrationsGithubPrepareCallbackCreate = async (
+    projectId: string,
+    gitHubPrepareCallbackRequestApi?: GitHubPrepareCallbackRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubPrepareCallbackCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(gitHubPrepareCallbackRequestApi),
     })
 }
 

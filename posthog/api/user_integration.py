@@ -13,7 +13,7 @@ is not controlled here.
 
 import re
 from typing import Any, cast
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs, parse_qsl, urlencode
 
 from django.conf import settings
 from django.core.cache import cache
@@ -132,6 +132,13 @@ def _github_app_install_url(state: str) -> str:
 def _github_state_token(state_raw: str) -> str:
     state_params = parse_qs(state_raw)
     return state_params["token"][0] if "token" in state_params else state_raw
+
+
+def is_personal_github_setup_state(state_raw: str | None) -> bool:
+    """True when GitHub's Setup URL callback belongs to a personal UserIntegration flow."""
+    if not state_raw:
+        return False
+    return dict(parse_qsl(state_raw)).get("source") == "user_integration"
 
 
 def _github_user_installation_ids(user_access_token: str) -> list[str]:

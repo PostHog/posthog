@@ -2333,6 +2333,20 @@ class GitHubInstallationAccess:
     repository_selection: str
 
 
+def invalidate_github_repository_caches_for_installation(installation_id: str | int) -> None:
+    """Mark repository list caches stale for every team/personal row sharing an installation."""
+    from posthog.models.user_integration import UserIntegration
+
+    installation_id_str = str(installation_id)
+    Integration.objects.filter(kind="github", integration_id=installation_id_str).update(
+        repository_cache_updated_at=None
+    )
+    UserIntegration.objects.filter(
+        kind=UserIntegration.IntegrationKind.GITHUB,
+        integration_id=installation_id_str,
+    ).update(repository_cache_updated_at=None)
+
+
 class GitHubIntegration(GitHubIntegrationBase):
     integration: Integration
 
@@ -2370,6 +2384,8 @@ class GitHubIntegration(GitHubIntegrationBase):
         if integration.errors:
             integration.errors = ""
             integration.save()
+
+        invalidate_github_repository_caches_for_installation(installation_id)
 
         return integration
 

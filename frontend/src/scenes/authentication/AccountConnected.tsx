@@ -6,6 +6,7 @@ import { IconCheckCircle } from '@posthog/icons'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
+import { describeGithubSetupError, getGithubSetupErrorCode } from 'lib/integrations/githubSetupErrors'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import type { SSOProvider } from '~/types'
@@ -39,14 +40,14 @@ function posthogCodeDeepUrl(
             url.searchParams.set(key, String(value))
         }
     }
-    const errorCode = typeof searchParams.error === 'string' ? searchParams.error : ''
+    const errorCode = getGithubSetupErrorCode(searchParams)
     url.searchParams.set('status', errorCode ? 'error' : 'success')
     if (errorCode) {
         url.searchParams.set('error_code', errorCode)
-        const errorMessage = typeof searchParams.error_message === 'string' ? searchParams.error_message : ''
-        if (errorMessage) {
-            url.searchParams.set('error_message', errorMessage)
-        }
+        const errorMessage =
+            (typeof searchParams.error_message === 'string' && searchParams.error_message) ||
+            describeGithubSetupError(errorCode)
+        url.searchParams.set('error_message', errorMessage)
     }
     return url.toString()
 }
@@ -99,7 +100,8 @@ export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
     const { searchParams } = useValues(router)
     const provider = typeof searchParams.provider === 'string' ? searchParams.provider : undefined
     const label = providerLabel(provider)
-    const isError = typeof searchParams.error === 'string' && searchParams.error.length > 0
+    const errorCode = getGithubSetupErrorCode(searchParams)
+    const isError = errorCode.length > 0
 
     useEffect(() => {
         if (kind !== 'invalid') {
