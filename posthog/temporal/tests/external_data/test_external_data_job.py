@@ -14,6 +14,7 @@ import psycopg
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -317,6 +318,84 @@ def test_sync_new_schemas_activity_self_destructs_when_source_unavailable(
             activity_environment.run(sync_new_schemas_activity, inputs)
 
     mock_delete_schedule.assert_called_once_with(source_id)
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        # MySQL-source specific (matches MySQLSource.get_non_retryable_errors)
+        "(1045, \"Access denied for user 'u294373067_ZdJM3'@'44.208.188.173' (using password: YES)\")",
+        "Can't connect to MySQL server on 'db.example.com' (timed out)",
+        "Bad handshake",
+        # Cross-source (matches _ANY_SOURCE_NON_RETRYABLE_ERRORS)
+        "Could not establish session to SSH gateway",
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_sync_new_schemas_activity_raises_non_retryable_on_known_source_error(
+    activity_environment, team, error_message, **kwargs
+):
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="MySQL",
+        job_inputs={
+            "host": "db.example.com",
+            "port": "3306",
+            "database": "test",
+            "user": "u294373067_ZdJM3",
+            "password": "rotated",
+            "schema": "test",
+            "using_ssl": "false",
+            "ssh_tunnel": {"enabled": "false"},
+        },
+    )
+
+    inputs = SyncNewSchemasActivityInputs(source_id=str(new_source.pk), team_id=team.id)
+
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.mysql.source.MySQLSource.get_schemas",
+        side_effect=Exception(error_message),
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            activity_environment.run(sync_new_schemas_activity, inputs)
+
+    assert exc_info.value.non_retryable is True
+    assert exc_info.value.type == "DiscoverSchemasNonRetryableError"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_sync_new_schemas_activity_reraises_unknown_errors_for_retry(activity_environment, team, **kwargs):
+    new_source = ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="MySQL",
+        job_inputs={
+            "host": "db.example.com",
+            "port": "3306",
+            "database": "test",
+            "user": "test",
+            "password": "test",
+            "schema": "test",
+            "using_ssl": "false",
+            "ssh_tunnel": {"enabled": "false"},
+        },
+    )
+
+    inputs = SyncNewSchemasActivityInputs(source_id=str(new_source.pk), team_id=team.id)
+
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.mysql.source.MySQLSource.get_schemas",
+        side_effect=RuntimeError("transient network blip"),
+    ):
+        with pytest.raises(RuntimeError, match="transient network blip"):
+            activity_environment.run(sync_new_schemas_activity, inputs)
 
 
 @pytest.mark.django_db(transaction=True)
