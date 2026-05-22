@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import asyncio
 from dataclasses import asdict
 from datetime import UTC, datetime, time, timedelta
 from typing import TYPE_CHECKING
@@ -246,6 +247,79 @@ async def a_delete_external_data_schedule(external_data_source: ExternalDataSour
         if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
             return
         raise
+
+
+# Bounded concurrency for bulk schedule operations. High enough to parallelise the
+# per-RPC latency across thousands of schemas — each create_schedule with an immediate
+# trigger is a relatively heavy server-side operation (it also starts a workflow) — but
+# low enough to stay friendly to the Temporal frontend service.
+_BULK_SCHEDULE_CONCURRENCY = 100
+
+
+@async_to_sync
+async def a_bulk_create_external_data_job_schedules(
+    schemas: list[tuple[ExternalDataSchema, bool]],
+) -> list[BaseException]:
+    """Create sync schedules for many schemas over a single shared Temporal connection.
+
+    `sync_external_data_job_workflow` opens a fresh Temporal connection on every call, so
+    looping it over thousands of schemas (e.g. a Slack workspace with thousands of
+    channels) spends almost all of its time reconnecting. This connects once and runs the
+    creates concurrently. Returns the exceptions for any schedules that failed — a partial
+    failure does not abort the rest, so the caller decides how to surface them.
+    """
+    if not schemas:
+        return []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _create_one(external_data_schema: ExternalDataSchema, should_sync: bool) -> None:
+        async with semaphore:
+            schedule = get_sync_schedule(external_data_schema, should_sync=should_sync)
+            schedule_id = str(external_data_schema.id)
+            try:
+                await a_create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+            except ScheduleAlreadyRunningError:
+                await a_update_schedule(temporal, id=schedule_id, schedule=schedule)
+                await a_trigger_schedule(temporal, schedule_id=schedule_id)
+
+    results = await asyncio.gather(
+        *(_create_one(schema, should_sync) for schema, should_sync in schemas),
+        return_exceptions=True,
+    )
+    return [result for result in results if isinstance(result, BaseException)]
+
+
+@async_to_sync
+async def a_bulk_delete_external_data_schedules(schedule_ids: list[str]) -> list[BaseException]:
+    """Delete many Temporal schedules over a single shared connection.
+
+    The bulk counterpart to `delete_external_data_schedule`: reuses one connection,
+    deletes concurrently, and ignores schedules that no longer exist. Returns the
+    exceptions for any deletes that failed for another reason.
+    """
+    if not schedule_ids:
+        return []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _delete_one(schedule_id: str) -> None:
+        async with semaphore:
+            try:
+                await a_delete_schedule(temporal, schedule_id=schedule_id)
+            except temporalio.service.RPCError as e:
+                # Swallow error if schedule does not exist already
+                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                    return
+                raise
+
+    results = await asyncio.gather(
+        *(_delete_one(schedule_id) for schedule_id in schedule_ids),
+        return_exceptions=True,
+    )
+    return [result for result in results if isinstance(result, BaseException)]
 
 
 def cancel_external_data_workflow(workflow_id: str):
