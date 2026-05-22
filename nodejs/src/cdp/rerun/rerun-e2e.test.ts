@@ -190,7 +190,7 @@ describe('CDP hog invocation rerun e2e', () => {
             ...HOG_FILTERS_EXAMPLES.no_filters,
         })
 
-        kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub)
+        kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
         postgresV2Queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
         eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
