@@ -9,10 +9,12 @@
         "kea-router": "catalog:",
         "posthog-js": "catalog:"
     },
+    "devDependencies": {
+        "@storybook/react": "catalog:",
+        "@testing-library/react": "*"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
-        "@storybook/react": "*",
-        "@testing-library/react": "*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",
