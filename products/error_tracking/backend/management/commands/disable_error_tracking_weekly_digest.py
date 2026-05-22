@@ -17,18 +17,18 @@ Usage:
     python manage.py disable_error_tracking_weekly_digest --email user@example.com --organization-id 12345
 """
 
-from argparse import ArgumentParser
 from typing import Any
 
 from django.core.management.base import BaseCommand
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 
 class Command(BaseCommand):
     help = "Disable error tracking weekly digest for users by email or organization membership."
 
-    def add_arguments(self, parser: ArgumentParser) -> None:
+    def add_arguments(self, parser):
         parser.add_argument(
             "--email",
             action="append",
@@ -100,8 +100,6 @@ class Command(BaseCommand):
             user_ids.update(email_users)
 
         if organization_id is not None:
-            from posthog.models.organization import OrganizationMembership
-
             org_user_ids = OrganizationMembership.objects.filter(organization_id=organization_id).values_list(
                 "user_id", flat=True
             )
