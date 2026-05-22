@@ -279,12 +279,38 @@ class SlackChannelSerializer(serializers.Serializer):
     )
 
 
+class SlackChannelsQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive channel name or ID search query.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=200,
+        help_text="Maximum number of channels to return per request (max 200).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of channels to skip before returning results.",
+    )
+
+
 class SlackChannelsResponseSerializer(serializers.Serializer):
     channels = SlackChannelSerializer(many=True, help_text="Slack channels visible to the PostHog Slack app.")
     lastRefreshedAt = serializers.CharField(
         required=False,
         allow_null=True,
         help_text="ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-channel lookups).",
+    )
+    has_more = serializers.BooleanField(
+        required=False,
+        help_text="Whether more channels match the current search beyond this page.",
     )
 
 
@@ -740,7 +766,29 @@ class IntegrationViewSet(
 
         raise ValidationError("Kind not supported")
 
-    @extend_schema(responses={200: SlackChannelsResponseSerializer})
+    @staticmethod
+    def _serialize_slack_channel(channel: dict) -> dict:
+        return {
+            "id": channel["id"],
+            "name": channel["name"],
+            "is_private": channel["is_private"],
+            "is_member": channel.get("is_member", True),
+            "is_ext_shared": channel["is_ext_shared"],
+            "is_private_without_access": channel.get("is_private_without_access", False),
+        }
+
+    @staticmethod
+    def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
+        visible = [channel for channel in channels if not channel.get("is_private_without_access")]
+        query = search.strip().lower()
+        if not query:
+            return visible
+        return [channel for channel in visible if query in channel["name"].lower() or query in channel["id"].lower()]
+
+    @extend_schema(
+        parameters=[SlackChannelsQuerySerializer],
+        responses={200: SlackChannelsResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, url_path="channels")
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
@@ -756,53 +804,52 @@ class IntegrationViewSet(
         if not authed_user:
             raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
 
-        channel_id = request.query_params.get("channel_id")
-        if channel_id:
-            channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
-            if channel:
-                return Response(
-                    {
-                        "channels": [
-                            {
-                                "id": channel["id"],
-                                "name": channel["name"],
-                                "is_private": channel["is_private"],
-                                "is_member": channel.get("is_member", True),
-                                "is_ext_shared": channel["is_ext_shared"],
-                                "is_private_without_access": channel["is_private_without_access"],
-                            }
-                        ]
-                    }
-                )
-            else:
-                return Response({"channels": []})
-
         # Key on the Integration row PK (unique per PostHog team × Slack workspace), not
         # integration_id (the Slack workspace id, shared across teams). Two teams that
         # install the same workspace must not share cached private-channel lists.
         key = f"slack/{instance.id}/{should_include_private_channels}/channels"
+
+        channel_id = request.query_params.get("channel_id")
+        if channel_id:
+            data = cache.get(key)
+            if data is not None:
+                for channel in data["channels"]:
+                    if channel["id"] == channel_id:
+                        return Response({"channels": [channel]})
+            channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
+            if channel:
+                return Response({"channels": [self._serialize_slack_channel(channel)]})
+            return Response({"channels": []})
+
+        query_serializer = SlackChannelsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        search = query_serializer.validated_data["search"]
+        limit = query_serializer.validated_data["limit"]
+        offset = query_serializer.validated_data["offset"]
+
         data = cache.get(key)
 
-        if data is not None and not force_refresh:
-            return Response(data)
+        if data is None or force_refresh:
+            data = {
+                "channels": [
+                    self._serialize_slack_channel(channel)
+                    for channel in slack.list_channels(should_include_private_channels, authed_user)
+                ],
+                "lastRefreshedAt": timezone.now().isoformat(),
+            }
+            cache.set(key, data, 60 * 60)  # one hour
 
-        response = {
-            "channels": [
-                {
-                    "id": channel["id"],
-                    "name": channel["name"],
-                    "is_private": channel["is_private"],
-                    "is_member": channel.get("is_member", True),
-                    "is_ext_shared": channel["is_ext_shared"],
-                    "is_private_without_access": channel.get("is_private_without_access", False),
-                }
-                for channel in slack.list_channels(should_include_private_channels, authed_user)
-            ],
-            "lastRefreshedAt": timezone.now().isoformat(),
-        }
+        filtered_channels = self._filter_slack_channels_for_search(data["channels"], search)
+        page = filtered_channels[offset : offset + limit]
+        has_more = offset + limit < len(filtered_channels)
 
-        cache.set(key, response, 60 * 60)  # one hour
-        return Response(response)
+        return Response(
+            {
+                "channels": page,
+                "lastRefreshedAt": data.get("lastRefreshedAt"),
+                "has_more": has_more,
+            }
+        )
 
     @action(methods=["GET"], detail=True, url_path="twilio_phone_numbers")
     def twilio_phone_numbers(self, request: Request, *args: Any, **kwargs: Any) -> Response:
