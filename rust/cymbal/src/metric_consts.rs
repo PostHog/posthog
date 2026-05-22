@@ -88,30 +88,31 @@ pub const PROCESS_REQUEST_DURATION_SECONDS: &str = "cymbal_process_request_durat
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
 
-// Verdict-based /v2/process observability. These count individual event
-// outcomes (labelled by `{status, reason}`) and surface the new contract's
+// Disposition-based /v2/process observability. These count individual event
+// outcomes (labelled by `{action, reason}`) and surface the new contract's
 // per-event classification to operators. Combined with PROCESS_REQUESTS_TOTAL
 // (which counts whole requests), they give a complete picture of cymbal's
 // behaviour under load.
-pub const VERDICTS_EMITTED_TOTAL: &str = "cymbal_verdicts_emitted_total";
-// Wall-clock time spent producing the verdict for a single event, including
+pub const DISPOSITIONS_EMITTED_TOTAL: &str = "cymbal_event_dispositions_emitted_total";
+// Wall-clock time spent producing the disposition for a single event, including
 // any sub-stage work. Tells us where the per-event deadline budget is going.
-pub const VERDICT_DURATION_SECONDS: &str = "cymbal_verdict_duration_seconds";
-// Increments whenever an event verdict had to be filled in as a fallback
+pub const DISPOSITION_DURATION_SECONDS: &str = "cymbal_event_disposition_duration_seconds";
+// Increments whenever an event disposition had to be filled in as a fallback
 // because the per-event deadline elapsed mid-processing. Distinct from
-// "verdicts_emitted_total{status=retry,reason=deadline_exceeded}" because it
+// "event_dispositions_emitted_total{action=retry,reason=deadline_exceeded}" because it
 // signals the deadline triggered the fallback, rather than a stage choosing
-// to emit a retry verdict on its own.
-pub const VERDICT_DEADLINE_FALLBACK_TOTAL: &str = "cymbal_verdict_deadline_fallback_total";
+// to emit a retry disposition on its own.
+pub const DISPOSITION_DEADLINE_FALLBACK_TOTAL: &str =
+    "cymbal_event_disposition_deadline_fallback_total";
 // Increments whenever per-event processing panicked. A non-zero rate means
-// cymbal has bugs being absorbed silently as `retry` verdicts; the panic
+// cymbal has bugs being absorbed silently as `retry` dispositions; the panic
 // counter is the trail for finding them.
-pub const VERDICT_PANIC_TOTAL: &str = "cymbal_verdict_panic_total";
+pub const DISPOSITION_PANIC_TOTAL: &str = "cymbal_event_disposition_panic_total";
 // Increments when the whole-request deadline elapsed with events still
 // in flight. Should be rare in steady state — per-event deadlines should
 // bring each event home before the request deadline.
-pub const VERDICT_REQUEST_DEADLINE_EXHAUSTED_TOTAL: &str =
-    "cymbal_verdict_request_deadline_exhausted_total";
+pub const DISPOSITION_REQUEST_DEADLINE_EXHAUSTED_TOTAL: &str =
+    "cymbal_event_disposition_request_deadline_exhausted_total";
 
 // Spike detection metrics
 pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_issue_buckets_time";

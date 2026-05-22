@@ -1,8 +1,8 @@
-//! Integration tests for the `/v2/process` endpoint — verifies the verdict
+//! Integration tests for the `/v2/process` endpoint — verifies the disposition
 //! contract end-to-end (HTTP → pipeline → response shape) and the failure
 //! paths the new endpoint promises:
 //!
-//! - Per-event verdicts (`Process`, `Drop`, `Retry`, `Dlq`) in the response.
+//! - Per-event dispositions (`Forward`, `Drop`, `Retry`, `Dlq`) in the response.
 //! - Cross-event optimizations preserved: shared `batch_issue_cache` so
 //!   same-fingerprint events still resolve to the same issue; deferred
 //!   spike detection so Redis is called once per request, not once per event.
@@ -12,8 +12,8 @@
 //! What's intentionally not tested at the integration layer:
 //! - Per-event panic isolation: needs a fault-injection hook in the
 //!   pipeline that doesn't exist yet. Covered at the unit level via
-//!   `catch_unwind` semantics in `verdict_for_single_event` and
-//!   `VERDICT_PANIC_TOTAL` metric wiring.
+//!   `catch_unwind` semantics in `PerEventDispositionProcessor::process_one` and
+//!   `DISPOSITION_PANIC_TOTAL` metric wiring.
 //! - Per-event UnhandledError isolation for a single event in a mixed
 //!   batch: needs the ability to make `S3::get` fail for a specific
 //!   sourcemap key only. Achievable but requires extending `MockS3Client`
@@ -87,16 +87,16 @@ fn make_exception(exception_type: &str, message: &str) -> Exception {
     }
 }
 
-// ---------- Verdict response deserialization ----------
+// ---------- Disposition response deserialization ----------
 //
-// Mirrors `cymbal::types::verdict::EventVerdict` but without depending on
+// Mirrors `cymbal::types::event_disposition::EventDisposition` but without depending on
 // the production type, so the test asserts the wire shape rather than the
 // in-memory representation. If the JSON contract changes, these tests fail.
 
 #[derive(Debug, Deserialize)]
-#[serde(tag = "status", rename_all = "lowercase")]
-enum V2Verdict {
-    Process {
+#[serde(tag = "action", rename_all = "snake_case")]
+enum V2Disposition {
+    Forward {
         event: Box<AnyEvent>,
     },
     Drop {
@@ -113,18 +113,18 @@ enum V2Verdict {
     },
 }
 
-impl V2Verdict {
-    fn expect_process(&self) -> &AnyEvent {
+impl V2Disposition {
+    fn expect_forward(&self) -> &AnyEvent {
         match self {
-            V2Verdict::Process { event } => event,
-            other => panic!("expected Process verdict, got {:?}", other),
+            V2Disposition::Forward { event } => event,
+            other => panic!("expected Forward disposition, got {:?}", other),
         }
     }
 
     fn expect_drop(&self) -> &str {
         match self {
-            V2Verdict::Drop { reason } => reason,
-            other => panic!("expected Drop verdict, got {:?}", other),
+            V2Disposition::Drop { reason } => reason,
+            other => panic!("expected Drop disposition, got {:?}", other),
         }
     }
 }
@@ -146,7 +146,7 @@ impl V2Harness {
         s3
     }
 
-    async fn post_events(&self, events: Vec<AnyEvent>) -> (StatusCode, Vec<V2Verdict>) {
+    async fn post_events(&self, events: Vec<AnyEvent>) -> (StatusCode, Vec<V2Disposition>) {
         utils::get_response(
             self.db.clone(),
             STORAGE_BUCKET.to_string(),
@@ -158,7 +158,7 @@ impl V2Harness {
 
     /// POST `/v2/process` with a caller-supplied `MockRedisClient` and a
     /// config-tweak closure. Returns the JSON response decoded into either
-    /// `Vec<V2Verdict>` (on 2xx) or `serde_json::Value` (on 4xx/5xx).
+    /// `Vec<V2Disposition>` (on 2xx) or `serde_json::Value` (on 4xx/5xx).
     async fn post_events_with_overrides<T: serde::de::DeserializeOwned>(
         &self,
         events: Vec<AnyEvent>,
@@ -195,30 +195,30 @@ impl V2Harness {
 }
 
 // =========================================================================
-// Tier 1: basic verdict shapes
+// Tier 1: basic disposition shapes
 // =========================================================================
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn happy_path_returns_process_verdict(db: PgPool) {
+async fn happy_path_returns_forward_disposition(db: PgPool) {
     let harness = V2Harness::new(db);
     let input = make_event(vec![make_exception("TypeError", "cannot read property")]);
 
-    let (status, verdicts) = harness.post_events(vec![input.clone()]).await;
+    let (status, dispositions) = harness.post_events(vec![input.clone()]).await;
 
     assert!(status.is_success(), "expected 2xx, got {status}");
-    assert_eq!(verdicts.len(), 1);
-    let event = verdicts[0].expect_process();
+    assert_eq!(dispositions.len(), 1);
+    let event = dispositions[0].expect_forward();
     assert_eq!(event.uuid, input.uuid);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn suppressed_issue_returns_drop_verdict(db: PgPool) {
+async fn suppressed_issue_returns_drop_disposition(db: PgPool) {
     let harness = V2Harness::new(db);
     let input = make_event(vec![make_exception("SuppressedError", "will suppress")]);
 
     // First post creates the issue so we can suppress it.
     let (_, first) = harness.post_events(vec![input.clone()]).await;
-    let created_event = first[0].expect_process();
+    let created_event = first[0].expect_forward();
     let issue_id_value = created_event
         .properties
         .get("$exception_issue_id")
@@ -228,12 +228,32 @@ async fn suppressed_issue_returns_drop_verdict(db: PgPool) {
     harness.suppress_issue(issue_id).await;
 
     // Second post should now drop.
-    let (status, verdicts) = harness.post_events(vec![input]).await;
+    let (status, dispositions) = harness.post_events(vec![input]).await;
 
     assert!(status.is_success());
-    assert_eq!(verdicts.len(), 1);
-    let reason = verdicts[0].expect_drop();
+    assert_eq!(dispositions.len(), 1);
+    let reason = dispositions[0].expect_drop();
     assert_eq!(reason, "issue_suppressed");
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn empty_exception_list_returns_forward_disposition_with_error(db: PgPool) {
+    let harness = V2Harness::new(db);
+    let input = make_event(vec![]);
+
+    let (status, dispositions) = harness.post_events(vec![input]).await;
+
+    assert!(status.is_success());
+    assert_eq!(dispositions.len(), 1);
+    let event = dispositions[0].expect_forward();
+    let errors = event
+        .properties
+        .get("$cymbal_errors")
+        .and_then(|value| value.as_array())
+        .expect("forwarded event should carry cymbal errors");
+    assert!(errors.iter().any(|error| error
+        .as_str()
+        .is_some_and(|error| error.contains("Empty exception list"))));
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -253,14 +273,14 @@ async fn same_fingerprint_dedupes_via_shared_batch_cache(db: PgPool) {
         })
         .collect();
 
-    let (status, verdicts) = harness.post_events(inputs).await;
+    let (status, dispositions) = harness.post_events(inputs).await;
     assert!(status.is_success());
-    assert_eq!(verdicts.len(), 3);
+    assert_eq!(dispositions.len(), 3);
 
-    let issue_ids: Vec<String> = verdicts
+    let issue_ids: Vec<String> = dispositions
         .iter()
         .map(|v| {
-            v.expect_process()
+            v.expect_forward()
                 .properties
                 .get("$exception_issue_id")
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
@@ -278,13 +298,13 @@ async fn same_fingerprint_dedupes_via_shared_batch_cache(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn empty_batch_returns_empty_verdict_array(db: PgPool) {
+async fn empty_batch_returns_empty_disposition_array(db: PgPool) {
     let harness = V2Harness::new(db);
 
-    let (status, verdicts) = harness.post_events(vec![]).await;
+    let (status, dispositions) = harness.post_events(vec![]).await;
 
     assert!(status.is_success());
-    assert!(verdicts.is_empty());
+    assert!(dispositions.is_empty());
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -336,7 +356,7 @@ async fn spike_detection_runs_once_per_request(db: PgPool) {
 
     let redis = Arc::new(MockRedisClient::new());
     let redis_for_inspection = redis.clone();
-    let (status, _verdicts): (_, Vec<V2Verdict>) = harness
+    let (status, _dispositions): (_, Vec<V2Disposition>) = harness
         .post_events_with_overrides(inputs, redis, |_cfg| {})
         .await;
 

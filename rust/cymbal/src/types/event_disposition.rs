@@ -1,31 +1,40 @@
 use serde::{Deserialize, Serialize};
 
-use crate::error::{EventError, UnhandledError};
+use crate::error::UnhandledError;
 use crate::types::event::AnyEvent;
 
-/// Per-event outcome of `/process`. The full response is a `Vec<EventVerdict>`
+/// Per-event routing decision from `/v2/process`. The full response is a `Vec<EventDisposition>`
 /// aligned 1:1 with the input batch's events.
 ///
 /// This is the contract surface between cymbal and the ingestion pipeline.
-/// Cymbal commits to producing a verdict for every event within the request
-/// deadline; the pipeline routes each event according to its verdict without
+/// Cymbal commits to producing a disposition for every event within the request
+/// deadline; the pipeline routes each event according to its disposition without
 /// any classification logic of its own.
+///
+/// Wire examples:
+///
+/// ```json
+/// { "action": "forward", "event": { "event": "$exception" } }
+/// { "action": "drop", "reason": "issue_suppressed" }
+/// { "action": "retry", "reason": "deadline_exceeded" }
+/// { "action": "dlq", "reason": "invalid_properties" }
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "lowercase")]
-pub enum EventVerdict {
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum EventDisposition {
     /// Cymbal symbolicated the event; the updated event follows. The
     /// pipeline forwards downstream as normal.
-    Process { event: Box<AnyEvent> },
+    Forward { event: Box<AnyEvent> },
 
     /// Event was suppressed at the cymbal layer (by-design no-op). The
     /// pipeline must not forward it downstream.
     Drop { reason: DropReason },
 
-    /// Cymbal couldn't verdict this event in this attempt. The pipeline
+    /// Cymbal couldn't decide where this event should go in this attempt. The pipeline
     /// should retry; per-event retry exhaustion is the pipeline's concern
     /// (routes to overflow / DLQ by lane).
     ///
-    /// `Retry` is the safe-by-default verdict for any failure cymbal cannot
+    /// `Retry` is the safe-by-default disposition for any failure cymbal cannot
     /// affirmatively classify as broken event data — including panics,
     /// timeouts, and any transient infrastructure failure.
     Retry {
@@ -38,6 +47,11 @@ pub enum EventVerdict {
     /// pipeline must route to DLQ without further attempts. Reserved for
     /// cases cymbal can name with certainty (parse failures, schema
     /// violations, etc.).
+    ///
+    /// `/v2/process` currently preserves the legacy `/process` behavior for
+    /// handled event errors by forwarding the original event with
+    /// `$cymbal_errors` attached. This variant is reserved for future cases
+    /// where Cymbal can safely make a terminal DLQ decision.
     Dlq { reason: DlqReason },
 }
 
@@ -51,7 +65,7 @@ pub enum DropReason {
     SuppressedByRule,
 }
 
-/// Why cymbal couldn't verdict an event in this attempt.
+/// Why cymbal couldn't disposition an event in this attempt.
 ///
 /// Variants here represent ambiguous-or-cymbal-side failures: cymbal cannot
 /// tell whether the event data or cymbal itself is to blame, so the safe
@@ -61,7 +75,7 @@ pub enum DropReason {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RetryReason {
-    /// Cymbal's per-event deadline elapsed before producing a verdict.
+    /// Cymbal's per-event deadline elapsed before producing a disposition.
     DeadlineExceeded,
     /// A downstream sourcemap fetch timed out.
     SourcemapFetchTimeout,
@@ -90,26 +104,58 @@ pub enum DlqReason {
     EmptyExceptionList,
 }
 
-impl EventVerdict {
-    /// Short label used for metrics. Matches the JSON `status` value.
-    pub fn status_label(&self) -> &'static str {
-        match self {
-            EventVerdict::Process { .. } => "process",
-            EventVerdict::Drop { .. } => "drop",
-            EventVerdict::Retry { .. } => "retry",
-            EventVerdict::Dlq { .. } => "dlq",
+impl EventDisposition {
+    /// Classify an `UnhandledError` into a disposition.
+    ///
+    /// `UnhandledError` represents conditions cymbal cannot affirmatively call
+    /// event-broken — Kafka/Redis/SQL/S3 failures, serde mishaps, etc. The
+    /// honest disposition is always `Retry`; cymbal does not assert the event
+    /// is broken because we cannot distinguish event-caused failures from
+    /// cymbal-side or downstream-side ones at this level.
+    pub fn from_unhandled_error(err: UnhandledError) -> Self {
+        let reason = match err {
+            // Kafka / SQL / S3 / Redis are infrastructure dependencies; if
+            // they hiccup we'd rather have the pipeline retry than DLQ the
+            // event.
+            UnhandledError::KafkaError(_)
+            | UnhandledError::KafkaProduceError(_)
+            | UnhandledError::SqlxError(_)
+            | UnhandledError::S3Error(_)
+            | UnhandledError::ByteStreamError(_)
+            | UnhandledError::RedisError(_) => RetryReason::DownstreamTransient,
+            // SerdeError / ConfigError / Other are ambiguous — they could be
+            // cymbal bugs, event-data quirks we don't classify, or
+            // misconfiguration. Retry is the safe-by-default disposition per
+            // the contract.
+            UnhandledError::SerdeError(_)
+            | UnhandledError::ConfigError(_)
+            | UnhandledError::Other(_) => RetryReason::UnhandledProcessingError,
+        };
+        EventDisposition::Retry {
+            reason,
+            retry_after_ms: None,
         }
     }
 
-    /// Short label for the verdict's reason (or "ok" for `Process`). Used
+    /// Short label used for metrics. Matches the JSON `action` value.
+    pub fn action_label(&self) -> &'static str {
+        match self {
+            EventDisposition::Forward { .. } => "forward",
+            EventDisposition::Drop { .. } => "drop",
+            EventDisposition::Retry { .. } => "retry",
+            EventDisposition::Dlq { .. } => "dlq",
+        }
+    }
+
+    /// Short label for the disposition's reason (or "ok" for `Forward`). Used
     /// to label metric counters so operators can see *why* events landed in
-    /// each verdict.
+    /// each disposition.
     pub fn reason_label(&self) -> &'static str {
         match self {
-            EventVerdict::Process { .. } => "ok",
-            EventVerdict::Drop { reason } => reason.label(),
-            EventVerdict::Retry { reason, .. } => reason.label(),
-            EventVerdict::Dlq { reason } => reason.label(),
+            EventDisposition::Forward { .. } => "ok",
+            EventDisposition::Drop { reason } => reason.label(),
+            EventDisposition::Retry { reason, .. } => reason.label(),
+            EventDisposition::Dlq { reason } => reason.label(),
         }
     }
 }
@@ -157,121 +203,29 @@ impl DlqReason {
     }
 }
 
-/// Classify a per-event `EventError` into the verdict the contract demands.
-///
-/// `EventError` variants are cymbal's own affirmative classifications of an
-/// event's state — these are the cases where cymbal can name the outcome,
-/// so they map directly to terminal verdicts (`Drop` or `Dlq`).
-impl From<EventError> for EventVerdict {
-    fn from(err: EventError) -> Self {
-        match err {
-            EventError::Suppressed(_) => EventVerdict::Drop {
-                reason: DropReason::IssueSuppressed,
-            },
-            EventError::SuppressedByRule(_) => EventVerdict::Drop {
-                reason: DropReason::SuppressedByRule,
-            },
-            EventError::WrongEventType(_, _) => EventVerdict::Dlq {
-                reason: DlqReason::WrongEventType,
-            },
-            EventError::InvalidProperties(_, _) => EventVerdict::Dlq {
-                reason: DlqReason::InvalidProperties,
-            },
-            EventError::EmptyExceptionList(_) => EventVerdict::Dlq {
-                reason: DlqReason::EmptyExceptionList,
-            },
-        }
-    }
-}
-
-/// Classify an `UnhandledError` into a verdict.
-///
-/// `UnhandledError` represents conditions cymbal cannot affirmatively call
-/// event-broken — Kafka/Redis/SQL/S3 failures, serde mishaps, etc. The
-/// honest verdict is always `Retry`; cymbal does not assert the event is
-/// broken because we cannot distinguish event-caused failures from
-/// cymbal-side or downstream-side ones at this level.
-impl From<UnhandledError> for EventVerdict {
+impl From<UnhandledError> for EventDisposition {
     fn from(err: UnhandledError) -> Self {
-        let reason = match err {
-            // Kafka / SQL / S3 / Redis are infrastructure dependencies; if
-            // they hiccup we'd rather have the pipeline retry than DLQ the
-            // event.
-            UnhandledError::KafkaError(_)
-            | UnhandledError::KafkaProduceError(_)
-            | UnhandledError::SqlxError(_)
-            | UnhandledError::S3Error(_)
-            | UnhandledError::ByteStreamError(_)
-            | UnhandledError::RedisError(_) => RetryReason::DownstreamTransient,
-            // SerdeError / ConfigError / Other are ambiguous — they could be
-            // cymbal bugs, event-data quirks we don't classify, or
-            // misconfiguration. Retry is the safe-by-default verdict per the
-            // contract.
-            UnhandledError::SerdeError(_)
-            | UnhandledError::ConfigError(_)
-            | UnhandledError::Other(_) => RetryReason::UnhandledProcessingError,
-        };
-        EventVerdict::Retry {
-            reason,
-            retry_after_ms: None,
-        }
+        Self::from_unhandled_error(err)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
-
-    #[test]
-    fn event_error_maps_to_terminal_verdicts() {
-        let id = Uuid::nil();
-
-        let suppressed: EventVerdict = EventError::Suppressed(id).into();
-        assert!(matches!(
-            suppressed,
-            EventVerdict::Drop {
-                reason: DropReason::IssueSuppressed
-            }
-        ));
-
-        let suppressed_rule: EventVerdict = EventError::SuppressedByRule(id).into();
-        assert!(matches!(
-            suppressed_rule,
-            EventVerdict::Drop {
-                reason: DropReason::SuppressedByRule
-            }
-        ));
-
-        let wrong_type: EventVerdict = EventError::WrongEventType("foo".into(), id).into();
-        assert!(matches!(
-            wrong_type,
-            EventVerdict::Dlq {
-                reason: DlqReason::WrongEventType
-            }
-        ));
-
-        let empty: EventVerdict = EventError::EmptyExceptionList(id).into();
-        assert!(matches!(
-            empty,
-            EventVerdict::Dlq {
-                reason: DlqReason::EmptyExceptionList
-            }
-        ));
-    }
 
     #[test]
     fn unhandled_error_always_maps_to_retry() {
-        // Infrastructure dependency → DownstreamTransient.
-        let redis: EventVerdict = UnhandledError::Other("simulating redis blip".into()).into();
-        assert!(matches!(redis, EventVerdict::Retry { .. }));
+        // Ambiguous errors are still retryable — never DLQ.
+        let other: EventDisposition =
+            UnhandledError::Other("simulating processing blip".into()).into();
+        assert!(matches!(other, EventDisposition::Retry { .. }));
 
         // SerdeError / Other → UnhandledProcessingError. Both are Retry —
         // never Dlq — because cymbal can't tell whether the event or
         // cymbal itself is to blame.
-        let serde_err: EventVerdict = UnhandledError::Other("serde failure".into()).into();
+        let serde_err: EventDisposition = UnhandledError::Other("serde failure".into()).into();
         match serde_err {
-            EventVerdict::Retry {
+            EventDisposition::Retry {
                 reason: RetryReason::UnhandledProcessingError,
                 retry_after_ms: None,
             } => {}
@@ -288,37 +242,37 @@ mod tests {
     }
 
     #[test]
-    fn verdict_status_and_reason_labels_match_serialization() {
-        let drop = EventVerdict::Drop {
+    fn disposition_action_and_reason_labels_match_serialization() {
+        let drop = EventDisposition::Drop {
             reason: DropReason::IssueSuppressed,
         };
-        assert_eq!(drop.status_label(), "drop");
+        assert_eq!(drop.action_label(), "drop");
         assert_eq!(drop.reason_label(), "issue_suppressed");
 
-        let retry = EventVerdict::Retry {
+        let retry = EventDisposition::Retry {
             reason: RetryReason::DeadlineExceeded,
             retry_after_ms: None,
         };
-        assert_eq!(retry.status_label(), "retry");
+        assert_eq!(retry.action_label(), "retry");
         assert_eq!(retry.reason_label(), "deadline_exceeded");
 
-        let dlq = EventVerdict::Dlq {
+        let dlq = EventDisposition::Dlq {
             reason: DlqReason::WrongEventType,
         };
-        assert_eq!(dlq.status_label(), "dlq");
+        assert_eq!(dlq.action_label(), "dlq");
         assert_eq!(dlq.reason_label(), "wrong_event_type");
     }
 
     #[test]
-    fn drop_serializes_with_status_and_reason_tags() {
-        let drop = EventVerdict::Drop {
+    fn drop_serializes_with_action_and_reason_tags() {
+        let drop = EventDisposition::Drop {
             reason: DropReason::IssueSuppressed,
         };
         let json = serde_json::to_value(&drop).unwrap();
         assert_eq!(
             json,
             serde_json::json!({
-                "status": "drop",
+                "action": "drop",
                 "reason": "issue_suppressed"
             })
         );
@@ -326,7 +280,7 @@ mod tests {
 
     #[test]
     fn retry_serializes_with_optional_retry_after_ms() {
-        let no_hint = EventVerdict::Retry {
+        let no_hint = EventDisposition::Retry {
             reason: RetryReason::SourcemapFetchTimeout,
             retry_after_ms: None,
         };
@@ -334,12 +288,12 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({
-                "status": "retry",
+                "action": "retry",
                 "reason": "sourcemap_fetch_timeout"
             })
         );
 
-        let with_hint = EventVerdict::Retry {
+        let with_hint = EventDisposition::Retry {
             reason: RetryReason::DownstreamTransient,
             retry_after_ms: Some(500),
         };
@@ -347,7 +301,7 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({
-                "status": "retry",
+                "action": "retry",
                 "reason": "downstream_transient",
                 "retry_after_ms": 500
             })

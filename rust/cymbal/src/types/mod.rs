@@ -23,10 +23,10 @@ mod stacktrace;
 
 pub mod batch;
 pub mod event;
+pub mod event_disposition;
 pub mod exception_properties;
 pub mod operator;
 pub mod stage;
-pub mod verdict;
 
 pub use exception::*;
 pub use stacktrace::*;
