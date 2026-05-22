@@ -591,5 +591,24 @@ describe('hog-charts scales', () => {
             expect(resolve(nanSeries, 0)).toBe(0) // segment NaN + raw NaN → 0
             expect(resolve(nanSeries, 1)).toBe(0) // bottom NaN + raw Infinity → 0
         })
+
+        it('resolves a negative-valued count-stacked series to 0 (buildStackData floors it)', () => {
+            // buildStackData clamps data to >= 0 before stacking, so a negative series has a
+            // zero-height segment — the resolver reports 0, not the raw negative value.
+            const negSeries = makeSeries({ key: 'a', data: [10, -50] })
+            const resolve = buildSegmentResolveValue(computeStackData([negSeries], ['x', 'y']))!
+            expect(resolve(negSeries, 0)).toBe(10)
+            expect(resolve(negSeries, 1)).toBe(0)
+        })
+
+        it('returns each series own fraction for a percent stack, not the cumulative fraction', () => {
+            // a=20, b=15 at index 1 → total 35. b sits on top of a, so b's cumulative top is 1.0,
+            // but its own fraction is 15/35 — that segment is what the tooltip must report.
+            const a = makeSeries({ key: 'a', data: [10, 20] })
+            const b = makeSeries({ key: 'b', data: [5, 15] })
+            const resolve = buildSegmentResolveValue(computePercentStackData([a, b], ['x', 'y']))!
+            expect(resolve(a, 1)).toBeCloseTo(20 / 35, 5)
+            expect(resolve(b, 1)).toBeCloseTo(15 / 35, 5)
+        })
     })
 })

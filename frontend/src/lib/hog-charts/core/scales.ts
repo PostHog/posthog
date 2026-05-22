@@ -269,12 +269,9 @@ export function buildStackedPositionValue(
     }
 }
 
-/** Returns the height of each series's own segment (`top − bottom`) — i.e. the per-series
- *  *value* — so tooltips and click handlers report each series's own value rather than the
- *  cumulative stack total. For count stacks this equals the raw value; for percent stacks
- *  it's the series's own fraction. Falls back to the raw value when the series isn't part
- *  of the stack. Pair with {@link buildStackedPositionValue}, which anchors overlays at the
- *  cumulative top. */
+/** Returns each series's own segment height (`top − bottom`) — the per-series value to
+ *  display, not the cumulative stack total. Falls back to the raw value for series not in
+ *  the stack. Pair with {@link buildStackedPositionValue} for anchor positioning. */
 export function buildSegmentResolveValue(
     stackedData: Map<string, StackedBand> | undefined
 ): ResolveValueFn | undefined {
