@@ -482,5 +482,7 @@ function getDatasetFormDefaults(dataset: Dataset): DatasetFormValues {
  * @returns The dataset if found, undefined otherwise
  */
 function findExistingDataset(datasetId: string): Dataset | undefined {
-    return aiObservabilityDatasetsLogic.findMounted()?.values.datasets.results.find((dataset) => dataset.id === datasetId)
+    return aiObservabilityDatasetsLogic
+        .findMounted()
+        ?.values.datasets.results.find((dataset) => dataset.id === datasetId)
 }

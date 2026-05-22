@@ -7,10 +7,10 @@ import { Link } from 'lib/lemon-ui/Link'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { urls } from 'scenes/urls'
 
+import { aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
 import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
-import { aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
 import { llmEvaluationExecutionLogic } from '../llmEvaluationExecutionLogic'
 import { GenerationEvalRunsTable } from './GenerationEvalRunsTable'
 

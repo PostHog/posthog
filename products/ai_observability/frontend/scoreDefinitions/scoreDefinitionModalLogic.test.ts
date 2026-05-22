@@ -4,7 +4,10 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { llmAnalyticsScoreDefinitionsCreate as aiObservabilityScoreDefinitionsCreate, llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList } from '../generated/api'
+import {
+    llmAnalyticsScoreDefinitionsCreate as aiObservabilityScoreDefinitionsCreate,
+    llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList,
+} from '../generated/api'
 import type { ScoreDefinitionApi as ScoreDefinition } from '../generated/api.schemas'
 import { aiObservabilityScoreDefinitionsLogic } from './aiObservabilityScoreDefinitionsLogic'
 import { scoreDefinitionModalLogic } from './scoreDefinitionModalLogic'

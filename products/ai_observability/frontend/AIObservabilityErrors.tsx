@@ -14,8 +14,8 @@ import { type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { useSortableColumns } from './hooks/useSortableColumns'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { useSortableColumns } from './hooks/useSortableColumns'
 import { aiObservabilityErrorsLogic } from './tabs/aiObservabilityErrorsLogic'
 
 export function AIObservabilityErrors(): JSX.Element {

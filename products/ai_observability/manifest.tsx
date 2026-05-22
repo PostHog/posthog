@@ -169,7 +169,10 @@ export const manifest: ProductManifest = {
         '/ai-evals/taggers': ['AIObservabilityTags', 'aiObservabilityTags'],
         '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
         '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
-        '/ai-evals/evaluations/offline/experiments': ['AIObservabilityEvaluations', 'aiObservabilityOfflineEvaluations'],
+        '/ai-evals/evaluations/offline/experiments': [
+            'AIObservabilityEvaluations',
+            'aiObservabilityOfflineEvaluations',
+        ],
         '/ai-evals/evaluations/offline/experiments/:experimentId': [
             'AIObservabilityEvaluations',
             'aiObservabilityOfflineEvaluationExperiment',
@@ -273,7 +276,8 @@ export const manifest: ProductManifest = {
         '/llm-analytics/evaluations/offline/experiments': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
         '/llm-analytics/evaluations/offline/experiments/:experimentId': (params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityOfflineEvaluationExperiment(params.experimentId), searchParams, hashParams).url,
+            combineUrl(urls.aiObservabilityOfflineEvaluationExperiment(params.experimentId), searchParams, hashParams)
+                .url,
         '/llm-analytics/evaluations/templates': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityEvaluationTemplates(), searchParams, hashParams).url,
         '/llm-analytics/evaluations/:id': (params, searchParams, hashParams) =>

@@ -1,6 +1,62 @@
 {
     "products": [
         {
+            "path": "AI observability",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_analytics",
+            "intents": ["llm_analytics", "llm_evaluations", "llm_datasets", "llm_prompts", "llm_clusters"]
+        },
+        {
+            "path": "Playground",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_playground",
+            "intents": ["llm_analytics"]
+        },
+        {
+            "path": "Clusters",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_clusters",
+            "intents": ["llm_clusters"]
+        },
+        {
+            "path": "Datasets",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_datasets",
+            "intents": ["llm_datasets"]
+        },
+        {
+            "path": "Evaluations",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_evaluations",
+            "intents": ["llm_evaluations"]
+        },
+        {
+            "path": "Taggers",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_tags",
+            "intents": ["llm_analytics"]
+        },
+        {
+            "path": "Prompts",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_prompts",
+            "intents": ["llm_prompts"]
+        },
+        {
+            "path": "Skills",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_skills",
+            "intents": ["llm_prompts"]
+        },
+        {
             "path": "Web scripts",
             "category": "Tools",
             "iconType": "data_pipeline",
@@ -91,62 +147,6 @@
             "iconType": "live_debugger",
             "type": "live_debugger",
             "intents": ["live_debugger"]
-        },
-        {
-            "path": "AI observability",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_analytics",
-            "intents": ["llm_analytics", "llm_evaluations", "llm_datasets", "llm_prompts", "llm_clusters"]
-        },
-        {
-            "path": "Playground",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_playground",
-            "intents": ["llm_analytics"]
-        },
-        {
-            "path": "Clusters",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_clusters",
-            "intents": ["llm_clusters"]
-        },
-        {
-            "path": "Datasets",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_datasets",
-            "intents": ["llm_datasets"]
-        },
-        {
-            "path": "Evaluations",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_evaluations",
-            "intents": ["llm_evaluations"]
-        },
-        {
-            "path": "Taggers",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_tags",
-            "intents": ["llm_analytics"]
-        },
-        {
-            "path": "Prompts",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_prompts",
-            "intents": ["llm_prompts"]
-        },
-        {
-            "path": "Skills",
-            "category": "AI engineering",
-            "iconType": null,
-            "type": "llm_skills",
-            "intents": ["llm_prompts"]
         },
         { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
         {

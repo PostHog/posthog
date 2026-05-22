@@ -120,10 +120,14 @@ export const scoreDefinitionModalLogic = kea<scoreDefinitionModalLogicType>([
                     })
                     lemonToast.success(props.mode === 'duplicate' ? 'Scorer duplicated.' : 'Scorer created.')
                 } else if (values.isMetadataMode && props.scoreDefinition) {
-                    await aiObservabilityScoreDefinitionsPartialUpdate(getCurrentProjectId(), props.scoreDefinition.id, {
-                        name: draft.name.trim(),
-                        description: draft.description.trim(),
-                    })
+                    await aiObservabilityScoreDefinitionsPartialUpdate(
+                        getCurrentProjectId(),
+                        props.scoreDefinition.id,
+                        {
+                            name: draft.name.trim(),
+                            description: draft.description.trim(),
+                        }
+                    )
                     lemonToast.success('Scorer metadata updated.')
                 } else if (values.isConfigMode && props.scoreDefinition) {
                     await aiObservabilityScoreDefinitionsNewVersionCreate(

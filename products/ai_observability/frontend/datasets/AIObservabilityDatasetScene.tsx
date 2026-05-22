@@ -42,10 +42,10 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Dataset, DatasetItem } from '~/types'
 
 import { truncateValue } from '../utils'
+import { DatasetLogicProps, DatasetTab, isDataset, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
 import { DatasetItemModal } from './DatasetItemModal'
 import { EditDatasetForm } from './EditDatasetForm'
 import { JSONColumn } from './JSONColumn'
-import { DatasetLogicProps, DatasetTab, isDataset, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
 import { RefreshButton } from './RefreshButton'
 
 const RESOURCE_TYPE = 'dataset'
@@ -325,7 +325,8 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
             key: DatasetTab.Metadata,
             label: 'Metadata',
             content: <DatasetMetadata dataset={dataset} />,
-            link: combineUrl(urls.aiObservabilityDataset(dataset.id), { ...searchParams, tab: DatasetTab.Metadata }).url,
+            link: combineUrl(urls.aiObservabilityDataset(dataset.id), { ...searchParams, tab: DatasetTab.Metadata })
+                .url,
         },
     ]
 

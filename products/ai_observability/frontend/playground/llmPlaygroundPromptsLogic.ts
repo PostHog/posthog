@@ -853,7 +853,8 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
             const isActiveTab = !activeTabId || activeTabId === props.tabId
             if (isActiveTab) {
                 router.actions.replace(
-                    combineUrl(urls.aiObservabilityPlayground(), cleanSourceSearchParams(router.values.searchParams)).url
+                    combineUrl(urls.aiObservabilityPlayground(), cleanSourceSearchParams(router.values.searchParams))
+                        .url
                 )
             }
         },

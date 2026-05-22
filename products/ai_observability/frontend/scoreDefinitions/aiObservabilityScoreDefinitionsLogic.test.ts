@@ -4,9 +4,15 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList, llmAnalyticsScoreDefinitionsPartialUpdate as aiObservabilityScoreDefinitionsPartialUpdate } from '../generated/api'
+import {
+    llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList,
+    llmAnalyticsScoreDefinitionsPartialUpdate as aiObservabilityScoreDefinitionsPartialUpdate,
+} from '../generated/api'
 import type { ScoreDefinitionApi as ScoreDefinition } from '../generated/api.schemas'
-import { aiObservabilityScoreDefinitionsLogic, SCORE_DEFINITIONS_PER_PAGE } from './aiObservabilityScoreDefinitionsLogic'
+import {
+    aiObservabilityScoreDefinitionsLogic,
+    SCORE_DEFINITIONS_PER_PAGE,
+} from './aiObservabilityScoreDefinitionsLogic'
 
 jest.mock('../generated/api', () => ({
     llmAnalyticsScoreDefinitionsList: jest.fn(),
@@ -16,9 +22,10 @@ jest.mock('../generated/api', () => ({
 const mockAIObservabilityScoreDefinitionsList = aiObservabilityScoreDefinitionsList as jest.MockedFunction<
     typeof aiObservabilityScoreDefinitionsList
 >
-const mockAIObservabilityScoreDefinitionsPartialUpdate = aiObservabilityScoreDefinitionsPartialUpdate as jest.MockedFunction<
-    typeof aiObservabilityScoreDefinitionsPartialUpdate
->
+const mockAIObservabilityScoreDefinitionsPartialUpdate =
+    aiObservabilityScoreDefinitionsPartialUpdate as jest.MockedFunction<
+        typeof aiObservabilityScoreDefinitionsPartialUpdate
+    >
 
 const mockScoreDefinition: ScoreDefinition = {
     id: 'score_def_1',
@@ -103,7 +110,9 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
     })
 
     it('does not show the empty count label while loading', async () => {
-        let resolveRequest: ((value: Awaited<ReturnType<typeof aiObservabilityScoreDefinitionsList>>) => void) | undefined
+        let resolveRequest:
+            | ((value: Awaited<ReturnType<typeof aiObservabilityScoreDefinitionsList>>) => void)
+            | undefined
         mockAIObservabilityScoreDefinitionsList.mockImplementation(
             () =>
                 new Promise((resolve) => {

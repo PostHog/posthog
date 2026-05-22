@@ -51,7 +51,10 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
         if (isBlank) {
             router.actions.push(combineUrl(urls.aiObservabilityEvaluation('new'), searchParams).url)
         } else {
-            const url = combineUrl(urls.aiObservabilityEvaluation('new'), { ...searchParams, template: template.key }).url
+            const url = combineUrl(urls.aiObservabilityEvaluation('new'), {
+                ...searchParams,
+                template: template.key,
+            }).url
             router.actions.push(url)
         }
     }

@@ -12,7 +12,10 @@ import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual, pluralize } from '~/lib/utils'
 import { urls } from '~/scenes/urls'
 
-import { llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList, llmAnalyticsScoreDefinitionsPartialUpdate as aiObservabilityScoreDefinitionsPartialUpdate } from '../generated/api'
+import {
+    llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList,
+    llmAnalyticsScoreDefinitionsPartialUpdate as aiObservabilityScoreDefinitionsPartialUpdate,
+} from '../generated/api'
 import type {
     ExperimentMetricKindEnumApi as ScoreDefinitionKind,
     PaginatedScoreDefinitionListApi,

@@ -287,8 +287,10 @@ function experimentsTableColumns(
             render: (_, experiment) => (
                 <Link
                     to={
-                        combineUrl(urls.aiObservabilityOfflineEvaluationExperiment(experiment.experimentId), searchParams)
-                            .url
+                        combineUrl(
+                            urls.aiObservabilityOfflineEvaluationExperiment(experiment.experimentId),
+                            searchParams
+                        ).url
                     }
                 >
                     <EntityNameCell name={experiment.experimentName} id={experiment.experimentId} />

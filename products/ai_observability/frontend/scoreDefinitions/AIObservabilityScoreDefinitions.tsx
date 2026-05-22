@@ -24,7 +24,10 @@ import type {
     ExperimentMetricKindEnumApi as ScoreDefinitionKind,
     ScoreDefinitionApi as ScoreDefinition,
 } from '../generated/api.schemas'
-import { aiObservabilityScoreDefinitionsLogic, SCORE_DEFINITIONS_PER_PAGE } from './aiObservabilityScoreDefinitionsLogic'
+import {
+    aiObservabilityScoreDefinitionsLogic,
+    SCORE_DEFINITIONS_PER_PAGE,
+} from './aiObservabilityScoreDefinitionsLogic'
 import { scoreDefinitionModalLogic } from './scoreDefinitionModalLogic'
 import {
     CATEGORICAL_SELECTION_MODE_OPTIONS,

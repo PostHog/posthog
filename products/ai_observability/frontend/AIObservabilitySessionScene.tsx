@@ -22,10 +22,10 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
-import { AIObservabilityTraceEvents } from './components/AIObservabilityTraceEvents'
-import { SentimentBar } from './components/SentimentTag'
 import { TraceSummary, aiObservabilitySessionDataLogic } from './aiObservabilitySessionDataLogic'
 import { aiObservabilitySessionLogic } from './aiObservabilitySessionLogic'
+import { AIObservabilityTraceEvents } from './components/AIObservabilityTraceEvents'
+import { SentimentBar } from './components/SentimentTag'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
@@ -106,8 +106,9 @@ function SessionSceneWrapper(): JSX.Element {
         nextDataLoading,
     } = useValues(aiObservabilitySessionDataLogic)
     const { sessionId } = useValues(aiObservabilitySessionLogic)
-    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces, loadNextData } =
-        useActions(aiObservabilitySessionDataLogic)
+    const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces, loadNextData } = useActions(
+        aiObservabilitySessionDataLogic
+    )
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
     const showSessionSummarization =

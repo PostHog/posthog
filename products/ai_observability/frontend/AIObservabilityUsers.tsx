@@ -5,9 +5,9 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { isHogQLQuery } from '~/queries/utils'
 
-import { useSortableColumns } from './hooks/useSortableColumns'
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { useSortableColumns } from './hooks/useSortableColumns'
 import { aiObservabilityUsersLogic } from './tabs/aiObservabilityUsersLogic'
 
 export function AIObservabilityUsers(): JSX.Element {

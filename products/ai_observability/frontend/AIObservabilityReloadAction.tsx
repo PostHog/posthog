@@ -13,10 +13,10 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DashboardPlacement } from '~/types'
 
+import { AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { EVALUATION_METRICS_COLLECTION_ID } from './evaluations/components/EvaluationMetrics'
 import { evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
-import { AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 
 export function AIObservabilityReloadAction(): JSX.Element {

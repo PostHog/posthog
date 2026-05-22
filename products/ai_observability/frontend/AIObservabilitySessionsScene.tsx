@@ -14,9 +14,9 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { isHogQLQuery } from '~/queries/utils'
 
+import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { AIObservabilityTraceEvents } from './components/AIObservabilityTraceEvents'
 import { useSortableColumns } from './hooks/useSortableColumns'
-import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
@@ -26,8 +26,9 @@ export function AIObservabilitySessionsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
 
-    const { setSessionsSort, toggleSessionExpanded, toggleTraceExpanded, toggleGenerationExpanded } =
-        useActions(aiObservabilitySessionsViewLogic)
+    const { setSessionsSort, toggleSessionExpanded, toggleTraceExpanded, toggleGenerationExpanded } = useActions(
+        aiObservabilitySessionsViewLogic
+    )
     const {
         sessionsQuery,
         sessionsSort,

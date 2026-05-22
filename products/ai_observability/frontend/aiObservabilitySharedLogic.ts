@@ -18,8 +18,8 @@ import { isAnyPropertyFilters } from '~/queries/schema-guards'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, Breadcrumb } from '~/types'
 
-import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
 import type { aiObservabilitySharedLogicType } from './aiObservabilitySharedLogicType'
+import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
 
 export const AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'ai-observability-data'
 
@@ -105,7 +105,10 @@ export function buildApplyUrlStatePayload({
 export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     path(['products', 'ai_observability', 'frontend', 'aiObservabilitySharedLogic']),
     props({} as AIObservabilitySharedLogicProps),
-    key((props: AIObservabilitySharedLogicProps) => `${props?.personId || 'aiObservabilityScene'}::${props?.tabId || ''}`),
+    key(
+        (props: AIObservabilitySharedLogicProps) =>
+            `${props?.personId || 'aiObservabilityScene'}::${props?.tabId || ''}`
+    ),
     connect(() => ({
         values: [
             sceneLogic,

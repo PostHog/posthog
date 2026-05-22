@@ -34,11 +34,10 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
-import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
-import { useSortableColumns } from './hooks/useSortableColumns'
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { AIObservabilityErrors } from './AIObservabilityErrors'
 import { AIObservabilityReloadAction } from './AIObservabilityReloadAction'
+import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { AIObservabilitySessionsScene } from './AIObservabilitySessionsScene'
 import { AIObservabilitySetupPrompt } from './AIObservabilitySetupPrompt'
 import {
@@ -49,6 +48,7 @@ import {
 import { AIObservabilityTools } from './AIObservabilityTools'
 import { AIObservabilityTraces } from './AIObservabilityTracesScene'
 import { AIObservabilityUsers } from './AIObservabilityUsers'
+import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityErrorsLogic } from './tabs/aiObservabilityErrorsLogic'
@@ -180,10 +180,12 @@ function AIObservabilityGenerations(): JSX.Element {
     const { applyUrlState } = useActions(aiObservabilitySharedLogic)
     const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(aiObservabilitySharedLogic)
     const { searchParams } = useValues(router)
-    const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } =
-        useActions(aiObservabilityGenerationsLogic)
-    const { generationsQuery, expandedGenerationIds, loadedTraces, generationsSort } =
-        useValues(aiObservabilityGenerationsLogic)
+    const { setGenerationsColumns, toggleGenerationExpanded, setGenerationsSort } = useActions(
+        aiObservabilityGenerationsLogic
+    )
+    const { generationsQuery, expandedGenerationIds, loadedTraces, generationsSort } = useValues(
+        aiObservabilityGenerationsLogic
+    )
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)

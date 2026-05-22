@@ -6,6 +6,7 @@ import { Message } from 'node-rdkafka'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
+import type { AIObservabilityConfig } from './ai-observability/config'
 import type { CdpConfig } from './cdp/config'
 import type {
     KafkaWarehouseProducerEnvConfig,
@@ -19,7 +20,6 @@ import type { CommonConfig } from './common/config'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-import type { AIObservabilityConfig } from './ai-observability/config'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
 import type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'

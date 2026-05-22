@@ -243,7 +243,8 @@ const CATEGORY_CONFIG: { value: SentimentCategory; label: string; activeClass: s
 function SentimentControls(): JSX.Element {
     const { activeFilters, intensityThreshold, sentimentSummary, stillAnalyzing, generationsLoading } =
         useValues(aiObservabilitySentimentLogic)
-    const { toggleSentimentCategory, setIntensityThreshold, loadGenerations } = useActions(aiObservabilitySentimentLogic)
+    const { toggleSentimentCategory, setIntensityThreshold, loadGenerations } =
+        useActions(aiObservabilitySentimentLogic)
     const total = sentimentSummary.positive + sentimentSummary.negative + sentimentSummary.neutral
 
     return (

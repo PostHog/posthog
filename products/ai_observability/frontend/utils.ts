@@ -8,9 +8,9 @@ import { isObject } from 'lib/utils'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
+import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './evaluations/constants'
 import type { EvaluationRun } from './evaluations/types'
-import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
     AnthropicDocumentMessage,
     AnthropicImageMessage,

@@ -40,7 +40,10 @@ const meta: Meta<AIObservabilityTraceSceneProps> = {
 
         useOnMountEffect(() => {
             router.actions.push(
-                urls.aiObservabilityTrace(trace.id, eventId ? { event: eventId, timestamp: trace.createdAt } : undefined)
+                urls.aiObservabilityTrace(
+                    trace.id,
+                    eventId ? { event: eventId, timestamp: trace.createdAt } : undefined
+                )
             )
         })
 

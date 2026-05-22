@@ -6,9 +6,9 @@ import { LemonSkeleton, LemonTag, LemonTagProps, Tooltip } from '@posthog/lemon-
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
 
+import { TraceViewMode, aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
 import { EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
-import { TraceViewMode, aiObservabilityTraceLogic } from '../aiObservabilityTraceLogic'
 
 export interface EvalSummary {
     latestRun: EvaluationRun
