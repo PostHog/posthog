@@ -109,14 +109,16 @@ class TableReference(TableBase):
         return cls(name=name, parents=parents)
 
 
-ColumnType = typing.TypeVar("ColumnType", bound=Column)
+ColumnType = typing.TypeVar("ColumnType", bound=Column, covariant=True)
 
 
 class Table(TableBase, typing.Generic[ColumnType]):
     """A table obtained from a `SQLSource`.
 
-    A table may be better understood as a container of `Column`, so indexing,
-    iteration, length checks, and membership tests are supported.
+    A table may be better understood as a read-only container of
+    `Column` — once constructed, its columns are not mutated — so
+    `ColumnType` is covariant and `Table[MySQLColumn]` is a valid
+    subtype of `Table[Column]`.
     """
 
     def __init__(
@@ -153,11 +155,14 @@ class Table(TableBase, typing.Generic[ColumnType]):
 
         raise TypeError(f"unsupported key type: '{type(key)}'")
 
-    def __contains__(self, column: ColumnType | str) -> bool:
+    def __contains__(self, column: Column | str) -> bool:
         """Check if this `Table` contains a column.
 
-        Accepts both an object that implements `Column` and a `str`. The latter
-        case being interpreted as the name of the column.
+        Accepts both an object that implements `Column` (matched by
+        equality against this table's columns) and a `str` (interpreted
+        as the column name). Typed against `Column` rather than
+        `ColumnType` because `ColumnType` is covariant — input positions
+        must accept the wider `Column` type.
         """
         if not self.columns:
             return False

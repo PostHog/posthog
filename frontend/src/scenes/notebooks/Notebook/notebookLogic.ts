@@ -14,7 +14,8 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -70,6 +71,7 @@ import {
 } from '../types'
 import { updateContentHeading } from '../utils'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
+import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
@@ -1270,6 +1272,18 @@ export const notebookLogic = kea<notebookLogicType>([
                 actions.setLocalContent(JSON.parse(base64Decode(hashParams['🦔'])))
             }
         },
+    })),
+
+    beforeUnload((logic) => ({
+        enabled: (newLocation?: CombinedLocation) =>
+            shouldWarnBeforeLeavingNotebook({
+                isLocalOnly: logic.values.isLocalOnly,
+                isEditable: logic.values.isEditable,
+                syncStatus: logic.values.syncStatus,
+                currentPathname: router.values.location.pathname,
+                newPathname: newLocation?.pathname,
+            }),
+        message: 'Leave notebook?\nChanges you made may not be saved.',
     })),
 
     afterMount(({ props }) => {

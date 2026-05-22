@@ -199,6 +199,24 @@ class CleanupGeminiFileInputs(BaseModel, frozen=True):
     gemini_file_name: str
 
 
+class EmbedIndexerObservationInputs(BaseModel, frozen=True):
+    """Input to the indexer-side-effect activity that emits per-facet embedding requests."""
+
+    team_id: int
+    session_id: str
+    observation_id: UUID
+    indexer_output: IndexerOutput
+
+
+class EmitClassifierTagsInputs(BaseModel, frozen=True):
+    """Input to the classifier-side-effect activity that writes ai_tags_fixed/freeform via Kafka."""
+
+    team_id: int
+    session_id: str
+    observation_id: UUID
+    classifier_output: ClassifierOutput
+
+
 class MarkObservationSucceededInputs(BaseModel, frozen=True):
     observation_id: UUID
     lens_result: LensResult
