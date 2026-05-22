@@ -19,6 +19,7 @@
         "copy-scripts": "mkdir -p dist/ && ./bin/copy-posthog-js",
         "clean": "rm -rf dist && mkdir dist",
         "build": "pnpm copy-scripts && pnpm build:esbuild",
+        "build:with-report": "pnpm build && node ./bin/build-bundle-report.mjs",
         "build:esbuild": "DEBUG=0 node ./build.mjs",
         "build:products": "DEBUG=0 node build-products.mjs",
         "start": "pnpm start-http",
