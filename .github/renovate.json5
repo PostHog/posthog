@@ -61,9 +61,9 @@
     // pin bundle (which also touches every npm/cargo/pep621/gomod lockfile and is
     // impractical to land in one PR). Approval gate is preserved.
     {
-      "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["pin"],
-      "groupName": "github-actions pin"
+      matchManagers: ['github-actions'],
+      matchUpdateTypes: ['pin'],
+      groupName: 'github-actions pin',
     },
   ],
 }
