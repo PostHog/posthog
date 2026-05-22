@@ -67,6 +67,7 @@ export interface GroupRepositoryTransaction {
         teamId: TeamId,
         projectId: ProjectId,
         groupType: string,
-        index: number
+        index: number,
+        historicalMigration?: boolean
     ): Promise<[GroupTypeIndex | null, boolean]>
 }

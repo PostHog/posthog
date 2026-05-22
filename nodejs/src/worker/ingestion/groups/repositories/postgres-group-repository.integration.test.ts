@@ -1476,7 +1476,7 @@ describe('PostgresGroupRepository Integration', () => {
             await insertTestTeam(teamId)
 
             const result = await repository.inRawTransaction('test insertGroupType raw transaction', async (tx) => {
-                return await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, tx)
+                return await repository.insertGroupType(teamId, teamId as ProjectId, 'company', 0, false, tx)
             })
 
             expect(result).toEqual([0, true])
@@ -1515,6 +1515,42 @@ describe('PostgresGroupRepository Integration', () => {
             )
 
             expect(rows).toHaveLength(0)
+        })
+
+        it.each([
+            { desc: 'historicalMigration=true sets created_at to NULL', historicalMigration: true, expectNull: true },
+            { desc: 'historicalMigration=false sets created_at to now', historicalMigration: false, expectNull: false },
+            {
+                desc: 'historicalMigration default (undefined) sets created_at to now',
+                historicalMigration: undefined,
+                expectNull: false,
+            },
+        ])('$desc', async ({ historicalMigration, expectNull }) => {
+            await insertTestTeam(teamId)
+
+            const [groupTypeIndex, isInsert] = await repository.insertGroupType(
+                teamId,
+                teamId as ProjectId,
+                'historical_company',
+                0,
+                historicalMigration
+            )
+
+            expect(groupTypeIndex).toBe(0)
+            expect(isInsert).toBe(true)
+
+            const { rows } = await postgres.query<{ created_at: Date | null }>(
+                PostgresUse.PERSONS_READ,
+                'SELECT created_at FROM posthog_grouptypemapping WHERE team_id = $1 AND project_id = $2 AND group_type = $3',
+                [teamId, teamId, 'historical_company'],
+                'test-fetch-group-type-created-at'
+            )
+            expect(rows).toHaveLength(1)
+            if (expectNull) {
+                expect(rows[0].created_at).toBeNull()
+            } else {
+                expect(rows[0].created_at).not.toBeNull()
+            }
         })
 
         it('should handle special characters in group type names', async () => {

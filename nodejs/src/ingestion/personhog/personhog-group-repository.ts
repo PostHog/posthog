@@ -203,9 +203,10 @@ export class PersonHogGroupRepository implements GroupRepository {
         teamId: TeamId,
         projectId: ProjectId,
         groupType: string,
-        index: number
+        index: number,
+        historicalMigration?: boolean
     ): Promise<[GroupTypeIndex | null, boolean]> {
-        return this.postgres.insertGroupType(teamId, projectId, groupType, index)
+        return this.postgres.insertGroupType(teamId, projectId, groupType, index, historicalMigration)
     }
 
     inTransaction<T>(description: string, transaction: (tx: GroupRepositoryTransaction) => Promise<T>): Promise<T> {

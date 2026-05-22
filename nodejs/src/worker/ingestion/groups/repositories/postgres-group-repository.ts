@@ -324,6 +324,7 @@ export class PostgresGroupRepository
         projectId: ProjectId,
         groupType: string,
         index: number,
+        historicalMigration: boolean = false,
         tx?: TransactionClient
     ): Promise<[GroupTypeIndex | null, boolean]> {
         if (index < 0 || index >= MAX_GROUP_TYPES_PER_TEAM) {
@@ -343,12 +344,12 @@ export class PostgresGroupRepository
             UNION
             SELECT group_type_index, 0 AS is_insert FROM posthog_grouptypemapping WHERE project_id = $2 AND group_type = $3;
             `,
-            [teamId, projectId, groupType, index, new Date()],
+            [teamId, projectId, groupType, index, historicalMigration ? null : new Date()],
             'insertGroupType'
         )
 
         if (insertGroupTypeResult.rows.length == 0) {
-            return await this.insertGroupType(teamId, projectId, groupType, index + 1, tx)
+            return await this.insertGroupType(teamId, projectId, groupType, index + 1, historicalMigration, tx)
         }
 
         const { group_type_index, is_insert } = insertGroupTypeResult.rows[0]

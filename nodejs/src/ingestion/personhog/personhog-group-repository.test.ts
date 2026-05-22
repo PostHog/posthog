@@ -587,14 +587,24 @@ describe('PersonHogGroupRepository', () => {
             )
         })
 
-        it('insertGroupType', async () => {
+        it.each([
+            { desc: 'insertGroupType without historicalMigration', historicalMigration: undefined },
+            { desc: 'insertGroupType forwards historicalMigration=true', historicalMigration: true },
+            { desc: 'insertGroupType forwards historicalMigration=false', historicalMigration: false },
+        ])('$desc', async ({ historicalMigration }) => {
             mockPostgres.insertGroupType.mockResolvedValue([0 as GroupTypeIndex, true])
             const repo = createRepo(100)
 
-            const result = await repo.insertGroupType(TEAM_ID, PROJECT_ID, 'organization', 0)
+            const result = await repo.insertGroupType(TEAM_ID, PROJECT_ID, 'organization', 0, historicalMigration)
 
             expect(result).toEqual([0, true])
-            expect(mockPostgres.insertGroupType).toHaveBeenCalledWith(TEAM_ID, PROJECT_ID, 'organization', 0)
+            expect(mockPostgres.insertGroupType).toHaveBeenCalledWith(
+                TEAM_ID,
+                PROJECT_ID,
+                'organization',
+                0,
+                historicalMigration
+            )
         })
 
         it('inTransaction', async () => {
