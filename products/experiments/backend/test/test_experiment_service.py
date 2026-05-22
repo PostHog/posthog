@@ -2847,48 +2847,34 @@ class TestExperimentService(APIBaseTest):
         )
         assert shipped_call.args[2]["release_to_everyone"] is True
 
+    @parameterized.expand(
+        [
+            ("default_null", None, None),
+            ("explicit_true", True, True),
+            ("explicit_false", False, False),
+        ]
+    )
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    def test_ship_variant_default_kept_variant_was_recommended_is_null(self, mock_report_user_action):
+    def test_ship_variant_records_kept_variant_was_recommended(
+        self, name, kept_variant_was_recommended, expected, mock_report_user_action
+    ):
         experiment = self._create_running_experiment(
-            name="Ship Analytics Recommended Default", feature_flag_key="ship-analytics-recommended-default-flag"
+            name=f"Ship Analytics Recommended {name}",
+            feature_flag_key=f"ship-analytics-recommended-{name}-flag",
         )
 
-        self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
-
-        shipped_call = next(
-            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
-        )
-        assert shipped_call.args[2]["kept_variant_was_recommended"] is None
-
-    @patch("products.experiments.backend.experiment_service.report_user_action")
-    def test_ship_variant_kept_variant_was_recommended_recorded_when_true(self, mock_report_user_action):
-        experiment = self._create_running_experiment(
-            name="Ship Analytics Recommended True", feature_flag_key="ship-analytics-recommended-true-flag"
-        )
-
+        # None is also the service default; passing it explicitly exercises the same path as omitting it.
         self._service().ship_variant(
-            experiment, variant_key="test", kept_variant_was_recommended=True, request=self._make_request()
+            experiment,
+            variant_key="test",
+            kept_variant_was_recommended=kept_variant_was_recommended,
+            request=self._make_request(),
         )
 
         shipped_call = next(
             call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
         )
-        assert shipped_call.args[2]["kept_variant_was_recommended"] is True
-
-    @patch("products.experiments.backend.experiment_service.report_user_action")
-    def test_ship_variant_kept_variant_was_recommended_recorded_when_false(self, mock_report_user_action):
-        experiment = self._create_running_experiment(
-            name="Ship Analytics Recommended False", feature_flag_key="ship-analytics-recommended-false-flag"
-        )
-
-        self._service().ship_variant(
-            experiment, variant_key="test", kept_variant_was_recommended=False, request=self._make_request()
-        )
-
-        shipped_call = next(
-            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
-        )
-        assert shipped_call.args[2]["kept_variant_was_recommended"] is False
+        assert shipped_call.args[2]["kept_variant_was_recommended"] is expected
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_ship_variant_stopped_reports_only_shipped_event(self, mock_report_user_action):
