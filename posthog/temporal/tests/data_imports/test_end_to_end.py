@@ -231,6 +231,31 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
+# `mysql_container`, `mysql_config`, and `mysql_connection` live in
+# conftest.py so the container starts once per test session and is shared
+# across every test file in this package.
+
+
+def _mysql_job_inputs(mysql_config: dict) -> dict[str, str | dict[str, str]]:
+    """Serialize `mysql_config` into the flat string-keyed dict the
+    ExternalDataSource.job_inputs pipeline expects (same shape the UI
+    produces).
+
+    Return type matches `_run`'s `job_inputs` param — dicts are invariant
+    so the wider `str | dict[str, str]` value type is required even
+    though every value this helper produces is a plain `str`.
+    """
+    return {
+        "host": mysql_config["host"],
+        "port": str(mysql_config["port"]),
+        "database": mysql_config["database"],
+        "user": mysql_config["user"],
+        "password": mysql_config["password"],
+        "schema": mysql_config["schema"],
+        "using_ssl": "false",
+    }
+
+
 @pytest.fixture
 def mock_paddle_client():
     response_data: dict[str, Any] = {"items": []}
@@ -3882,3 +3907,237 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     # 9. Verify webhook parquet file was cleaned up after consumption
     files = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=webhook_prefix)
     assert files.get("Contents") is None or len(files.get("Contents", [])) == 0
+
+
+async def _mysql_setup(mysql_connection, statements: list[tuple[str, tuple | None]]) -> None:
+    """Run a list of `(sql, args)` statements against MySQL in one shot.
+
+    `mysql_connection` is a sync pymysql connection; wrap the batch in
+    `sync_to_async` so the surrounding async test body doesn't block the
+    event loop.
+    """
+
+    def _run() -> None:
+        with mysql_connection.cursor() as cursor:
+            for sql_stmt, args in statements:
+                cursor.execute(sql_stmt, args) if args is not None else cursor.execute(sql_stmt)
+        mysql_connection.commit()
+
+    await sync_to_async(_run)()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_full_refresh(team, mysql_config, mysql_connection):
+    """Full-refresh sync of a simple table with a mix of common MySQL types."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS users_full_refresh", None),
+            (
+                """
+                CREATE TABLE users_full_refresh (
+                    id INT PRIMARY KEY,
+                    email VARCHAR(255) NOT NULL,
+                    age SMALLINT,
+                    created_at DATETIME
+                )
+                """,
+                None,
+            ),
+            (
+                "INSERT INTO users_full_refresh (id, email, age, created_at) VALUES (%s, %s, %s, %s)",
+                (1, "alice@example.com", 30, datetime(2025, 1, 1, 12, 0, 0)),
+            ),
+        ],
+    )
+
+    await _run(
+        team=team,
+        schema_name="users_full_refresh",
+        table_name="mysql_users_full_refresh",
+        source_type="MySQL",
+        job_inputs=_mysql_job_inputs(mysql_config),
+        mock_data_response=[],
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, email, age FROM mysql_users_full_refresh", team)
+    assert res.results is not None
+    row = res.results[0]
+    assert row[0] == 1
+    assert row[1] == "alice@example.com"
+    assert row[2] == 30
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connection):
+    """Incremental sync with an INT cursor field — second run should pick up only new rows."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS events_int_incremental", None),
+            (
+                "CREATE TABLE events_int_incremental (id INT PRIMARY KEY, payload VARCHAR(64))",
+                None,
+            ),
+            ("INSERT INTO events_int_incremental VALUES (1, 'first')", None),
+        ],
+    )
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="events_int_incremental",
+        table_name="mysql_events_int_incremental",
+        source_type="MySQL",
+        job_inputs=_mysql_job_inputs(mysql_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id FROM mysql_events_int_incremental ORDER BY id", team)
+    assert [row[0] for row in res.results] == [1]
+
+    # Insert more rows and re-run — the incremental cursor should pick them up.
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("INSERT INTO events_int_incremental VALUES (2, 'second')", None),
+            ("INSERT INTO events_int_incremental VALUES (3, 'third')", None),
+        ],
+    )
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id FROM mysql_events_int_incremental ORDER BY id", team)
+    assert [row[0] for row in res.results] == [1, 2, 3]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_full_refresh_with_zero_date(team, mysql_config, mysql_connection):
+    """Full-refresh sync of a table containing MySQL's notorious
+    '0000-00-00 00:00:00' zero-date. `_safe_convert_datetime` should map
+    it to None so the sync survives pymysql's default type coercion."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS events_zero_date", None),
+            ("CREATE TABLE events_zero_date (id INT PRIMARY KEY, updated_at DATETIME)", None),
+            # Bypass strict mode to allow the zero datetime.
+            ("SET SESSION sql_mode = ''", None),
+            ("INSERT INTO events_zero_date VALUES (1, '0000-00-00 00:00:00')", None),
+        ],
+    )
+
+    await _run(
+        team=team,
+        schema_name="events_zero_date",
+        table_name="mysql_events_zero_date",
+        source_type="MySQL",
+        job_inputs=_mysql_job_inputs(mysql_config),
+        mock_data_response=[],
+    )
+
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT id, updated_at FROM mysql_events_zero_date",
+        team,
+    )
+    assert len(res.results) == 1
+    assert res.results[0][0] == 1
+    # The zero date should have been converted to NULL/None.
+    assert res.results[0][1] is None
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_schema_evolution(team, mysql_config, mysql_connection):
+    """Add a column between syncs — the second run should pick up the new column."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS orders_evolution", None),
+            ("CREATE TABLE orders_evolution (id INT PRIMARY KEY)", None),
+            ("INSERT INTO orders_evolution (id) VALUES (1)", None),
+        ],
+    )
+
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="orders_evolution",
+        table_name="mysql_orders_evolution",
+        source_type="MySQL",
+        job_inputs=_mysql_job_inputs(mysql_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM mysql_orders_evolution", team)
+    assert any(col == "id" for col in res.columns or [])
+
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("ALTER TABLE orders_evolution ADD COLUMN total_cents INT", None),
+            ("INSERT INTO orders_evolution (id, total_cents) VALUES (2, 999)", None),
+        ],
+    )
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    res = await sync_to_async(execute_hogql_query)("SELECT * FROM mysql_orders_evolution", team)
+    columns = res.columns or []
+    assert any(col == "id" for col in columns)
+    assert any(col == "total_cents" for col in columns)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_mysql_decimal_and_unsigned_types(team, mysql_config, mysql_connection):
+    """DECIMAL(p,s) keeps precision; UNSIGNED BIGINT widens so the full
+    u64 range (beyond signed int64) survives the round-trip."""
+    await _mysql_setup(
+        mysql_connection,
+        [
+            ("DROP TABLE IF EXISTS ledger_types", None),
+            (
+                """
+                CREATE TABLE ledger_types (
+                    id INT PRIMARY KEY,
+                    amount DECIMAL(10, 2),
+                    big_count BIGINT UNSIGNED
+                )
+                """,
+                None,
+            ),
+            (
+                "INSERT INTO ledger_types (id, amount, big_count) VALUES (%s, %s, %s)",
+                (1, "123.45", 9_000_000_000_000_000_000),
+            ),
+        ],
+    )
+
+    await _run(
+        team=team,
+        schema_name="ledger_types",
+        table_name="mysql_ledger_types",
+        source_type="MySQL",
+        job_inputs=_mysql_job_inputs(mysql_config),
+        mock_data_response=[],
+    )
+
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT id, amount, big_count FROM mysql_ledger_types",
+        team,
+    )
+    rows = res.results
+    assert rows is not None and len(rows) == 1
+    assert rows[0][0] == 1
+    # Decimal round-trip — compare as string to avoid float drift.
+    assert str(rows[0][1]) == "123.45"
+    # Unsigned BIGINT > signed-int64 max — must come back intact.
+    assert int(rows[0][2]) == 9_000_000_000_000_000_000
