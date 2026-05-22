@@ -136,6 +136,22 @@ class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin):
         response = self.client.post(self._generate_links_csv_url(str(topic.id)))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_generate_links_csv_sanitizes_formula_injection_without_breaking_emails(self):
+        topic = self._create_topic(
+            interviewee_emails=["alex@example.com"],
+            # Deliberately craft a malicious distinct ID starting with `=` — must be quoted.
+            interviewee_distinct_ids=["=cmd|/c calc!A1"],
+        )
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        body = response.content.decode("utf-8")
+        # Plain email is untouched (first char is a letter, not a formula trigger).
+        self.assertIn("alex@example.com", body)
+        self.assertNotIn("'alex@example.com", body)
+        # Formula-injection identifier is prefixed with a single quote.
+        self.assertIn("'=cmd|/c calc!A1", body)
+
     def test_generate_links_csv_is_idempotent_with_existing_links(self):
         topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
         # Materialize via the JSON endpoint first; the CSV endpoint must return the same access token.
