@@ -36,6 +36,8 @@ class LogsTable(Table):
         "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
         "event_name": StringDatabaseField(name="event_name", nullable=False),
         "service_name": StringDatabaseField(name="service_name", nullable=False),
+        "posthog_session_id": StringDatabaseField(name="posthog_session_id", nullable=False),
+        "posthog_distinct_id": StringDatabaseField(name="posthog_distinct_id", nullable=False),
         # internal fields for query optimization
         "_part_starting_offset": IntegerDatabaseField(name="_part_starting_offset", nullable=True, hidden=True),
         "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),

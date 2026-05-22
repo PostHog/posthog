@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `attributes` Map(LowCardinality(String), String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
     `attributes_map_float` Map(LowCardinality(String), Float64) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__float'), toFloat64OrNull(v)), attributes_map_str)) CODEC(ZSTD(1)),
     `attributes_map_datetime` Map(LowCardinality(String), DateTime64(6)) MATERIALIZED mapFilter((k, v) -> (v IS NOT NULL), mapApply((k, v) -> (concat(left(k, -5), '__datetime'), parseDateTimeBestEffortOrNull(v, 6)), attributes_map_str)) CODEC(ZSTD(1)),
+    `posthog_session_id` String MATERIALIZED attributes_map_str['posthog.session_id_str'] CODEC(ZSTD(1)),
+    `posthog_distinct_id` String MATERIALIZED attributes_map_str['posthog.distinct_id_str'] CODEC(ZSTD(1)),
 
     -- temporary columns for materialized views, these expire immediately after initially created but
     -- are around for materialized views which pull off from this table
@@ -59,6 +61,8 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     INDEX idx_uuid_bloom uuid TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
     INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
+    INDEX idx_posthog_session_id posthog_session_id TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_posthog_distinct_id posthog_distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
     PROJECTION projection_aggregate_counts
     (
         SELECT

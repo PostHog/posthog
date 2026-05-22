@@ -34,6 +34,8 @@ class TraceSpansTable(Table):
         "attributes": StringJSONDatabaseField(name="attributes", nullable=False),
         "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
         "time_bucket": DateTimeDatabaseField(name="time_bucket", nullable=False),
+        "posthog_session_id": StringDatabaseField(name="posthog_session_id", nullable=False),
+        "posthog_distinct_id": StringDatabaseField(name="posthog_distinct_id", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):
