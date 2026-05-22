@@ -205,8 +205,7 @@ where
         // failure under one key falls through to the next; a fresh failure or data short-circuits.
         for lookup_ref in &lookup_refs {
             info!("Fetching symbol set data for {}", lookup_ref);
-            let Some(mut record) =
-                SymbolSetRecord::load(&self.pool, team_id, lookup_ref).await?
+            let Some(mut record) = SymbolSetRecord::load(&self.pool, team_id, lookup_ref).await?
             else {
                 continue;
             };
