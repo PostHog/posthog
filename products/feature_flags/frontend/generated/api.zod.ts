@@ -990,166 +990,80 @@ Returns same format as bulk_delete for UI compatibility.
 Uses bulk operations for efficiency: database updates are batched and cache
 invalidation happens once at the end rather than per-flag.
  */
-export const featureFlagsBulkDeleteCreateBodyKeyMax = 400
 
-export const featureFlagsBulkDeleteCreateBodyVersionDefault = 0
-export const featureFlagsBulkDeleteCreateBodyShouldCreateUsageDashboardDefault = true
-
-export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .optional()
-            .describe('contains the description for the flag (field name `name` is kept for backwards-compatibility)'),
-        key: zod.string().max(featureFlagsBulkDeleteCreateBodyKeyMax),
-        filters: zod.record(zod.string(), zod.unknown()).optional(),
-        deleted: zod.boolean().optional(),
-        active: zod.boolean().optional(),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
-        version: zod.number().default(featureFlagsBulkDeleteCreateBodyVersionDefault),
-        ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
-        evaluation_contexts: zod.array(zod.unknown()).optional(),
-        analytics_dashboards: zod.array(zod.number()).optional(),
-        has_enriched_analytics: zod.boolean().nullish(),
-        creation_context: zod
-            .enum([
-                'feature_flags',
-                'experiments',
-                'surveys',
-                'early_access_features',
-                'web_experiments',
-                'product_tours',
-            ])
-            .describe(
-                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
-            )
-            .optional()
-            .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
-            ),
-        is_remote_configuration: zod.boolean().nullish(),
-        has_encrypted_payloads: zod.boolean().nullish(),
-        evaluation_runtime: zod
-            .union([
-                zod
-                    .enum(['server', 'client', 'all'])
-                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
-            ),
-        bucketing_identifier: zod
-            .union([
-                zod
-                    .enum(['distinct_id', 'device_id'])
-                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
-            ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
-        _create_in_folder: zod.string().optional(),
-        _should_create_usage_dashboard: zod
-            .boolean()
-            .default(featureFlagsBulkDeleteCreateBodyShouldCreateUsageDashboardDefault),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
+export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    filters: zod
+        .object({
+            active: zod
+                .enum(['true', 'false', 'STALE'])
+                .describe('\* `true` - true\n\* `false` - false\n\* `STALE` - STALE')
+                .optional()
+                .describe('Filter by active state.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE'),
+            created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
+            search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
+            type: zod
+                .enum(['boolean', 'multivariant', 'experiment', 'remote_config'])
+                .describe(
+                    '\* `boolean` - boolean\n\* `multivariant` - multivariant\n\* `experiment` - experiment\n\* `remote_config` - remote_config'
+                )
+                .optional()
+                .describe(
+                    'Filter by flag type.\n\n\* `boolean` - boolean\n\* `multivariant` - multivariant\n\* `experiment` - experiment\n\* `remote_config` - remote_config'
+                ),
+            evaluation_runtime: zod
+                .enum(['server', 'client', 'all'])
+                .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All')
+                .optional()
+                .describe(
+                    'Filter by evaluation runtime.\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
+                ),
+            excluded_properties: zod
+                .string()
+                .optional()
+                .describe('JSON-encoded property filter to exclude. Same shape as the list endpoint.'),
+            tags: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tag names to filter by. Flags carrying at least one of these tags match.'),
+            has_evaluation_contexts: zod
+                .boolean()
+                .optional()
+                .describe('When true, only matches flags with at least one evaluation context.'),
+        })
+        .describe("Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.")
+        .optional()
+        .describe(
+            "Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to bulk-delete by search\/active\/tags\/etc. instead of supplying explicit IDs."
+        ),
+    ids: zod
+        .array(zod.number().min(1))
+        .optional()
+        .describe('Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`.'),
+})
 
 /**
  * Get feature flag keys by IDs.
 Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
-export const featureFlagsBulkKeysCreateBodyKeyMax = 400
-
-export const featureFlagsBulkKeysCreateBodyVersionDefault = 0
-export const featureFlagsBulkKeysCreateBodyShouldCreateUsageDashboardDefault = true
-
-export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .optional()
-            .describe('contains the description for the flag (field name `name` is kept for backwards-compatibility)'),
-        key: zod.string().max(featureFlagsBulkKeysCreateBodyKeyMax),
-        filters: zod.record(zod.string(), zod.unknown()).optional(),
-        deleted: zod.boolean().optional(),
-        active: zod.boolean().optional(),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
-        version: zod.number().default(featureFlagsBulkKeysCreateBodyVersionDefault),
-        ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
-        evaluation_contexts: zod.array(zod.unknown()).optional(),
-        analytics_dashboards: zod.array(zod.number()).optional(),
-        has_enriched_analytics: zod.boolean().nullish(),
-        creation_context: zod
-            .enum([
-                'feature_flags',
-                'experiments',
-                'surveys',
-                'early_access_features',
-                'web_experiments',
-                'product_tours',
-            ])
-            .describe(
-                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
-            )
-            .optional()
-            .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
-            ),
-        is_remote_configuration: zod.boolean().nullish(),
-        has_encrypted_payloads: zod.boolean().nullish(),
-        evaluation_runtime: zod
-            .union([
-                zod
-                    .enum(['server', 'client', 'all'])
-                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
-            ),
-        bucketing_identifier: zod
-            .union([
-                zod
-                    .enum(['distinct_id', 'device_id'])
-                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
-            ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
-        _create_in_folder: zod.string().optional(),
-        _should_create_usage_dashboard: zod
-            .boolean()
-            .default(featureFlagsBulkKeysCreateBodyShouldCreateUsageDashboardDefault),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
+export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.unknown())
+        .optional()
+        .describe(
+            'Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored.'
+        ),
+})
 
 /**
  * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
 
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}

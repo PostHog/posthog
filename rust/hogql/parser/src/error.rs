@@ -25,12 +25,6 @@ pub struct ParseError {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)] // `NotImplemented` is reserved for future
-                    // deferred-feature stubs (e.g. when new grammar
-                    // rules land in cpp that this parser hasn't
-                    // caught up to yet) — keep the variant + helper
-                    // around so callers can opt back in without
-                    // adding back the enum case.
 pub enum ErrorKind {
     Syntax,
     NotImplemented,
@@ -56,8 +50,6 @@ impl ParseError {
         }
     }
 
-    #[allow(dead_code)] // Reserved for deferred-feature stubs; see
-                        // `ErrorKind` for context.
     pub fn not_implemented(message: impl Into<String>, start: usize, end: usize) -> Self {
         Self {
             message: message.into(),
@@ -68,8 +60,7 @@ impl ParseError {
         }
     }
 
-    /// Like `not_implemented`, but marks the error fatal so `try_alt`
-    /// short-circuits and doesn't fall back to the next alternative.
+    /// Like `not_implemented`, but marks the error fatal so `try_alt` short-circuits and doesn't fall back to the next alternative.
     pub fn not_implemented_fatal(message: impl Into<String>, start: usize, end: usize) -> Self {
         Self {
             message: message.into(),
@@ -80,16 +71,22 @@ impl ParseError {
         }
     }
 
-    pub fn to_json_string(&self) -> String {
-        let value = json!({
+    /// Build the JSON error envelope shape. Used directly by the `parse_*_py`
+    /// path (which raises a Python exception from this) and serialised to a
+    /// string by [`Self::to_json_string`] for the `parse_*_json` path.
+    pub fn to_json_value(&self) -> serde_json::Value {
+        json!({
             "error": true,
             "type": self.kind.type_str(),
             "message": self.message,
             "start": {"offset": self.start},
             "end": {"offset": self.end},
-        });
+        })
+    }
+
+    pub fn to_json_string(&self) -> String {
         // serde_json::to_string never fails for a Value, but be explicit.
-        serde_json::to_string(&value).unwrap_or_else(|_| {
+        serde_json::to_string(&self.to_json_value()).unwrap_or_else(|_| {
             r#"{"error":true,"type":"InternalError","message":"failed to serialize error envelope","start":{"offset":0},"end":{"offset":0}}"#.to_string()
         })
     }
