@@ -16,8 +16,11 @@ on:
     merge_group:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # PRs: one active run per branch, cancel stale. Push: per-SHA so master
+    # pushes never cancel each other (check-migrations always completes).
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -204,8 +207,13 @@ jobs:
                         - 'frontend/bin/generate-openapi-types.mjs'
                         - 'frontend/src/lib/api-orval-mutator.ts'
                         - 'services/mcp/scripts/**/*'
+                        # MCP tool config sources - feed generate-tools.ts
                         - 'services/mcp/definitions/**/*.yaml'
+                        - 'services/mcp/definitions/prompts/**/*.md'
                         - 'products/*/mcp/**/*.yaml'
+                        - 'products/*/mcp/prompts/**/*.md'
+                        - 'services/mcp/schema/tool-definitions.json'
+                        - 'services/mcp/schema/tool-definitions-v2.json'
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'

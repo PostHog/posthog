@@ -412,7 +412,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
-            relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id))
+            relay_task: asyncio.Task[None] | None = None
+            if not self.context.sandbox_event_ingest_enabled:
+                relay_task = asyncio.ensure_future(
+                    self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id)
+                )
 
             if self._should_forward_pending_user_message():
                 await self._forward_pending_user_message()
@@ -486,8 +490,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     case _:
                         raise ValueError(f"Unknown event type: {event}")
 
-            # Stop the relay now that the main loop is done
-            await self._cancel_relay(relay_task)
+            if relay_task is not None:
+                await self._cancel_relay(relay_task)
 
             if self._task_completed:
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
@@ -695,7 +699,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
-        cleanup_input = CleanupSandboxInput(sandbox_id=sandbox_id)
+        context = self._context
+        cleanup_input = CleanupSandboxInput(
+            sandbox_id=sandbox_id,
+            run_id=context.run_id if context else None,
+            complete_stream_on_cleanup=bool(context and context.sandbox_event_ingest_enabled),
+        )
         await workflow.execute_activity(
             cleanup_sandbox,
             cleanup_input,

@@ -15,6 +15,7 @@
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
          "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
@@ -1130,7 +1131,8 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
@@ -1156,7 +1158,8 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."dashboard_id" = 99999
   '''
@@ -2917,6 +2920,7 @@
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
@@ -2993,7 +2997,8 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -3009,7 +3014,8 @@
          "posthog_taggeditem"."action_id",
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id"
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id"
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -3471,6 +3477,7 @@
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
          "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
@@ -3703,6 +3710,7 @@
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
@@ -3748,6 +3756,7 @@
          "posthog_user"."pending_email",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",

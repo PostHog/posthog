@@ -366,6 +366,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: false,
         organizationBased: false,
     },
+    [Scene.CredentialReview]: {
+        name: 'Review API keys',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+    },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
@@ -859,6 +865,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
     [urls.accountConnected(':kind')]: [Scene.AccountConnected, 'accountConnected'],
+    [urls.credentialReview()]: [Scene.CredentialReview, 'credentialReview'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],

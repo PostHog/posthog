@@ -111,15 +111,15 @@ A trace is considered errored if ANY event within it has an error. Compare with 
 
 Defined in `sql/pageview_counts.sql`:
 
-- `pageviews_traces`: Pageviews on /llm-analytics/traces
-- `pageviews_generations`: Pageviews on /llm-analytics/generations
-- `pageviews_users`: Pageviews on /llm-analytics/users
-- `pageviews_sessions`: Pageviews on /llm-analytics/sessions
-- `pageviews_playground`: Pageviews on /llm-analytics/playground
-- `pageviews_datasets`: Pageviews on /llm-analytics/datasets
-- `pageviews_evaluations`: Pageviews on /llm-analytics/evaluations
+- `pageviews_traces`: Pageviews on /ai-observability/traces
+- `pageviews_generations`: Pageviews on /ai-observability/generations
+- `pageviews_users`: Pageviews on /ai-observability/users
+- `pageviews_sessions`: Pageviews on /ai-observability/sessions
+- `pageviews_playground`: Pageviews on /ai-observability/playground
+- `pageviews_datasets`: Pageviews on /ai-evals/datasets
+- `pageviews_evaluations`: Pageviews on /ai-evals/evaluations
 
-Tracks $pageview events on AI observability pages. URL patterns are mapped to page types via config.pageview_mappings.
+Tracks $pageview events on AI engineering pages. URL patterns are mapped to page types via config.pageview_mappings.
 
 ### Error Detection
 
