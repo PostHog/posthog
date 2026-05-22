@@ -467,6 +467,12 @@ class TestEmbedIntentsAsyncCacheLogic:
 
         async def _fake_call(_team, text, model):  # noqa: ARG001
             worker_calls.append(text)
+            # Real httpx suspends here on the HTTP round-trip; the mock must
+            # yield too, otherwise Task A runs to completion (including its
+            # persist writeback into `cached`) before Task B's cache check
+            # ever runs, and the test would observe spurious dedup that
+            # doesn't happen in production.
+            await asyncio.sleep(0)
             return _fake_embedding(text)
 
         embeddings, valid_indices = self._call(["dup", "dup"], cached, _fake_call)
