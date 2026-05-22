@@ -116,8 +116,11 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             'Filter group example: `{"type":"AND","values":[{"type":"AND","values":['
             '{"key":"service.name","operator":"exact","value":"api"}]}]}`. '
             "For severity_sampling: object with `actions` per severity level and optional `always_keep`. "
-            "For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` "
-            "(integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to."
+            "For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` "
+            "integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, "
+            "optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional "
+            "`filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own "
+            "uncompressed byte size, matching how billing measures ingested bytes."
         )
     )
     version = serializers.IntegerField(
@@ -171,26 +174,60 @@ class LogsSamplingRuleSerializer(serializers.ModelSerializer):
             if not isinstance(config, dict):
                 raise ValidationError({"config": "rate_limit rules require config to be a JSON object."})
             self._validate_filter_group(config.get("filter_group"))
-            lps = config.get("logs_per_second")
-            if isinstance(lps, bool) or not isinstance(lps, int):
-                raise ValidationError(
-                    {"config": {"logs_per_second": "Must be an integer (logs per second sustained)."}}
-                )
-            if lps < 1 or lps > 1_000_000:
-                raise ValidationError(
-                    {"config": {"logs_per_second": "Must be between 1 KB/s and 1000000 KB/s (1 GB/s) inclusive."}}
-                )
-            burst = config.get("burst_logs", None)
-            if burst is not None:
-                if isinstance(burst, bool) or not isinstance(burst, int):
-                    raise ValidationError({"config": {"burst_logs": "Must be an integer when provided."}})
-                if burst < lps:
-                    raise ValidationError(
-                        {"config": {"burst_logs": "Must be greater than or equal to logs_per_second."}}
-                    )
-                if burst > 10_000_000:
-                    raise ValidationError({"config": {"burst_logs": "Must be at most 10000000 KB."}})
+            self._validate_rate_limit_config(config)
         return attrs
+
+    def _validate_rate_limit_config(self, config: dict[str, Any]) -> None:
+        # A rate_limit rule charges either one token per log line (`logs_per_second` +
+        # optional `burst_logs`) or one token per byte of `bytes_uncompressed`
+        # (`kb_per_second` + optional `burst_kb`). The two shapes are mutually
+        # exclusive — picking one or the other is a deliberate operator choice that
+        # changes how billing reconciles. Older rules using `logs_per_second` continue
+        # to work unchanged.
+        has_lines = "logs_per_second" in config
+        has_kb = "kb_per_second" in config
+        if has_lines and has_kb:
+            raise ValidationError(
+                {"config": "Set either `logs_per_second` or `kb_per_second` on a rate_limit rule, not both."}
+            )
+        if not has_lines and not has_kb:
+            raise ValidationError({"config": "rate_limit rules require either `logs_per_second` or `kb_per_second`."})
+        if has_kb:
+            self._validate_rate_limit_kb(config)
+        else:
+            self._validate_rate_limit_lines(config)
+
+    def _validate_rate_limit_lines(self, config: dict[str, Any]) -> None:
+        lps = config.get("logs_per_second")
+        if isinstance(lps, bool) or not isinstance(lps, int):
+            raise ValidationError({"config": {"logs_per_second": "Must be an integer (logs per second sustained)."}})
+        if lps < 1 or lps > 1_000_000:
+            raise ValidationError({"config": {"logs_per_second": "Must be between 1 and 1000000 logs/sec inclusive."}})
+        burst = config.get("burst_logs", None)
+        if burst is not None:
+            if isinstance(burst, bool) or not isinstance(burst, int):
+                raise ValidationError({"config": {"burst_logs": "Must be an integer when provided."}})
+            if burst < lps:
+                raise ValidationError({"config": {"burst_logs": "Must be greater than or equal to logs_per_second."}})
+            if burst > 10_000_000:
+                raise ValidationError({"config": {"burst_logs": "Must be at most 10000000 logs."}})
+
+    def _validate_rate_limit_kb(self, config: dict[str, Any]) -> None:
+        kbps = config.get("kb_per_second")
+        if isinstance(kbps, bool) or not isinstance(kbps, int):
+            raise ValidationError({"config": {"kb_per_second": "Must be an integer (kilobytes per second sustained)."}})
+        if kbps < 1 or kbps > 1_000_000:
+            raise ValidationError(
+                {"config": {"kb_per_second": "Must be between 1 KB/s and 1000000 KB/s (1 GB/s) inclusive."}}
+            )
+        burst = config.get("burst_kb", None)
+        if burst is not None:
+            if isinstance(burst, bool) or not isinstance(burst, int):
+                raise ValidationError({"config": {"burst_kb": "Must be an integer when provided."}})
+            if burst < kbps:
+                raise ValidationError({"config": {"burst_kb": "Must be greater than or equal to kb_per_second."}})
+            if burst > 10_000_000:
+                raise ValidationError({"config": {"burst_kb": "Must be at most 10000000 KB."}})
 
     def _validate_filter_group(self, filter_group: Any) -> None:
         if filter_group is None:

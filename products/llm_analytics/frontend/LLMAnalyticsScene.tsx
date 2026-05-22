@@ -34,6 +34,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, EventType } from '~/types'
 
+import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { LLMAnalyticsErrors } from './LLMAnalyticsErrors'
@@ -406,8 +407,8 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
     generations: 'https://posthog.com/docs/ai-observability/generations',
     sessions: 'https://posthog.com/docs/ai-observability/sessions',
     errors: 'https://posthog.com/docs/ai-observability/errors',
-    tools: 'https://posthog.com/docs/ai-observability',
-    sentiment: 'https://posthog.com/docs/ai-observability',
+    tools: 'https://posthog.com/docs/ai-observability/tools',
+    sentiment: 'https://posthog.com/docs/ai-observability/sentiment',
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
@@ -658,6 +659,8 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                     </>
                 }
             />
+
+            <AIObservabilityRenameBanner />
 
             <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
         </SceneContent>

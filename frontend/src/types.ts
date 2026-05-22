@@ -330,6 +330,7 @@ export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
     active_realtime_notification_types?: readonly string[]
+    requires_credential_review?: boolean
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
@@ -495,6 +496,10 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     is_ai_data_processing_approved?: boolean
+    is_ai_training_opted_in?: boolean
+    is_ai_training_locked?: boolean
+    is_ai_training_cta_shown?: boolean
+    is_hipaa?: boolean
     members_can_invite?: boolean
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
@@ -5364,13 +5369,14 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
+    | 'personal_spend'
     | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'
     | 'property_definition'
     | 'query'
-    | 'replay_lens'
+    | 'replay_scanner'
     | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
@@ -5567,6 +5573,7 @@ export enum ActivityScope {
     USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
+    EVALUATION = 'Evaluation',
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
@@ -5960,6 +5967,12 @@ export interface ExternalDataJob {
     rows_synced: number
     latest_error: string
     workflow_run_id?: string
+    /**
+     * For CDC syncs with `cdc_table_mode='both'`, distinguishes the two ExternalDataJob rows
+     * produced for the same schema: `incremental_merge` (consolidated table) vs `scd2_append`
+     * (cdc-only history table). `null` for non-CDC syncs.
+     */
+    cdc_write_mode?: 'incremental_merge' | 'scd2_append' | null
 }
 
 export interface SimpleDataWarehouseTable {

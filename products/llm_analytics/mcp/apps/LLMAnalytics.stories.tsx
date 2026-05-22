@@ -48,7 +48,7 @@ const multiModelData: LLMCostsData = {
             breakdown_value: 'gpt-4o-mini',
         },
     ],
-    _posthogUrl: 'https://us.posthog.com/project/1/llm-analytics',
+    _posthogUrl: 'https://us.posthog.com/project/1/ai-observability',
 }
 
 const singleModelData: LLMCostsData = {
@@ -63,12 +63,12 @@ const singleModelData: LLMCostsData = {
             breakdown_value: 'claude-3-5-sonnet',
         },
     ],
-    _posthogUrl: 'https://us.posthog.com/project/1/llm-analytics',
+    _posthogUrl: 'https://us.posthog.com/project/1/ai-observability',
 }
 
 const emptyData: LLMCostsData = {
     results: [],
-    _posthogUrl: 'https://us.posthog.com/project/1/llm-analytics',
+    _posthogUrl: 'https://us.posthog.com/project/1/ai-observability',
 }
 
 export const MultiModel: Story = {

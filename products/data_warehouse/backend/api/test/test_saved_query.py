@@ -8,15 +8,13 @@ from unittest.mock import patch
 
 from posthog.models import ActivityLog
 
-from products.data_warehouse.backend.models import (
-    DataModelingJob,
-    DataWarehouseModelPath,
-    DataWarehouseSavedQuery,
-    DataWarehouseSavedQueryFolder,
-    DataWarehouseTable,
-)
-from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
+from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestSavedQuery(APIBaseTest):

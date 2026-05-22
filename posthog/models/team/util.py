@@ -316,7 +316,7 @@ def delete_data_modeling_schedules(team_ids: list[int]) -> None:
 
     from posthog.temporal.common.schedule import delete_schedule
 
-    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     saved_queries = list(
         DataWarehouseSavedQuery.objects.filter(
