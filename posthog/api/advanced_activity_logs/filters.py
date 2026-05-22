@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from django.db.models import Q, QuerySet
@@ -20,6 +21,7 @@ class AdvancedActivityLogFilterManager:
         queryset = self._apply_is_system_filter(queryset, filters)
         queryset = self._apply_item_ids_filter(queryset, filters)
         queryset = self._apply_clients_filter(queryset, filters)
+        queryset = self._apply_ip_addresses_filter(queryset, filters)
         queryset = self._apply_team_ids_filter(queryset, filters)
         return queryset
 
@@ -188,6 +190,21 @@ class AdvancedActivityLogFilterManager:
         if filters.get("clients"):
             queryset = queryset.filter(client__in=filters["clients"])
         return queryset
+
+    def _apply_ip_addresses_filter(
+        self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]
+    ) -> QuerySet[ActivityLog]:
+        ip_filters = [ip for ip in (filters.get("ip_addresses") or []) if ip]
+        if not ip_filters:
+            return queryset
+
+        # Always go through __iregex so partial values (e.g. `192.168.1`) match no rows
+        # instead of triggering Django's GenericIPAddressField validation on __in lookups.
+        q = Q()
+        for value in ip_filters:
+            regex = "^" + "".join(".*" if c == "*" else re.escape(c) for c in value) + "$"
+            q |= Q(ip_address__iregex=regex)
+        return queryset.filter(q)
 
     def _apply_team_ids_filter(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
         if filters.get("team_ids"):

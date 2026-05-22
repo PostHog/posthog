@@ -1148,6 +1148,10 @@ export type AdvancedActivityLogsListParams = {
      */
     hogql_filter?: string
     /**
+     * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
+     */
+    ip_addresses?: string[]
+    /**
      * When set, filters rows authored by the system (no user).
      * @nullable
      */
