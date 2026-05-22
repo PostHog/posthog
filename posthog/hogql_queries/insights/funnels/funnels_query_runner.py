@@ -7,6 +7,7 @@ from typing import Any, Optional
 from django.conf import settings
 
 import posthoganalytics
+import structlog
 
 from posthog.schema import (
     CachedFunnelsQueryResponse,
@@ -44,6 +45,8 @@ from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWareho
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
+
+logger = structlog.get_logger(__name__)
 
 
 class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
@@ -104,8 +107,13 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             return self._calculate_compare()
         return self._calculate_single_period(self.funnel_class)
 
-    def _calculate_single_period(self, funnel_class) -> FunnelsQueryResponse:
+    def _calculate_single_period(
+        self, funnel_class, timings_override: Optional[HogQLTimings] = None
+    ) -> FunnelsQueryResponse:
         query = funnel_class.get_query()
+        # Compare runs subqueries in parallel threads; each worker passes its own clone since
+        # HogQLTimings is not thread-safe. Single-period runs fall back to the shared instance.
+        effective_timings = timings_override if timings_override is not None else self.timings
         timings = []
 
         # TODO: can we get this from execute_hogql_query as well?
@@ -115,7 +123,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             query_type="FunnelsQuery",
             query=query,
             team=self.team,
-            timings=self.timings,
+            timings=effective_timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             settings=HogQLGlobalSettings(
@@ -153,13 +161,13 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         errors: list[Exception] = []
         funnels = [self.funnel_class, previous_funnel]
 
-        def run(index: int, query_tags: Optional[QueryTags] = None) -> None:
+        def run(index: int, timings: HogQLTimings, query_tags: Optional[QueryTags] = None) -> None:
             try:
                 # Worker threads start with an empty QueryTags ContextVar — restore the parent's
                 # snapshot so execute_hogql_query has the required feature/product tags.
                 if query_tags is not None:
                     query_tagging.update_tags(query_tags)
-                responses[index] = self._calculate_single_period(funnels[index])
+                responses[index] = self._calculate_single_period(funnels[index], timings_override=timings)
             except Exception as exc:  # noqa: BLE001
                 errors.append(exc)
             finally:
@@ -172,11 +180,15 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         if settings.IN_UNIT_TESTING:
             # Django + threads in tests is flaky; trends compare uses the same bypass.
             for index in range(len(funnels)):
-                run(index)
+                run(index, self.timings.clone_for_subquery(index))
         else:
             parent_tags = query_tagging.get_query_tags().model_copy(deep=True)
             jobs = [
-                threading.Thread(target=run, args=(index, parent_tags)) for index in range(len(funnels))
+                threading.Thread(
+                    target=run,
+                    args=(index, self.timings.clone_for_subquery(index), parent_tags),
+                )
+                for index in range(len(funnels))
             ]
             for job in jobs:
                 job.start()
@@ -184,6 +196,10 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                 job.join()
 
         if errors:
+            # Surface every secondary error with its traceback before re-raising the first,
+            # so dual-query failures don't disappear into the void.
+            for dropped in errors[1:]:
+                logger.exception("funnels_compare_secondary_error", exc_info=dropped)
             raise errors[0]
 
         current_response, previous_response = responses
