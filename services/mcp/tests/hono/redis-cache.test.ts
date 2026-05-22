@@ -7,6 +7,9 @@ type TestState = {
     projectId: string | undefined
     distinctId: string | undefined
     orgId: string | undefined
+    mcpClientName: string | undefined
+    mcpClientVersion: string | undefined
+    mcpProtocolVersion: string | undefined
 }
 
 interface MockRedis extends RedisLike {
@@ -100,7 +103,7 @@ describe('RedisCache', () => {
     })
 
     describe('setMany', () => {
-        it('should set multiple keys in parallel', async () => {
+        it('should set multiple keys in a single call', async () => {
             await cache.setMany({ region: 'us', projectId: '123' })
 
             expect(await cache.get('region')).toBe('us')
@@ -119,6 +122,27 @@ describe('RedisCache', () => {
         it('should handle empty entries', async () => {
             await cache.setMany({})
             expect(mockRedis.set).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('client info caching across requests', () => {
+        it('seeds client info on initialize and reads it back on subsequent requests', async () => {
+            await cache.setMany({
+                mcpClientName: 'claude-code',
+                mcpClientVersion: '1.2.3',
+                mcpProtocolVersion: '2025-03-26',
+            })
+
+            expect(await cache.get('mcpClientName')).toBe('claude-code')
+            expect(await cache.get('mcpClientVersion')).toBe('1.2.3')
+            expect(await cache.get('mcpProtocolVersion')).toBe('2025-03-26')
+        })
+
+        it('does not overwrite cached client info when subsequent request has no client info', async () => {
+            await cache.setMany({ mcpClientName: 'claude-code' })
+            await cache.setMany({})
+
+            expect(await cache.get('mcpClientName')).toBe('claude-code')
         })
     })
 
