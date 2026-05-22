@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiRequest } from 'lib/api'
 import type { ApiError } from 'lib/api'
+import { ReadOnlyModeError, setReadOnlyGetter } from 'lib/readOnlyGuard'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -74,6 +75,41 @@ describe('API helper', () => {
                     }
                 )
             ).rejects.toThrow('Query kind mismatch')
+        })
+    })
+
+    describe('read-only mode', () => {
+        beforeEach(() => {
+            setReadOnlyGetter(() => true)
+        })
+
+        afterEach(() => {
+            setReadOnlyGetter(null)
+        })
+
+        it('blocks regular POST writes', async () => {
+            await expect(api.create('/api/projects/2/insights/', { name: 'x' })).rejects.toBeInstanceOf(
+                ReadOnlyModeError
+            )
+            expect(fakeFetch).not.toHaveBeenCalled()
+        })
+
+        it('allows POSTs to the analytics query endpoint (e.g. DatabaseSchemaQuery)', async () => {
+            await expect(
+                api.query({ kind: NodeKind.DatabaseSchemaQuery } as Record<string, any>)
+            ).resolves.toEqual(FAKE_FETCH_RESULT)
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/DatabaseSchemaQuery/')
+        })
+
+        it('allows POSTs to the bare query endpoint', async () => {
+            await expect(api.query({} as Record<string, any>)).resolves.toEqual(FAKE_FETCH_RESULT)
+            expect(fakeFetch.mock.calls[0][0]).toEqual('/api/environments/2/query/')
+        })
+
+        it('allows POSTs to query subpaths like upgrade', async () => {
+            await expect(
+                api.create('/api/environments/2/query/upgrade', { query: { kind: 'HogQLQuery' } })
+            ).resolves.toEqual(FAKE_FETCH_RESULT)
         })
     })
 

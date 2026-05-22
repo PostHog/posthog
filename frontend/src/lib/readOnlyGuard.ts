@@ -44,8 +44,20 @@ export function isReadOnly(): boolean {
     return getter?.() ?? false
 }
 
-export function assertNotReadOnly(method: 'PATCH' | 'PUT' | 'POST' | 'DELETE'): void {
+// The analytics query endpoint is POST-only but executes reads (DatabaseSchemaQuery,
+// HogQLQuery, trends, funnels, etc.). Blocking it would break data-management,
+// insights, and most other read-heavy views for users with the flag on.
+const QUERY_URL_REGEX = /\/api\/(projects|environments)\/[^/]+\/query(?:\/|\?|$)/
+
+export function isReadOnlyExemptUrl(url: string): boolean {
+    return QUERY_URL_REGEX.test(url)
+}
+
+export function assertNotReadOnly(method: 'PATCH' | 'PUT' | 'POST' | 'DELETE', url?: string): void {
     if (!isReadOnly()) {
+        return
+    }
+    if (url && isReadOnlyExemptUrl(url)) {
         return
     }
     notifier?.(method)
