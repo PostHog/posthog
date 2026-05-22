@@ -53,7 +53,6 @@ NO_INTENT_RECORDED_FALLBACK = "No agent intent was recorded for this session."
 
 # Embedding cache + concurrency
 # 1536-d float32 embedding = 6144 bytes. 500-intent corpus × 6144 ≈ 3 MB/team.
-EMBEDDING_DIMS = 1536
 # Cap concurrent embedding worker requests so we don't dogpile when a team's
 # corpus has hundreds of misses on first run. 20 matches the trace_clustering
 # precedent (SENTIMENT_MAX_CONCURRENT) and stays well under any per-team
@@ -336,8 +335,14 @@ def _load_cached_embeddings(team: Team, hashes: list[str], model: str) -> dict[s
 
 @database_sync_to_async
 def _persist_embedding(team: Team, content_hash: str, model: str, vector: list[float]) -> None:
-    """Insert (or no-op) a single cache row. Concurrent identical inserts are tolerated."""
-    MCPIntentEmbeddingCache.objects.update_or_create(
+    """Insert (or no-op) a single cache row. Concurrent identical inserts are tolerated.
+
+    Uses ``get_or_create`` rather than ``update_or_create`` because the content hash
+    deterministically maps to the embedding bytes — there is nothing to update if the
+    row already exists. ``get_or_create`` avoids the spurious UPDATE that
+    ``update_or_create`` would issue on a creation race.
+    """
+    MCPIntentEmbeddingCache.objects.get_or_create(
         team=team,
         content_hash=content_hash,
         model=model,

@@ -455,6 +455,26 @@ class TestEmbedIntentsAsyncCacheLogic:
         assert embeddings.shape == (0, 0)
         assert cached == {}
 
+    def test_duplicate_texts_each_call_the_worker(self) -> None:
+        # Documents intentional production behaviour: dedup happens upstream
+        # (fetch_intent_corpus aggregates by distinct intent_text), so
+        # embed_intents_async itself does not dedup. If the caller passes the
+        # same text twice, each call independently misses the in-memory cache
+        # and hits the worker. The unique constraint on the cache row makes
+        # the persist-side race harmless.
+        cached: dict[str, np.ndarray] = {}
+        worker_calls: list[str] = []
+
+        async def _fake_call(_team, text, model):  # noqa: ARG001
+            worker_calls.append(text)
+            return _fake_embedding(text)
+
+        embeddings, valid_indices = self._call(["dup", "dup"], cached, _fake_call)
+
+        assert len(worker_calls) == 2
+        assert valid_indices == [0, 1]
+        assert embeddings.shape == (2, 1536)
+
 
 # Cache model round-trip ----------------------------------------------------
 

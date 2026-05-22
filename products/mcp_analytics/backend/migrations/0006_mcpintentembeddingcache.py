@@ -31,18 +31,12 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "team",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
                 ),
             ],
             options={
                 "db_table": "posthog_mcp_analytics_intent_embedding_cache",
-                "indexes": [
-                    models.Index(
-                        fields=["created_at"], name="posthog_mcp_created_4f073f_idx"
-                    )
-                ],
+                "indexes": [models.Index(fields=["team", "created_at"], name="posthog_mcp_team_id_created_idx")],
                 "constraints": [
                     models.UniqueConstraint(
                         fields=("team", "content_hash", "model"),

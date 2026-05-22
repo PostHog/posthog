@@ -101,8 +101,10 @@ class MCPIntentEmbeddingCache(UUIDModel, TeamScopedRootMixin):
             ),
         ]
         indexes = [
-            # Drives the TTL sweep activity (delete rows older than N days).
-            models.Index(fields=["created_at"]),
+            # Drives the (per-team) TTL sweep activity. Composite (team, created_at)
+            # so Postgres can skip directly to a team's rows instead of a global
+            # index scan-then-filter.
+            models.Index(fields=["team", "created_at"]),
         ]
 
 
