@@ -176,19 +176,8 @@ impl SinkEvent for WrappedEvent {
         }
     }
 
-    fn partition_key<'buf>(&self, ctx: &Context, buf: &'buf mut String) -> Option<&'buf str> {
+    fn partition_key(&self, ctx: &Context, buf: &mut String) {
         use std::fmt::Write;
-        // v0 parity: only drop partition key for main/overflow analytics.
-        // DLQ, Historical, and Custom destinations always retain their key
-        // even when person processing is disabled via event restrictions.
-        if self.force_disable_person_processing
-            && matches!(
-                self.destination,
-                Destination::AnalyticsMain | Destination::Overflow
-            )
-        {
-            return None;
-        }
         match (
             self.event.options.cookieless_mode == Some(true),
             ctx.capture_internal,
@@ -203,7 +192,6 @@ impl SinkEvent for WrappedEvent {
                 let _ = write!(buf, "{}:{}", ctx.api_token, self.event.distinct_id);
             }
         }
-        Some(buf.as_str())
     }
 
     fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
@@ -880,9 +868,10 @@ mod tests {
         assert!(h.historical_migration.is_none());
     }
 
-    fn partition_key_str(ev: &WrappedEvent, ctx: &Context) -> Option<String> {
+    fn partition_key_str(ev: &WrappedEvent, ctx: &Context) -> String {
         let mut buf = String::new();
-        ev.partition_key(ctx, &mut buf).map(String::from)
+        ev.partition_key(ctx, &mut buf);
+        buf
     }
 
     #[test]
@@ -891,7 +880,7 @@ mod tests {
         let ev = ok_wrapped("$pageview", "user-42");
         assert_eq!(
             partition_key_str(&ev, &ctx),
-            Some(format!("{}:user-42", ctx.api_token))
+            format!("{}:user-42", ctx.api_token)
         );
     }
 
@@ -902,7 +891,7 @@ mod tests {
         ev.event.options.cookieless_mode = Some(true);
         assert_eq!(
             partition_key_str(&ev, &ctx),
-            Some(format!("{}:{}", ctx.api_token, ctx.client_ip))
+            format!("{}:{}", ctx.api_token, ctx.client_ip)
         );
     }
 
@@ -914,7 +903,7 @@ mod tests {
         ev.event.options.cookieless_mode = Some(true);
         assert_eq!(
             partition_key_str(&ev, &ctx),
-            Some(format!("{}:127.0.0.1", ctx.api_token))
+            format!("{}:127.0.0.1", ctx.api_token)
         );
     }
 
@@ -925,72 +914,16 @@ mod tests {
         assert_eq!(*ev.destination(), Destination::Overflow);
     }
 
-    // --- partition key + force_disable_person_processing × destination ---
-
     #[test]
-    fn partition_key_force_disable_analytics_main() {
+    fn partition_key_always_writes_regardless_of_force_disable() {
         let ctx = test_utils::test_context();
         let mut ev = ok_wrapped("$pageview", "user-42");
         ev.force_disable_person_processing = true;
         ev.destination = Destination::AnalyticsMain;
-        assert_eq!(partition_key_str(&ev, &ctx), None);
-    }
-
-    #[test]
-    fn partition_key_force_disable_overflow() {
-        let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.force_disable_person_processing = true;
-        ev.destination = Destination::Overflow;
-        assert_eq!(partition_key_str(&ev, &ctx), None);
-    }
-
-    #[test]
-    fn partition_key_force_disable_dlq() {
-        let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.force_disable_person_processing = true;
-        ev.destination = Destination::Dlq;
         assert_eq!(
             partition_key_str(&ev, &ctx),
-            Some(format!("{}:user-42", ctx.api_token))
-        );
-    }
-
-    #[test]
-    fn partition_key_force_disable_historical() {
-        let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.force_disable_person_processing = true;
-        ev.destination = Destination::AnalyticsHistorical;
-        assert_eq!(
-            partition_key_str(&ev, &ctx),
-            Some(format!("{}:user-42", ctx.api_token))
-        );
-    }
-
-    #[test]
-    fn partition_key_force_disable_custom() {
-        let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.force_disable_person_processing = true;
-        ev.destination = Destination::Custom("my_topic".into());
-        assert_eq!(
-            partition_key_str(&ev, &ctx),
-            Some(format!("{}:user-42", ctx.api_token))
-        );
-    }
-
-    #[test]
-    fn partition_key_force_disable_cookieless_dlq() {
-        let ctx = test_utils::test_context();
-        let mut ev = ok_wrapped("$pageview", "user-42");
-        ev.force_disable_person_processing = true;
-        ev.destination = Destination::Dlq;
-        ev.event.options.cookieless_mode = Some(true);
-        assert_eq!(
-            partition_key_str(&ev, &ctx),
-            Some(format!("{}:{}", ctx.api_token, ctx.client_ip))
+            format!("{}:user-42", ctx.api_token),
+            "partition_key() is unconditional; sink applies null-key policy"
         );
     }
 

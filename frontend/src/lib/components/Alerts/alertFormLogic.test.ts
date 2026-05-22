@@ -4,10 +4,12 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     AlertCalculationInterval,
@@ -227,5 +229,27 @@ describe('alertFormLogic', () => {
         expect(updateSpy).toHaveBeenCalledTimes(1)
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
+    })
+
+    it('blocks save with error toast for 15-minute interval without entitlement', async () => {
+        userLogic.mount()
+        upgradeModalLogic.mount()
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults(),
+            calculation_interval: AlertCalculationInterval.EVERY_15_MINUTES,
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(createSpy).not.toHaveBeenCalled()
+        expect(upgradeModalLogic.values.upgradeModalFeatureKey).toBeNull()
+        expect(errorToastSpy).toHaveBeenCalledWith(
+            '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
+        )
+        expect(successToastSpy).not.toHaveBeenCalled()
     })
 })

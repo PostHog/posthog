@@ -2591,6 +2591,8 @@ class ParserMode(StrEnum):
     CPP_WITH_RUST_SHADOW = "cpp_with_rust_shadow"
     RUST_WITH_CPP_SHADOW = "rust_with_cpp_shadow"
     RUST_ONLY = "rust_only"
+    RUST_PY_ONLY = "rust_py_only"
+    RUST_PY_WITH_CPP_SHADOW = "rust_py_with_cpp_shadow"
 
 
 class PersonsArgMaxVersion(StrEnum):
@@ -7316,7 +7318,9 @@ class HogQLQueryModifiers(BaseModel):
         description=(
             "HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the"
             " primary result and sample-compare against the other parser, reporting"
-            " divergences without failing the request."
+            " divergences without failing the request. The `rust_py_*` modes drive the"
+            " same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast`"
+            " dataclass instances directly via PyO3, skipping the JSON round-trip."
         ),
     )
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
