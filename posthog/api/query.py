@@ -91,6 +91,8 @@ _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
 def _infer_query_tags(query: BaseModel) -> dict[str, Product | ProductKey | Feature]:
     scene = getattr(getattr(query, "tags", None), "scene", None) or ""
     return _SCENE_TO_TAGS.get(scene, {})
+
+
 def _extract_validation_code(error: ValidationError) -> str:
     validation_codes = error.get_codes()
     if isinstance(validation_codes, list):
