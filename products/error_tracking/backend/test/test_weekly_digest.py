@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models import Team
 from posthog.models.organization import Organization
 from posthog.models.utils import uuid7
@@ -305,27 +307,9 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         assert result == {} or result["exception_count"] == 0
 
-    def test_auto_select_project_picks_busiest_for_engineering_role(self):
-        self.user.role_at_organization = "engineering"
-        self.user.save()
-
-        team_b = Team.objects.create(organization=self.organization, name="Team B")
-
-        team_exception_counts = {
-            self.team.pk: {"exception_count": 5, "ingestion_failure_count": 0, "prev_exception_count": 0},
-            team_b.pk: {"exception_count": 15, "ingestion_failure_count": 0, "prev_exception_count": 0},
-        }
-
-        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
-        self.user.refresh_from_db()
-
-        settings = self.user.notification_settings
-        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
-        assert str(self.team.pk) not in project_enabled
-        assert project_enabled[str(team_b.pk)] is True
-
-    def test_auto_select_project_picks_busiest_for_data_role(self):
-        self.user.role_at_organization = "data"
+    @parameterized.expand(["engineering", "data", "founder"])
+    def test_auto_select_project_enrolls_eligible_roles(self, role):
+        self.user.role_at_organization = role
         self.user.save()
 
         team_exception_counts = {
@@ -339,53 +323,9 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
         assert project_enabled[str(self.team.pk)] is True
 
-    def test_auto_select_project_picks_busiest_for_founder_role(self):
-        self.user.role_at_organization = "founder"
-        self.user.save()
-
-        team_exception_counts = {
-            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
-        }
-
-        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
-        self.user.refresh_from_db()
-
-        settings = self.user.notification_settings
-        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
-        assert project_enabled[str(self.team.pk)] is True
-
-    def test_auto_select_project_sets_empty_for_marketing_role(self):
-        self.user.role_at_organization = "marketing"
-        self.user.save()
-
-        team_exception_counts = {
-            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
-        }
-
-        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
-        self.user.refresh_from_db()
-
-        settings = self.user.notification_settings
-        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
-        assert project_enabled == {}
-
-    def test_auto_select_project_sets_empty_for_sales_role(self):
-        self.user.role_at_organization = "sales"
-        self.user.save()
-
-        team_exception_counts = {
-            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
-        }
-
-        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
-        self.user.refresh_from_db()
-
-        settings = self.user.notification_settings
-        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
-        assert project_enabled == {}
-
-    def test_auto_select_project_sets_empty_for_none_role(self):
-        self.user.role_at_organization = None
+    @parameterized.expand(["marketing", "sales", "leadership", "product", "other", None])
+    def test_auto_select_project_sets_empty_for_ineligible_roles(self, role):
+        self.user.role_at_organization = role
         self.user.save()
 
         team_exception_counts = {
