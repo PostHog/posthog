@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.temporal.mcp_analytics.intent_clustering.constants import CHILD_WORKFLOW_ID_PREFIX
+
 from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -208,7 +210,7 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert call_args.args[0] == "mcpa-intent-clustering"  # WORKFLOW_NAME
         assert call_args.args[1].team_id == self.team.id
         assert call_args.args[1].user_id == self.user.id
-        assert call_args.kwargs["id"].startswith("mcpa-intent-clustering-team-")
+        assert call_args.kwargs["id"].startswith(f"{CHILD_WORKFLOW_ID_PREFIX}-")
 
     def test_feedback_list_is_team_scoped(self) -> None:
         MCPAnalyticsSubmission.objects.create(

@@ -84,7 +84,7 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
 
     from django.conf import settings
 
-    from posthog.temporal.common.client import sync_connect
+    from posthog.temporal.common.client import async_connect
     from posthog.temporal.mcp_analytics.intent_clustering.constants import CHILD_WORKFLOW_ID_PREFIX, WORKFLOW_NAME
     from posthog.temporal.mcp_analytics.intent_clustering.models import IntentClusteringWorkflowInputs
 
@@ -102,13 +102,20 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
         },
     )
 
-    client = sync_connect()
     workflow_id = f"{CHILD_WORKFLOW_ID_PREFIX}-{team.id}-adhoc-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}"
-    asyncio.run(
-        client.start_workflow(
+
+    # Create + use the Temporal client inside one event loop. sync_connect()
+    # would build the client in asgiref's managed loop and then asyncio.run()
+    # would call start_workflow in a different loop; the temporalio Rust
+    # bridge is currently loop-agnostic but the inconsistency is fragile.
+    # Matches the cluster_mcp_intents management command pattern.
+    async def _start() -> None:
+        client = await async_connect()
+        await client.start_workflow(
             WORKFLOW_NAME,
             IntentClusteringWorkflowInputs(team_id=team.id, user_id=user.id if user else None),
             id=workflow_id,
             task_queue=settings.MCPA_TASK_QUEUE,
         )
-    )
+
+    asyncio.run(_start())
