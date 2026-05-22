@@ -6,10 +6,9 @@ import {
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
-    PostHogPermissionError,
     PostHogValidationError,
-    findRecoverableApiError,
     findPostHogPermissionError,
+    findRecoverableApiError,
 } from '@/lib/errors'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
@@ -213,4 +212,3 @@ function classifyToolError(error: unknown, toolName: string): void {
         }
     }
 }
-

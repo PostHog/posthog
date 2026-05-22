@@ -20,15 +20,14 @@ import type {
 
 import type { RequestProperties } from '@/lib/request-properties'
 
+import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
 import { getEnv } from './constants'
-import { initDurationSeconds, initTotal } from './metrics'
-import { ToolCatalog } from './tool-catalog'
-
-import { trackInitEvent } from './analytics'
 import { InstructionsBuilder } from './instructions'
+import { initDurationSeconds, initTotal } from './metrics'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
+import { ToolCatalog } from './tool-catalog'
 import { ToolExecutor } from './tool-executor'
 
 export { McpDispatcher }
@@ -69,11 +68,20 @@ const Method = {
 const TRACKED_METHODS: Set<string> = new Set([Method.Initialize, Method.ToolsList, Method.ToolsCall])
 
 function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
-    return typeof msg === 'object' && msg !== null && 'id' in msg && typeof (msg as { method?: unknown }).method === 'string'
+    return (
+        typeof msg === 'object' &&
+        msg !== null &&
+        'id' in msg &&
+        typeof (msg as { method?: unknown }).method === 'string'
+    )
 }
 
 type JsonRpcResultResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | string; result: unknown }
-type JsonRpcErrorResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | string; error: { code: number; message: string } }
+type JsonRpcErrorResponse = {
+    jsonrpc: typeof JSONRPC_VERSION
+    id: number | string
+    error: { code: number; message: string }
+}
 type JsonRpcResponse = JsonRpcResultResponse | JsonRpcErrorResponse
 
 function jsonRpcResult(id: number | string, result: unknown): JsonRpcResultResponse {
@@ -85,10 +93,10 @@ function jsonRpcMethodError(id: number | string, code: number, message: string):
 }
 
 function jsonRpcErrorResponse(id: unknown, code: number, message: string): Response {
-    return new Response(
-        JSON.stringify({ jsonrpc: JSONRPC_VERSION, id: id ?? null, error: { code, message } }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-    )
+    return new Response(JSON.stringify({ jsonrpc: JSONRPC_VERSION, id: id ?? null, error: { code, message } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+    })
 }
 
 class McpDispatcher {
