@@ -107,6 +107,46 @@ class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin):
         response = self.client.post(self._generate_links_url(str(topic.id)))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def _generate_links_csv_url(self, topic_id: str) -> str:
+        return f"/api/environments/{self.team.id}/user_interview_topics/{topic_id}/generate_links_csv/"
+
+    def test_generate_links_csv_returns_csv_with_expected_columns_and_rows(self):
+        topic = self._create_topic()
+
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response["Content-Type"], "text/csv")
+        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertIn(".csv", response["Content-Disposition"])
+
+        body = response.content.decode("utf-8")
+        lines = body.strip().splitlines()
+        # Header + one row per targeted interviewee (3 in the default _create_topic).
+        self.assertEqual(len(lines), 4)
+        self.assertEqual(lines[0], "interviewee_identifier,interviewee_email,user_name,interview_url")
+        # Email column is empty for distinct-id-only rows; URL column always populated.
+        for row in lines[1:]:
+            cells = row.split(",")
+            self.assertEqual(len(cells), 4)
+            self.assertIn("/interview/", cells[3])
+
+    def test_generate_links_csv_rejects_topic_with_no_identifiers(self):
+        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_generate_links_csv_is_idempotent_with_existing_links(self):
+        topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
+        # Materialize via the JSON endpoint first; the CSV endpoint must return the same access token.
+        json_body = self.client.post(self._generate_links_url(str(topic.id))).json()
+        expected_url = json_body[0]["interview_url"]
+
+        csv_response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(csv_response.status_code, status.HTTP_200_OK)
+        self.assertIn(expected_url, csv_response.content.decode("utf-8"))
+        self.assertEqual(SharingConfiguration.objects.filter(interviewee_context__topic=topic).count(), 1)
+
 
 class TestUserInterviewTopicCreate(_FeatureFlagEnabledMixin):
     def _url(self) -> str:

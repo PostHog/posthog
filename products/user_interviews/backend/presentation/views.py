@@ -9,12 +9,15 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files import File
 from django.db import models, transaction
 from django.db.models import QuerySet
+from django.http import HttpResponse
 from django.utils import timezone
+from django.utils.text import slugify
 
 import structlog
 import posthoganalytics
 import posthoganalytics.ai.openai
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
@@ -22,6 +25,7 @@ from rest_framework import filters, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.request import Request
+from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import EmbeddingModelName, ProductKey
 
@@ -725,6 +729,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "patch",
         "destroy",
         "generate_links",
+        "generate_links_csv",
         "send_invites",
         "add_interviewee",
         "remove_interviewee",
@@ -773,6 +778,62 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for r in results
         ]
         return response.Response(InterviewLinkSerializer(payload, many=True).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            (200, "text/csv"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description=(
+                    "CSV with columns: interviewee_identifier, interviewee_email, user_name, interview_url. "
+                    "One row per targeted interviewee."
+                ),
+            )
+        },
+        description=(
+            "Same materialization as generate_links, returned as a downloadable CSV. "
+            "Intended for users who want to mail-merge the per-person interview links "
+            "into their own email tooling."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="generate_links_csv",
+        renderer_classes=[csvrenderers.CSVRenderer],
+    )
+    def generate_links_csv(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        topic = self.get_object()
+        results = _materialize_links_for_topic(topic=topic, team=self.team, created_by=request.user)
+
+        if not results:
+            return response.Response(
+                {
+                    "error": (
+                        "Topic has no interviewee_emails or interviewee_distinct_ids set. "
+                        "Add them before generating links."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        rows = [
+            {
+                "interviewee_identifier": r["identifier"],
+                "interviewee_email": r["email"] or "",
+                "user_name": r["user_name"],
+                "interview_url": r["interview_url"],
+            }
+            for r in results
+        ]
+        renderer = csvrenderers.CSVRenderer()
+        renderer.header = ["interviewee_identifier", "interviewee_email", "user_name", "interview_url"]
+        body = renderer.render(rows)
+
+        filename = f"{slugify(topic.topic or 'user-interview')}-links.csv"
+        http_response = HttpResponse(body, content_type="text/csv")
+        http_response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return http_response
 
     @extend_schema(
         request=SendInvitesRequestSerializer,
