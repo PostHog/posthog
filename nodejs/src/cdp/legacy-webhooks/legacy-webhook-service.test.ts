@@ -206,6 +206,53 @@ describe('LegacyWebhookService', () => {
                 properties: { name: 'Test Project' },
             })
         })
+
+        it('should process events without group properties when batch enrichment fails', async () => {
+            service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
+            hub.groupTypeManager.fetchGroupTypesForProjects = jest.fn().mockRejectedValue(new Error('gRPC unavailable'))
+
+            const processEventSpy = jest.spyOn(service, 'processEvent').mockResolvedValue(undefined)
+
+            const messages: Message[] = [
+                createKafkaMessage(
+                    createIncomingEvent(team.id, {
+                        event: '$pageview',
+                        properties: JSON.stringify({ $groups: { project: 'test-project-id' } }),
+                    })
+                ),
+            ]
+
+            const result = await service.processBatch(messages)
+            await result.backgroundTask
+
+            expect(processEventSpy).toHaveBeenCalledTimes(1)
+            const processedEvent = processEventSpy.mock.calls[0][0]
+            expect(processedEvent.groups).toBeUndefined()
+        })
+
+        it('should process all events when fetchGroupsByKeys throws', async () => {
+            service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
+            hub.groupTypeManager.fetchGroupTypesForProjects = jest.fn().mockResolvedValue({
+                [team.id]: { project: 0 },
+            })
+            hub.groupRepository.fetchGroupsByKeys = jest.fn().mockRejectedValue(new Error('connection reset'))
+
+            const processEventSpy = jest.spyOn(service, 'processEvent').mockResolvedValue(undefined)
+
+            const messages: Message[] = [
+                createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' })),
+                createKafkaMessage(createIncomingEvent(team.id, { event: '$autocapture' })),
+            ]
+
+            const result = await service.processBatch(messages)
+            await result.backgroundTask
+
+            expect(processEventSpy).toHaveBeenCalledTimes(2)
+            expect(processEventSpy.mock.calls[0][0].groups).toBeUndefined()
+            expect(processEventSpy.mock.calls[1][0].groups).toBeUndefined()
+        })
     })
 
     describe('processEvent', () => {

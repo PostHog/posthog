@@ -121,12 +121,18 @@ export class LegacyWebhookService {
             })
         )
 
-        const events = await addGroupPropertiesToPostIngestionEventsBatch(
-            eventsWithoutGroups,
-            this.groupTypeManager,
-            this.teamManager,
-            this.groupRepository
-        )
+        let events: PostIngestionEvent[]
+        try {
+            events = await addGroupPropertiesToPostIngestionEventsBatch(
+                eventsWithoutGroups,
+                this.groupTypeManager,
+                this.teamManager,
+                this.groupRepository
+            )
+        } catch (e) {
+            logger.error('Batch group enrichment failed, processing events without group properties', e)
+            events = eventsWithoutGroups
+        }
 
         return { backgroundTask: Promise.all(events.map((event) => this.processEvent(event))) }
     }
