@@ -600,7 +600,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
                 # Country (element 1) must be present; region/city (element 2) may be NULL when
                 # GeoIP can't resolve the subdivision/city — those rows surface in the UI as
-                # "(unknown region/city)" so totals stay consistent with the parent Country view.
+                # "(not set)" so totals stay consistent with the parent Country view.
                 return parse_expr("tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL")
             case WebStatsBreakdown.VIEWPORT:
                 return parse_expr(
@@ -608,7 +608,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                     "tupleElement(`context.columns.breakdown_value`, 1) != 0 AND tupleElement(`context.columns.breakdown_value`, 2) != 0"
                 )
             case (
-                # Breakdowns where missing data is real and worth surfacing as "(unknown ...)"
+                # Breakdowns where missing data is real and worth surfacing as "(not set)"
                 # rather than silently dropped — keeps totals consistent with the overview tile
                 # and parent breakdowns. Path-like breakdowns (PAGE/INITIAL_PAGE/EXIT_*/...) still
                 # drop NULLs via the default branch since a pageview without a path is junk.
