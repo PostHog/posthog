@@ -108,8 +108,8 @@ describe('LineChart', () => {
                     config={{ xAxisLabel: 'Signup date', yAxisLabel: 'Unique users' }}
                 />
             )
-            expect(chart.xAxisTitle()).toBe('Signup date')
-            expect(chart.yAxisTitle()).toBe('Unique users')
+            expect(chart.xAxisLabel()).toBe('Signup date')
+            expect(chart.yAxisLabel()).toBe('Unique users')
         })
 
         it('includes custom axis titles in the canvas accessible label', () => {
@@ -136,8 +136,8 @@ describe('LineChart', () => {
                 />
             )
 
-            expect(chart.xAxisTitle()).toBeNull()
-            expect(chart.yAxisTitle()).toBeNull()
+            expect(chart.xAxisLabel()).toBeNull()
+            expect(chart.yAxisLabel()).toBeNull()
             expect(getByRole('img').getAttribute('aria-label')).toBe('Chart with 2 data series')
         })
 
@@ -148,8 +148,8 @@ describe('LineChart', () => {
                 <LineChart series={SERIES} labels={LABELS} theme={THEME} config={{ xAxisLabel, yAxisLabel }} />
             )
 
-            const xTitle = chart.element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-x"]')
-            const yTitle = chart.element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
+            const xTitle = chart.xAxisLabelElement()
+            const yTitle = chart.yAxisLabelElement()
             expect(xTitle?.textContent).toMatch(/\u2026$/)
             expect(yTitle?.textContent).toMatch(/\u2026$/)
             expect(xTitle?.textContent).not.toBe(xAxisLabel)
@@ -168,8 +168,8 @@ describe('LineChart', () => {
                     config={{ xAxisLabel: 'Signup date', yAxisLabel: 'Unique users', hideXAxis: true }}
                 />
             )
-            expect(chart.xAxisTitle()).toBeNull()
-            expect(chart.yAxisTitle()).toBe('Unique users')
+            expect(chart.xAxisLabel()).toBeNull()
+            expect(chart.yAxisLabel()).toBe('Unique users')
         })
 
         it('renders a right axis when a series sets yAxisId: right', () => {

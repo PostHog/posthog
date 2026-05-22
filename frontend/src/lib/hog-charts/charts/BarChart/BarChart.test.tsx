@@ -166,8 +166,8 @@ describe('BarChart', () => {
                     }}
                 />
             )
-            expect(chart.xAxisTitle()).toBe('Total events')
-            expect(chart.yAxisTitle()).toBe('Series')
+            expect(chart.xAxisLabel()).toBe('Total events')
+            expect(chart.yAxisLabel()).toBe('Series')
         })
 
         it('renders without crashing in yScaleType log with positive data', () => {
