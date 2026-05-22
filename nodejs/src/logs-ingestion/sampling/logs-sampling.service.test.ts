@@ -132,6 +132,87 @@ describe('LogsSamplingService', () => {
         expect(result.bytesDroppedByRuleId.get('rl-1')).toBe(750)
     })
 
+    it('KB-mode admits records while accumulated bytes fit the budget', async () => {
+        const ruleSet = compileRuleSet([
+            {
+                id: 'rl-kb',
+                rule_type: 'rate_limit',
+                scope_service: 'api',
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { kb_per_second: 1, burst_kb: 2 },
+            },
+        ])
+        // 3 rows of 300, 400, 500 bytes. Budget = 1024 bytes (1 KB).
+        // Walk: 300 ≤ 1024 (admit), 300+400 ≤ 1024 (admit), 700+500 > 1024 (drop).
+        const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', [
+            baseLog('a', 'api', 300),
+            baseLog('b', 'api', 400),
+            baseLog('c', 'api', 500),
+        ])
+
+        const mockRedis: RedisV2 = {
+            useClient: jest.fn(() => Promise.resolve(null)),
+            usePipeline: jest.fn((_opts, cb) => {
+                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                cb(pipeline)
+                const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
+                return Promise.resolve(pipelineResult)
+            }),
+        }
+
+        const service = new LogsSamplingService(mockRedis, 60)
+        const result = await service.processBuffer(buffer, logsSettings, ruleSet, 99)
+
+        expect(result.recordsDropped).toBe(1)
+        expect(result.recordsDroppedByRuleId.get('rl-kb')).toBe(1)
+        expect(result.bytesDropped).toBe(500)
+        expect(result.bytesDroppedByRuleId.get('rl-kb')).toBe(500)
+
+        const [, , kept] = await decodeLogRecords(result.value)
+        expect(kept).toHaveLength(2)
+    })
+
+    it('KB-mode treats null bytes_uncompressed as zero-cost (in-flight producer rollout)', async () => {
+        const ruleSet = compileRuleSet([
+            {
+                id: 'rl-kb',
+                rule_type: 'rate_limit',
+                scope_service: 'api',
+                scope_path_pattern: null,
+                scope_attribute_filters: [],
+                config: { kb_per_second: 1, burst_kb: 2 },
+            },
+        ])
+        // Rows: 200, null (old-producer message), 1000. Budget = 1024.
+        // Walk: 200 (admit), 200+0 = 200 (admit), 200+1000 > 1024 (drop).
+        const buffer = await encodeLogRecords(LOG_RECORD_AVRO, 'zstandard', [
+            baseLog('a', 'api', 200),
+            baseLog('b', 'api', null),
+            baseLog('c', 'api', 1000),
+        ])
+
+        const mockRedis: RedisV2 = {
+            useClient: jest.fn(() => Promise.resolve(null)),
+            usePipeline: jest.fn((_opts, cb) => {
+                const pipeline = { checkRateLimitV2: jest.fn() } as unknown as RedisClientPipeline
+                cb(pipeline)
+                const pipelineResult: [Error | null, any][] = [[null, [1024, 0] as const]]
+                return Promise.resolve(pipelineResult)
+            }),
+        }
+
+        const service = new LogsSamplingService(mockRedis, 60)
+        const result = await service.processBuffer(buffer, logsSettings, ruleSet, 99)
+
+        expect(result.recordsDropped).toBe(1)
+        expect(result.bytesDropped).toBe(1000)
+        expect(result.bytesDroppedByRuleId.get('rl-kb')).toBe(1000)
+
+        const [, , kept] = await decodeLogRecords(result.value)
+        expect(kept).toHaveLength(2)
+    })
+
     it('fail-open keeps all rate_limit lines when Redis pipeline returns null', async () => {
         const ruleSet = compileRuleSet([
             {

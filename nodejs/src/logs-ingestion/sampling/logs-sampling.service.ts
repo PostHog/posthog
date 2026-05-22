@@ -116,7 +116,7 @@ export class LogsSamplingService {
                     pendingByRule.set(c.ruleId, list)
                 }
             }
-            const rateKeep = await this.applyRateLimits(teamId, ruleSet, pendingByRule)
+            const rateKeep = await this.applyRateLimits(teamId, ruleSet, pendingByRule, records)
 
             for (let i = 0; i < records.length; i++) {
                 const record = records[i]!
@@ -196,13 +196,16 @@ export class LogsSamplingService {
 
     /**
      * Maps a recordIndex -> keep (true) or drop (false) decision per rate_limit rule.
-     * Each rule's pending lines share one Lua call; lines are admitted up to the
-     * pre-batch token budget.
+     * Each rule's pending lines share one Lua call; lines are admitted while their
+     * accumulated cost stays within the pre-batch token budget. Cost is one token
+     * per record (`costUnit: 'records'`) or each record's `bytes_uncompressed`
+     * (`costUnit: 'bytes'`); rows missing the field contribute 0.
      */
     private async applyRateLimits(
         teamId: number,
         ruleSet: CompiledRuleSet,
-        pendingByRule: RateLimitPendingByRule
+        pendingByRule: RateLimitPendingByRule,
+        records: LogRecord[]
     ): Promise<Map<number, boolean>> {
         const keepByIndex = new Map<number, boolean>()
         if (pendingByRule.size === 0) {
@@ -210,7 +213,7 @@ export class LogsSamplingService {
         }
 
         const ruleById = new Map(ruleSet.rules.map((r) => [r.id, r]))
-        type Entry = { indices: number[]; req: KeyedRateLimitRequest }
+        type Entry = { indices: number[]; costs: number[]; req: KeyedRateLimitRequest }
         const entries: Entry[] = []
 
         for (const [ruleId, indices] of pendingByRule) {
@@ -218,11 +221,15 @@ export class LogsSamplingService {
             if (!rl || indices.length === 0) {
                 continue
             }
+            const costs =
+                rl.costUnit === 'bytes' ? indices.map((idx) => recordBytes(records[idx]!)) : indices.map(() => 1)
+            const totalCost = costs.reduce((a, b) => a + b, 0)
             entries.push({
                 indices,
+                costs,
                 req: {
                     id: `${teamId}/${ruleId}`,
-                    cost: indices.length,
+                    cost: totalCost,
                     bucketSize: rl.poolMax,
                     refillRate: rl.refillPerSecond,
                 },
@@ -241,12 +248,17 @@ export class LogsSamplingService {
         const results = await this.rateLimiter.rateLimitMany(entries.map((e) => e.req))
 
         for (let i = 0; i < entries.length; i++) {
-            const { indices } = entries[i]!
+            const { indices, costs } = entries[i]!
             const tokensBefore = results[i]?.[1].tokensBefore ?? 0
             const budget = Math.max(0, Math.floor(tokensBefore))
-            const toAdmit = Math.min(indices.length, budget)
+            let spent = 0
             for (let j = 0; j < indices.length; j++) {
-                keepByIndex.set(indices[j]!, j < toAdmit)
+                const next = spent + costs[j]!
+                const admit = next <= budget
+                keepByIndex.set(indices[j]!, admit)
+                if (admit) {
+                    spent = next
+                }
             }
         }
 
