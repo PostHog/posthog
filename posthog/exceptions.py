@@ -37,7 +37,7 @@ class EnterpriseFeatureException(APIException):
             detail=(
                 f"{feature.capitalize().replace('_', ' ') if feature else 'This feature'} is part of the premium PostHog offering. "
                 + (
-                    "To use it, subscribe to PostHog Cloud with a generous free tier."
+                    "To use it, subscribe to PostHog Cloud with a generous free tier. "
                     if is_cloud()
                     else "Self-hosted licenses are no longer available for purchase. Please contact sales@posthog.com to discuss options."
                 )
