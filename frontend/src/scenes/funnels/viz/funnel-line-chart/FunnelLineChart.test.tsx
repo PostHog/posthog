@@ -7,6 +7,8 @@ import { ensureJsdom, waitForHogChartTooltip } from 'lib/hog-charts/testing'
 import { FUNNEL_CONVERSION_SERIES_LABEL } from 'scenes/funnels/viz/shared/funnelSeriesMeta'
 
 import { buildFunnelsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
+import { buildAnnotation } from '~/test/insight-testing/test-data'
+import { AnnotationScope } from '~/types'
 
 ensureJsdom()
 
@@ -140,6 +142,48 @@ describe('FunnelLineChart', () => {
             await waitFor(() => {
                 expect(getHogChart().valueLabels()).toHaveLength(5)
             })
+        })
+    })
+
+    describe('annotations', () => {
+        it('renders an annotation badge when an annotation exists', async () => {
+            renderInsight({
+                query: buildFunnelsQuery(),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+                mocks: {
+                    annotations: [
+                        buildAnnotation({
+                            scope: AnnotationScope.Project,
+                            content: 'Hedgehog spotted',
+                            date_marker: '2024-06-12T12:00:00Z',
+                        }),
+                    ],
+                },
+            })
+
+            await waitFor(() => {
+                expect(document.querySelectorAll('.AnnotationsBadge').length).toBeGreaterThan(0)
+            })
+        })
+
+        it('does not render annotations when inSharedMode is true', async () => {
+            renderInsight({
+                query: buildFunnelsQuery(),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+                inSharedMode: true,
+                mocks: {
+                    annotations: [
+                        buildAnnotation({
+                            scope: AnnotationScope.Project,
+                            content: 'Hidden in shared mode',
+                            date_marker: '2024-06-12T12:00:00Z',
+                        }),
+                    ],
+                },
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
         })
     })
 })

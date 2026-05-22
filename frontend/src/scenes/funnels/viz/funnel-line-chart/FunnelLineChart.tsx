@@ -9,6 +9,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import { AnnotationsLayer } from 'scenes/trends/viz/shared/AnnotationsLayer'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -26,7 +27,7 @@ import { FunnelLineTooltip } from './FunnelLineTooltip'
 import { type FunnelLineChartClickDeps, handleFunnelLineChartClick } from './handleFunnelLineChartClick'
 
 const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
-const EMPTY_LABELS: string[] = []
+const EMPTY_STRINGS: string[] = []
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
     posthog.captureException(error, {
@@ -49,11 +50,12 @@ function resolveGroupTypeLabel(
 }
 
 export function FunnelLineChart({
+    inSharedMode,
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
 
     const {
         indexedSteps,
@@ -117,7 +119,8 @@ export function FunnelLineChart({
     }
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)
-    const labels = steps[0]?.labels ?? EMPTY_LABELS
+    const labels = steps[0]?.labels ?? EMPTY_STRINGS
+    const annotationDates = steps[0]?.days ?? EMPTY_STRINGS
 
     const clickDeps: FunnelLineChartClickDeps = {
         hasPersonsModal: showPersonsModal,
@@ -171,6 +174,8 @@ export function FunnelLineChart({
             className="LineGraph"
             dataAttr="trend-line-graph-funnel"
             onError={handleChartError}
-        />
+        >
+            {!inSharedMode && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationDates} />}
+        </TimeSeriesLineChart>
     )
 }

@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { mswDecorator } from '~/mocks/browser'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -23,6 +24,37 @@ const meta: Meta = {
         mockDate: '2022-03-12',
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/annotations/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 1,
+                            content: 'Funnel optimization shipped',
+                            date_marker: '2022-03-10T12:00:00Z',
+                            creation_type: 'USR',
+                            dashboard_item: null,
+                            created_by: {
+                                id: 1,
+                                uuid: '0188cbcf-2391-0000-1868-14fb987285c5',
+                                distinct_id: 'storybook-user',
+                                first_name: 'Story',
+                                email: 'story@posthog.com',
+                            },
+                            created_at: '2022-03-10T12:00:00Z',
+                            updated_at: '2022-03-10T12:00:00Z',
+                            deleted: false,
+                            scope: 'project',
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
 }
 export default meta
 
