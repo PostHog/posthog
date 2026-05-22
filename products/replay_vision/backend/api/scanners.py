@@ -34,7 +34,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
-from products.replay_vision.backend.queries import estimate_lens_session_volume
+from products.replay_vision.backend.queries import estimate_scanner_session_volume
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     MAX_SESSION_ID_LENGTH,
@@ -265,14 +265,14 @@ class ObserveResponseSerializer(serializers.Serializer):
 
 
 class EstimateRequestSerializer(serializers.Serializer):
-    """Body of POST /vision/lenses/estimate/ — a proposed, unsaved lens config."""
+    """Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config."""
 
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
         serializers.JSONField(
             required=False,
             help_text=(
                 "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
-                "ignored — the lookback window is controlled by `window_days`. Omit to estimate "
+                "ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate "
                 "against all recordings."
             ),
         )
@@ -284,13 +284,6 @@ class EstimateRequestSerializer(serializers.Serializer):
         max_value=1.0,
         help_text="0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
     )
-    window_days = serializers.IntegerField(
-        required=False,
-        default=7,
-        min_value=1,
-        max_value=90,
-        help_text="Lookback window, in days, for counting matching sessions. Defaults to 7.",
-    )
 
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -301,22 +294,18 @@ class EstimateRequestSerializer(serializers.Serializer):
 
 
 class EstimateResponseSerializer(serializers.Serializer):
-    """Forward-looking observation-volume estimate for a proposed lens. Pricing-agnostic."""
+    """Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic."""
 
     matched_sessions_in_window = serializers.IntegerField(
-        help_text="Distinct sessions matching the query within the lookback window, before sampling.",
+        help_text="Distinct sessions matching the query within the 30-day lookback, before sampling.",
     )
     window_days = serializers.IntegerField(
         help_text=(
-            "Lookback window the estimate is based on. Smaller than the requested window when the "
-            "team has fewer days of recordings."
+            "Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings."
         ),
     )
-    estimated_sessions_per_day = serializers.FloatField(
-        help_text="matched_sessions_in_window divided by window_days.",
-    )
     estimated_observations_per_month = serializers.IntegerField(
-        help_text="Projected monthly observations: estimated_sessions_per_day * 30 * sampling_rate.",
+        help_text="Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate.",
     )
     sampling_rate = serializers.FloatField(
         help_text="Sampling rate applied to the projection. Echoed from the request.",
@@ -410,18 +399,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         required_scopes=["replay_scanner:read"],
     )
     def estimate(self, request: Request, **kwargs: Any) -> Response:
-        """Estimate the observation volume a proposed lens would generate, for the pre-save cost preview."""
+        """Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview."""
         body = EstimateRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         sampling_rate: float = body.validated_data["sampling_rate"]
-        window_days: int = body.validated_data["window_days"]
 
         # validate_query already validated this; the empty-dict default needs `kind` to parse.
         query_dict: dict[str, Any] = dict(body.validated_data.get("query") or {})
         query_dict.setdefault("kind", "RecordingsQuery")
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
-        estimate = estimate_lens_session_volume(team=self.team, query=recordings_query, window_days=window_days)
+        estimate = estimate_scanner_session_volume(team=self.team, query=recordings_query)
         sessions_per_day = estimate.matched_sessions / estimate.effective_window_days
         observations_per_month = round(sessions_per_day * 30 * sampling_rate)
 
@@ -430,7 +418,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {
                     "matched_sessions_in_window": estimate.matched_sessions,
                     "window_days": estimate.effective_window_days,
-                    "estimated_sessions_per_day": sessions_per_day,
                     "estimated_observations_per_month": observations_per_month,
                     "sampling_rate": sampling_rate,
                 }

@@ -1,3 +1,6 @@
-from products.replay_vision.backend.queries.lens_volume_estimate import LensVolumeEstimate, estimate_lens_session_volume
+from products.replay_vision.backend.queries.scanner_volume_estimate import (
+    ScannerVolumeEstimate,
+    estimate_scanner_session_volume,
+)
 
-__all__ = ["LensVolumeEstimate", "estimate_lens_session_volume"]
+__all__ = ["ScannerVolumeEstimate", "estimate_scanner_session_volume"]

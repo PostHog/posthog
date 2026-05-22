@@ -15032,10 +15032,10 @@ export namespace Schemas {
     }
 
     /**
-     * Body of POST /vision/lenses/estimate/ — a proposed, unsaved lens config.
+     * Body of POST /vision/lenses/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
-      /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the lookback window is controlled by `window_days`. Omit to estimate against all recordings. */
+      /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings. */
       query?: unknown;
       /**
          * 0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).
@@ -15043,25 +15043,17 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
-      /**
-         * Lookback window, in days, for counting matching sessions. Defaults to 7.
-         * @minimum 1
-         * @maximum 90
-         */
-      window_days?: number;
     }
 
     /**
-     * Forward-looking observation-volume estimate for a proposed lens. Pricing-agnostic.
+     * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
      */
     export interface EstimateResponse {
-      /** Distinct sessions matching the query within the lookback window, before sampling. */
+      /** Distinct sessions matching the query within the 30-day lookback, before sampling. */
       matched_sessions_in_window: number;
-      /** Lookback window the estimate is based on. Smaller than the requested window when the team has fewer days of recordings. */
+      /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
       window_days: number;
-      /** matched_sessions_in_window divided by window_days. */
-      estimated_sessions_per_day: number;
-      /** Projected monthly observations: estimated_sessions_per_day * 30 * sampling_rate. */
+      /** Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
       /** Sampling rate applied to the projection. Echoed from the request. */
       sampling_rate: number;

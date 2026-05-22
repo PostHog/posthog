@@ -13,22 +13,25 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
 # A pathological filter must not be able to hang the estimate request.
 _ESTIMATE_MAX_EXECUTION_TIME_SECONDS = 30
 
+# The estimate always projects a calendar month from a fixed 30-day lookback.
+ESTIMATE_WINDOW_DAYS = 30
+
 
 @dataclass(frozen=True)
-class LensVolumeEstimate:
+class ScannerVolumeEstimate:
     matched_sessions: int
-    # May be smaller than requested when the team has fewer days of recordings than the window.
+    # May be smaller than ESTIMATE_WINDOW_DAYS when the team has fewer days of recordings.
     effective_window_days: int
 
 
-def estimate_lens_session_volume(*, team: Team, query: RecordingsQuery, window_days: int) -> LensVolumeEstimate:
-    """Count sessions matching `query` over the last `window_days`, for the lens cost preview.
+def estimate_scanner_session_volume(*, team: Team, query: RecordingsQuery) -> ScannerVolumeEstimate:
+    """Count sessions matching `query` over the last 30 days, for the scanner cost preview.
 
     Reuses `SessionRecordingListFromQuery`'s filter compilation verbatim and wraps it in a
     COUNT, so the estimate and the real recordings list agree on what "matches".
     """
     windowed = query.model_copy(deep=True)
-    windowed.date_from = f"-{window_days}d"
+    windowed.date_from = f"-{ESTIMATE_WINDOW_DAYS}d"
     windowed.date_to = None
 
     inner = SessionRecordingListFromQuery(team=team, query=windowed).get_query()
@@ -42,19 +45,19 @@ def estimate_lens_session_volume(*, team: Team, query: RecordingsQuery, window_d
     response = execute_hogql_query(
         query=count_query,
         team=team,
-        query_type="ReplayVisionLensEstimateQuery",
+        query_type="ReplayVisionScannerEstimateQuery",
         settings=HogQLGlobalSettings(max_execution_time=_ESTIMATE_MAX_EXECUTION_TIME_SECONDS),
     )
     results = response.results or []
     matched = int(results[0][0]) if results else 0
 
-    return LensVolumeEstimate(
+    return ScannerVolumeEstimate(
         matched_sessions=matched,
-        effective_window_days=_effective_window_days(team=team, requested=window_days),
+        effective_window_days=_effective_window_days(team=team),
     )
 
 
-def _effective_window_days(*, team: Team, requested: int) -> int:
+def _effective_window_days(*, team: Team) -> int:
     """Clamp the divisor to the team's actual data span so a new team isn't under-estimated."""
     earliest_query = ast.SelectQuery(
         select=[ast.Call(name="min", args=[ast.Field(chain=["min_first_timestamp"])])],
@@ -63,15 +66,15 @@ def _effective_window_days(*, team: Team, requested: int) -> int:
     response = execute_hogql_query(
         query=earliest_query,
         team=team,
-        query_type="ReplayVisionLensEstimateEarliestQuery",
+        query_type="ReplayVisionScannerEstimateEarliestQuery",
         settings=HogQLGlobalSettings(max_execution_time=_ESTIMATE_MAX_EXECUTION_TIME_SECONDS),
     )
     results = response.results or []
     earliest = results[0][0] if results else None
     if not isinstance(earliest, dt.datetime):
-        return requested
+        return ESTIMATE_WINDOW_DAYS
 
     if earliest.tzinfo is None:
         earliest = earliest.replace(tzinfo=dt.UTC)
     days_of_data = (dt.datetime.now(dt.UTC) - earliest).days + 1
-    return max(1, min(requested, days_of_data))
+    return max(1, min(ESTIMATE_WINDOW_DAYS, days_of_data))
