@@ -99,6 +99,29 @@ describe('RedisCache', () => {
         })
     })
 
+    describe('setMany', () => {
+        it('should set multiple keys in parallel', async () => {
+            await cache.setMany({ region: 'us', projectId: '123' })
+
+            expect(await cache.get('region')).toBe('us')
+            expect(await cache.get('projectId')).toBe('123')
+            expect(mockRedis.set).toHaveBeenCalledTimes(2)
+        })
+
+        it('should skip undefined values', async () => {
+            await cache.setMany({ region: 'eu', projectId: undefined })
+
+            expect(await cache.get('region')).toBe('eu')
+            expect(await cache.get('projectId')).toBeUndefined()
+            expect(mockRedis.set).toHaveBeenCalledTimes(1)
+        })
+
+        it('should handle empty entries', async () => {
+            await cache.setMany({})
+            expect(mockRedis.set).not.toHaveBeenCalled()
+        })
+    })
+
     describe('clear', () => {
         it('should only clear keys for the scoped user', async () => {
             mockRedis._store.set('mcp:user:test-user-hash:region', '"us"')
