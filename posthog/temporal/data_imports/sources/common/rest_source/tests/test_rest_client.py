@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from requests import Response
 
 from posthog.temporal.data_imports.sources.common.rest_source.exceptions import IgnoreResponseException
@@ -20,6 +21,19 @@ def _make_response(json_body: Any, status_code: int = 200) -> Response:
 
 
 class TestRESTClient:
+    @parameterized.expand(
+        [
+            ("explicit", {"team_id": 42}, 42),
+            ("unset_defaults_to_none", {}, None),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
+    def test_team_id_forwarded_to_tracked_session(self, _name, client_kwargs, expected, MockSession) -> None:
+        """team_id reaches make_tracked_session (the hop that mounts the SSRF
+        guard); when unset on RESTClient it defaults to None."""
+        RESTClient(base_url="https://api.example.com", **client_kwargs)
+        MockSession.assert_called_once_with(team_id=expected)
+
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
     def test_paginate_single_page(self, MockSession) -> None:
         mock_session = MockSession.return_value

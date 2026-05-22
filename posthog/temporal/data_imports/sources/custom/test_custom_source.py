@@ -148,12 +148,17 @@ class TestValidateManifestUrls(SimpleTestCase):
         "posthog.temporal.data_imports.sources.custom.source._is_host_safe",
         side_effect=lambda host, team_id: (host != "127.0.0.1", None if host != "127.0.0.1" else "blocked"),
     )
-    def test_rejects_absolute_resource_path_when_internal(self, _mock):
+    def test_rejects_absolute_resource_path_when_internal(self, mock_host_safe):
         manifest = _minimal_manifest()
-        manifest["resources"][0]["endpoint"]["path"] = "http://127.0.0.1/leak"
+        # https:// so the URL clears the scheme check and actually reaches the
+        # host-safety check — an http:// path would be rejected on scheme alone.
+        manifest["resources"][0]["endpoint"]["path"] = "https://127.0.0.1/leak"
         ok, err = validate_manifest_urls(manifest, team_id=999)
         assert not ok
         assert "users" in (err or "")
+        # The internal host was actually run through _is_host_safe, not rejected
+        # earlier on scheme alone.
+        assert any(call.args[0] == "127.0.0.1" for call in mock_host_safe.call_args_list)
 
     @parameterized.expand(
         [
@@ -463,6 +468,18 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert not ok
         assert err is not None
 
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_session_forwards_team_id(self, mock_session):
+        # The probe forwards team_id to make_tracked_session — the hop that mounts
+        # the SSRF guard (the guard itself is covered in test_http_transport).
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        source.validate_credentials(config, team_id=999)
+
+        assert mock_session.call_args.kwargs["team_id"] == 999
+
 
 class TestIsCustomSourceAvailableForTeam(SimpleTestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")
@@ -572,3 +589,12 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
 
         threaded_config = mock_resource.call_args.args[0]
         assert threaded_config["client"]["paginator"] == paginator_config
+
+
+class TestGetNonRetryableErrors(SimpleTestCase):
+    def test_blocked_host_errors_are_non_retryable(self):
+        # The keys must substring-match the BlockedHostError messages the SSRF
+        # guard raises, the way import_data_sync._run classifies them.
+        keys = CustomSource().get_non_retryable_errors().keys()
+        assert any(key in "Blocked request to host '10.0.0.1': internal" for key in keys)
+        assert any(key in "Blocked connection to 'host': peer '10.0.0.1' is an internal address" for key in keys)
