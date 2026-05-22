@@ -235,7 +235,11 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         <OnboardingStep
             title={installTitle}
             stepKey={OnboardingStepKey.INSTALL}
-            continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
+            continueDisabledReason={
+                !installationComplete
+                    ? `Waiting for your first ${listeningForName} from your app — fire one to enable Next, or use the Skip button to continue without verifying`
+                    : undefined
+            }
             showSkip={showSkipAtBottom}
             actions={
                 hideInstallationCheck ? undefined : (

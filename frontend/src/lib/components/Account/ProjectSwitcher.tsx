@@ -14,6 +14,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -51,6 +52,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const { closeProjectSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const [searchValue, setSearchValue] = useState('')
@@ -168,6 +170,13 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     }, [])
 
     const canCreateProject = preflight?.can_create_org !== false && !projectCreationForbiddenReason
+    // Surface the multi-project paywall BEFORE the user clicks. The click still
+    // opens the UpgradeModal (informative), but the tooltip explains up-front
+    // why the action will be paywalled — important during onboarding where users
+    // were getting bounced from "New project" to a paywall with no warning.
+    const atProjectLimit =
+        canCreateProject &&
+        !hasAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, currentOrganization?.teams?.length)
 
     if (!isAuthenticatedTeam(currentTeam)) {
         return null
@@ -339,7 +348,9 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                                                         !canCreateProject
                                                             ? projectCreationForbiddenReason ||
                                                               'You do not have permission to create a project'
-                                                            : undefined
+                                                            : atProjectLimit
+                                                              ? "You've reached the project limit on your current plan — upgrade to create more"
+                                                              : undefined
                                                     }
                                                     tooltipPlacement="right"
                                                 >

@@ -14,6 +14,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { AvailableFeature } from '~/types'
@@ -27,7 +28,21 @@ export function ProjectCombobox(): JSX.Element | null {
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
+
+    // Surface the multi-project paywall BEFORE the user clicks (instead of
+    // letting the click pop the UpgradeModal as the first signal). Free-tier orgs
+    // capped at one project hit this; the click still opens the upgrade modal,
+    // but the tooltip explains why up-front so onboarding users aren't surprised.
+    const atProjectLimit =
+        !projectCreationForbiddenReason &&
+        !hasAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, currentOrganization?.teams?.length)
+    const newProjectTooltip = projectCreationForbiddenReason
+        ? projectCreationForbiddenReason
+        : atProjectLimit
+          ? "You've reached the project limit on your current plan — upgrade to create more"
+          : 'Create a new project'
 
     if (!isAuthenticatedTeam(currentTeam)) {
         return null
@@ -183,7 +198,7 @@ export function ProjectCombobox(): JSX.Element | null {
                         <ButtonPrimitive
                             menuItem
                             data-attr="new-project-button"
-                            tooltip="Create a new project"
+                            tooltip={newProjectTooltip}
                             tooltipPlacement="right"
                             className="shrink-0"
                             disabled={!!projectCreationForbiddenReason}
