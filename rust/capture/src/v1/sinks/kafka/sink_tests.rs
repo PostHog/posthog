@@ -83,6 +83,11 @@ impl FakeEvent {
         self.partition_key = k.map(String::from);
         self
     }
+
+    fn with_headers(mut self, h: CapturedEventHeaders) -> Self {
+        self.event_headers = h;
+        self
+    }
 }
 
 impl Event for FakeEvent {
@@ -102,13 +107,9 @@ impl Event for FakeEvent {
         self.event_headers.clone()
     }
 
-    fn partition_key<'buf>(&self, _ctx: &Context, buf: &'buf mut String) -> Option<&'buf str> {
-        match &self.partition_key {
-            Some(k) => {
-                buf.push_str(k);
-                Some(buf.as_str())
-            }
-            None => None,
+    fn partition_key(&self, _ctx: &Context, buf: &mut String) {
+        if let Some(k) = &self.partition_key {
+            buf.push_str(k);
         }
     }
 
@@ -887,9 +888,13 @@ async fn health_refreshed_on_partial_success() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn none_partition_key_propagates_as_none() {
+async fn force_disable_person_processing_nulls_key_for_analytics_main() {
     let h = TestHarness::new();
-    let event = FakeEvent::ok("evt-1").with_partition_key(None);
+    let mut headers = empty_captured_headers();
+    headers.force_disable_person_processing = Some(true);
+    let event = FakeEvent::ok("evt-1")
+        .with_destination(Destination::AnalyticsMain)
+        .with_headers(headers);
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
 
     let results = h.sink.publish_batch(&h.ctx, &events).await;
@@ -899,7 +904,7 @@ async fn none_partition_key_propagates_as_none() {
     h.producer.with_records(|records| {
         assert_eq!(
             records[0].key, None,
-            "None partition key must propagate as None"
+            "force_disable + AnalyticsMain must null the partition key"
         );
     });
 }

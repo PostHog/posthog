@@ -60,7 +60,7 @@ impl OverflowLimiter {
     // "<token>:<distinct_id>" for std events or "<token>:<ip_addr>" for cookieless.
     // If this method returns true, the event should be rerouted to the overflow topic
     // without a partition key, to avoid hot partitions in that pipeline.
-    pub fn is_limited(&self, event_key: &String) -> OverflowLimiterResult {
+    pub fn is_limited(&self, event_key: &str) -> OverflowLimiterResult {
         if event_key.is_empty() {
             return OverflowLimiterResult::NotLimited;
         }
@@ -78,7 +78,8 @@ impl OverflowLimiter {
         }
 
         // should rate limiting be triggered for this event?
-        if self.limiter.check_key(event_key).is_err() {
+        // governor 0.5 check_key takes &K (= &String); allocate at this boundary.
+        if self.limiter.check_key(&event_key.to_owned()).is_err() {
             return OverflowLimiterResult::Limited;
         }
 
@@ -321,7 +322,7 @@ mod tests {
             OverflowLimiterResult::ForceLimited
         );
         assert_eq!(
-            limiter.is_limited(&token1.to_string()),
+            limiter.is_limited(token1),
             OverflowLimiterResult::ForceLimited
         );
 

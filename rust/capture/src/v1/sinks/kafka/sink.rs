@@ -16,7 +16,7 @@ use crate::config::CaptureMode;
 use crate::v1::context::Context;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
-use crate::v1::sinks::types::{BatchSummary, Outcome, SinkResult};
+use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, SinkResult};
 use crate::v1::sinks::{Config, SinkName};
 
 use super::producer::ProduceRecord;
@@ -158,10 +158,26 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                 continue;
             }
 
-            let headers: rdkafka::message::OwnedHeaders = event.headers(ctx).into();
+            let captured_headers = event.headers(ctx);
 
             key_buf.clear();
-            let key = event.partition_key(ctx, &mut key_buf);
+            event.partition_key(ctx, &mut key_buf);
+
+            // Null partition key when person processing is disabled for Main/Overflow
+            // destinations -- spreads load across partitions instead of hotspotting.
+            // Set by: overflow stamping (ForceLimited / !preserve_locality) and
+            // global rate limiter (token:distinct_id budget exceeded).
+            let key: Option<&str> = if captured_headers.force_disable_person_processing.is_some()
+                && matches!(
+                    event.destination(),
+                    Destination::AnalyticsMain | Destination::Overflow
+                ) {
+                None
+            } else {
+                Some(key_buf.as_str())
+            };
+
+            let headers: rdkafka::message::OwnedHeaders = captured_headers.into();
 
             let mut record = ProduceRecord {
                 topic,
