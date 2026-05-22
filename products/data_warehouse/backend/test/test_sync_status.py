@@ -106,15 +106,18 @@ class TestWarehouseSyncWarnings(BaseTest):
         assert warning.status == str(status)
         assert "stripe_charge" in warning.message
 
-    def test_failed_includes_latest_error(self) -> None:
+    def test_failed_does_not_leak_raw_error(self) -> None:
         self._make_schema(
             status=ExternalDataSchema.Status.FAILED,
             last_synced_at=self.now - timedelta(hours=2),
-            latest_error="API rate limit exceeded",
+            latest_error="connection to db-prod-1.internal:5432 failed: password authentication failed",
         )
         warnings = get_warehouse_sync_warnings(self.table, now=self.now)
         assert len(warnings) == 1
-        assert "API rate limit exceeded" in warnings[0].message
+        # Raw error text (hostnames, credentials) must not reach the warning message.
+        assert "db-prod-1.internal" not in warnings[0].message
+        assert "password" not in warnings[0].message
+        assert "data warehouse source" in warnings[0].message.lower()
 
     def test_warning_when_running_but_stale(self) -> None:
         self._make_schema(
@@ -154,6 +157,8 @@ class TestWarehouseSyncWarnings(BaseTest):
         warnings = get_warehouse_sync_warnings(self.table, now=self.now)
         assert len(warnings) == 1
         assert "paused" in warnings[0].message.lower()
+        # status must be consistent with the "paused" message, not the raw schema status (Completed).
+        assert warnings[0].status == ExternalDataSchema.Status.PAUSED
 
     def test_uses_preloaded_schemas_when_available(self) -> None:
         """If `_active_external_data_schemas` is set on the table, it's used directly without a DB query."""
@@ -172,4 +177,4 @@ class TestWarehouseSyncWarnings(BaseTest):
         warnings = get_warehouse_sync_warnings(self.table, now=self.now)
         assert len(warnings) == 1
         assert warnings[0].schema_name == "PreloadedSchema"
-        assert "preloaded error" in warnings[0].message
+        assert warnings[0].status == ExternalDataSchema.Status.FAILED

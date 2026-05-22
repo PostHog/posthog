@@ -81,7 +81,9 @@ export interface QueryEndpointResponse {
     results: unknown
     columns?: unknown
     formatted_results?: string
-    warnings?: DataWarehouseSyncWarning[]
+    // null (not just absent) when the query response carries no warnings — the backend
+    // serializes the field explicitly rather than omitting it.
+    warnings?: DataWarehouseSyncWarning[] | null
 }
 
 export interface ApiConfig {
