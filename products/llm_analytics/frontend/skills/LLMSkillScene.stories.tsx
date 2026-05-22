@@ -115,7 +115,7 @@ const SKILL_LIST_ENTRY: LLMSkillListApi = {
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/LLM Analytics/Skills',
+    title: 'Scenes-App/AI observability/Skills',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

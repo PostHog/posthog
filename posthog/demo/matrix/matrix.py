@@ -13,6 +13,7 @@ import mimesis.random
 
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
+from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models import Team, User
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.utils import UUIDT, uuid7
@@ -256,7 +257,7 @@ class Matrix(ABC):
         self.distinct_id_to_person = {}
         self.clusters = [self.CLUSTER_CLASS(index=i, matrix=self) for i in range(n_clusters)]
         self.server_client = SimServerClient(self)
-        self.gpt_4o_encoding = tiktoken.encoding_for_model("gpt-4o")
+        self.gpt_4o_encoding = get_tiktoken_encoding_for_model(LLM_TOKEN_COUNT_PROXY_MODEL)
         self.is_complete = None
 
     @property

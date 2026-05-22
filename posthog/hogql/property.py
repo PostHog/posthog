@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -56,9 +57,9 @@ from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr
 
 from products.actions.backend.models.action import Action, ActionStepJSON
-from products.data_warehouse.backend.models import DataWarehouseJoin
-from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -88,6 +89,27 @@ def parse_semver(value: str) -> tuple[str, str, str]:
     return (major, minor, patch)
 
 
+# Anchored, strict-semver validator used to gate semver comparisons. We can't rely on
+# `sortableSemver` returning NULL for invalid input because ClickHouse forbids
+# `Nullable(Array(...))`, and an `Array(Nullable(Int64))` with a NULL element sorts
+# as the *greatest* array — which would incorrectly include invalid versions in
+# `>= filter` queries. Instead we gate every semver comparison on this regex
+# matching the property side, so invalid values are dropped before the array
+# comparison happens. Matches Rust `semver::Version::parse` (X.Y.Z, no leading
+# zeros, optional 'v' prefix, optional pre-release / build suffix).
+STRICT_SEMVER_REGEX = r"^\s*v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+][^\s]*)?\s*$"
+
+
+def _gate_on_valid_semver(expr: ast.Expr, comparison: ast.Expr) -> ast.And:
+    """Wrap a semver comparison so it only fires on rows where `expr` is strict semver."""
+    return ast.And(
+        exprs=[
+            ast.Call(name="match", args=[expr, ast.Constant(value=STRICT_SEMVER_REGEX)]),
+            comparison,
+        ]
+    )
+
+
 def semver_range_compare(
     expr: ast.Expr,
     value: ast.Any,
@@ -104,7 +126,7 @@ def semver_range_compare(
         bounds_calculator: Function that takes the value and returns (lower_bound, upper_bound)
 
     Returns:
-        AST node representing: sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
+        AST node representing: match(expr, valid_semver) AND sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
     """
     if not isinstance(value, str):
         raise QueryError(f"{operator_name} operator requires a semver string value")
@@ -116,6 +138,7 @@ def semver_range_compare(
 
     return ast.And(
         exprs=[
+            ast.Call(name="match", args=[expr, ast.Constant(value=STRICT_SEMVER_REGEX)]),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Call(name="sortableSemver", args=[expr]),
@@ -242,14 +265,56 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
+def _resolve_boolean_value(value: ValueT) -> bool | None:
+    """Resolve a filter value for a Boolean-typed property. Anything other than the
+    'true'/'false' the UI sends returns None, so the comparison matches nothing rather
+    than failing in ClickHouse, which cannot parse e.g. 'foo' as a bool."""
+    if isinstance(value, bool):
+        return value
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    return None
+
+
+@lru_cache(maxsize=2048)
+def _property_definition_is_boolean(
+    project_id: int,
+    property_key: str,
+    definition_type: "PropertyDefinition.Type",
+    group_type_index: int | None,
+) -> bool:
+    """Whether a saved PropertyDefinition for this key is Boolean-typed.
+
+    Memoized because _handle_bool_values now runs for every exact/is_not
+    comparison (not just literal true/false values), and a query build can
+    contain many comparisons on the same property. PropertyDefinition types
+    are effectively static within a process, so a process-level cache is safe.
+    """
+    filters: dict[str, object] = {
+        "effective_project_id": project_id,
+        "name": property_key,
+        "type": definition_type,
+    }
+    if definition_type == PropertyDefinition.Type.GROUP:
+        filters["group_type_index"] = group_type_index
+    property_def = (
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(**filters)
+        .values_list("property_type", flat=True)
+        .first()
+    )
+    return property_def == PropertyType.Boolean
+
+
+def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool | None:
     if value is True:
         value = "true"
     elif value is False:
         value = "false"
-
-    if value != "true" and value != "false":
-        return value
 
     # Virtual event properties (e.g. $virt_is_bot) don't have PropertyDefinition
     # records, so we check the taxonomy directly for boolean type
@@ -259,26 +324,19 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         for group_defs in CORE_FILTER_DEFINITIONS_BY_GROUP.values():
             prop_def = group_defs.get(property.key)
             if prop_def and prop_def.get("type") == "Boolean":
-                return value == "true"
+                return _resolve_boolean_value(value)
         return value
 
     if property.type == "person":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.PERSON,
-        )
+        if _property_definition_is_boolean(team.project_id, property.key, PropertyDefinition.Type.PERSON, None):
+            return _resolve_boolean_value(value)
+        return value
     elif property.type == "group":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.GROUP,
-            group_type_index=property.group_type_index,
-        )
+        if _property_definition_is_boolean(
+            team.project_id, property.key, PropertyDefinition.Type.GROUP, property.group_type_index
+        ):
+            return _resolve_boolean_value(value)
+        return value
     elif property.type == "data_warehouse_person_property":
         if not isinstance(expr, ast.Field):
             raise Exception(f"Requires a Field expression")
@@ -307,38 +365,20 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
             raise Exception(f"Could not find table or view for key {key}")
 
         if prop_type == "BooleanDatabaseField":
-            if value == "true":
-                value = True
-            if value == "false":
-                value = False
+            return _resolve_boolean_value(value)
 
         return value
 
     elif property.type == "session":
         field_definition = LAZY_SESSIONS_FIELDS.get(property.key)
         if isinstance(field_definition, BooleanDatabaseField):
-            if value == "true":
-                return True
-            if value == "false":
-                return False
+            return _resolve_boolean_value(value)
         return value
 
     else:
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.EVENT,
-        )
-    property_type = property_types[0].property_type if len(property_types) > 0 else None
-
-    if property_type == PropertyType.Boolean:
-        if value == "true":
-            return True
-        if value == "false":
-            return False
-    return value
+        if _property_definition_is_boolean(team.project_id, property.key, PropertyDefinition.Type.EVENT, None):
+            return _resolve_boolean_value(value)
+        return value
 
 
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
@@ -524,10 +564,17 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.IS_NOT:
+        resolved_value = _handle_bool_values(value, expr, property, team)
+        # A non-boolean value against a Boolean property resolves to None. For
+        # IS_NOT that would emit `expr != NULL`, which is NULL in ClickHouse
+        # three-valued logic and matches zero rows. Every row "is not" the
+        # unparseable value, so match everything instead.
+        if resolved_value is None and value is not None:
+            return ast.Constant(value=True)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,
             left=expr,
-            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+            right=ast.Constant(value=resolved_value),
         )
     elif operator == PropertyOperator.LT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
@@ -581,40 +628,58 @@ def _expr_to_compare_op(
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
         return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
     elif operator == PropertyOperator.SEMVER_EQ:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_NEQ:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.NotEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_GT:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Gt,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_GTE:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_LT:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Lt,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_LTE:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.LtEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_TILDE:
         return semver_range_compare(expr, value, "Tilde", _tilde_bounds)

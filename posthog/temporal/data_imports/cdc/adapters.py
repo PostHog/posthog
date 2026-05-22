@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 if TYPE_CHECKING:
     from posthog.temporal.data_imports.cdc.types import CDCStreamReader
 
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 ManagementMode = Literal["posthog", "self_managed"]

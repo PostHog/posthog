@@ -72,7 +72,7 @@ tools:
             Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether
             materialization is possible, current status, last run time, and any errors. Supports ?version=N.
     endpoint-openapi-spec:
-        operation: endpoints_openapi.json_retrieve
+        operation: endpoints_openapi_spec_retrieve
         enabled: true
         scopes:
             - endpoint:read

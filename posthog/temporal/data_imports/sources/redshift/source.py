@@ -274,7 +274,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
         return True, None
 
     def source_for_pipeline(self, config: RedshiftSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 

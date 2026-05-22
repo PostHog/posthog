@@ -180,8 +180,8 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
-                              |ReplayLens
                               |ReplayObservation
+                              |ReplayScanner
                               |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
@@ -402,8 +402,8 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
-                        |ReplayLens
                         |ReplayObservation
+                        |ReplayScanner
                         |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment

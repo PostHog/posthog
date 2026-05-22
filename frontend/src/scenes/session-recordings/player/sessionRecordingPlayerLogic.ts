@@ -1314,9 +1314,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 insertStyleRules: [
                     ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
                     // At high speeds, CSS animations/transitions aren't sped up by rrweb,
-                    // causing visual artifacts - disable them
+                    // causing visual artifacts. Snap them to their end state instead of suppressing
+                    // them entirely — `animation: none` left content stuck at its pre-animation state
+                    // (e.g. opacity: 0) on sites that use keyframes for content reveal.
                     ...(values.speed >= 2
-                        ? ['*, *::before, *::after { animation: none !important; transition: none !important; }']
+                        ? [
+                              '*, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; animation-fill-mode: forwards !important; transition-duration: 0s !important; transition-delay: 0s !important; }',
+                          ]
                         : []),
                 ],
                 // these two settings are attempts to improve performance of running two Replayers at once
