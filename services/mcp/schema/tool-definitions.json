@@ -17,10 +17,10 @@
         }
     },
     "experiment-results-get": {
-        "description": "Get comprehensive experiment results including all metrics data (primary and secondary) and exposure data. This tool fetches the experiment details and executes the necessary queries to get complete experiment results. Only works with new experiments (not legacy experiments).",
+        "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` — `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs — check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself — the result rows already merge inline and shared. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
         "category": "Experiments",
         "feature": "experiments",
-        "summary": "Get comprehensive experiment results including metrics and exposure data.",
+        "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
         "title": "Get experiment results",
         "required_scopes": ["experiment:read"],
         "new_mcp": true,
