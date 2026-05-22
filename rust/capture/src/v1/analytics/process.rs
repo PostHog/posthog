@@ -10,7 +10,7 @@ use super::constants::{
     DETAIL_EVENT_RESTRICTION_DROP, DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS,
     ILLEGAL_DISTINCT_IDS,
 };
-use super::response::Response;
+use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
@@ -21,10 +21,17 @@ use tracing::Level;
 use crate::router;
 use crate::v1::context::Context;
 use crate::v1::sinks::event::Event as SinkEvent;
+use crate::v1::sinks::types::SinkResult;
 use crate::v1::sinks::Destination;
 use crate::v1::Error;
 
 /// Maps event name to its Kafka destination, mirroring legacy DataType assignment.
+///
+/// Unlike legacy capture, v1 does NOT split heatmap/scroll-depth properties out of
+/// non-$$heatmap events (e.g. $pageview) into a synthetic redirect. We keep properties
+/// as opaque RawValue to avoid deserialization. The Node.js events subpipeline
+/// (extractHeatmapDataStep) handles extraction when `skip_heatmap_processing` is unset
+/// in Kafka headers — removing that fallback would break scroll-depth heatmaps for v1.
 fn destination_for_event_name(name: &str) -> Destination {
     match name {
         "$exception" => Destination::ExceptionErrorTracking,
@@ -38,7 +45,7 @@ pub async fn process_batch(
     state: &router::State,
     context: &mut Context,
     batch: Batch,
-) -> Result<Response, Error> {
+) -> Result<BatchResponse, Error> {
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
     validate_batch(&batch)?;
@@ -75,8 +82,71 @@ pub async fn process_batch(
         apply_token_distinct_id_limits(limiter, context, &mut events).await;
     }
 
-    // TODO: publish to v1::Sink, collect results, format + return response
-    Err(Error::ServiceUnavailable("not yet implemented".into()))
+    // Publish to v1 sink, merge results, build response
+    let sink_router = state
+        .v1_sink_router
+        .as_ref()
+        .ok_or_else(|| Error::ServiceUnavailable("v1 sink router not configured".into()))?;
+
+    let event_refs: Vec<&(dyn SinkEvent + Send + Sync)> = events
+        .iter()
+        .filter(|e| SinkEvent::should_publish(*e))
+        .map(|e| {
+            let r: &(dyn SinkEvent + Send + Sync) = e;
+            r
+        })
+        .collect();
+
+    let sink_results = sink_router
+        .publish_batch(sink_router.default_sink(), context, &event_refs)
+        .await
+        .map_err(|e| Error::InternalError(e.to_string()))?;
+
+    merge_sink_results(&mut events, &sink_results);
+
+    Ok(BatchResponse::build(context, &events))
+}
+
+// ---------------------------------------------------------------------------
+// SinkResult → WrappedEvent merge
+// ---------------------------------------------------------------------------
+
+/// Correlate per-event `SinkResult`s back to the batch of `WrappedEvent`s by UUID.
+///
+/// Events that were not published (`should_publish() == false`) are untouched.
+/// Published events receive updated `result` and `details` based on the sink outcome:
+/// - `Outcome::Success` → keep existing result (Ok or Limited)
+/// - `Outcome::RetriableError` | `Outcome::Timeout` → `EventResult::Retry`
+/// - `Outcome::FatalError` → `EventResult::Drop`
+pub fn merge_sink_results(events: &mut [WrappedEvent], sink_results: &[Box<dyn SinkResult>]) {
+    use crate::v1::sinks::types::Outcome;
+
+    let results_by_uuid: HashMap<Uuid, &dyn SinkResult> =
+        sink_results.iter().map(|r| (r.key(), r.as_ref())).collect();
+
+    for event in events.iter_mut() {
+        if !event.should_publish() {
+            continue;
+        }
+
+        let Some(result) = results_by_uuid.get(&event.uuid) else {
+            continue;
+        };
+
+        match result.outcome() {
+            Outcome::Success => {
+                // Leave event.result as-is (Ok or Limited from upstream processing)
+            }
+            Outcome::RetriableError | Outcome::Timeout => {
+                event.result = EventResult::Retry;
+                event.details = Some(result.cause().unwrap_or("not_persisted"));
+            }
+            Outcome::FatalError => {
+                event.result = EventResult::Drop;
+                event.details = Some(result.cause().unwrap_or("publish_failed"));
+            }
+        }
+    }
 }
 
 fn validate_batch(batch: &Batch) -> Result<(), Error> {
@@ -1829,5 +1899,463 @@ mod tests {
         apply_overflow_stamping(&limiter, &ctx, &mut events);
 
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
+    }
+    // =========================================================================
+    // merge_sink_results tests
+    // =========================================================================
+
+    use crate::v1::test_utils::MockSinkResult;
+
+    #[test]
+    fn merge_all_success_leaves_results_intact() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$identify", "user-2"),
+        ];
+        let results: Vec<Box<dyn SinkResult>> = events
+            .iter()
+            .map(|e| MockSinkResult::success(e.uuid))
+            .collect();
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert!(events[0].details.is_none());
+        assert_eq!(events[1].result, EventResult::Ok);
+        assert!(events[1].details.is_none());
+    }
+
+    #[test]
+    fn merge_retriable_error_flips_ok_to_retry() {
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let results: Vec<Box<dyn SinkResult>> =
+            vec![MockSinkResult::retriable(events[0].uuid, "queue_full")];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Retry);
+        assert_eq!(events[0].details, Some("queue_full"));
+    }
+
+    #[test]
+    fn merge_timeout_flips_ok_to_retry() {
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let results: Vec<Box<dyn SinkResult>> = vec![MockSinkResult::timeout(events[0].uuid)];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Retry);
+        assert_eq!(events[0].details, Some("timeout"));
+    }
+
+    #[test]
+    fn merge_fatal_error_flips_ok_to_drop() {
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let results: Vec<Box<dyn SinkResult>> =
+            vec![MockSinkResult::fatal(events[0].uuid, "message_too_large")];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("message_too_large"));
+    }
+
+    #[test]
+    fn merge_preserves_limited_result_on_success() {
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].result = EventResult::Limited;
+        events[0].details = Some("person_processing_disabled");
+
+        let results: Vec<Box<dyn SinkResult>> = vec![MockSinkResult::success(events[0].uuid)];
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Limited);
+        assert_eq!(events[0].details, Some("person_processing_disabled"));
+    }
+
+    #[test]
+    fn merge_skips_events_not_published() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+        events[0].result = EventResult::Drop;
+        events[0].details = Some("billing_limit_exceeded");
+        events[0].destination = Destination::Drop;
+
+        // Only one sink result (for the published event)
+        let results: Vec<Box<dyn SinkResult>> = vec![MockSinkResult::success(events[1].uuid)];
+
+        merge_sink_results(&mut events, &results);
+
+        // Dropped event unchanged
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("billing_limit_exceeded"));
+        // Published event left alone
+        assert_eq!(events[1].result, EventResult::Ok);
+        assert!(events[1].details.is_none());
+    }
+
+    #[test]
+    fn merge_mixed_outcomes() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$identify", "user-2"),
+            wrapped_event("custom", "user-3"),
+        ];
+
+        let results: Vec<Box<dyn SinkResult>> = vec![
+            MockSinkResult::success(events[0].uuid),
+            MockSinkResult::retriable(events[1].uuid, "queue_full"),
+            MockSinkResult::fatal(events[2].uuid, "serialization_error"),
+        ];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert!(events[0].details.is_none());
+        assert_eq!(events[1].result, EventResult::Retry);
+        assert_eq!(events[1].details, Some("queue_full"));
+        assert_eq!(events[2].result, EventResult::Drop);
+        assert_eq!(events[2].details, Some("serialization_error"));
+    }
+
+    #[test]
+    fn merge_uuid_correlation_no_crosstalk() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+
+        // Deliberately swap: result for event[1] is retriable, event[0] is success
+        let results: Vec<Box<dyn SinkResult>> = vec![
+            MockSinkResult::retriable(events[1].uuid, "queue_full"),
+            MockSinkResult::success(events[0].uuid),
+        ];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert!(events[0].details.is_none());
+        assert_eq!(events[1].result, EventResult::Retry);
+        assert_eq!(events[1].details, Some("queue_full"));
+    }
+
+    #[test]
+    fn merge_empty_sink_results_leaves_all_intact() {
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2"),
+        ];
+        // All events published but no sink results (edge case - shouldn't
+        // happen in practice but should be safe)
+        let results: Vec<Box<dyn SinkResult>> = vec![];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Ok);
+        assert_eq!(events[1].result, EventResult::Ok);
+    }
+
+    #[test]
+    fn merge_pre_drop_not_mutated_even_if_result_present() {
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].result = EventResult::Drop;
+        events[0].details = Some("invalid_distinct_id");
+
+        // Should be unreachable in practice (dropped events aren't published
+        // so they won't have a SinkResult), but even if a result exists for
+        // this UUID, the event shouldn't be touched because should_publish is false
+        let results: Vec<Box<dyn SinkResult>> =
+            vec![MockSinkResult::retriable(events[0].uuid, "queue_full")];
+
+        merge_sink_results(&mut events, &results);
+
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].details, Some("invalid_distinct_id"));
+    }
+
+    // =========================================================================
+    // Integration-style tests: publish → merge → response flow
+    // =========================================================================
+    // These tests exercise the same code path as the wired process_batch, but
+    // call the sink router directly rather than constructing a full State.
+
+    use std::collections::HashMap as StdHashMap;
+    use std::sync::Arc;
+
+    use crate::config::CaptureMode;
+    use crate::v1::sinks::kafka::mock::MockProducer;
+    use crate::v1::sinks::kafka::sink::KafkaSink;
+    use crate::v1::sinks::router::Router as SinkRouter;
+    use crate::v1::sinks::sink::Sink;
+    use crate::v1::sinks::{Config as SinkConfig, SinkName};
+
+    use super::BatchResponse;
+    use crate::v1::test_utils::{
+        batch_payload, event_with_all_options, event_with_empty_options, WrappedEventMut,
+    };
+
+    fn test_sink_router() -> (SinkRouter, lifecycle::Handle, lifecycle::MonitorGuard) {
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        let handle = manager.register("process_integ", lifecycle::ComponentOptions::new());
+        handle.report_healthy();
+        let monitor = manager.monitor_background();
+
+        let producer = Arc::new(MockProducer::new(SinkName::Msk, handle.clone()));
+        let config = SinkConfig {
+            produce_timeout: StdDuration::from_secs(30),
+            kafka: test_utils::test_kafka_config(),
+        };
+        let sink: Box<dyn Sink> = Box::new(KafkaSink::new(
+            SinkName::Msk,
+            producer,
+            config,
+            CaptureMode::Events,
+            handle.clone(),
+        ));
+        let sinks: StdHashMap<SinkName, Box<dyn Sink>> =
+            [(SinkName::Msk, sink)].into_iter().collect();
+        let router = SinkRouter::new(SinkName::Msk, sinks);
+        (router, handle, monitor)
+    }
+
+    #[tokio::test]
+    async fn integration_happy_path_all_ok() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$identify", "user-2"),
+            wrapped_event("button_clicked", "user-3"),
+        ];
+
+        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
+            .iter()
+            .filter(|e| SinkEvent::should_publish(*e))
+            .map(|e| {
+                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
+                r
+            })
+            .collect();
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .await
+            .unwrap();
+
+        merge_sink_results(&mut events, &sink_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries().len(), 3);
+        for (_, status) in resp.entries() {
+            assert_eq!(status.result, EventResult::Ok);
+            assert!(status.details.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn integration_mixed_pre_drop_and_publish() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-2")
+                .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
+            wrapped_event("$pageview", "user-3")
+                .with_result(EventResult::Limited, Some("person_processing_disabled")),
+        ];
+
+        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
+            .iter()
+            .filter(|e| SinkEvent::should_publish(*e))
+            .map(|e| {
+                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
+                r
+            })
+            .collect();
+
+        assert_eq!(event_refs.len(), 2); // only Ok + Limited are published
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .await
+            .unwrap();
+
+        merge_sink_results(&mut events, &sink_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries().len(), 3);
+        assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
+        assert_eq!(resp.entries()[1].1.result, EventResult::Drop);
+        assert_eq!(resp.entries()[1].1.details, Some("billing_limit_exceeded"));
+        assert_eq!(resp.entries()[2].1.result, EventResult::Limited);
+        assert_eq!(
+            resp.entries()[2].1.details,
+            Some("person_processing_disabled")
+        );
+    }
+
+    #[tokio::test]
+    async fn integration_all_events_pre_dropped_empty_publish() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1")
+                .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
+            wrapped_event("$pageview", "user-2")
+                .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
+        ];
+
+        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
+            .iter()
+            .filter(|e| SinkEvent::should_publish(*e))
+            .map(|e| {
+                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
+                r
+            })
+            .collect();
+
+        assert!(event_refs.is_empty());
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .await
+            .unwrap();
+
+        merge_sink_results(&mut events, &sink_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries().len(), 2);
+        assert_eq!(resp.entries()[0].1.result, EventResult::Drop);
+        assert_eq!(resp.entries()[1].1.result, EventResult::Drop);
+    }
+
+    #[tokio::test]
+    async fn integration_overflow_destination_published_ok() {
+        let (router, _handle, _monitor) = test_sink_router();
+        let mut ctx = test_utils::test_context();
+        ctx.created_at = None;
+
+        let mut events =
+            vec![wrapped_event("$pageview", "user-1").with_destination(Destination::Overflow)];
+
+        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
+            .iter()
+            .filter(|e| SinkEvent::should_publish(*e))
+            .map(|e| {
+                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
+                r
+            })
+            .collect();
+
+        let sink_results = router
+            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .await
+            .unwrap();
+
+        merge_sink_results(&mut events, &sink_results);
+        let resp = BatchResponse::build(&ctx, &events);
+
+        assert!(!resp.has_retry);
+        assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
+    }
+
+    #[test]
+    fn integration_payload_round_trip_empty_options() {
+        let events = vec![event_with_empty_options()];
+        let payload = batch_payload(&events);
+        let batch: Batch = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(batch.batch.len(), 1);
+        assert_eq!(batch.batch[0].options.cookieless_mode, None);
+        assert_eq!(batch.batch[0].options.disable_skew_correction, None);
+        assert_eq!(batch.batch[0].options.product_tour_id, None);
+        assert_eq!(batch.batch[0].options.process_person_profile, None);
+    }
+
+    #[test]
+    fn integration_payload_round_trip_all_options() {
+        let events = vec![event_with_all_options()];
+        let payload = batch_payload(&events);
+        let batch: Batch = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(batch.batch.len(), 1);
+        assert_eq!(batch.batch[0].options.cookieless_mode, Some(true));
+        assert_eq!(batch.batch[0].options.disable_skew_correction, Some(true));
+        assert_eq!(
+            batch.batch[0].options.product_tour_id.as_deref(),
+            Some("tour-v2")
+        );
+        assert_eq!(batch.batch[0].options.process_person_profile, Some(false));
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_gzip() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "gzip");
+        assert!(compressed.len() < raw.len());
+        // Decompress and verify
+        use flate2::read::GzDecoder;
+        use std::io::Read;
+        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(decompressed, raw);
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_zstd() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "zstd");
+        assert!(compressed.len() < raw.len());
+        let decompressed = zstd::decode_all(std::io::Cursor::new(&compressed)).unwrap();
+        assert_eq!(decompressed, raw);
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_deflate() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "deflate");
+        assert!(compressed.len() < raw.len());
+        use flate2::read::DeflateDecoder;
+        use std::io::Read;
+        let mut decoder = DeflateDecoder::new(compressed.as_slice());
+        let mut decompressed = Vec::new();
+        decoder.read_to_end(&mut decompressed).unwrap();
+        assert_eq!(decompressed, raw);
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn integration_compressed_payload_brotli() {
+        use crate::v1::test_utils::compressed_payload;
+        let events = vec![valid_event()];
+        let raw = batch_payload(&events);
+        let compressed = compressed_payload(&raw, "br");
+        assert!(!compressed.is_empty());
+        let mut decompressed = Vec::new();
+        brotli::BrotliDecompress(&mut std::io::Cursor::new(&compressed), &mut decompressed)
+            .unwrap();
+        assert_eq!(decompressed, raw);
     }
 }

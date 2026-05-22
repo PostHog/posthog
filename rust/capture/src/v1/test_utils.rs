@@ -404,3 +404,188 @@ pub fn assert_round_trip(
 
     (captured, data)
 }
+
+// ---------------------------------------------------------------------------
+// Payload generators for batch-level tests
+// ---------------------------------------------------------------------------
+
+/// Serialize a list of Events into a valid V1 batch JSON payload.
+pub fn batch_payload(events: &[Event]) -> Vec<u8> {
+    let batch_json = serde_json::json!({
+        "created_at": "2026-03-19T14:30:00.000Z",
+        "batch": events.iter().map(|e| {
+            let mut obj = serde_json::json!({
+                "event": e.event,
+                "uuid": e.uuid,
+                "distinct_id": e.distinct_id,
+                "timestamp": e.timestamp,
+                "options": e.options,
+            });
+            obj.as_object_mut().unwrap().insert(
+                "properties".to_string(),
+                serde_json::from_str(e.properties.get()).unwrap(),
+            );
+            if let Some(ref sid) = e.session_id {
+                obj.as_object_mut().unwrap().insert(
+                    "session_id".to_string(),
+                    serde_json::Value::String(sid.clone()),
+                );
+            }
+            if let Some(ref wid) = e.window_id {
+                obj.as_object_mut().unwrap().insert(
+                    "window_id".to_string(),
+                    serde_json::Value::String(wid.clone()),
+                );
+            }
+            obj
+        }).collect::<Vec<_>>(),
+    });
+    serde_json::to_vec(&batch_json).unwrap()
+}
+
+/// Compress raw bytes using the given encoding.
+/// Supported: "gzip", "deflate", "br", "zstd"
+#[cfg(test)]
+pub fn compressed_payload(data: &[u8], encoding: &str) -> Vec<u8> {
+    match encoding {
+        "gzip" => {
+            use flate2::write::GzEncoder;
+            use flate2::Compression;
+            use std::io::Write;
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+            encoder.write_all(data).unwrap();
+            encoder.finish().unwrap()
+        }
+        "deflate" => {
+            use flate2::write::DeflateEncoder;
+            use flate2::Compression;
+            use std::io::Write;
+            let mut encoder = DeflateEncoder::new(Vec::new(), Compression::fast());
+            encoder.write_all(data).unwrap();
+            encoder.finish().unwrap()
+        }
+        "br" => {
+            let mut output = Vec::new();
+            let params = brotli::enc::BrotliEncoderParams::default();
+            brotli::BrotliCompress(&mut std::io::Cursor::new(data), &mut output, &params).unwrap();
+            output
+        }
+        "zstd" => zstd::encode_all(std::io::Cursor::new(data), 1).unwrap(),
+        other => panic!("unsupported encoding for test: {other}"),
+    }
+}
+
+/// Event with all options populated.
+pub fn event_with_all_options() -> Event {
+    Event {
+        event: "$pageview".to_string(),
+        uuid: Uuid::new_v4().to_string(),
+        distinct_id: "user-all-opts".to_string(),
+        timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+        session_id: Some("sess-all".to_string()),
+        window_id: Some("win-all".to_string()),
+        options: Options {
+            cookieless_mode: Some(true),
+            disable_skew_correction: Some(true),
+            product_tour_id: Some("tour-v2".to_string()),
+            process_person_profile: Some(false),
+        },
+        properties: raw_obj(r#"{"existing":"prop"}"#),
+    }
+}
+
+/// Event with empty `options: {}`.
+pub fn event_with_empty_options() -> Event {
+    Event {
+        event: "$pageview".to_string(),
+        uuid: Uuid::new_v4().to_string(),
+        distinct_id: "user-empty-opts".to_string(),
+        timestamp: "2026-03-19T14:29:58.123Z".to_string(),
+        session_id: None,
+        window_id: None,
+        options: default_options(),
+        properties: raw_obj("{}"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mock SinkResult for unit testing merge logic
+// ---------------------------------------------------------------------------
+
+use std::borrow::Cow;
+use std::time::Duration;
+
+use crate::v1::sinks::types::{Outcome, SinkResult as SinkResultTrait};
+
+/// Concrete SinkResult for testing — all fields are user-specified.
+pub struct MockSinkResult {
+    pub uuid: Uuid,
+    pub outcome: Outcome,
+    pub cause: Option<&'static str>,
+    pub detail: Option<String>,
+    pub elapsed: Option<Duration>,
+}
+
+impl MockSinkResult {
+    pub fn success(uuid: Uuid) -> Box<dyn SinkResultTrait> {
+        Box::new(Self {
+            uuid,
+            outcome: Outcome::Success,
+            cause: None,
+            detail: None,
+            elapsed: Some(Duration::from_millis(5)),
+        })
+    }
+
+    pub fn retriable(uuid: Uuid, cause: &'static str) -> Box<dyn SinkResultTrait> {
+        Box::new(Self {
+            uuid,
+            outcome: Outcome::RetriableError,
+            cause: Some(cause),
+            detail: Some(format!("{cause}: queue full")),
+            elapsed: Some(Duration::from_millis(100)),
+        })
+    }
+
+    pub fn timeout(uuid: Uuid) -> Box<dyn SinkResultTrait> {
+        Box::new(Self {
+            uuid,
+            outcome: Outcome::Timeout,
+            cause: Some("timeout"),
+            detail: Some("message delivery timed out".to_string()),
+            elapsed: Some(Duration::from_secs(30)),
+        })
+    }
+
+    pub fn fatal(uuid: Uuid, cause: &'static str) -> Box<dyn SinkResultTrait> {
+        Box::new(Self {
+            uuid,
+            outcome: Outcome::FatalError,
+            cause: Some(cause),
+            detail: Some(format!("{cause}: permanent failure")),
+            elapsed: None,
+        })
+    }
+}
+
+impl SinkResultTrait for MockSinkResult {
+    fn key(&self) -> Uuid {
+        self.uuid
+    }
+
+    fn outcome(&self) -> Outcome {
+        self.outcome
+    }
+
+    fn cause(&self) -> Option<&'static str> {
+        self.cause
+    }
+
+    fn detail(&self) -> Option<Cow<'_, str>> {
+        self.detail.as_ref().map(|s| Cow::Borrowed(s.as_str()))
+    }
+
+    fn elapsed(&self) -> Option<Duration> {
+        self.elapsed
+    }
+}
