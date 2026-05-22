@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 import uuid
 import dataclasses
 from collections.abc import Callable
@@ -1051,13 +1050,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if cdc_result is not None:
                 return cdc_result
 
-        _perf_get_schemas_start = time.monotonic()
         source_schemas = source.get_schemas(source_config, self.team_id)
-        logger.info(
-            "slack_perf: create get_schemas",
-            schema_count=len(source_schemas),
-            elapsed_s=round(time.monotonic() - _perf_get_schemas_start, 2),
-        )
         if is_direct_postgres:
             new_source_model.connection_metadata = get_direct_postgres_connection_metadata(
                 source_impl=source,
@@ -1123,7 +1116,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                                 pk_columns_by_table[schema_name] = primary_key_columns
 
         # Create all ExternalDataSchema objects and enable syncing for active schemas
-        _perf_schema_loop_start = time.monotonic()
         for schema in payload_schemas:
             sync_type = schema.get("sync_type")
             requires_incremental_fields = sync_type == "incremental" or sync_type == "append"
@@ -1267,18 +1259,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
 
-        logger.info(
-            "slack_perf: create schema rows done",
-            schema_count=len(payload_schemas),
-            active_schema_count=len(active_schemas),
-            elapsed_s=round(time.monotonic() - _perf_schema_loop_start, 2),
-        )
-
         # Create all sync schedules over a single shared Temporal connection. Creating them
         # one call at a time reconnects to Temporal on every iteration, which does not scale
         # to sources with thousands of schemas (e.g. a Slack workspace with thousands of
         # channels).
-        _perf_schedules_start = time.monotonic()
         try:
             schedule_errors = a_bulk_create_external_data_job_schedules(
                 [(active_schema, active_schema.should_sync) for active_schema in active_schemas]
@@ -1289,12 +1273,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 logger.exception("Could not trigger external data job", exc_info=schedule_error)
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
-
-        logger.info(
-            "slack_perf: create schedules done",
-            active_schema_count=len(active_schemas),
-            elapsed_s=round(time.monotonic() - _perf_schedules_start, 2),
-        )
 
         # Per-source schema discovery schedule. Runs every 6h so newly added
         # upstream resources (Slack channels, Postgres tables, …) get picked up
@@ -1458,22 +1436,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSource = self.get_object()
 
-        _perf_destroy_start = time.monotonic()
         schemas = list(
             ExternalDataSchema.objects.exclude(deleted=True)
             .filter(team_id=self.team_id, source_id=instance.id)
             .select_related("table")
             .all()
         )
-        logger.info(
-            "slack_perf: destroy fetched schemas",
-            schema_count=len(schemas),
-            elapsed_s=round(time.monotonic() - _perf_destroy_start, 2),
-        )
 
         # Soft-delete source, schemas, tables, and companion _cdc tables atomically
         # first so DB state is consistent even if the external cleanup below fails
-        _perf_soft_delete_start = time.monotonic()
         with transaction.atomic():
             for schema in schemas:
                 if schema.table:
@@ -1496,12 +1467,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ).exclude(id__in=[s.table_id for s in schemas if s.table_id is not None]).update(deleted=True)
 
             instance.soft_delete()
-
-        logger.info(
-            "slack_perf: destroy soft-delete block done",
-            schema_count=len(schemas),
-            elapsed_s=round(time.monotonic() - _perf_soft_delete_start, 2),
-        )
 
         # Best-effort webhook cleanup — soft-deletes are already committed
         source_type = ExternalDataSourceType(instance.source_type)
@@ -1529,27 +1494,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         # Delete all schema sync schedules over a single shared Temporal connection — see
         # the matching comment in `create`.
-        _perf_schedules_start = time.monotonic()
         schedule_delete_errors = a_bulk_delete_external_data_schedules([str(schema.id) for schema in schemas])
         for schedule_delete_error in schedule_delete_errors:
             capture_exception(schedule_delete_error)
-        logger.info(
-            "slack_perf: destroy delete schedules done",
-            schema_count=len(schemas),
-            elapsed_s=round(time.monotonic() - _perf_schedules_start, 2),
-        )
 
-        _perf_tables_start = time.monotonic()
         for schema in schemas:
             try:
                 schema.delete_table()
             except Exception as e:
                 capture_exception(e)
-        logger.info(
-            "slack_perf: destroy delete tables done",
-            schema_count=len(schemas),
-            elapsed_s=round(time.monotonic() - _perf_tables_start, 2),
-        )
 
         try:
             delete_external_data_schedule(str(instance.id))
