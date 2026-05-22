@@ -1098,12 +1098,14 @@ jobs:
               # GITHUB_TOKEN is read-only for fork PRs, so only comment on same-repo PRs.
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   script: |
                       const fs = require('fs');
                       const marker = '<!-- ch-migration-sql -->';
-                      const hasChanges = '${{ steps.render_ch_sql.outputs.has_changes }}' === 'true';
+                      const hasChanges = process.env.HAS_CHANGES === 'true';
                       const { data: comments } = await github.rest.issues.listComments({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
