@@ -1,6 +1,5 @@
 import uuid
 
-import unittest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
@@ -93,6 +92,42 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def _run(self, query: WebOverviewQuery):
         return WebOverviewQueryRunner(team=self.team, query=query).calculate()
 
+    def _dump_lazy_state(self) -> str:
+        # Diagnostic helper: when a lazy/raw mismatch fires on CI but passes
+        # locally, surface what ClickHouse + Postgres actually contain for this
+        # team so we can tell INSERT-failed-empty apart from
+        # READ-can't-see-the-rows. Keep concise; lands in assert messages.
+        from posthog.clickhouse.client import sync_execute
+
+        team_id = self.team.pk
+        try:
+            preagg = sync_execute(
+                "SELECT count(), countDistinct(job_id), min(time_window_start), max(time_window_start) "
+                "FROM web_overview_preaggregated WHERE team_id = %(team_id)s",
+                {"team_id": team_id},
+            )
+            preagg_summary = (
+                f"rows={preagg[0][0]} distinct_jobs={preagg[0][1]} window_range=[{preagg[0][2]}, {preagg[0][3]}]"
+            )
+        except Exception as exc:
+            preagg_summary = f"ERROR querying preagg: {type(exc).__name__}: {exc}"
+
+        try:
+            events_count = sync_execute(
+                "SELECT count() FROM events WHERE team_id = %(team_id)s",
+                {"team_id": team_id},
+            )[0][0]
+        except Exception as exc:
+            events_count = f"ERROR: {type(exc).__name__}: {exc}"
+
+        jobs = list(PreaggregationJob.objects.filter(team_id=team_id).values_list("status", "id", "query_hash"))
+        jobs_summary = ", ".join(f"{s}:{str(jid)[:8]}:{qh[:8]}" for s, jid, qh in jobs) or "none"
+
+        return (
+            f"\n[CH state for team_id={team_id}] events={events_count} | preagg: {preagg_summary} | "
+            f"pg_jobs=[{jobs_summary}]"
+        )
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_unfiltered_round_trip_creates_precompute_job(self):
         self._seed_two_sessions()
@@ -102,11 +137,6 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         jobs = list(PreaggregationJob.objects.filter(team_id=self.team.pk))
         assert len(jobs) > 0, "expected at least one precompute job to be created"
 
-    @unittest.skip(
-        "Flaky on CI since #59075 — lazy path returns empty rows despite READY job. "
-        "Suspected read-after-write visibility on Distributed table, but global "
-        "insert_distributed_sync=1 is already set in users-dev.xml. Root cause under investigation."
-    )
     @freeze_time("2024-01-15T12:00:00Z")
     def test_lazy_result_matches_raw_result(self):
         """Run the same query with and without the lazy path enabled, assert results match."""
@@ -132,9 +162,10 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         lazy_views = lazy_response.results[1].value
         lazy_sessions = lazy_response.results[2].value
 
-        assert lazy_visitors == raw_visitors, f"visitors mismatch: lazy={lazy_visitors}, raw={raw_visitors}"
-        assert lazy_views == raw_views, f"views mismatch: lazy={lazy_views}, raw={raw_views}"
-        assert lazy_sessions == raw_sessions, f"sessions mismatch: lazy={lazy_sessions}, raw={raw_sessions}"
+        state = self._dump_lazy_state()
+        assert lazy_visitors == raw_visitors, f"visitors mismatch: lazy={lazy_visitors}, raw={raw_visitors}{state}"
+        assert lazy_views == raw_views, f"views mismatch: lazy={lazy_views}, raw={raw_views}{state}"
+        assert lazy_sessions == raw_sessions, f"sessions mismatch: lazy={lazy_sessions}, raw={raw_sessions}{state}"
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_host_filter_gets_distinct_cache_entry(self):
@@ -347,12 +378,6 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("tokyo", "Asia/Tokyo"),
         ]
     )
-    @unittest.skip(
-        "Flaky on CI since #59075 — same root cause as test_lazy_result_matches_raw_result. "
-        "Pacific variant is the most reproducible failure. The previous skip in #59614 was "
-        "above @parameterized.expand, so the parameterized variants kept running and failing. "
-        "Root cause under investigation."
-    )
     @freeze_time("2024-01-15T12:00:00Z")
     def test_lazy_result_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str) -> None:
         """Whole-hour-offset teams must produce the same metrics through the lazy and raw paths."""
@@ -372,7 +397,9 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert ready_jobs > 0, f"expected READY precompute job for {team_tz}, got 0"
 
         lazy_values = [(r.key, r.value) for r in lazy_response.results]
-        assert lazy_values == raw_values, f"lazy/raw mismatch for {team_tz}: raw={raw_values}, lazy={lazy_values}"
+        assert lazy_values == raw_values, (
+            f"lazy/raw mismatch for {team_tz}: raw={raw_values}, lazy={lazy_values}{self._dump_lazy_state()}"
+        )
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_half_hour_offset_timezone_falls_through(self):
@@ -440,10 +467,6 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     # --- Group C: forward-only pad + compare readiness ---------------------
 
-    @unittest.skip(
-        "Flaky on CI since #59075 — same intermittent empty-result pattern as the other "
-        "round-trip tests in this file. Missed by #59614. Root cause under investigation."
-    )
     @freeze_time("2024-01-15T12:00:00Z")
     def test_session_just_after_window_start_attributed_correctly(self):
         # Forward-only pad regression: a session starting near the leading edge
@@ -472,7 +495,9 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             lazy_response = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
         lazy_values = [(r.key, r.value) for r in lazy_response.results]
 
-        assert lazy_values == raw_values, f"forward-only pad parity broken: raw={raw_values}, lazy={lazy_values}"
+        assert lazy_values == raw_values, (
+            f"forward-only pad parity broken: raw={raw_values}, lazy={lazy_values}{self._dump_lazy_state()}"
+        )
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_compare_period_falls_back_when_previous_not_ready(self):
@@ -503,10 +528,6 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert result is None, f"expected fall-back to raw when previous precompute not ready, got {result!r}"
 
-    @unittest.skip(
-        "Flaky on CI since #59075 — same intermittent empty-result pattern as the other "
-        "round-trip tests in this file. Root cause under investigation."
-    )
     @freeze_time("2024-01-15T12:00:00Z")
     def test_recomputation_picks_up_late_events_changing_bounce_and_duration(self):
         # After a late event arrives, the next precompute run (cache invalidated
@@ -572,12 +593,13 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             )
 
         # Recomputed state must reflect the late event.
-        assert second_metrics["views"] == 2.0, f"recomputed views should be 2, got {second_metrics}"
+        state = self._dump_lazy_state()
+        assert second_metrics["views"] == 2.0, f"recomputed views should be 2, got {second_metrics}{state}"
         assert second_metrics["bounce rate"] == 0.0, (
-            f"recomputed bounce rate should flip to 0.0% after second pageview, got {second_metrics}"
+            f"recomputed bounce rate should flip to 0.0% after second pageview, got {second_metrics}{state}"
         )
         assert second_metrics["session duration"] is not None and second_metrics["session duration"] > 0, (
-            f"recomputed session duration should be > 0, got {second_metrics}"
+            f"recomputed session duration should be > 0, got {second_metrics}{state}"
         )
 
         # Cross-check parity vs the raw events path after the late event.
