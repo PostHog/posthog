@@ -598,7 +598,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     def outer_where_breakdown(self) -> ast.Expr | None:
         match self.query.breakdownBy:
             case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
-                return parse_expr("tupleElement(`context.columns.breakdown_value`, 2) IS NOT NULL")
+                # Filter only on the country code (element 1) — the region/city (element 2)
+                # may be NULL when GeoIP can't resolve the subdivision/city. Dropping those rows
+                # made the region/city totals diverge from the country totals; instead, keep them
+                # and let the frontend render the NULL element as "(unknown region/city)".
+                return parse_expr("tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL")
             case WebStatsBreakdown.VIEWPORT:
                 return parse_expr(
                     "tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL AND tupleElement(`context.columns.breakdown_value`, 2) IS NOT NULL AND "

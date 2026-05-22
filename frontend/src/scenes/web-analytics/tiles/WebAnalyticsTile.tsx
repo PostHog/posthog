@@ -387,10 +387,11 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.Region:
             if (Array.isArray(value)) {
                 const [countryCode, regionCode, regionName] = value
+                const regionLabel = regionName || regionCode
                 return (
                     <>
                         {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode} -{' '}
-                        {regionName || regionCode}
+                        {regionLabel ? regionLabel : <span className="text-secondary italic">(unknown region)</span>}
                     </>
                 )
             }
@@ -401,7 +402,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return (
                     <>
                         {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode} -{' '}
-                        {cityName}
+                        {cityName ? cityName : <span className="text-secondary italic">(unknown city)</span>}
                     </>
                 )
             }
@@ -1094,12 +1095,14 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
             break
         case WebStatsBreakdown.Region:
             if (Array.isArray(breakdownValue)) {
-                return breakdownValue[1]
+                // Element 1 may be NULL when GeoIP can't resolve a subdivision; skip the
+                // click handler in that case since filtering by NULL has no useful behavior.
+                return breakdownValue[1] ?? undefined
             }
             break
         case WebStatsBreakdown.City:
             if (Array.isArray(breakdownValue)) {
-                return breakdownValue[1]
+                return breakdownValue[1] ?? undefined
             }
             break
         case WebStatsBreakdown.Viewport:
