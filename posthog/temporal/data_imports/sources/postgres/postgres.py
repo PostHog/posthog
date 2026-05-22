@@ -29,7 +29,7 @@ from posthog.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_operator,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
@@ -40,7 +40,11 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
+from posthog.temporal.data_imports.sources.common.mixins import make_ssh_tunnel_factory, open_ssh_tunnel
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql.implementation import SourceMetadata, SQLSourceImplementation
+from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
+from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
@@ -413,6 +417,41 @@ def _get_discovered_tables(
     return {name: all_tables[name] for name in names if name in all_tables}, qualify_with_schema
 
 
+def _row_counts_from_conn(
+    connection: psycopg.Connection,
+    schema: str | None,
+    names: list[str] | None,
+) -> dict[str, int]:
+    if _normalize_selected_schema(schema) is None and not names:
+        return {}
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
+                    timeout=sql.Literal(1000 * 30)  # 30 secs
+                )
+            )
+            discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+            if not discovered_tables:
+                return {}
+
+            counts = [
+                sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
+                    table_name=sql.Literal(display_name),
+                    schema=sql.Identifier(schema_name),
+                    table=sql.Identifier(table_name),
+                )
+                for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
+            ]
+
+            union_counts = sql.SQL(" UNION ALL ").join(counts)
+            cursor.execute(union_counts)
+            row_count_result = cursor.fetchall()
+            return {row[0]: row[1] for row in row_count_result}
+    except:
+        return {}
+
+
 def get_postgres_row_count(
     host: str,
     port: int,
@@ -429,31 +468,82 @@ def get_postgres_row_count(
         with pg_connection(
             host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
         ) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                        timeout=sql.Literal(1000 * 30)  # 30 secs
-                    )
-                )
-                discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
-                if not discovered_tables:
-                    return {}
-
-                counts = [
-                    sql.SQL("SELECT {table_name} AS table_name, COUNT(*) AS row_count FROM {schema}.{table}").format(
-                        table_name=sql.Literal(display_name),
-                        schema=sql.Identifier(schema_name),
-                        table=sql.Identifier(table_name),
-                    )
-                    for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
-                ]
-
-                union_counts = sql.SQL(" UNION ALL ").join(counts)
-                cursor.execute(union_counts)
-                row_count_result = cursor.fetchall()
-                return {row[0]: row[1] for row in row_count_result}
+            return _row_counts_from_conn(connection, schema, names)
     except:
         return {}
+
+
+def _schemas_from_conn(
+    connection: psycopg.Connection,
+    schema: str | None,
+    names: list[str] | None,
+) -> dict[str, PostgresDiscoveredSchema]:
+    """Discover columns for tables on the given pre-opened connection."""
+    with connection.cursor() as cursor:
+        discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+        if not discovered_tables:
+            return {}
+
+        source_schemas = sorted(
+            {schema_name for _table_catalog, schema_name, _table_name in discovered_tables.values()}
+        )
+        schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
+
+        cursor.execute(
+            f"""
+            SELECT * FROM (
+                SELECT
+                    table_schema,
+                    table_name,
+                    column_name,
+                    data_type,
+                    is_nullable,
+                    ordinal_position
+                FROM information_schema.columns
+                WHERE table_schema IN ({schema_placeholders})
+                UNION ALL
+                SELECT
+                    n.nspname AS table_schema,
+                    c.relname AS table_name,
+                    a.attname AS column_name,
+                    pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+                    CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+                    a.attnum AS ordinal_position
+                FROM pg_class c
+                JOIN pg_namespace n ON c.relnamespace = n.oid
+                JOIN pg_attribute a ON a.attrelid = c.oid
+                WHERE c.relkind = 'm'
+                  AND n.nspname IN ({schema_placeholders})
+                  AND a.attnum > 0
+                  AND NOT a.attisdropped
+            ) t
+            ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC
+            """,
+            schema_params,
+        )
+        result = cursor.fetchall()
+
+        columns_by_table: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
+        discovered_pairs_by_schema_and_table = {
+            (schema_name, table_name): display_name
+            for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
+        }
+        for table_schema, table_name, column_name, data_type, is_nullable, _ordinal_position in result:
+            display_name = discovered_pairs_by_schema_and_table.get((table_schema, table_name))
+            if display_name is None:
+                continue
+
+            columns_by_table[display_name].append((column_name, data_type, is_nullable == "YES"))
+
+        return {
+            display_name: PostgresDiscoveredSchema(
+                source_catalog=source_catalog,
+                source_schema=schema_name,
+                source_table_name=table_name,
+                columns=columns_by_table.get(display_name, []),
+            )
+            for display_name, (source_catalog, schema_name, table_name) in discovered_tables.items()
+        }
 
 
 def get_schemas(
@@ -467,75 +557,10 @@ def get_schemas(
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
-
     with pg_connection(
         host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
     ) as connection:
-        with connection.cursor() as cursor:
-            discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
-            if not discovered_tables:
-                return {}
-
-            source_schemas = sorted(
-                {schema_name for _table_catalog, schema_name, _table_name in discovered_tables.values()}
-            )
-            schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
-
-            cursor.execute(
-                f"""
-                SELECT * FROM (
-                    SELECT
-                        table_schema,
-                        table_name,
-                        column_name,
-                        data_type,
-                        is_nullable,
-                        ordinal_position
-                    FROM information_schema.columns
-                    WHERE table_schema IN ({schema_placeholders})
-                    UNION ALL
-                    SELECT
-                        n.nspname AS table_schema,
-                        c.relname AS table_name,
-                        a.attname AS column_name,
-                        pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
-                        CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
-                        a.attnum AS ordinal_position
-                    FROM pg_class c
-                    JOIN pg_namespace n ON c.relnamespace = n.oid
-                    JOIN pg_attribute a ON a.attrelid = c.oid
-                    WHERE c.relkind = 'm'
-                      AND n.nspname IN ({schema_placeholders})
-                      AND a.attnum > 0
-                      AND NOT a.attisdropped
-                ) t
-                ORDER BY table_schema ASC, table_name ASC, ordinal_position ASC
-                """,
-                schema_params,
-            )
-            result = cursor.fetchall()
-
-            columns_by_table: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
-            discovered_pairs_by_schema_and_table = {
-                (schema_name, table_name): display_name
-                for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
-            }
-            for table_schema, table_name, column_name, data_type, is_nullable, _ordinal_position in result:
-                display_name = discovered_pairs_by_schema_and_table.get((table_schema, table_name))
-                if display_name is None:
-                    continue
-
-                columns_by_table[display_name].append((column_name, data_type, is_nullable == "YES"))
-
-            return {
-                display_name: PostgresDiscoveredSchema(
-                    source_catalog=source_catalog,
-                    source_schema=schema_name,
-                    source_table_name=table_name,
-                    columns=columns_by_table.get(display_name, []),
-                )
-                for display_name, (source_catalog, schema_name, table_name) in discovered_tables.items()
-            }
+        return _schemas_from_conn(connection, schema, names)
 
 
 def get_primary_keys_for_schemas(
@@ -564,6 +589,74 @@ def get_primary_keys_for_schemas(
     return result
 
 
+def _foreign_keys_from_conn(
+    connection: psycopg.Connection,
+    schema: str | None,
+    names: list[str] | None,
+) -> dict[str, list[tuple[str, str, str]]]:
+    """Discover foreign keys on a pre-opened connection."""
+    with connection.cursor() as cursor:
+        discovered_tables, qualify_with_schema = _get_discovered_tables(cursor, schema, names)
+        if not discovered_tables:
+            return {}
+
+        source_schemas = sorted(
+            {schema_name for _table_catalog, schema_name, _table_name in discovered_tables.values()}
+        )
+        schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
+
+        cursor.execute(
+            f"""
+            SELECT
+                tc.table_schema AS source_schema_name,
+                tc.table_name AS table_name,
+                kcu.column_name AS column_name,
+                ccu.table_schema AS target_schema_name,
+                ccu.table_name AS target_table_name,
+                ccu.column_name AS target_column_name
+            FROM information_schema.table_constraints AS tc
+            JOIN information_schema.key_column_usage AS kcu
+                ON tc.constraint_name = kcu.constraint_name
+                AND tc.constraint_schema = kcu.constraint_schema
+                AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.constraint_column_usage AS ccu
+                ON ccu.constraint_name = tc.constraint_name
+                AND ccu.constraint_schema = tc.constraint_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_schema IN ({schema_placeholders})
+            ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position
+            """,
+            schema_params,
+        )
+        result = cursor.fetchall()
+
+        foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = collections.defaultdict(list)
+        discovered_pairs_by_schema_and_table = {
+            (schema_name, table_name): display_name
+            for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
+        }
+        for (
+            source_schema_name,
+            table_name,
+            column_name,
+            target_schema_name,
+            target_table_name,
+            target_column_name,
+        ) in result:
+            display_name = discovered_pairs_by_schema_and_table.get((source_schema_name, table_name))
+            if display_name is None:
+                continue
+
+            target_display_name = _get_display_table_name(
+                target_schema_name,
+                target_table_name,
+                qualify_with_schema=qualify_with_schema or target_schema_name != source_schema_name,
+            )
+            foreign_keys_by_table[display_name].append((column_name, target_display_name, target_column_name))
+
+        return foreign_keys_by_table
+
+
 def get_foreign_keys(
     host: str,
     database: str,
@@ -575,70 +668,10 @@ def get_foreign_keys(
     names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, str]]]:
     """Get foreign keys for tables in the selected PostgreSQL schema."""
-
     with pg_connection(
         host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
     ) as connection:
-        with connection.cursor() as cursor:
-            discovered_tables, qualify_with_schema = _get_discovered_tables(cursor, schema, names)
-            if not discovered_tables:
-                return {}
-
-            source_schemas = sorted(
-                {schema_name for _table_catalog, schema_name, _table_name in discovered_tables.values()}
-            )
-            schema_placeholders, schema_params = _build_named_value_placeholders("schema", source_schemas)
-
-            cursor.execute(
-                f"""
-                SELECT
-                    tc.table_schema AS source_schema_name,
-                    tc.table_name AS table_name,
-                    kcu.column_name AS column_name,
-                    ccu.table_schema AS target_schema_name,
-                    ccu.table_name AS target_table_name,
-                    ccu.column_name AS target_column_name
-                FROM information_schema.table_constraints AS tc
-                JOIN information_schema.key_column_usage AS kcu
-                    ON tc.constraint_name = kcu.constraint_name
-                    AND tc.constraint_schema = kcu.constraint_schema
-                    AND tc.table_schema = kcu.table_schema
-                JOIN information_schema.constraint_column_usage AS ccu
-                    ON ccu.constraint_name = tc.constraint_name
-                    AND ccu.constraint_schema = tc.constraint_schema
-                WHERE tc.constraint_type = 'FOREIGN KEY'
-                  AND tc.table_schema IN ({schema_placeholders})
-                ORDER BY tc.table_schema, tc.table_name, kcu.ordinal_position
-                """,
-                schema_params,
-            )
-            result = cursor.fetchall()
-
-            foreign_keys_by_table: dict[str, list[tuple[str, str, str]]] = collections.defaultdict(list)
-            discovered_pairs_by_schema_and_table = {
-                (schema_name, table_name): display_name
-                for display_name, (_source_catalog, schema_name, table_name) in discovered_tables.items()
-            }
-            for (
-                source_schema_name,
-                table_name,
-                column_name,
-                target_schema_name,
-                target_table_name,
-                target_column_name,
-            ) in result:
-                display_name = discovered_pairs_by_schema_and_table.get((source_schema_name, table_name))
-                if display_name is None:
-                    continue
-
-                target_display_name = _get_display_table_name(
-                    target_schema_name,
-                    target_table_name,
-                    qualify_with_schema=qualify_with_schema or target_schema_name != source_schema_name,
-                )
-                foreign_keys_by_table[display_name].append((column_name, target_display_name, target_column_name))
-
-            return foreign_keys_by_table
+        return _foreign_keys_from_conn(connection, schema, names)
 
 
 def get_connection_metadata(
@@ -1963,3 +1996,226 @@ def postgres_source(
         rows_to_sync=rows_to_sync,
         has_duplicate_primary_keys=has_duplicate_primary_keys,
     )
+
+
+# psycopg's `Cursor.execute` accepts `sql.Composable`/`bytes` in addition to `str`, so it
+# does not satisfy the narrow `_CursorLike(execute(query: str, ...))` protocol on the base.
+# Use `Any` for the cursor type variable — the impl annotates `psycopg.Cursor` on each
+# method signature where it matters.
+class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psycopg.Connection, Any]):
+    """Postgres driver implementation paired with `PostgresSource`.
+
+    Postgres keeps multi-schema discovery, column selection, and CDC dispatch on
+    `PostgresSource` itself — this impl exposes the per-connection listing and
+    per-cursor metadata primitives so they can be called against a single
+    pre-opened connection (and so the SQLSource contract is satisfied). The
+    non-CDC streaming sync path is delegated to the module-level
+    `postgres_source(...)` helper.
+    """
+
+    # ------------------------------------------------------------------
+    # Connection lifecycle
+    # ------------------------------------------------------------------
+
+    @contextmanager
+    def connect(
+        self,
+        config: PostgresSourceConfig,
+        *,
+        require_ssl: bool = False,
+    ) -> Iterator[psycopg.Connection]:
+        """Open a single psycopg connection (through the SSH tunnel if configured)."""
+        with open_ssh_tunnel(config) as (host, port):
+            with pg_connection(
+                host=host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password,
+                require_ssl=require_ssl,
+            ) as conn:
+                yield conn
+
+    # ------------------------------------------------------------------
+    # Listing — batch queries run once during schema discovery
+    # ------------------------------------------------------------------
+
+    def get_columns(
+        self,
+        conn: psycopg.Connection,
+        config: PostgresSourceConfig,
+        names: list[str] | None,
+    ) -> dict[str, list[tuple[str, str, bool]]]:
+        discovered = _schemas_from_conn(conn, config.schema, names)
+        return {display_name: discovered_schema.columns for display_name, discovered_schema in discovered.items()}
+
+    def get_discovered_schemas(
+        self,
+        conn: psycopg.Connection,
+        config: PostgresSourceConfig,
+        names: list[str] | None,
+    ) -> dict[str, PostgresDiscoveredSchema]:
+        """Return the full multi-schema discovery payload.
+
+        Postgres needs catalog/schema/table-name per discovered row to reconcile
+        display names with the source location at sync time; this exposes the
+        richer payload that `PostgresSource.get_schemas` consumes.
+        """
+        return _schemas_from_conn(conn, config.schema, names)
+
+    def get_primary_keys(
+        self,
+        conn: psycopg.Connection,
+        config: PostgresSourceConfig,
+        tables: list[str],
+    ) -> dict[str, list[str] | None]:
+        result: dict[str, list[str] | None] = dict.fromkeys(tables)
+        if not tables:
+            return result
+        schema = config.schema or "public"
+        try:
+            pks = get_primary_key_columns(conn, schema, tables)
+        except Exception as e:
+            structlog.get_logger().warning("Failed to detect primary keys for Postgres schemas", exc_info=e)
+            return result
+        for table_name, pk_cols in pks.items():
+            result[table_name] = pk_cols
+        return result
+
+    def get_foreign_keys(
+        self,
+        conn: psycopg.Connection,
+        config: PostgresSourceConfig,
+        tables: list[str],
+    ) -> dict[str, list[tuple[str, str, str]]]:
+        return _foreign_keys_from_conn(conn, config.schema, tables or None)
+
+    def get_row_counts(
+        self,
+        conn: psycopg.Connection,
+        config: PostgresSourceConfig,
+        tables: list[str],
+    ) -> dict[str, int | None]:
+        counts = _row_counts_from_conn(conn, config.schema, tables or None)
+        return {table: counts.get(table) for table in tables}
+
+    def get_leading_index_columns(
+        self,
+        conn: psycopg.Connection,
+        config: PostgresSourceConfig,
+        tables: list[str],
+    ) -> dict[str, set[str]] | None:
+        if not tables:
+            return {}
+        schema = config.schema or "public"
+        return get_leading_index_columns(conn, schema, tables)
+
+    def get_source_metadata(
+        self,
+        conn: psycopg.Connection,
+        config: PostgresSourceConfig,
+        tables: list[str],
+    ) -> SourceMetadata:
+        discovered = _schemas_from_conn(conn, config.schema, tables or None)
+        return SourceMetadata(
+            catalog_by_table={name: schema.source_catalog for name, schema in discovered.items()},
+            schema_by_table={name: schema.source_schema for name, schema in discovered.items()},
+            table_name_by_table={name: schema.source_table_name for name, schema in discovered.items()},
+        )
+
+    def get_cdc_support(
+        self,
+        conn: psycopg.Connection,
+        config: PostgresSourceConfig,
+        tables: list[str],
+    ) -> dict[str, bool]:
+        pks = self.get_primary_keys(conn, config, tables)
+        return {table: bool(pks.get(table)) for table in tables}
+
+    def get_incremental_filter(self) -> IncrementalFieldFilter:
+        return filter_postgres_incremental_fields
+
+    # ------------------------------------------------------------------
+    # Per-cursor metadata — used during streaming sync
+    # ------------------------------------------------------------------
+
+    def get_primary_keys_for_table(
+        self,
+        cursor: psycopg.Cursor,
+        schema: str,
+        table_name: str,
+        logger: FilteringBoundLogger | None = None,
+    ) -> list[str] | None:
+        log = logger or structlog.get_logger()
+        return _get_primary_keys(cursor, schema, table_name, log)
+
+    def get_table_metadata(
+        self,
+        cursor: psycopg.Cursor,
+        schema: str,
+        table_name: str,
+        logger: FilteringBoundLogger | None = None,
+        probe_unconstrained_numeric_scale: bool = False,
+    ) -> Table[PostgreSQLColumn]:
+        log = logger or structlog.get_logger()
+        return _get_table(
+            cursor,
+            schema,
+            table_name,
+            log,
+            probe_unconstrained_numeric_scale=probe_unconstrained_numeric_scale,
+        )
+
+    def get_partition_settings(  # type: ignore[override]
+        self,
+        cursor: psycopg.Cursor,
+        schema: str,
+        table_name: str,
+        logger: FilteringBoundLogger,
+        partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+    ) -> PartitionSettings | None:
+        """Postgres computes partition settings directly from `pg_table_size`/`count(*)`
+        (or partitioned-table catalog estimates) rather than the base-class
+        `fetch_table_stats` math, since `pg_table_size` does not return a row count
+        in the same shape. Override to keep the existing helper authoritative.
+        """
+        return _get_partition_settings(cursor, schema, table_name, logger)
+
+    def get_rows_to_sync(
+        self,
+        cursor: psycopg.Cursor,
+        count_query: sql.Composed,
+        logger: FilteringBoundLogger,
+    ) -> int:
+        return _get_rows_to_sync(cursor, count_query, logger)
+
+    # ------------------------------------------------------------------
+    # Pipeline build
+    # ------------------------------------------------------------------
+
+    def build_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        """Build a basic non-CDC pipeline against `config.schema`.
+
+        `PostgresSource.source_for_pipeline` overrides this with the per-row
+        schema_metadata reconciliation (multi-schema dispatch, CDC streaming
+        guard, `enabled_columns`, `require_ssl`, `is_initial_sync`). This base
+        implementation handles the simpler single-schema case and is what gets
+        called when callers go through the SQLSource template without the
+        Postgres-specific reconciliation.
+        """
+        tunnel = make_ssh_tunnel_factory(config)
+        return postgres_source(
+            tunnel=tunnel,
+            user=config.user,
+            password=config.password,
+            database=config.database,
+            sslmode="prefer",
+            schema=config.schema or "public",
+            table_names=[inputs.schema_name],
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            logger=inputs.logger,
+            incremental_field=inputs.incremental_field,
+            incremental_field_type=inputs.incremental_field_type,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            team_id=inputs.team_id,
+        )
