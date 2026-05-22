@@ -140,6 +140,22 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'get_llm_skill_file',
 ]
 
+function skillStatusFormatter(
+    toolCall: EnhancedToolCall,
+    {
+        completedLabel,
+        pendingLabel,
+        nameArgKey,
+    }: { completedLabel: string; pendingLabel: string; nameArgKey?: string }
+): string {
+    const rawName = nameArgKey ? toolCall.args?.[nameArgKey] : undefined
+    const suffix = typeof rawName === 'string' && rawName ? ` "${rawName}"` : ''
+    if (toolCall.status === 'completed') {
+        return `${completedLabel}${suffix}`
+    }
+    return `${pendingLabel}${suffix}...`
+}
+
 export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     call_mcp_server: {
         name: 'Call an MCP server',
@@ -1061,38 +1077,33 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'List shared skills',
         description: 'List shared skills stored for this team',
         icon: <IconBook />,
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Listed shared skills'
-            }
-            return 'Listing shared skills...'
-        },
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Listed shared skills',
+                pendingLabel: 'Listing shared skills',
+            }),
     },
     get_llm_skill: {
         name: 'Load shared skill',
         description: 'Load shared skill body and file manifest',
         icon: <IconBook />,
-        displayFormatter: (toolCall) => {
-            const name = toolCall.args?.skill_name
-            const suffix = typeof name === 'string' && name ? ` "${name}"` : ''
-            if (toolCall.status === 'completed') {
-                return `Loaded shared skill${suffix}`
-            }
-            return `Loading shared skill${suffix}...`
-        },
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Loaded shared skill',
+                pendingLabel: 'Loading shared skill',
+                nameArgKey: 'skill_name',
+            }),
     },
     get_llm_skill_file: {
         name: 'Load shared skill file',
         description: 'Load shared skill file bundled in a skill',
         icon: <IconBook />,
-        displayFormatter: (toolCall) => {
-            const path = toolCall.args?.file_path
-            const suffix = typeof path === 'string' && path ? ` "${path}"` : ''
-            if (toolCall.status === 'completed') {
-                return `Loaded skill file${suffix}`
-            }
-            return `Loading skill file${suffix}...`
-        },
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Loaded skill file',
+                pendingLabel: 'Loading skill file',
+                nameArgKey: 'file_path',
+            }),
     },
     create_llm_skill: {
         name: 'Create shared skill',
@@ -1100,14 +1111,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.LLMAnalytics,
         icon: <IconBook />,
         modes: [AgentMode.LLMAnalytics],
-        displayFormatter: (toolCall) => {
-            const name = toolCall.args?.name
-            const suffix = typeof name === 'string' && name ? ` "${name}"` : ''
-            if (toolCall.status === 'completed') {
-                return `Created shared skill${suffix}`
-            }
-            return `Creating shared skill${suffix}...`
-        },
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Created shared skill',
+                pendingLabel: 'Creating shared skill',
+                nameArgKey: 'name',
+            }),
     },
     update_llm_skill: {
         name: 'Update shared skill',
@@ -1115,14 +1124,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.LLMAnalytics,
         icon: <IconBook />,
         modes: [AgentMode.LLMAnalytics],
-        displayFormatter: (toolCall) => {
-            const name = toolCall.args?.skill_name
-            const suffix = typeof name === 'string' && name ? ` "${name}"` : ''
-            if (toolCall.status === 'completed') {
-                return `Updated shared skill${suffix}`
-            }
-            return `Updating shared skill${suffix}...`
-        },
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Updated shared skill',
+                pendingLabel: 'Updating shared skill',
+                nameArgKey: 'skill_name',
+            }),
     },
     archive_llm_skill: {
         name: 'Archive shared skill',
@@ -1130,14 +1137,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.LLMAnalytics,
         icon: <IconBook />,
         modes: [AgentMode.LLMAnalytics],
-        displayFormatter: (toolCall) => {
-            const name = toolCall.args?.skill_name
-            const suffix = typeof name === 'string' && name ? ` "${name}"` : ''
-            if (toolCall.status === 'completed') {
-                return `Archived shared skill${suffix}`
-            }
-            return `Archiving shared skill${suffix}...`
-        },
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Archived shared skill',
+                pendingLabel: 'Archiving shared skill',
+                nameArgKey: 'skill_name',
+            }),
     },
 }
 
