@@ -182,7 +182,11 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Just to simplify access
         self.metric = self.query.metric
-        self.cuped_config = get_cuped_config(self.experiment.stats_config, self.metric)
+        self.cuped_config = get_cuped_config(
+            self.experiment.stats_config,
+            self.metric,
+            team_default_enabled=self._team_experiments_config.default_cuped_enabled,
+        )
 
         self.clickhouse_sql: str | None = None
         self.hogql: str | None = None
@@ -401,7 +405,6 @@ class ExperimentQueryRunner(QueryRunner):
 
         settings = HogQLGlobalSettings(
             max_execution_time=self.max_execution_time,
-            enable_analyzer=True,
             max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
         )
         # Mean metric queries join exposures with a potentially large metric-events table and

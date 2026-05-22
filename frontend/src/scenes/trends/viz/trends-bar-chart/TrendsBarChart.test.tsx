@@ -57,6 +57,33 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(tooltip.row('Pageview')).toContain('134')
     })
 
+    it('stacked tooltip shows each series own value, not the cumulative stack total', async () => {
+        // $pageview=134 and Napped=5 at index 2. Napped stacks on top of $pageview, so its
+        // cumulative top is 139 — the tooltip must report Napped's own 5, not the running total.
+        renderInsight({
+            query: trendsBar({
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+                ],
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        const tooltip = await chart.hoverTooltip(2)
+
+        expect(tooltip.row('Pageview')).toContain('134')
+        expect(tooltip.row('Napped')).toContain('5')
+        expect(tooltip.row('Napped')).not.toContain('139')
+    })
+
+    it('shows a date header in the tooltip', async () => {
+        renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        const tooltip = await chart.hoverTooltip(2)
+        expect(tooltip.title()).toMatch(/Jun/)
+    })
+
     it('opens the persons modal on click for a single series', async () => {
         renderInsight({ query: trendsBar(), featureFlags: HOG_CHARTS_FLAG })
 
@@ -143,6 +170,13 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
     })
 
+    it('omits the header from the tooltip', async () => {
+        renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
+
+        const tooltip = await chart.hoverTooltip(0)
+        expect(tooltip.title()).toBe('')
+    })
+
     it('opens the persons modal on click without resolving a day', async () => {
         renderInsight({ query: aggregatedBar(), featureFlags: HOG_CHARTS_FLAG })
 
@@ -153,6 +187,19 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
         // Aggregated mode has no DateDisplay in the title.
         expect(personsModal.title()).not.toMatch(/Wednesday/)
+    })
+
+    it('opens the persons modal on click in compare mode instead of pinning the tooltip', async () => {
+        renderInsight({
+            query: aggregatedBar({ compareFilter: { compare: true } }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await chart.clickAtIndex(0)
+
+        await waitFor(() => {
+            expect(personsModal.get()).toBeInTheDocument()
+        })
     })
 
     it('fires context.onDataPointClick without a day argument', async () => {

@@ -40,7 +40,7 @@ export function LLMCostsView({ data }: LLMCostsViewProps): ReactElement {
             <div className="p-4">
                 <Empty>
                     <EmptyHeader>
-                        <EmptyTitle>No LLM cost data</EmptyTitle>
+                        <EmptyTitle>No AI cost data</EmptyTitle>
                         <EmptyDescription>No AI generation events found for this period</EmptyDescription>
                     </EmptyHeader>
                 </Empty>
@@ -80,7 +80,7 @@ export function LLMCostsView({ data }: LLMCostsViewProps): ReactElement {
         <div className="p-4">
             <div className="flex flex-col gap-3">
                 <div className="flex flex-col gap-1">
-                    <span className="text-lg font-semibold">LLM costs</span>
+                    <span className="text-lg font-semibold">AI costs</span>
                     <span className="text-2xl font-bold tabular-nums">{formatCurrency(totalCost)}</span>
                     <span className="text-xs text-muted-foreground">Total across all models</span>
                 </div>

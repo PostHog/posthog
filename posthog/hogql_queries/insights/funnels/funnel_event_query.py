@@ -36,14 +36,14 @@ from posthog.hogql_queries.insights.funnels.utils import (
     entity_config_mismatch,
     get_breakdown_expr,
 )
-from posthog.hogql_queries.insights.utils.breakdowns import strip_user_aliases
+from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID, strip_user_aliases
 from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
 from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
-from posthog.queries.breakdown_props import NOT_IN_COHORT_ID
 from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
+
+from products.actions.backend.models.action import Action
 
 
 @dataclass

@@ -413,7 +413,11 @@ export function FeatureFlagReleaseConditions({
                         >
                             <div className="text-sm ">
                                 Rolled out to{' '}
-                                {group.rollout_percentage != null ? <b>{group.rollout_percentage}</b> : <b>100</b>}
+                                {group.rollout_percentage != null ? (
+                                    <b className="tabular-nums">{group.rollout_percentage}</b>
+                                ) : (
+                                    <b className="tabular-nums">100</b>
+                                )}
                                 <b>%</b>
                                 <span> of </span>
                                 <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>{' '}
@@ -450,7 +454,7 @@ export function FeatureFlagReleaseConditions({
                                 of <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> in this set. Will
                                 match approximately{' '}
                                 {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
-                                    <b>
+                                    <b className="tabular-nums">
                                         {`${
                                             Math.max(
                                                 computeBlastRadiusPercentage(
@@ -475,9 +479,13 @@ export function FeatureFlagReleaseConditions({
                                         const rolloutPct = Number.isNaN(group.rollout_percentage)
                                             ? 0
                                             : (group.rollout_percentage ?? 100)
-                                        return `(${humanFriendlyNumber(
-                                            Math.floor((affected * clamp(rolloutPct, 0, 100)) / 100)
-                                        )} / ${humanFriendlyNumber(total)})`
+                                        return (
+                                            <span className="tabular-nums">
+                                                {`(${humanFriendlyNumber(
+                                                    Math.floor((affected * clamp(rolloutPct, 0, 100)) / 100)
+                                                )} / ${humanFriendlyNumber(total)})`}
+                                            </span>
+                                        )
                                     }
                                     return ''
                                 })()}{' '}

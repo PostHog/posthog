@@ -81,7 +81,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
-from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method, hogql_insights_replace_filters
+from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.query_runner import (
     BLOCKING_EXECUTION_MODES,
@@ -100,7 +100,6 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
-from posthog.models.alert import AlertConfiguration
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
@@ -131,6 +130,7 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
@@ -369,9 +369,9 @@ class InsightBasicSerializer(
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        if hogql_insights_replace_filters(instance.team) and (
-            instance.query is not None or instance.query_from_filters is not None
-        ):
+        representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
+
+        if instance.query is not None or instance.query_from_filters is not None:
             representation["filters"] = {}
             representation["query"] = instance.query or instance.query_from_filters
         else:
@@ -625,7 +625,9 @@ class InsightSerializer(InsightBasicSerializer):
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
 
-                DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
+                DashboardTile.objects.create(
+                    insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
+                )
                 report_user_action(
                     self.context["request"].user,
                     "dashboard tile added",
@@ -905,7 +907,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Use prefetched alerts data
         alerts = getattr(insight, "_prefetched_alerts", [])
-        from posthog.api.alert import AlertSerializer
+        from products.alerts.backend.api.alert import AlertSerializer
 
         return AlertSerializer(alerts, many=True, context=self.context).data
 
@@ -951,9 +953,7 @@ class InsightSerializer(InsightBasicSerializer):
             request, dashboard, list(self.context["insight_variables"])
         )
 
-        if hogql_insights_replace_filters(instance.team) and (
-            instance.query is not None or instance.query_from_filters is not None
-        ):
+        if instance.query is not None or instance.query_from_filters is not None:
             query = instance.query or instance.query_from_filters
             if (
                 dashboard is not None
@@ -1510,7 +1510,7 @@ class InsightViewSet(
         recently_viewed = []
         for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
             insight = rv.insight
-            insight.last_viewed_at = rv.last_viewed_at  # type: ignore
+            insight.last_viewed_at = rv.last_viewed_at
             recently_viewed.append(insight)
 
         response = InsightBasicSerializer(recently_viewed, many=True)

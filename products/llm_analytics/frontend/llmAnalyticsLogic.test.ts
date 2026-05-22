@@ -3,12 +3,71 @@ import { expectLogic } from 'kea-test-utils'
 
 import { urls } from 'scenes/urls'
 
+import { productRedirects } from '~/products'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sceneLogic } from '../../../frontend/src/scenes/sceneLogic'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
+
+type RedirectParams = Record<string, string>
+
+const redirectUrl = (
+    path: string,
+    params: RedirectParams = {},
+    searchParams: RedirectParams = {},
+    hashParams: RedirectParams = {}
+): string => {
+    const redirect = productRedirects[path]
+    return typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
+}
+
+describe('LLM analytics URL split', () => {
+    it('uses the new canonical product URLs', () => {
+        expect(urls.llmAnalyticsDashboard()).toBe('/ai-observability/dashboard')
+        expect(urls.llmAnalyticsReviews()).toBe('/ai-observability/reviews')
+        expect(urls.llmAnalyticsTrace('trace-1')).toBe('/ai-observability/traces/trace-1')
+        expect(urls.llmAnalyticsDatasets()).toBe('/ai-evals/datasets')
+        expect(urls.llmAnalyticsTags()).toBe('/ai-evals/taggers')
+        expect(urls.llmAnalyticsEvaluations()).toBe('/ai-evals/evaluations')
+        expect(urls.llmAnalyticsPrompts()).toBe('/prompt-management/prompts')
+        expect(urls.llmAnalyticsSkills()).toBe('/prompt-management/skills')
+    })
+
+    it('redirects legacy LLM analytics URLs to their new product areas', () => {
+        expect(redirectUrl('/llm-analytics')).toBe('/ai-observability/dashboard')
+        expect(redirectUrl('/llm-analytics/settings')).toBe('/settings/project-ai-observability#ai-observability-byok')
+        expect(redirectUrl('/llm-analytics/settings', {}, {}, { 'llm-analytics-byok': 'true' })).toBe(
+            '/settings/project-ai-observability#ai-observability-byok'
+        )
+        expect(redirectUrl('/llm-analytics/reviews', {}, { queue_id: 'queue-1' })).toBe(
+            '/ai-observability/reviews?queue_id=queue-1'
+        )
+        expect(redirectUrl('/llm-analytics/traces/:id', { id: 'trace-1' }, { event: 'event-1' })).toBe(
+            '/ai-observability/traces/trace-1?event=event-1'
+        )
+        expect(redirectUrl('/llm-analytics/datasets/:id', { id: 'dataset-1' }, { item: 'item-1' })).toBe(
+            '/ai-evals/datasets/dataset-1?item=item-1'
+        )
+        expect(redirectUrl('/llm-analytics/tags/:id', { id: 'tagger-1' })).toBe('/ai-evals/taggers/tagger-1')
+        expect(redirectUrl('/llm-analytics/evaluations/:id', { id: 'evaluation-1' })).toBe(
+            '/ai-evals/evaluations/evaluation-1'
+        )
+        expect(redirectUrl('/llm-analytics/prompts/:name', { name: 'prompt-1' })).toBe(
+            '/prompt-management/prompts/prompt-1'
+        )
+        expect(redirectUrl('/llm-analytics/skills/:name', { name: 'skill-1' })).toBe(
+            '/prompt-management/skills/skill-1'
+        )
+    })
+
+    it('redirects AI observability settings to the project-level BYOK setting', () => {
+        expect(redirectUrl('/ai-observability/settings')).toBe(
+            '/settings/project-ai-observability#ai-observability-byok'
+        )
+    })
+})
 
 describe('llmAnalyticsSharedLogic', () => {
     let logic: ReturnType<typeof llmAnalyticsSharedLogic.build>

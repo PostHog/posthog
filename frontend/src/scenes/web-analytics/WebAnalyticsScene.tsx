@@ -1,3 +1,4 @@
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { WebAnalyticsDashboard } from 'scenes/web-analytics/WebAnalyticsDashboard'
@@ -10,6 +11,17 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 export function WebAnalyticsScene(): JSX.Element {
+    useMaxTool({
+        identifier: 'web_analytics_doctor',
+        active: true,
+        context: {},
+        suggestions: [
+            'Is my web analytics set up correctly?',
+            'Why are my pageviews low?',
+            'Diagnose my reverse proxy setup',
+        ],
+    })
+
     return (
         <>
             <SceneContent>

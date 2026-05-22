@@ -29,21 +29,26 @@ export function EvaluationRunsTable(): JSX.Element {
         {
             title: 'Generation ID',
             key: 'generation_id',
-            render: (_, run) => (
-                <div className="font-mono text-sm">
-                    <Link
-                        to={
-                            combineUrl(urls.llmAnalyticsTrace(run.trace_id), {
-                                ...traceSearchParams,
-                                event: run.generation_id,
-                            }).url
-                        }
-                        className="text-primary"
-                    >
-                        {run.generation_id.slice(0, 12)}...
-                    </Link>
-                </div>
-            ),
+            render: (_, run) => {
+                if (!run.generation_id) {
+                    return <span className="font-mono text-sm text-muted">—</span>
+                }
+                return (
+                    <div className="font-mono text-sm">
+                        <Link
+                            to={
+                                combineUrl(urls.llmAnalyticsTrace(run.trace_id), {
+                                    ...traceSearchParams,
+                                    event: run.generation_id,
+                                }).url
+                            }
+                            className="text-primary"
+                        >
+                            {run.generation_id.slice(0, 12)}...
+                        </Link>
+                    </div>
+                )
+            },
         },
         {
             title: 'Result',

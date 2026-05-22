@@ -127,6 +127,8 @@ class TaskSerializer(serializers.ModelSerializer):
             "signal_report_task_relationship",
             "json_schema",
             "internal",
+            "archived",
+            "archived_at",
             "latest_run",
             "created_at",
             "updated_at",
@@ -137,6 +139,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "id",
             "task_number",
             "slug",
+            "archived_at",
             "created_at",
             "updated_at",
             "created_by",
@@ -257,8 +260,17 @@ class TaskSerializer(serializers.ModelSerializer):
             return task
 
     def update(self, instance, validated_data):
+        # These fields are immutable after creation. origin_product controls
+        # team-wide visibility (SIGNAL_REPORT tasks are visible to all members),
+        # so allowing updates would let a user escalate a private task's visibility.
+        # signal_report and its relationship are set-once associations.
+        validated_data.pop("signal_report", None)
+        validated_data.pop("signal_report_task_relationship", None)
+        validated_data.pop("origin_product", None)
         if "title" in validated_data and "title_manually_set" not in validated_data:
             validated_data["title_manually_set"] = True
+        if "archived" in validated_data and validated_data["archived"] != instance.archived:
+            validated_data["archived_at"] = timezone.now() if validated_data["archived"] else None
         return super().update(instance, validated_data)
 
 
@@ -842,6 +854,14 @@ class TaskListQuerySerializer(serializers.Serializer):
     internal = serializers.BooleanField(
         required=False,
         help_text="When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.",
+    )
+    archived = serializers.ChoiceField(
+        required=False,
+        choices=["true", "false", "all"],
+        help_text=(
+            "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only "
+            "archived tasks, 'false' for the default, or 'all' to include both."
+        ),
     )
 
 

@@ -7,7 +7,6 @@ import dagster
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import DagsterTags
-from posthog.dags.common.owners import JobOwners  # noqa: F401
 
 
 def dagster_tags(

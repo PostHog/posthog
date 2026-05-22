@@ -53,4 +53,5 @@
      - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
      - Agent-authored PRs always require human review — do not self-merge or auto-approve.
      - Do NOT claim manual testing you haven't done.
+     - GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
 -->

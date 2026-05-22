@@ -225,10 +225,13 @@ class UserTeamPermissions:
             for ac in access_controls
         )
 
-        # Check role-based access before returning any member level
+        # Role-backed project AccessControl rows only take effect if the organization has
+        # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the
+        # project access settings page (and as resource-level role overrides).
+        role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
         user_roles = self.p._prefetched_role_memberships.get(organization_membership.id, [])
 
-        if user_roles:
+        if user_roles and role_based_access_supported:
             role_has_admin_access = any(
                 ac["resource_id"] == str(self.team.id) and ac["role_id"] in user_roles and ac["access_level"] == "admin"
                 for ac in access_controls

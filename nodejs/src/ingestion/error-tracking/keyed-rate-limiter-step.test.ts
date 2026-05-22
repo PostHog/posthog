@@ -12,11 +12,11 @@ type Input = { teamId: number; key: string | null; cost?: number; bucketOverride
 
 const mkLimiter = (decisions: Record<string, boolean>): KeyedRateLimiterService =>
     ({
-        rateLimitMany: jest.fn((requests: KeyedRateLimitRequest[]) => {
+        rateLimitGrouped: jest.fn((requests: KeyedRateLimitRequest[]) => {
             return Promise.resolve(
                 requests.map(({ id }): [string, KeyedRateLimit] => [
                     id,
-                    { tokens: decisions[id] ? 0 : 99, isRateLimited: !!decisions[id] },
+                    { tokensBefore: 100, tokens: decisions[id] ? 0 : 99, isRateLimited: !!decisions[id] },
                 ])
             )
         }),
@@ -103,7 +103,7 @@ describe('createKeyedRateLimiterStep', () => {
         ])
 
         expect(results.every(isOkResult)).toBe(true)
-        expect(limiter.rateLimitMany).not.toHaveBeenCalled()
+        expect(limiter.rateLimitGrouped).not.toHaveBeenCalled()
     })
 
     it('aggregates cost per unique key in a single Redis call', async () => {
@@ -116,8 +116,8 @@ describe('createKeyedRateLimiterStep', () => {
             { teamId: 2, key: 'k2', cost: 5 },
         ])
 
-        expect(limiter.rateLimitMany).toHaveBeenCalledTimes(1)
-        const calledWith = (limiter.rateLimitMany as jest.Mock).mock.calls[0][0] as KeyedRateLimitRequest[]
+        expect(limiter.rateLimitGrouped).toHaveBeenCalledTimes(1)
+        const calledWith = (limiter.rateLimitGrouped as jest.Mock).mock.calls[0][0] as KeyedRateLimitRequest[]
         const byId = Object.fromEntries(calledWith.map((req) => [req.id, req.cost]))
         expect(byId).toEqual({ k1: 7, k2: 5 })
     })
@@ -138,7 +138,7 @@ describe('createKeyedRateLimiterStep', () => {
             { teamId: 2, key: 'k2' }, // no override
         ])
 
-        const requests = (limiter.rateLimitMany as jest.Mock).mock.calls[0][0] as KeyedRateLimitRequest[]
+        const requests = (limiter.rateLimitGrouped as jest.Mock).mock.calls[0][0] as KeyedRateLimitRequest[]
         const byId = Object.fromEntries(requests.map((req) => [req.id, req]))
         expect(byId.k1).toMatchObject({ id: 'k1', bucketSize: 5, refillRate: 1 })
         expect(byId.k2.bucketSize).toBeUndefined()
@@ -190,7 +190,7 @@ describe('createKeyedRateLimiterStep', () => {
         await step([{ teamId: 1, key: 'a' }])
 
         // No throws and limiter was still called.
-        expect(limiter.rateLimitMany).toHaveBeenCalled()
+        expect(limiter.rateLimitGrouped).toHaveBeenCalled()
     })
 
     it('uses the configured dropReason', async () => {

@@ -26,6 +26,51 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_u
     select_sparkline_array,
 )
 
+
+def _bin_idx_expr(date_from: datetime.datetime, date_to: datetime.datetime, resolution: int) -> ast.Call:
+    start = ast.Call(name="toDateTime", args=[ast.Constant(value=date_from)])
+    end = ast.Call(name="toDateTime", args=[ast.Constant(value=date_to)])
+    elapsed = ast.Call(name="dateDiff", args=[ast.Constant(value="seconds"), start, ast.Field(chain=["timestamp"])])
+    total = ast.Call(name="dateDiff", args=[ast.Constant(value="seconds"), start, end])
+    # `greatest(1, ...)` guards against sub-`resolution`-second windows where
+    # `intDiv(total, resolution)` would be 0 and crash the inner intDiv.
+    bin_size = ast.Call(
+        name="greatest",
+        args=[ast.Constant(value=1), ast.Call(name="intDiv", args=[total, ast.Constant(value=resolution)])],
+    )
+    raw = ast.Call(name="intDiv", args=[elapsed, bin_size])
+    return ast.Call(name="least", args=[ast.Constant(value=resolution - 1), raw])
+
+
+def _volume_range_expr(resolution: int) -> ast.Call:
+    return ast.Call(
+        name="sumForEach",
+        args=[
+            ast.Call(
+                name="arrayMap",
+                args=[
+                    ast.Lambda(
+                        args=["i"],
+                        expr=ast.Call(
+                            name="if",
+                            args=[
+                                ast.CompareOperation(
+                                    op=ast.CompareOperationOp.Eq,
+                                    left=ast.Field(chain=["ev", "bin_idx"]),
+                                    right=ast.Field(chain=["i"]),
+                                ),
+                                ast.Field(chain=["ev", "occ"]),
+                                ast.Call(name="_toUInt64", args=[ast.Constant(value=0)]),
+                            ],
+                        ),
+                    ),
+                    ast.Call(name="range", args=[ast.Constant(value=0), ast.Constant(value=resolution)]),
+                ],
+            )
+        ],
+    )
+
+
 # Aggregator name → corresponding -State / -Merge combinator name.
 # We only need to know the base names we actually use in V3.
 _STATE_SUFFIX = "State"
@@ -48,11 +93,11 @@ class ErrorTrackingQueryV3Builder:
     Two query shapes are supported:
 
     * **Optimized two-pass shape (default).** Pre-aggregates events by
-      `cityHash64($exception_fingerprint), $exception_fingerprint` using
-      `-State` combinators in an inner subquery, then INNER JOINs to
-      `error_tracking_fingerprint_issue_state` (which already argmax-resolves
-      `issue_id` per fingerprint) and finalises with `-Merge` aggregators in
-      the outer `GROUP BY issue_id`
+      `cityHash64($exception_fingerprint)` (`fp_hash`) using `-State`
+      combinators in an inner subquery, bucketing by `bin_idx` so the outer
+      query can assemble `volumeRange` cheaply, then INNER JOINs to
+      `error_tracking_fingerprint_issue_state` and finalises with
+      `-Merge` aggregators in the outer `GROUP BY issue_id`.
 
     * **Legacy single-query shape.** Retained for the edge case where a
       user-supplied `filterGroup` contains issue-level filters inside an OR
@@ -151,8 +196,8 @@ class ErrorTrackingQueryV3Builder:
                     constraint=ast.JoinConstraint(
                         expr=ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["ev", "fingerprint"]),
-                            right=ast.Field(chain=["fp_state", "fingerprint"]),
+                            left=ast.Field(chain=["ev", "fp_hash"]),
+                            right=ast.Field(chain=["fp_state", "fp_hash"]),
                         ),
                         constraint_type="ON",
                     ),
@@ -164,18 +209,20 @@ class ErrorTrackingQueryV3Builder:
         )
 
     def _build_inner_query(self) -> ast.SelectQuery:
+        # Bucketing by bin_idx here lets the outer query assemble volumeRange
+        # from the small post-aggregation set instead of per-event arrayMap.
+        group_by: list[ast.Expr] = [ast.Field(chain=["fp_hash"])]
+        if self.query.withAggregations:
+            group_by.append(ast.Field(chain=["bin_idx"]))
         return ast.SelectQuery(
             select=self._inner_select_expressions(),
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
             where=ast.And(exprs=self._inner_where_exprs()),
-            group_by=[ast.Field(chain=["fp_hash"]), ast.Field(chain=["fingerprint"])],
+            group_by=group_by,
         )
 
     def _inner_select_expressions(self) -> list[ast.Expr]:
-        # `cityHash64(fingerprint)` is the actual GROUP BY key — UInt64 hashmap
-        # keys are smaller and faster to compare than the fingerprint string.
-        # `fingerprint` is selected as a tied dimension so it can flow out for
-        # the outer JOIN to fp_state.
+        # fp_hash is both the inner GROUP BY key and the JOIN key to fp_state.
         exprs: list[ast.Expr] = [
             ast.Alias(
                 alias="fp_hash",
@@ -184,14 +231,7 @@ class ErrorTrackingQueryV3Builder:
                     args=[ast.Field(chain=["e", "properties", "$exception_fingerprint"])],
                 ),
             ),
-            ast.Alias(
-                alias="fingerprint",
-                expr=ast.Field(chain=["e", "properties", "$exception_fingerprint"]),
-            ),
-            # Heavyweight aggregators — wrapped in -State for cross-JOIN merge.
-            ast.Alias(
-                alias="last_seen_state", expr=_state(ast.Call(name="max", args=[ast.Field(chain=["timestamp"])]))
-            ),
+            ast.Alias(alias="last_seen_fp", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="function_state", expr=_state(innermost_frame_attribute("$exception_functions"))),
             ast.Alias(alias="source_state", expr=_state(innermost_frame_attribute("$exception_sources"))),
             ast.Alias(
@@ -206,9 +246,15 @@ class ErrorTrackingQueryV3Builder:
         ]
 
         if self.query.withAggregations:
+            exprs.append(
+                ast.Alias(
+                    alias="bin_idx",
+                    expr=_bin_idx_expr(self.date_from, self.date_to, self.query.volumeResolution),
+                )
+            )
             # `count(DISTINCT uuid)` is equivalent to `count()` because uuid is
             # the events primary key, but pays for a distinct hashset per group.
-            exprs.append(ast.Alias(alias="occurrences_state", expr=_state(ast.Call(name="count", args=[]))))
+            exprs.append(ast.Alias(alias="occ", expr=ast.Call(name="count", args=[])))
             # `uniq()` is HLL-based and ~1-2% off vs exact `count(DISTINCT)`
             # on high-cardinality session ids, but much cheaper.
             exprs.append(
@@ -255,11 +301,6 @@ class ErrorTrackingQueryV3Builder:
                     ),
                 )
             )
-            # `select_sparkline_array` builds `sumForEach(arrayMap(...))`;
-            # rewrap as `sumForEachState(arrayMap(...))` so the 20-bin per-row
-            # array contribution merges across the outer JOIN.
-            sparkline = select_sparkline_array(self.date_from, self.date_to, self.query.volumeResolution)
-            exprs.append(ast.Alias(alias="volumeRange_state", expr=_state(sparkline)))
 
         if self.query.withFirstEvent:
             exprs.append(
@@ -398,7 +439,7 @@ class ErrorTrackingQueryV3Builder:
                 alias="first_seen",
                 expr=ast.Call(name="min", args=[ast.Field(chain=["fp_state", "first_seen"])]),
             ),
-            ast.Alias(alias="last_seen", expr=_merge("last_seen_state", "max")),
+            ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["ev", "last_seen_fp"])])),
             ast.Alias(alias="function", expr=_merge("function_state", "argMax")),
             ast.Alias(alias="source", expr=_merge("source_state", "argMax")),
         ]
@@ -406,10 +447,10 @@ class ErrorTrackingQueryV3Builder:
         if self.query.withAggregations:
             exprs.extend(
                 [
-                    ast.Alias(alias="occurrences", expr=_merge("occurrences_state", "count")),
+                    ast.Alias(alias="occurrences", expr=ast.Call(name="sum", args=[ast.Field(chain=["ev", "occ"])])),
                     ast.Alias(alias="sessions", expr=_merge("sessions_state", "uniq")),
                     ast.Alias(alias="users", expr=_merge("users_state", "uniq")),
-                    ast.Alias(alias="volumeRange", expr=_merge("volumeRange_state", "sumForEach")),
+                    ast.Alias(alias="volumeRange", expr=_volume_range_expr(self.query.volumeResolution)),
                 ]
             )
 
