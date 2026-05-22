@@ -6,6 +6,7 @@ import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
@@ -27,7 +28,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
-import { AccountsTab } from './components/Accounts/AccountsTab'
+import { AccountsTabContent } from './components/Accounts/AccountsTabContent'
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
@@ -80,6 +81,12 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
         reportCustomerAnalyticsViewed()
     })
 
+    // Accounts is gated by CUSTOMER_ANALYTICS_CSP; without it the tab does not
+    // exist, so a guessed `/customer_analytics/accounts` URL is a 404.
+    if (activeTab === 'accounts' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
+        return <NotFound object="page" />
+    }
+
     const dashboardContent =
         businessType === 'b2b' && shouldShowGroupsIntroduction ? (
             <>
@@ -103,7 +110,7 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
         tabs.push({
             key: 'accounts',
             label: 'Accounts',
-            content: <AccountsTab />,
+            content: <AccountsTabContent />,
             link: combineUrl(urls.customerAnalyticsAccounts(), searchParams).url,
         })
     }
@@ -124,17 +131,12 @@ function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Eleme
         })
     }
 
-    // When CSP is off, the accounts tab is removed from `tabs` above, so direct
-    // URL access (`/customer_analytics/accounts`) would render nothing. Render
-    // <AccountsTab/> standalone here so its FeaturePreviewSceneGate shows the opt-in.
-    const accountsUrlGateFallback = activeTab === 'accounts' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
-    const tabsContent = accountsUrlGateFallback ? (
-        <AccountsTab />
-    ) : tabs.length > 1 ? (
-        <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
-    ) : (
-        dashboardContent
-    )
+    const tabsContent =
+        tabs.length > 1 ? (
+            <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
+        ) : (
+            dashboardContent
+        )
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
