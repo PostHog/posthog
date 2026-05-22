@@ -12,7 +12,6 @@ from products.signals.backend.scout_harness.lazy_seed import (
     discover_canonical_skills,
     seed_canonical_skills,
 )
-from products.signals.backend.scout_harness.limits import DEFAULT_LIMITS, RunLimits, resolve_limits
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillNotFoundError, load_skill_for_run
 from products.signals.backend.scout_harness.tool_registry import (
     HARNESS_INTERNAL_TOOLS,
@@ -27,17 +26,14 @@ __all__ = [
     "CanonicalSkill",
     "CanonicalSkillFile",
     "CanonicalSkillParseError",
-    "DEFAULT_LIMITS",
     "HARNESS_INTERNAL_TOOLS",
     "InvalidAllowedToolsError",
     "LoadedSkill",
-    "RunLimits",
     "SeedResult",
     "SkillNotFoundError",
     "UnknownHarnessToolError",
     "discover_canonical_skills",
     "load_skill_for_run",
-    "resolve_limits",
     "seed_canonical_skills",
     "validate_and_partition_allowed_tools",
 ]

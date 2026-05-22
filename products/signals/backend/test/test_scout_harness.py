@@ -17,7 +17,6 @@ from posthog.sync import database_sync_to_async
 
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
-from products.signals.backend.scout_harness.limits import DEFAULT_LIMITS, RunLimits, resolve_limits
 from products.signals.backend.scout_harness.prompt import build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
@@ -74,23 +73,6 @@ def _make_task_run(team: Team) -> TaskRun:
         origin_product=Task.OriginProduct.SIGNALS_SCOUT,
     )
     return TaskRun.objects.create(task=task, team=team)
-
-
-class TestLimitsResolution(BaseTest):
-    def test_default_limits_when_no_overrides(self) -> None:
-        assert resolve_limits(None) == DEFAULT_LIMITS
-        assert resolve_limits({}) == DEFAULT_LIMITS
-
-    def test_partial_overrides_apply_on_top_of_defaults(self) -> None:
-        limits = resolve_limits({"max_runtime_s": 600})
-        assert limits.max_runtime_s == 600
-        assert limits.max_findings == DEFAULT_LIMITS.max_findings
-
-    def test_unknown_keys_are_ignored(self) -> None:
-        # A stale config row shouldn't crash the runner if a limit field gets renamed
-        # or removed (e.g. the historical max_tool_calls / max_cost_usd we cut).
-        limits = resolve_limits({"max_runtime_s": 120, "obsolete_field": "ignore_me"})
-        assert limits == RunLimits(max_runtime_s=120)
 
 
 class TestSkillLoader(BaseTest):

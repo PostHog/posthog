@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
 
 import structlog
 import temporalio
@@ -26,7 +25,6 @@ class RunSignalsScoutInput:
     skill_name: str
     skill_version: int | None = None
     repository: str | None = None
-    limits_override: dict[str, Any] | None = None
 
 
 @dataclass
@@ -65,7 +63,6 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
             team_id=input.team_id,
             skill_name=input.skill_name,
             skill_version=input.skill_version,
-            limits_override=input.limits_override,
             repository=input.repository,
         )
     logger.info(

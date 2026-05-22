@@ -14,7 +14,6 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import seed_canonical_skills
-from products.signals.backend.scout_harness.limits import RunLimits, resolve_limits
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.temporal.agentic import (
@@ -58,7 +57,6 @@ def run_signals_scout(
     team_id: int,
     skill_name: str,
     skill_version: int | None = None,
-    limits_override: dict[str, Any] | None = None,
     repository: str | None = None,
     verbose: bool = False,
 ) -> RunResult:
@@ -72,7 +70,6 @@ def run_signals_scout(
             team_id=team_id,
             skill_name=skill_name,
             skill_version=skill_version,
-            limits_override=limits_override,
             repository=repository,
             verbose=verbose,
         )
@@ -84,7 +81,6 @@ async def arun_signals_scout(
     team_id: int,
     skill_name: str,
     skill_version: int | None = None,
-    limits_override: dict[str, Any] | None = None,
     repository: str | None = None,
     verbose: bool = False,
 ) -> RunResult:
@@ -104,7 +100,6 @@ async def arun_signals_scout(
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
         team, skill_name, version=skill_version
     )
-    limits = resolve_limits(limits_override)
 
     # Skip-if-running guard. Best-effort — there is a TOCTOU window between this check
     # and the row insert below; we accept that until a claim/lease primitive lands.
@@ -139,7 +134,6 @@ async def arun_signals_scout(
             run_id=run_id,
             started_at=started_at,
             skill=skill,
-            limits=limits,
             repository=repository,
             verbose=verbose,
         )
@@ -180,7 +174,6 @@ async def _spawn_and_run(
     run_id: Any,
     started_at: Any,
     skill: LoadedSkill,
-    limits: RunLimits,
     repository: str | None,
     verbose: bool,
 ) -> tuple[str, str]:
@@ -220,7 +213,6 @@ async def _spawn_and_run(
             "team_id": team.id,
             "skill_name": skill.name,
             "skill_version": skill.version,
-            "limits": limits.as_dict(),
             "skill_id": skill.skill_id,
             "allowed_tools": skill.allowed_tools_resolution.as_dict(),
         },
@@ -245,10 +237,6 @@ async def _spawn_and_run(
         skill=skill,
     )
     try:
-        # Limits are logged on spawn; only `max_runtime_s` is enforced (via the
-        # sandbox poll-loop timeout). `max_findings` is a soft target the agent
-        # self-respects via emit-finding idempotency.
-        _ = limits
         # Persist the agent's end-of-turn close-out so non-emitting runs leave a
         # discoverable trace for future-run dedupe. Failure paths skip this on
         # purpose — the bridge row keeps its empty default and the linked TaskRun
