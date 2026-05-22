@@ -195,24 +195,16 @@ export interface SessionTurn {
 }
 
 /**
- * Walk the traces in chronological order, normalize each turn's input/output,
- * and hide inputs whose signature already appeared in an earlier turn.
+ * Walk traces in order and hide inputs already shown in an earlier turn.
+ * Without this, turn N would re-render turns 1..N-1 because each `$ai_input`
+ * carries the full running history.
  *
- * Why this is necessary: each `$ai_generation` event's `$ai_input` carries the
- * **full running history** of the conversation up to that point — so without
- * dedup, turn N renders all of turns 1..N-1 again followed by its own new
- * messages.
- *
- * The dedup is computed on signatures of *normalized* `CompatMessage`s, not
- * raw payloads. That means correctness inherits from `normalizeMessage` —
- * shapes the parser recognizes dedup correctly; shapes that fall through to
- * raw-JSON wrapping also dedup correctly because two identical raw blobs
- * produce identical signatures.
- *
- * Pure: takes the loaded data, returns turn descriptors. No side effects.
+ * Count-based, not set-based: a message at its Nth occurrence in a turn's
+ * input renders iff fewer than N copies have been shown so far. Preserves
+ * legitimate repeats within a turn.
  */
 export function extractSessionTurns(traces: LLMTrace[], fullTraces: Record<string, LLMTrace>): SessionTurn[] {
-    const seenSignatures = new Set<string>()
+    const msgCountShown = new Map<string, number>()
     return traces.map((trace) => {
         const fullTrace = fullTraces[trace.id]
         if (!fullTrace) {
@@ -245,16 +237,21 @@ export function extractSessionTurns(traces: LLMTrace[], fullTraces: Record<strin
 
         const newInputs: CompatMessage[] = []
         const newInputSourceIndices: number[] = []
+        const msgCountThisTurn = new Map<string, number>()
         inputMessages.forEach((message, i) => {
             const sig = messageSignature(message)
-            if (!seenSignatures.has(sig)) {
+            const turnCount = (msgCountThisTurn.get(sig) ?? 0) + 1
+            msgCountThisTurn.set(sig, turnCount)
+            const shownCount = msgCountShown.get(sig) ?? 0
+            if (turnCount > shownCount) {
                 newInputs.push(message)
                 newInputSourceIndices.push(sourceIndices[i] ?? i)
+                msgCountShown.set(sig, turnCount)
             }
-            seenSignatures.add(sig)
         })
         for (const message of outputMessages) {
-            seenSignatures.add(messageSignature(message))
+            const sig = messageSignature(message)
+            msgCountShown.set(sig, (msgCountShown.get(sig) ?? 0) + 1)
         }
 
         return {

@@ -37,46 +37,43 @@ function makeTrace(id: string, events: LLMTraceEvent[], overrides: Partial<LLMTr
 
 describe('messageSignature', () => {
     it('produces the same signature for messages with identical role + content', () => {
-        const a = { role: 'user', content: 'Hi there' }
-        const b = { role: 'user', content: 'Hi there' }
+        const a: CompatMessage = { role: 'user', content: 'Hi there' }
+        const b: CompatMessage = { role: 'user', content: 'Hi there' }
         expect(messageSignature(a)).toEqual(messageSignature(b))
     })
 
-    it('distinguishes by role', () => {
-        const a = { role: 'user', content: 'same' }
-        const b = { role: 'assistant', content: 'same' }
-        expect(messageSignature(a)).not.toEqual(messageSignature(b))
-    })
+    const distinctCases: { name: string; a: CompatMessage; b: CompatMessage }[] = [
+        {
+            name: 'role',
+            a: { role: 'user', content: 'same' },
+            b: { role: 'assistant', content: 'same' },
+        },
+        {
+            name: 'content for typed-parts arrays',
+            a: { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+            b: { role: 'user', content: [{ type: 'text', text: 'Goodbye' }] },
+        },
+        {
+            name: 'tool_calls so assistants with different tool calls are distinct',
+            a: {
+                role: 'assistant',
+                content: '',
+                tool_calls: [{ id: '1', type: 'function', function: { name: 'lookup', arguments: '{"q":"a"}' } }],
+            },
+            b: {
+                role: 'assistant',
+                content: '',
+                tool_calls: [{ id: '1', type: 'function', function: { name: 'lookup', arguments: '{"q":"b"}' } }],
+            },
+        },
+        {
+            name: 'tool_call_id for tool responses with the same content',
+            a: { role: 'tool', content: 'ok', tool_call_id: 'call_a' },
+            b: { role: 'tool', content: 'ok', tool_call_id: 'call_b' },
+        },
+    ]
 
-    it('distinguishes by content for typed-parts arrays', () => {
-        const a: CompatMessage = {
-            role: 'user',
-            content: [{ type: 'text', text: 'Hello' }],
-        }
-        const b: CompatMessage = {
-            role: 'user',
-            content: [{ type: 'text', text: 'Goodbye' }],
-        }
-        expect(messageSignature(a)).not.toEqual(messageSignature(b))
-    })
-
-    it('factors in tool_calls so assistants with different tool calls are distinct', () => {
-        const a = {
-            role: 'assistant',
-            content: '',
-            tool_calls: [{ id: '1', type: 'function', function: { name: 'lookup', arguments: '{"q":"a"}' } }],
-        }
-        const b = {
-            role: 'assistant',
-            content: '',
-            tool_calls: [{ id: '1', type: 'function', function: { name: 'lookup', arguments: '{"q":"b"}' } }],
-        }
-        expect(messageSignature(a)).not.toEqual(messageSignature(b))
-    })
-
-    it('factors in tool_call_id for tool responses with the same content', () => {
-        const a = { role: 'tool', content: 'ok', tool_call_id: 'call_a' }
-        const b = { role: 'tool', content: 'ok', tool_call_id: 'call_b' }
+    it.each(distinctCases)('distinguishes by $name', ({ a, b }) => {
         expect(messageSignature(a)).not.toEqual(messageSignature(b))
     })
 })
@@ -212,13 +209,14 @@ describe('extractSessionTurns — cross-trace dedup', () => {
         expect(turns[1].outputs[0].content).toBe('Why did the chicken...')
     })
 
-    it('collapses identical messages within the same turn (intentional)', () => {
-        // The `seenSignatures` set is updated as we walk each turn's inputs, so
-        // duplicates *within* a single turn collapse to one rendered bubble. This
-        // is intentional for the tool-response case (production traces sometimes
-        // ship two tool responses with identical content and no `tool_call_id` —
-        // there's no other key to disambiguate by). Pinning the behavior here so
-        // a future reader doesn't expect within-turn duplicates to render twice.
+    it('renders identical messages within the same turn (count-based dedup)', () => {
+        // Dedup tracks how many copies of each signature have been shown so far,
+        // not just whether the signature has been seen. Within-turn duplicates
+        // are real content (the trace shows the agent saw both) and render as
+        // separate bubbles — hiding one would silently drop information from the
+        // transcript. Prior behavior collapsed within-turn duplicates as a side
+        // effect of set-based dedup; the count-based model unifies cross-turn
+        // and within-turn handling so legitimate repeats always survive.
         const t1 = makeTrace('t1', [
             makeGeneration('g1', '2026-05-11T00:00:00.000Z', {
                 $ai_input: [
@@ -230,8 +228,148 @@ describe('extractSessionTurns — cross-trace dedup', () => {
             }),
         ])
         const turns = extractSessionTurns([t1], { t1 })
-        // Two tool messages collapse to one; the user message survives.
-        expect(turns[0].newInputs.map((m) => m.role)).toEqual(['tool', 'user'])
+        expect(turns[0].newInputs.map((m) => m.role)).toEqual(['tool', 'tool', 'user'])
+    })
+
+    it('renders a repeated user message that arrives after the assistant replied to its first occurrence', () => {
+        // Radu's review case: the user typed "continue" twice, with an
+        // assistant reply in between. Turn 2's $ai_input carries the full
+        // running history — [continue, sure, continue] — and the second
+        // "continue" must render despite signature-matching the first.
+        // Set-based dedup would silently drop it, leaving the transcript
+        // appearing to skip a real user turn.
+        const t1 = makeTrace('t1', [
+            makeGeneration('g1', '2026-05-11T00:00:00.000Z', {
+                $ai_input: [{ role: 'user', content: 'continue' }],
+                $ai_output_choices: [{ role: 'assistant', content: 'sure' }],
+            }),
+        ])
+        const t2 = makeTrace('t2', [
+            makeGeneration('g2', '2026-05-11T00:00:01.000Z', {
+                $ai_input: [
+                    { role: 'user', content: 'continue' },
+                    { role: 'assistant', content: 'sure' },
+                    { role: 'user', content: 'continue' },
+                ],
+                $ai_output_choices: [{ role: 'assistant', content: 'ok' }],
+            }),
+        ])
+        const turns = extractSessionTurns([t1, t2], { t1, t2 })
+        expect(turns[1].newInputs).toHaveLength(1)
+        expect(turns[1].newInputs[0].role).toBe('user')
+        expect(turns[1].newInputs[0].content).toBe('continue')
+        // The new "continue" lives at index 2 of turn 2's raw input.
+        expect(turns[1].newInputSourceIndices).toEqual([2])
+    })
+
+    it('renders the same user message N times when it appears N times across N turns', () => {
+        // Generalisation of the "continue" case: the user keeps asking the
+        // exact same thing across three turns. Each turn's $ai_input adds one
+        // more copy on top of the prior history; the count-based dedup
+        // surfaces exactly the one new copy per turn.
+        const make = (index: number, inputs: { role: string; content: string }[]): LLMTrace =>
+            makeTrace(`t${index}`, [
+                makeGeneration(`g${index}`, `2026-05-11T00:00:0${index - 1}.000Z`, {
+                    $ai_input: inputs,
+                    $ai_output_choices: [{ role: 'assistant', content: `reply ${index}` }],
+                }),
+            ])
+        const t1 = make(1, [{ role: 'user', content: 'same?' }])
+        const t2 = make(2, [
+            { role: 'user', content: 'same?' },
+            { role: 'assistant', content: 'reply 1' },
+            { role: 'user', content: 'same?' },
+        ])
+        const t3 = make(3, [
+            { role: 'user', content: 'same?' },
+            { role: 'assistant', content: 'reply 1' },
+            { role: 'user', content: 'same?' },
+            { role: 'assistant', content: 'reply 2' },
+            { role: 'user', content: 'same?' },
+        ])
+        const turns = extractSessionTurns([t1, t2, t3], { t1, t2, t3 })
+        // Each turn surfaces exactly the one new user message.
+        expect(turns[0].newInputs.map((m) => m.content)).toEqual(['same?'])
+        expect(turns[1].newInputs.map((m) => m.content)).toEqual(['same?'])
+        expect(turns[2].newInputs.map((m) => m.content)).toEqual(['same?'])
+    })
+
+    it('renders only the delta when a later turn carries more copies than were shown', () => {
+        // Asymmetric counts: turn 1 had two copies of the same tool response
+        // (both rendered under count-based dedup). Turn 2 carries three copies
+        // in its running history — the third one is new and must render.
+        const t1 = makeTrace('t1', [
+            makeGeneration('g1', '2026-05-11T00:00:00.000Z', {
+                $ai_input: [
+                    { role: 'tool', content: 'ack' },
+                    { role: 'tool', content: 'ack' },
+                ],
+                $ai_output_choices: [{ role: 'assistant', content: 'thanks' }],
+            }),
+        ])
+        const t2 = makeTrace('t2', [
+            makeGeneration('g2', '2026-05-11T00:00:01.000Z', {
+                $ai_input: [
+                    { role: 'tool', content: 'ack' },
+                    { role: 'tool', content: 'ack' },
+                    { role: 'assistant', content: 'thanks' },
+                    { role: 'tool', content: 'ack' },
+                ],
+                $ai_output_choices: [{ role: 'assistant', content: 'done' }],
+            }),
+        ])
+        const turns = extractSessionTurns([t1, t2], { t1, t2 })
+        expect(turns[1].newInputs.map((m) => m.role)).toEqual(['tool'])
+        // The new tool message is at index 3 of turn 2's raw input.
+        expect(turns[1].newInputSourceIndices).toEqual([3])
+    })
+
+    it('renders an assistant reply that exactly repeats a prior turn output', () => {
+        // The assistant emits the same reply across two turns (e.g. a curt
+        // "done" after similar requests). Each turn's output is a brand-new
+        // emission and must render in full, regardless of whether earlier
+        // outputs had the same signature.
+        const t1 = makeTrace('t1', [
+            makeGeneration('g1', '2026-05-11T00:00:00.000Z', {
+                $ai_input: [{ role: 'user', content: 'first' }],
+                $ai_output_choices: [{ role: 'assistant', content: 'done' }],
+            }),
+        ])
+        const t2 = makeTrace('t2', [
+            makeGeneration('g2', '2026-05-11T00:00:01.000Z', {
+                $ai_input: [
+                    { role: 'user', content: 'first' },
+                    { role: 'assistant', content: 'done' },
+                    { role: 'user', content: 'second' },
+                ],
+                $ai_output_choices: [{ role: 'assistant', content: 'done' }],
+            }),
+        ])
+        const turns = extractSessionTurns([t1, t2], { t1, t2 })
+        // Turn 2 input delta is the new user message; the repeated assistant
+        // "done" in the history was already shown as turn 1's output.
+        expect(turns[1].newInputs.map((m) => m.content)).toEqual(['second'])
+        // Turn 2 output renders in full — outputs are never dedup'd.
+        expect(turns[1].outputs.map((m) => m.content)).toEqual(['done'])
+
+        // Now a third turn carries both prior outputs in its history. Each
+        // was already accounted for (turn 1's output bumped seen to 1; turn
+        // 2's output bumped it to 2), so neither re-renders, and the new
+        // user message surfaces alone.
+        const t3 = makeTrace('t3', [
+            makeGeneration('g3', '2026-05-11T00:00:02.000Z', {
+                $ai_input: [
+                    { role: 'user', content: 'first' },
+                    { role: 'assistant', content: 'done' },
+                    { role: 'user', content: 'second' },
+                    { role: 'assistant', content: 'done' },
+                    { role: 'user', content: 'third' },
+                ],
+                $ai_output_choices: [{ role: 'assistant', content: 'ok' }],
+            }),
+        ])
+        const turnsAfterT3 = extractSessionTurns([t1, t2, t3], { t1, t2, t3 })
+        expect(turnsAfterT3[2].newInputs.map((m) => m.content)).toEqual(['third'])
     })
 
     it('treats messages with same content but different roles as distinct', () => {
@@ -559,81 +697,83 @@ describe('messageSignature — transport-metadata stripping', () => {
     // or friends). The `as unknown as CompatMessage` casts say "this is shaped
     // like production payloads we want to pin behavior against, not like the
     // SDK-spec types we ship in `types.ts`".
-    it('dedups Anthropic typed-parts when one turn adds cache_control and another does not', () => {
-        // Common Anthropic pattern: a caller stabilises the prefix once it's
-        // safe to cache, so turn N+1 has cache_control where turn N didn't.
-        // The user-visible text is identical; we must dedup, otherwise the
-        // transcript leaks unrendered duplicates back in.
-        const a = {
-            role: 'system',
-            content: [{ type: 'text', text: 'Hello' }],
-        } as unknown as CompatMessage
-        const b = {
-            role: 'system',
-            content: [{ type: 'text', text: 'Hello', cache_control: { type: 'ephemeral' } }],
-        } as unknown as CompatMessage
-        expect(messageSignature(a)).toEqual(messageSignature(b))
-    })
+    const dedupCases: { name: string; a: CompatMessage; b: CompatMessage }[] = [
+        {
+            // Common Anthropic pattern: a caller stabilises the prefix once it's
+            // safe to cache, so turn N+1 has cache_control where turn N didn't.
+            // The user-visible text is identical; we must dedup, otherwise the
+            // transcript leaks unrendered duplicates back in.
+            name: 'Anthropic typed-parts when one turn adds cache_control and another does not',
+            a: {
+                role: 'system',
+                content: [{ type: 'text', text: 'Hello' }],
+            } as unknown as CompatMessage,
+            b: {
+                role: 'system',
+                content: [{ type: 'text', text: 'Hello', cache_control: { type: 'ephemeral' } }],
+            } as unknown as CompatMessage,
+        },
+        {
+            // Same text, different cache hint. Transport-only change; still the
+            // same user-visible content.
+            name: 'Anthropic typed-parts when the cache_control hint changes between turns',
+            a: {
+                role: 'system',
+                content: [{ type: 'text', text: 'Hello', cache_control: { type: 'ephemeral' } }],
+            } as unknown as CompatMessage,
+            b: {
+                role: 'system',
+                content: [{ type: 'text', text: 'Hello', cache_control: { type: 'ephemeral', ttl: '1h' } }],
+            } as unknown as CompatMessage,
+        },
+        {
+            // `signature` is Anthropic's verification crypto on thinking parts —
+            // not user-visible and observed to vary between echoes of the same
+            // reasoning step in production traces.
+            name: 'Anthropic thinking parts even when the cryptographic signature differs',
+            a: {
+                role: 'assistant',
+                content: [{ type: 'thinking', thinking: 'I should look this up.' }],
+            } as unknown as CompatMessage,
+            b: {
+                role: 'assistant',
+                content: [{ type: 'thinking', thinking: 'I should look this up.', signature: 'crypto_sig_xyz' }],
+            } as unknown as CompatMessage,
+        },
+        {
+            // `caller` is routing metadata observed on tool_use parts in
+            // production — not user-visible.
+            name: 'tool_use parts even when the caller routing metadata differs',
+            a: {
+                role: 'assistant',
+                content: [{ type: 'tool_use', id: 'toolu_1', name: 'lookup', input: { q: 'cats' } }],
+            } as unknown as CompatMessage,
+            b: {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_1',
+                        name: 'lookup',
+                        input: { q: 'cats' },
+                        caller: { type: 'direct' },
+                    },
+                ],
+            } as unknown as CompatMessage,
+        },
+        {
+            // Observed in production: OpenAI tool responses sometimes ship without
+            // tool_call_id. Two such responses with the same content are
+            // indistinguishable from each other in `$ai_input`, and treating them
+            // as one is the only safe thing to do — there's no other key to
+            // disambiguate by.
+            name: 'two tool responses with identical content even when tool_call_id is missing',
+            a: { role: 'tool', content: 'Memory appended.' },
+            b: { role: 'tool', content: 'Memory appended.' },
+        },
+    ]
 
-    it('dedups Anthropic typed-parts when the cache_control hint changes between turns', () => {
-        // Same text, different cache hint. Transport-only change; still the
-        // same user-visible content.
-        const a = {
-            role: 'system',
-            content: [{ type: 'text', text: 'Hello', cache_control: { type: 'ephemeral' } }],
-        } as unknown as CompatMessage
-        const b = {
-            role: 'system',
-            content: [{ type: 'text', text: 'Hello', cache_control: { type: 'ephemeral', ttl: '1h' } }],
-        } as unknown as CompatMessage
-        expect(messageSignature(a)).toEqual(messageSignature(b))
-    })
-
-    it('dedups Anthropic thinking parts even when the cryptographic signature differs', () => {
-        // `signature` is Anthropic's verification crypto on thinking parts —
-        // not user-visible and observed to vary between echoes of the same
-        // reasoning step in production traces.
-        const a = {
-            role: 'assistant',
-            content: [{ type: 'thinking', thinking: 'I should look this up.' }],
-        } as unknown as CompatMessage
-        const b = {
-            role: 'assistant',
-            content: [{ type: 'thinking', thinking: 'I should look this up.', signature: 'crypto_sig_xyz' }],
-        } as unknown as CompatMessage
-        expect(messageSignature(a)).toEqual(messageSignature(b))
-    })
-
-    it('dedups tool_use parts even when the caller routing metadata differs', () => {
-        // `caller` is routing metadata observed on tool_use parts in
-        // production — not user-visible.
-        const a = {
-            role: 'assistant',
-            content: [{ type: 'tool_use', id: 'toolu_1', name: 'lookup', input: { q: 'cats' } }],
-        } as unknown as CompatMessage
-        const b = {
-            role: 'assistant',
-            content: [
-                {
-                    type: 'tool_use',
-                    id: 'toolu_1',
-                    name: 'lookup',
-                    input: { q: 'cats' },
-                    caller: { type: 'direct' },
-                },
-            ],
-        } as unknown as CompatMessage
-        expect(messageSignature(a)).toEqual(messageSignature(b))
-    })
-
-    it('dedups two tool responses with identical content even when tool_call_id is missing', () => {
-        // Observed in production: OpenAI tool responses sometimes ship without
-        // tool_call_id. Two such responses with the same content are
-        // indistinguishable from each other in `$ai_input`, and treating them
-        // as one is the only safe thing to do — there's no other key to
-        // disambiguate by.
-        const a: CompatMessage = { role: 'tool', content: 'Memory appended.' }
-        const b: CompatMessage = { role: 'tool', content: 'Memory appended.' }
+    it.each(dedupCases)('dedups $name', ({ a, b }) => {
         expect(messageSignature(a)).toEqual(messageSignature(b))
     })
 
