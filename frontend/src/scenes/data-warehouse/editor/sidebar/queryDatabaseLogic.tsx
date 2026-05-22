@@ -30,7 +30,6 @@ import {
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
     DataWarehouseViewLink,
-    ExternalDataSource,
     QueryTabState,
 } from '~/types'
 
@@ -215,9 +214,8 @@ const shouldHideField = (field: DatabaseSchemaField): boolean => {
     return field.name === 'team_id' && field.type === 'unknown'
 }
 
-const shouldHideFieldName = (_fieldName: string): boolean => {
-    void _fieldName
-    return false
+const shouldHideFieldName = (fieldName: string): boolean => {
+    return fieldName === 'team_id'
 }
 
 const shouldUseDirectConnectionTree = (connectionId: string | null): boolean => {
@@ -1706,7 +1704,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         selectedDirectSource: [
             (s) => [s.dataWarehouseSources, s.connectionId],
             (dataWarehouseSources, connectionId): { job_inputs?: Record<string, any> } | undefined => {
-                return dataWarehouseSources?.results.find((source: ExternalDataSource) => source.id === connectionId)
+                return dataWarehouseSources?.results.find((source) => source.id === connectionId)
             },
         ],
         searchTreeSourceContext: [

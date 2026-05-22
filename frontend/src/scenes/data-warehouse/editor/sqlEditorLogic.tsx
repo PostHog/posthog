@@ -1068,12 +1068,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 props.editor?.focus()
             },
             setSourceQuery: ({ sourceQuery }) => {
-                const nextSourceQuery = sanitizeSourceQuery(sourceQuery)
-
                 if (!values.activeTab) {
                     return
                 }
 
+                const nextSourceQuery = sanitizeSourceQuery(sourceQuery)
                 const currentTab = values.activeTab
                 if (currentTab) {
                     actions.updateTab({

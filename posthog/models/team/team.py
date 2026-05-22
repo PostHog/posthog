@@ -409,6 +409,7 @@ class Team(UUIDTClassicModel):
     # Proactive tasks (#team-signals)
     proactive_tasks_enabled = models.BooleanField(null=True, blank=True)
 
+    # Query scoping
     can_query_across_organization_projects = field_access_control(
         models.BooleanField(
             default=False,
