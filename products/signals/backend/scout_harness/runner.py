@@ -208,9 +208,9 @@ async def _spawn_and_run(
         # `signal_scout_internal:write`) but reports `has_write_scopes=True` so the
         # MCP server doesn't enable read-only-mode tool filtering. Without that
         # opt-out, the MCP layer would categorically strip every tool annotated
-        # `readOnlyHint: false` — including the agent's own `memory_create`,
-        # `memory_delete`, and `runs_findings_create` tools — even though the
-        # OAuth token does carry the right scope to call them.
+        # `readOnlyHint: false` — including the agent's own `remember`, `forget`,
+        # and `emit_finding` tools — even though the OAuth token does carry the
+        # right scope to call them.
         posthog_mcp_scopes="signals_scout",
     )
     prompt = build_run_prompt(skill, run_id=str(run_id), team_id=team.id, started_at=started_at)
