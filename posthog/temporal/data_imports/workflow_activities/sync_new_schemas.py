@@ -7,7 +7,9 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_imports.external_data_job import Any_Source_Errors
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.util import NonRetryableException
 
 from products.data_warehouse.backend.data_load.service import delete_discover_schemas_schedule
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -58,7 +60,18 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
         new_source = SourceRegistry.get_source(source_type_enum)
         config = new_source.parse_config(source.job_inputs)
-        schemas = new_source.get_schemas(config, inputs.team_id)
+        try:
+            schemas = new_source.get_schemas(config, inputs.team_id)
+        except Exception as e:
+            # Mirror the per-schema sync path in `import_data_sync._run` so user-configuration
+            # errors (bad host, DNS, wrong creds, …) short-circuit the discovery workflow
+            # instead of surfacing as retried failures in error tracking.
+            non_retryable_errors = {**Any_Source_Errors, **new_source.get_non_retryable_errors()}
+            error_msg = str(e)
+            if any(pattern in error_msg for pattern in non_retryable_errors):
+                logger.info(f"Non-retryable error during schema discovery: {error_msg}")
+                raise NonRetryableException(error_msg) from e
+            raise
 
         schemas_to_sync = {s.name: s.label for s in schemas}
     else:
