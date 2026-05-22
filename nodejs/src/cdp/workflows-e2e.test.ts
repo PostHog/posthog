@@ -110,7 +110,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
         const deps = createCdpConsumerDeps(hub, kafkaProducer)
 
-        const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub)
+        const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
 
         // Build the hogflow queue for the current mode
         let hogflowQueue: JobQueue
