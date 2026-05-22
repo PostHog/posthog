@@ -312,11 +312,18 @@ class TestInstanceSettings(APIBaseTest):
         if after:
             self.assertNotIn(after, raw_detail)
 
-    def test_no_op_update_does_not_log(self):
-        set_instance_setting("AUTO_START_ASYNC_MIGRATIONS", True)
+    @parameterized.expand(
+        [
+            ("bool", "AUTO_START_ASYNC_MIGRATIONS", True),
+            ("int", "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", 30),
+            ("string", "GITHUB_APP_SLUG", "posthog-app"),
+        ]
+    )
+    def test_no_op_update_does_not_log(self, _name: str, key: str, value: object):
+        set_instance_setting(key, value)
         initial_count = self._instance_setting_logs().count()
 
-        response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        response = self.client.patch(f"/api/instance_settings/{key}", {"value": value})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(self._instance_setting_logs().count(), initial_count)
@@ -339,7 +346,9 @@ class TestInstanceSettings(APIBaseTest):
         self.assertTrue(log.was_impersonated)
 
     def test_update_logs_with_first_organization_when_current_org_unset(self):
-        membership_org_id = self.user.organization_memberships.first().organization_id
+        membership = self.user.organization_memberships.first()
+        assert membership is not None
+        membership_org_id = membership.organization_id
         self._clear_user_org()
         initial_count = self._instance_setting_logs().count()
 
@@ -361,4 +370,6 @@ class TestInstanceSettings(APIBaseTest):
         response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        # The setting itself must still be persisted; only the audit row is skipped.
+        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), True)
         self.assertEqual(self._instance_setting_logs().count(), initial_count)

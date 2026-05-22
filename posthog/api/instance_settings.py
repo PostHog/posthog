@@ -1,6 +1,6 @@
 import re
 import json
-from typing import Any, Optional, Union, get_args, get_origin
+from typing import Any, Optional, Union, cast, get_args, get_origin
 
 import structlog
 from loginas.utils import is_impersonated_session
@@ -9,6 +9,7 @@ from rest_framework.request import Request
 
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.instance_setting import (
     get_instance_setting as get_instance_setting_raw,
@@ -178,7 +179,8 @@ class InstanceSettingsSerializer(serializers.Serializer):
         if before_value == new_value:
             return
 
-        user = request.user
+        # IsAuthenticated + IsStaffUser permission classes guarantee this is a real User.
+        user = cast(User, request.user)
         organization = user.organization
         if organization is None:
             logger.warning(
