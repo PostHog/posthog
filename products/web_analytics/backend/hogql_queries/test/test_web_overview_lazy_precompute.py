@@ -21,6 +21,7 @@ from posthog.schema import (
     WebOverviewQuery,
 )
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
@@ -33,13 +34,18 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+        # The lazy framework derives `expires_at` from the (frozen) test clock, so
+        # precompute rows are "born expired" relative to the real ClickHouse server
+        # clock. Stop TTL merges on the precompute table so those parts are not
+        # dropped in the window between the precompute INSERT and the read.
+        sync_execute("SYSTEM STOP TTL MERGES sharded_web_overview_preaggregated")
 
     def _enable_lazy(self):
         # Mock the org-level feature flag check to True so the gate accepts our test
         # team. Outside this context manager the default `posthoganalytics.feature_enabled`
         # returns False (no API key in tests), which models a flag-disabled org.
         return patch(
-            "products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute.posthoganalytics.feature_enabled",
+            "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.posthoganalytics.feature_enabled",
             return_value=True,
         )
 

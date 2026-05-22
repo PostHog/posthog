@@ -1160,6 +1160,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
                                 tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                useWebAnalyticsPrecompute,
                                 ...source,
                             },
                             embedded: false,
