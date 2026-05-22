@@ -218,3 +218,24 @@ class TestGetSchemas:
         assert schema.source_schema == "public"
         assert schema.source_table_name == "original_t"
         assert schema.supports_cdc is True
+
+
+class TestDefaultNonRetryableErrors:
+    def test_includes_source_column_type_changed(self) -> None:
+        errors = SQLSource.default_non_retryable_errors()
+        assert "Source column type changed" in errors
+        assert errors["Source column type changed"]
+        assert "reset and fully re-sync" in errors["Source column type changed"]
+
+    def test_includes_cannot_build_decimal_array(self) -> None:
+        errors = SQLSource.default_non_retryable_errors()
+        assert "Cannot build decimal array from values" in errors
+        assert errors["Cannot build decimal array from values"]
+        assert "decimal storage limits" in errors["Cannot build decimal array from values"]
+
+    def test_is_classmethod_no_instance_required(self) -> None:
+        # Subclasses should be able to call this without instantiating —
+        # mirrors the way subclass `get_non_retryable_errors` will use it.
+        errors = SQLSource.default_non_retryable_errors()
+        assert isinstance(errors, dict)
+        assert len(errors) == 2
