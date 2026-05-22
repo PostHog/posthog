@@ -1873,6 +1873,9 @@ jobs:
               run: |
                   set +e
                   if [[ "$MODE" == "selected" ]]; then
+                      # Selected mode: no sharding, no --store-durations (don't pollute
+                      # timing data with a partial run), no --reruns (fail loud; the merge
+                      # queue still reruns). See the core selected branch for the rationale.
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           -r fEsxX \
