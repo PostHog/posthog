@@ -242,6 +242,28 @@ describe('createProcessGroupsStep', () => {
         )
     })
 
+    it.each([
+        { desc: 'historicalMigration=true is forwarded via addGroupProperties', historicalMigration: true },
+        { desc: 'historicalMigration=false is forwarded via addGroupProperties', historicalMigration: false },
+    ])('non-$groupidentify event with $groups: $desc', async ({ historicalMigration }) => {
+        mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(0)
+
+        const step = createStep()
+        const result = await step(
+            createInput({
+                historicalMigration,
+                preparedEvent: createTestPreIngestionEvent({
+                    event: '$pageview',
+                    properties: { $groups: { org: 'posthog' } },
+                }),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        expect(mockGroupTypeManager.fetchGroupTypeIndex).toHaveBeenCalledTimes(1)
+        expect(mockGroupTypeManager.fetchGroupTypeIndex).toHaveBeenCalledWith(1, 1, 'org', historicalMigration)
+    })
+
     it('skips updateGroupsAndFirstEvent for $$plugin_metrics events', async () => {
         const step = createStep()
         await step(

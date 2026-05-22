@@ -51,7 +51,8 @@ export function createProcessGroupsStep<TInput extends ProcessGroupsStepInput>(
                 team.id,
                 team.project_id,
                 preparedEvent.properties,
-                groupTypeManager
+                groupTypeManager,
+                historicalMigration
             )
 
             if (preparedEvent.event === '$groupidentify') {

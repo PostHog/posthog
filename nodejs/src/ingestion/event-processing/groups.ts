@@ -25,7 +25,8 @@ export async function addGroupProperties(
     teamId: TeamId,
     projectId: ProjectId,
     properties: Properties,
-    groupTypeManager: GroupTypeManager
+    groupTypeManager: GroupTypeManager,
+    historicalMigration: boolean = false
 ): Promise<Properties> {
     const groups = properties.$groups
     if (typeof groups !== 'object' || groups === null || Array.isArray(groups)) {
@@ -33,7 +34,12 @@ export async function addGroupProperties(
     }
     const resolvedTypes: GroupTypeToColumnIndex = {}
     for (const [groupType] of Object.entries(groups)) {
-        const columnIndex = await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType)
+        const columnIndex = await groupTypeManager.fetchGroupTypeIndex(
+            teamId,
+            projectId,
+            groupType,
+            historicalMigration
+        )
         if (columnIndex !== null) {
             resolvedTypes[groupType] = columnIndex
         }

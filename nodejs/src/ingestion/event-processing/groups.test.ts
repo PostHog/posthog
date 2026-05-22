@@ -54,31 +54,38 @@ describe('addGroupProperties', () => {
         expect(mgr.fetchGroupTypeIndex).not.toHaveBeenCalled()
     })
 
-    it('resolves group types via fetchGroupTypeIndex and sets $group_N', async () => {
-        const mgr = mockGroupTypeManager({ organization: 0, project: 1, foobar: null })
+    it.each([
+        { desc: 'default historicalMigration is false', historicalMigration: undefined, expectedFlag: false },
+        { desc: 'historicalMigration=true is forwarded', historicalMigration: true, expectedFlag: true },
+        { desc: 'historicalMigration=false is forwarded', historicalMigration: false, expectedFlag: false },
+    ])(
+        'resolves group types via fetchGroupTypeIndex and sets $group_N: $desc',
+        async ({ historicalMigration, expectedFlag }) => {
+            const mgr = mockGroupTypeManager({ organization: 0, project: 1, foobar: null })
 
-        const properties = {
-            foo: 'bar',
-            $groups: {
-                organization: 'PostHog',
-                project: 'web',
-                foobar: 'afsafa',
-            },
+            const properties = {
+                foo: 'bar',
+                $groups: {
+                    organization: 'PostHog',
+                    project: 'web',
+                    foobar: 'afsafa',
+                },
+            }
+
+            expect(await addGroupProperties(2, 2 as ProjectId, properties, mgr as any, historicalMigration)).toEqual({
+                foo: 'bar',
+                $groups: {
+                    organization: 'PostHog',
+                    project: 'web',
+                    foobar: 'afsafa',
+                },
+                $group_0: 'PostHog',
+                $group_1: 'web',
+            })
+
+            expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'organization', expectedFlag)
+            expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'project', expectedFlag)
+            expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'foobar', expectedFlag)
         }
-
-        expect(await addGroupProperties(2, 2 as ProjectId, properties, mgr as any)).toEqual({
-            foo: 'bar',
-            $groups: {
-                organization: 'PostHog',
-                project: 'web',
-                foobar: 'afsafa',
-            },
-            $group_0: 'PostHog',
-            $group_1: 'web',
-        })
-
-        expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'organization')
-        expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'project')
-        expect(mgr.fetchGroupTypeIndex).toHaveBeenCalledWith(2, 2, 'foobar')
-    })
+    )
 })
