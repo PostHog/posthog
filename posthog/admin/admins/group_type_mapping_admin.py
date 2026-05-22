@@ -1,6 +1,7 @@
 import threading
 
 from django.contrib import admin
+from django.db.models import Q
 from django.urls import NoReverseMatch, reverse
 from django.utils.html import format_html
 
@@ -55,6 +56,25 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
         team_ids = list(qs.values_list("team_id", flat=True).distinct()[:1000])
         self._request_local.team_cache = Team.objects.in_bulk(team_ids) if team_ids else {}
         return qs
+
+    def get_search_results(self, request, queryset, search_term):
+        base_queryset = queryset
+        queryset, may_have_duplicates = super().get_search_results(request, queryset, search_term)
+        if not search_term:
+            return queryset, may_have_duplicates
+
+        # Resolve team/org name matches on the main DB first, then add an IN-filter on
+        # the persons-DB queryset – see get_queryset above for the same cross-DB pattern.
+        team_ids = list(
+            Team.objects.filter(
+                Q(name__icontains=search_term) | Q(organization__name__icontains=search_term)
+            ).values_list("id", flat=True)[:1000]
+        )
+        if team_ids:
+            queryset = queryset | base_queryset.filter(team_id__in=team_ids)
+            may_have_duplicates = True
+
+        return queryset, may_have_duplicates
 
     @admin.display(description="Team")
     def team_link(self, group_type_mapping: GroupTypeMapping) -> str:
