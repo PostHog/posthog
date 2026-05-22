@@ -54,8 +54,8 @@ impl RawHermesFrame {
                 Ok(self.handle_resolution_error(HermesError::NoSourcemapUploaded(chunk_id)))
             }
             Err(ResolveError::ResolutionError(e)) => {
-                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
-                unreachable!("Should not have received error {:?}", e)
+                tracing::warn!("Unexpected Hermes symbol resolution error: {:?}", e);
+                Ok(self.handle_resolution_error(HermesError::InvalidMap(e.to_string())))
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }

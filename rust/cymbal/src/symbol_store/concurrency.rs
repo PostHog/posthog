@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
-use super::Provider;
+use super::{chunk_id::SymbolSetCacheKey, Provider};
 
 // Limits the number of concurrent lookups
 // for a given symbol set to 1. Note this places
@@ -64,14 +64,16 @@ impl<P> AtMostOne<P> {
 impl<P> Provider for AtMostOne<P>
 where
     P: Provider,
-    P::Ref: ToString + Send,
+    P::Ref: SymbolSetCacheKey + Send,
 {
     type Ref = P::Ref;
     type Set = P::Set;
     type Err = P::Err;
 
     async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err> {
-        let lock = self.acquire(format!("{}:{}", team_id, r.to_string())).await;
+        let lock = self
+            .acquire(format!("{}:{}", team_id, r.symbol_set_cache_key()))
+            .await;
         let result = self.inner.lookup(team_id, r).await;
         drop(lock);
         result

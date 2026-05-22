@@ -40,6 +40,7 @@ from posthog.hogql import (
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.property import _property_definition_is_boolean
 from posthog.hogql.visitor import clone_expr
 
 from posthog import rate_limit, redis
@@ -664,6 +665,7 @@ class PostHogTestCase(SimpleTestCase):
 
     def setUp(self):
         get_instance_setting.cache_clear()
+        _property_definition_is_boolean.cache_clear()
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
@@ -1913,7 +1915,7 @@ def snapshot_hogql_queries(fn_or_class):
 
         # Add patches for modules that import execute_hogql_query directly
         try:
-            from posthog.hogql_queries.web_analytics import web_overview
+            from products.web_analytics.backend.hogql_queries import web_overview
 
             if hasattr(web_overview, "execute_hogql_query"):
                 patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
@@ -1921,7 +1923,7 @@ def snapshot_hogql_queries(fn_or_class):
             pass
 
         try:
-            from posthog.hogql_queries.web_analytics import stats_table
+            from products.web_analytics.backend.hogql_queries import stats_table
 
             if hasattr(stats_table, "execute_hogql_query"):
                 patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))

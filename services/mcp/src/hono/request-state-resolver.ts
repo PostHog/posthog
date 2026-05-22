@@ -66,8 +66,13 @@ export class RequestStateResolver {
 
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly, mode } = props
 
-        if (organizationId) {await reqCtx.cache.set('orgId', organizationId)}
-        if (projectId) {await reqCtx.cache.set('projectId', projectId)}
+        await reqCtx.cache.setMany({
+            ...(organizationId ? { orgId: organizationId } : {}),
+            ...(projectId ? { projectId } : {}),
+            ...(props.mcpClientName ? { mcpClientName: props.mcpClientName } : {}),
+            ...(props.mcpClientVersion ? { mcpClientVersion: props.mcpClientVersion } : {}),
+            ...(props.mcpProtocolVersion ? { mcpProtocolVersion: props.mcpProtocolVersion } : {}),
+        })
 
         let cachedProjectId = projectId || (await reqCtx.cache.get('projectId'))
         if (!cachedProjectId) {
@@ -94,9 +99,11 @@ export class RequestStateResolver {
             : undefined
 
         const oauthClientName = (await reqCtx.cache.get('clientName')) || undefined
+        const mcpClientName = props.mcpClientName || (await reqCtx.cache.get('mcpClientName')) || undefined
+        const mcpClientVersion = props.mcpClientVersion || (await reqCtx.cache.get('mcpClientVersion')) || undefined
         const clientProfile = new MCPClientProfile({
-            clientName: props.mcpClientName,
-            clientVersion: props.mcpClientVersion,
+            clientName: mcpClientName,
+            clientVersion: mcpClientVersion,
             consumer: props.mcpConsumer,
             oauthClientName,
         })

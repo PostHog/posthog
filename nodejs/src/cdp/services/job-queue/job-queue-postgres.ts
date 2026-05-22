@@ -23,7 +23,7 @@ import { captureException } from '../../../utils/posthog'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { JobQueue } from './job-queue.interface'
-import { createInvocationSanitizer } from './shared'
+import { createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 /**
  * Legacy postgres v1 queue via @posthog/cyclotron.
@@ -33,6 +33,7 @@ import { createInvocationSanitizer } from './shared'
 export class CyclotronJobQueuePostgres implements JobQueue {
     private cyclotronWorker?: CyclotronWorker
     private cyclotronManager?: CyclotronManager
+    private queue?: CyclotronJobQueueKind
     private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
 
@@ -82,6 +83,7 @@ export class CyclotronJobQueuePostgres implements JobQueue {
         queue: CyclotronJobQueueKind,
         consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {
+        this.queue = queue
         this.consumeBatch = consumeBatch
 
         if (!this.config.CYCLOTRON_DATABASE_URL) {
@@ -241,6 +243,13 @@ export class CyclotronJobQueuePostgres implements JobQueue {
             const invocation = cyclotronJobToInvocation(job)
             invocations.push(invocation)
         }
+
+        observeConsumedBatch({
+            queue: this.queue!,
+            source: 'postgres',
+            batchSize: invocations.length,
+            maxBatchSize: this.consumerBatchSize,
+        })
 
         await this.consumeBatch!(invocations)
         // TODO: Ensure that all jobs eventually get acked!!!
