@@ -3895,6 +3895,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
 
     assert call_kwargs["data"] == {
         "team_id": team.id,
+        "table_name": "stripe.customer",
         "properties": expected_properties,
     }
 
