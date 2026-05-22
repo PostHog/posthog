@@ -53,8 +53,13 @@ def get_annotations_for_ai_context(
 def _resolve_date(value: Any, team: Team) -> Optional[datetime]:
     if not isinstance(value, str) or not value:
         return None
+    # `relative_date_parse("all", ...)` returns "now", which would collapse the annotation
+    # window to roughly now -> now and silently drop every entry. For an "all time" filter
+    # there is no meaningful lower bound, so we skip the annotation fetch instead.
+    if value.lower() == "all":
+        return None
     try:
-        if value.startswith(("-", "+")) or value.lower() in {"all", "today", "yesterday"}:
+        if value.startswith(("-", "+")) or value.lower() in {"today", "yesterday"}:
             return relative_date_parse(value, team.timezone_info)
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except (ValueError, TypeError):
@@ -84,6 +89,10 @@ def _resolve_range(raw_from: Any, raw_to: Any, team: Team) -> Optional[tuple[dat
     return date_from, date_to
 
 
+_LINE_BREAK_CHARS = "\n\r\u2028\u2029\u0085\v\f"
+_LINE_BREAK_TRANSLATION = str.maketrans(dict.fromkeys(_LINE_BREAK_CHARS, " "))
+
+
 def format_annotations_for_prompt(annotations: list[dict[str, Any]]) -> str:
     lines = []
     for a in annotations:
@@ -91,7 +100,10 @@ def format_annotations_for_prompt(annotations: list[dict[str, Any]]) -> str:
         date_marker = a.get("date_marker")
         if not content or not date_marker:
             continue
-        clean = content.replace("\n", " ").replace("\r", " ")
+        # Strip every Unicode line terminator (Zl/Zp + ASCII control) — not just \n/\r.
+        # LLM tokenizers split on \u2028 and \u2029 the same as \n, so a hand-crafted
+        # annotation could otherwise inject a fake new section after the delimited block.
+        clean = content.translate(_LINE_BREAK_TRANSLATION)
         if len(clean) > MAX_ANNOTATION_CONTENT_CHARS:
             clean = clean[:MAX_ANNOTATION_CONTENT_CHARS] + "…"
         lines.append(f"- {date_marker.date().isoformat()} ({a['scope']}): {clean}")
