@@ -672,6 +672,15 @@ def verify_team_flags(
     return result
 
 
+# Keys whose ``null`` is semantically distinct from "absent" and must be preserved
+# during loose comparison. The Rust matcher tracks this distinction via the double-
+# ``Option<Option<i32>>`` on ``FlagPropertyGroup.aggregation_group_type_index``:
+# absent falls back to the flag-level group type, while explicit ``null`` forces
+# person-level aggregation. Stripping ``null`` here would hide real cache drift
+# between those two states.
+_PRESERVE_NULL_KEYS = frozenset({"aggregation_group_type_index"})
+
+
 def _strip_null_values(value: Any) -> Any:
     """Recursively drop ``None`` values from dicts; recurse into lists without dropping ``None`` elements.
 
@@ -679,12 +688,14 @@ def _strip_null_values(value: Any) -> Any:
     passes JSONB through verbatim and preserves explicit ``null`` entries) and
     the Rust warmer (whose typed ``Option<T>`` deserialization collapses
     "absent key" and "explicit null" into the same ``None`` and emits one
-    shape). The matcher already treats those two states as equivalent, so the
-    verifier should mirror that tolerance instead of reporting spurious
-    ``FIELD_MISMATCH``.
+    shape). The matcher already treats those two states as equivalent for most
+    fields, so the verifier should mirror that tolerance instead of reporting
+    spurious ``FIELD_MISMATCH``.
 
     Rules:
-    - Dicts: drop entries whose value is ``None``; recurse into remaining values.
+    - Dicts: drop entries whose value is ``None``, except for keys in
+      ``_PRESERVE_NULL_KEYS`` where ``null`` is semantically distinct from
+      absent; recurse into remaining values.
     - Lists: recurse into each element, but preserve ``None`` elements (dropping
       them would shift indices and change semantics). The Rust typed
       serialization will not emit ``null`` list elements in current data, so
@@ -694,7 +705,7 @@ def _strip_null_values(value: Any) -> Any:
     See plans/verify-flags-cache-loose-comparison.md for the full rationale.
     """
     if isinstance(value, dict):
-        return {k: _strip_null_values(v) for k, v in value.items() if v is not None}
+        return {k: _strip_null_values(v) for k, v in value.items() if v is not None or k in _PRESERVE_NULL_KEYS}
     if isinstance(value, list):
         return [_strip_null_values(item) for item in value]
     return value

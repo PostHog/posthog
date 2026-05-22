@@ -3481,6 +3481,16 @@ class TestStripNullValues(unittest.TestCase):
         self.assertEqual(_strip_null_values(value), expected)
 
 
+def _flag(**overrides: Any) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "id": 1,
+        "key": "test-flag",
+        "filters": {"groups": []},
+    }
+    base.update(overrides)
+    return base
+
+
 class TestCompareFlagFieldsLooseness(unittest.TestCase):
     """Pure-function tests for ``_compare_flag_fields`` after the looseness fix.
 
@@ -3489,112 +3499,125 @@ class TestCompareFlagFieldsLooseness(unittest.TestCase):
     See plans/verify-flags-cache-loose-comparison.md.
     """
 
-    @staticmethod
-    def _flag(**overrides: Any) -> dict[str, Any]:
-        base: dict[str, Any] = {
-            "id": 1,
-            "key": "test-flag",
-            "filters": {"groups": []},
-        }
-        base.update(overrides)
-        return base
-
-    def test_absent_vs_explicit_null_at_group_level_is_not_a_mismatch(self):
-        """db has ``variant: null``, cache has the key absent → no mismatch."""
-        db_flag = self._flag(filters={"groups": [{"properties": [], "variant": None, "rollout_percentage": 100}]})
-        cached_flag = self._flag(filters={"groups": [{"properties": [], "rollout_percentage": 100}]})
-
-        self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
-
-    def test_absent_vs_non_null_value_is_still_a_mismatch(self):
-        """db has ``variant: "x"``, cache lacks the key → real divergence, flagged."""
-        db_flag = self._flag(filters={"groups": [{"properties": [], "variant": "x", "rollout_percentage": 100}]})
-        cached_flag = self._flag(filters={"groups": [{"properties": [], "rollout_percentage": 100}]})
-
-        diffs = _compare_flag_fields(db_flag, cached_flag)
-        self.assertEqual(len(diffs), 1)
-        self.assertEqual(diffs[0]["field"], "filters")
-
-    def test_different_non_null_values_are_still_a_mismatch(self):
-        """db has ``variant: "x"``, cache has ``variant: "y"`` → real divergence."""
-        db_flag = self._flag(filters={"groups": [{"properties": [], "variant": "x", "rollout_percentage": 100}]})
-        cached_flag = self._flag(filters={"groups": [{"properties": [], "variant": "y", "rollout_percentage": 100}]})
-
-        diffs = _compare_flag_fields(db_flag, cached_flag)
-        self.assertEqual(len(diffs), 1)
-        self.assertEqual(diffs[0]["field"], "filters")
-
-    def test_aggregation_group_type_index_null_on_both_sides_is_not_a_mismatch(self):
-        """The pre-existing equal-null case still passes after null-stripping."""
-        db_flag = self._flag(filters={"groups": [], "aggregation_group_type_index": None})
-        cached_flag = self._flag(filters={"groups": [], "aggregation_group_type_index": None})
-
-        self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
-
-    def test_aggregation_group_type_index_value_on_one_side_is_a_mismatch(self):
-        """0 (explicit group aggregation) vs absent → real divergence."""
-        db_flag = self._flag(filters={"groups": [], "aggregation_group_type_index": 0})
-        cached_flag = self._flag(filters={"groups": []})
-
-        diffs = _compare_flag_fields(db_flag, cached_flag)
-        self.assertEqual(len(diffs), 1)
-        self.assertEqual(diffs[0]["field"], "filters")
-
-    def test_cohort_name_runtime_annotation_matches_when_both_have_it(self):
-        """Once Rust preserves unknown keys via ``#[serde(flatten)]``, the
-        verifier should see ``cohort_name`` on both sides and report no
-        mismatch — the same field name appears in both because Rust's flatten
-        passthrough round-trips it. See Layer 2 in the plan.
-        """
-        prop = {"key": "id", "type": "cohort", "value": 5, "cohort_name": "QA users"}
-        db_flag = self._flag(filters={"groups": [{"properties": [prop], "rollout_percentage": 100}]})
-        cached_flag = self._flag(filters={"groups": [{"properties": [prop], "rollout_percentage": 100}]})
-
-        self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
-
-    def test_top_level_scalar_mismatch_still_reported(self):
-        db_flag = self._flag(key="renamed-flag")
-        cached_flag = self._flag(key="test-flag")
-
-        diffs = _compare_flag_fields(db_flag, cached_flag)
-        self.assertEqual(len(diffs), 1)
-        self.assertEqual(diffs[0]["field"], "key")
-
-    def test_extra_key_in_cache_still_ignored(self):
-        """Pre-existing tolerance: extras in the cache that aren't in db are ignored."""
-        db_flag = self._flag()
-        cached_flag = self._flag()
-        cached_flag["legacy_field"] = True
-
-        self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
-
-    def test_properties_array_with_per_property_null_drops_normalize(self):
-        """Per-property ``operator: null`` vs absent across a properties list."""
-        db_flag = self._flag(
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {"key": "email", "value": "a", "operator": None},
-                            {"key": "name", "value": "b", "operator": None},
-                        ],
-                        "rollout_percentage": 100,
+    @parameterized.expand(
+        [
+            (
+                # db has ``variant: null``, cache has the key absent → no mismatch.
+                "absent_vs_explicit_null_at_group_level",
+                _flag(filters={"groups": [{"properties": [], "variant": None, "rollout_percentage": 100}]}),
+                _flag(filters={"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            ),
+            (
+                # Pre-existing equal-null case still passes after null-stripping.
+                "aggregation_group_type_index_null_on_both_sides",
+                _flag(filters={"groups": [], "aggregation_group_type_index": None}),
+                _flag(filters={"groups": [], "aggregation_group_type_index": None}),
+            ),
+            (
+                # Rust's ``#[serde(flatten)]`` round-trips unknown keys, so both
+                # sides carry ``cohort_name``. See Layer 2 in the plan.
+                "cohort_name_runtime_annotation_on_both_sides",
+                _flag(
+                    filters={
+                        "groups": [
+                            {
+                                "properties": [{"key": "id", "type": "cohort", "value": 5, "cohort_name": "QA users"}],
+                                "rollout_percentage": 100,
+                            }
+                        ]
                     }
-                ]
-            }
-        )
-        cached_flag = self._flag(
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {"key": "email", "value": "a"},
-                            {"key": "name", "value": "b"},
-                        ],
-                        "rollout_percentage": 100,
+                ),
+                _flag(
+                    filters={
+                        "groups": [
+                            {
+                                "properties": [{"key": "id", "type": "cohort", "value": 5, "cohort_name": "QA users"}],
+                                "rollout_percentage": 100,
+                            }
+                        ]
                     }
-                ]
-            }
-        )
-
+                ),
+            ),
+            (
+                # Pre-existing tolerance: extras in the cache that aren't in db are ignored.
+                "extra_key_in_cache",
+                _flag(),
+                {**_flag(), "legacy_field": True},
+            ),
+            (
+                # Per-property ``operator: null`` vs absent across a properties list.
+                "properties_array_per_property_null_drops",
+                _flag(
+                    filters={
+                        "groups": [
+                            {
+                                "properties": [
+                                    {"key": "email", "value": "a", "operator": None},
+                                    {"key": "name", "value": "b", "operator": None},
+                                ],
+                                "rollout_percentage": 100,
+                            }
+                        ]
+                    }
+                ),
+                _flag(
+                    filters={
+                        "groups": [
+                            {
+                                "properties": [
+                                    {"key": "email", "value": "a"},
+                                    {"key": "name", "value": "b"},
+                                ],
+                                "rollout_percentage": 100,
+                            }
+                        ]
+                    }
+                ),
+            ),
+        ]
+    )
+    def test_no_diff(self, _name: str, db_flag: dict[str, Any], cached_flag: dict[str, Any]) -> None:
         self.assertEqual(_compare_flag_fields(db_flag, cached_flag), [])
+
+    @parameterized.expand(
+        [
+            (
+                # db has ``variant: "x"``, cache lacks the key → real divergence.
+                "absent_vs_non_null_value",
+                "filters",
+                _flag(filters={"groups": [{"properties": [], "variant": "x", "rollout_percentage": 100}]}),
+                _flag(filters={"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            ),
+            (
+                # db has ``variant: "x"``, cache has ``variant: "y"`` → real divergence.
+                "different_non_null_values",
+                "filters",
+                _flag(filters={"groups": [{"properties": [], "variant": "x", "rollout_percentage": 100}]}),
+                _flag(filters={"groups": [{"properties": [], "variant": "y", "rollout_percentage": 100}]}),
+            ),
+            (
+                # 0 (explicit group aggregation) vs absent → real divergence.
+                "aggregation_group_type_index_value_vs_absent",
+                "filters",
+                _flag(filters={"groups": [], "aggregation_group_type_index": 0}),
+                _flag(filters={"groups": []}),
+            ),
+            (
+                # Top-level scalar mismatch is reported as such.
+                "top_level_scalar_mismatch",
+                "key",
+                _flag(key="renamed-flag"),
+                _flag(key="test-flag"),
+            ),
+        ]
+    )
+    def test_single_field_diff(
+        self,
+        _name: str,
+        expected_field: str,
+        db_flag: dict[str, Any],
+        cached_flag: dict[str, Any],
+    ) -> None:
+        diffs = _compare_flag_fields(db_flag, cached_flag)
+        self.assertEqual(len(diffs), 1)
+        self.assertEqual(diffs[0]["field"], expected_field)

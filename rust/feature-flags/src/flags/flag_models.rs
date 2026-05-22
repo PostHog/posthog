@@ -138,7 +138,17 @@ pub struct FlagPropertyGroup {
     /// "field absent" (legacy flags, should fall back to flag-level) from "field
     /// present but null" (explicit person aggregation). When the inner Option holds
     /// a value, the condition uses that group type for hashing and property evaluation.
-    #[serde(default, deserialize_with = "deserialize_double_option")]
+    ///
+    /// `skip_serializing_if = "Option::is_none"` preserves the absent/null distinction
+    /// on round-trip: outer `None` (absent) serializes as no key; `Some(None)` (explicit
+    /// null) serializes as `null`; `Some(Some(idx))` serializes as the integer. Without
+    /// this, both `None` and `Some(None)` would serialize identically as `null`, silently
+    /// converting absent → null and changing matcher behavior on cache-warmed flags.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub aggregation_group_type_index: Option<Option<i32>>,
     /// Captures unknown JSONB keys so the cache round-trip is identity. Without
     /// this, frontend leaks (`description`, `sort_key`), runtime annotations
@@ -310,7 +320,7 @@ impl PreparedFlagDefinitions {
     /// Estimates the heap memory footprint of this struct in bytes.
     /// Used by moka's weight-based eviction to enforce cache capacity limits.
     pub fn estimated_size_bytes(&self) -> usize {
-        use crate::utils::json_size::estimate_json_size;
+        use crate::utils::json_size::{estimate_json_map_size, estimate_json_size};
 
         let base = std::mem::size_of::<Self>();
 
@@ -327,11 +337,17 @@ impl PreparedFlagDefinitions {
                     .as_ref()
                     .map_or(0, |tags| tags.iter().map(|t| t.len() + 24).sum());
                 let bucketing_size = f.bucketing_identifier.as_ref().map_or(0, |b| b.len());
+                // Each PropertyFilter with a compiled regex costs ~2KB for the
+                // DFA/NFA automata inside fancy_regex::Regex. The `value` JSON
+                // payload can dominate for cohort/group filters, so walk it.
+                // The `extra` flatten maps capture unknown JSONB keys; without
+                // weighing them, oversized unknown filter fields would bypass the
+                // cache's byte-budget eviction (see `FlagFilters.extra` doc).
                 let group_size = |groups: &[FlagPropertyGroup]| -> usize {
                     groups
                         .iter()
                         .map(|g| {
-                            g.properties.as_ref().map_or(0, |props| {
+                            let props_size = g.properties.as_ref().map_or(0, |props| {
                                 props
                                     .iter()
                                     .map(|p| {
@@ -341,15 +357,21 @@ impl PreparedFlagDefinitions {
                                             p.value.as_ref().map_or(0, estimate_json_size);
                                         let regex_overhead =
                                             if p.compiled_regex.is_some() { 2048 } else { 0 };
-                                        prop_base + prop_key + prop_value + regex_overhead
+                                        let prop_extra = estimate_json_map_size(&p.extra);
+                                        prop_base
+                                            + prop_key
+                                            + prop_value
+                                            + regex_overhead
+                                            + prop_extra
                                     })
-                                    .sum()
-                            })
+                                    .sum::<usize>()
+                            });
+                            props_size + estimate_json_map_size(&g.extra)
                         })
                         .sum()
                 };
-                let filters_size: usize = group_size(&f.filters.groups);
-
+                let filters_size: usize = group_size(&f.filters.groups)
+                    + estimate_json_map_size(&f.filters.extra);
                 let payloads_size = f.filters.payloads.as_ref().map_or(0, estimate_json_size);
 
                 struct_size
@@ -658,6 +680,37 @@ mod unknown_key_passthrough_tests {
         assert!(
             output["aggregation_group_type_index"].is_null(),
             "explicit null must survive the round-trip, not be dropped or moved into extra"
+        );
+    }
+
+    #[test]
+    fn aggregation_group_type_index_absent_survives_flatten() {
+        // The absent state must round-trip as absent, not be promoted to null.
+        // `skip_serializing_if = "Option::is_none"` on the outer Option preserves
+        // this distinction; without it, the matcher would treat legacy
+        // (field-absent) flags as if they had explicit person aggregation.
+        let input = serde_json::json!({
+            "properties": [],
+            "rollout_percentage": 100
+        });
+
+        let group: FlagPropertyGroup =
+            serde_json::from_value(input).expect("FlagPropertyGroup should deserialize cleanly");
+
+        assert_eq!(
+            group.aggregation_group_type_index, None,
+            "absent field must deserialize as None, not Some(None)"
+        );
+
+        let output =
+            serde_json::to_value(&group).expect("FlagPropertyGroup should serialize cleanly");
+
+        let map = output
+            .as_object()
+            .expect("serialized FlagPropertyGroup should be a JSON object");
+        assert!(
+            !map.contains_key("aggregation_group_type_index"),
+            "absent field must survive the round-trip as absent, not be promoted to null"
         );
     }
 }
