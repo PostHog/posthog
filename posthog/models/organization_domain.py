@@ -10,6 +10,7 @@ import dns.resolver
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.user import User
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
@@ -32,6 +33,25 @@ class OrganizationDomainManager(models.Manager):
         """
         domain = email[email.index("@") + 1 :]
         return self.verified_domains().filter(domain__iexact=domain).first()
+
+    def email_belongs_to_member_of_verified_org(self, email: str) -> bool:
+        """
+        Whether `email` belongs to an active `User` who is a member of an
+        `Organization` that has verified the email's domain.
+        """
+        if "@" not in email:
+            return False
+        domain = email[email.index("@") + 1 :].lower()
+        matching_org_ids = list(
+            self.verified_domains().filter(domain__iexact=domain).values_list("organization_id", flat=True)
+        )
+        if not matching_org_ids:
+            return False
+        return User.objects.filter(
+            is_active=True,
+            email__iexact=email,
+            organization_membership__organization_id__in=matching_org_ids,
+        ).exists()
 
     def get_is_saml_available_for_email(self, email: str) -> bool:
         """

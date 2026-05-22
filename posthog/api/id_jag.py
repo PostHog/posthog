@@ -1,0 +1,501 @@
+"""
+ID-JAG (XAA) implementation. See https://xaa.dev for more information.
+
+TLDR: ID-JAG is a protocol where IdP's issue JWT tokens to their users
+which they can send to us to issue a short-lived JWT token which can be
+used to access our API. This eliminates the need for the user to oauth
+to us, or get a personal API token to programmatically access our API.
+"""
+
+import uuid
+from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
+from typing import Any, TypedDict, cast
+
+from django.conf import settings
+from django.core.cache import cache
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+
+import jwt
+import requests
+import structlog
+from rest_framework import status
+from rest_framework.exceptions import ParseError, UnsupportedMediaType
+from rest_framework.parsers import FormParser, JSONParser
+from rest_framework.permissions import AllowAny
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from posthog.models.organization_domain import OrganizationDomain
+from posthog.scopes import get_oauth_scopes_supported
+
+logger = structlog.get_logger(__name__)
+
+# https://xaa.dev/docs/token-structure#id-jag — IdP issues ID-JAGs with this header `typ`.
+ID_JAG_TOKEN_TYPE = "oauth-id-jag+jwt"
+
+# https://xaa.dev/docs/token-structure#access-token — RFC 9068 access-token `typ`.
+ACCESS_TOKEN_TYPE = "at+jwt"
+
+# RFC 7521/7523 — JWT Bearer grant type identifier.
+JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+
+
+class IdJagError(Exception):
+    """
+    OAuth-style token-endpoint error. The HTTP body shape follows RFC 6749
+    section 5.2 and the XAA error-code table at
+    https://xaa.dev/docs/error-codes
+    """
+
+    http_status: int = status.HTTP_400_BAD_REQUEST
+    error_code: str = "invalid_request"
+
+    def __init__(self, description: str, *, error_code: str | None = None, http_status: int | None = None) -> None:
+        super().__init__(description)
+        self.description = description
+        if error_code is not None:
+            self.error_code = error_code
+        if http_status is not None:
+            self.http_status = http_status
+
+    def to_response(self) -> Response:
+        return Response(
+            {"error": self.error_code, "error_description": self.description},
+            status=self.http_status,
+        )
+
+
+class InvalidRequestError(IdJagError):
+    error_code = "invalid_request"
+
+
+class InvalidGrantError(IdJagError):
+    error_code = "invalid_grant"
+
+
+class InvalidClientError(IdJagError):
+    error_code = "invalid_client"
+    http_status = status.HTTP_401_UNAUTHORIZED
+
+
+class UnsupportedGrantTypeError(IdJagError):
+    error_code = "unsupported_grant_type"
+
+
+class InvalidScopeError(IdJagError):
+    error_code = "invalid_scope"
+
+
+class InvalidTargetError(IdJagError):
+    # XAA error-code table lists `invalid_target` for resource-connection mismatch.
+    # https://xaa.dev/docs/error-codes#idp-token-exchange
+    error_code = "invalid_target"
+
+
+class IdJagClaims(TypedDict, total=False):
+    iss: str
+    sub: str
+    aud: str | list[str]
+    client_id: str
+    scope: str
+    resource: str
+    jti: str
+    iat: int
+    nbf: int
+    exp: int
+
+
+def _get_site_url() -> str:
+    """The deployment's public URL — used as `aud` for inbound ID-JAGs and as
+    `iss`/`aud` for the access tokens we mint. Stripped of trailing slash so
+    audience equality checks don't fight URL normalization."""
+    site_url = (settings.SITE_URL or "").rstrip("/")
+    if not site_url:
+        raise InvalidGrantError(
+            "ID-JAG authentication is not configured: SITE_URL is empty",
+            http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            error_code="server_error",
+        )
+    return site_url
+
+
+def _resolve_trusted_provider_for_sub(sub: str) -> str | None:
+    """
+    Pre-signature trust gate: an ID-JAG `sub` (an email) is provisionally
+    accepted iff its domain matches a verified `OrganizationDomain` on some
+    PostHog organization. The verified domain doubles as the provider name we
+    stamp into the access token's `sub` (`{providerName}:{userSub}` — stable,
+    1:1 with the org, and meaningful).
+
+    The post-signature gate (`_user_is_member_of_verified_org`) tightens this:
+    we additionally require the user to be an active member of an org that
+    actually owns this verified domain — preventing an attacker who controls
+    an unrelated org from verifying a domain and minting tokens for users
+    that legitimately belong to a different org.
+
+    Returns the verified domain string on success, `None` otherwise.
+    """
+    if "@" not in sub:
+        return None
+    org_domain = OrganizationDomain.objects.get_verified_for_email_address(sub)
+    return org_domain.domain if org_domain else None
+
+
+def _get_jwks_client(issuer: str) -> jwt.PyJWKClient:
+    """Resolve a PyJWKClient for the given IdP issuer. Cached per-issuer.
+
+    Fetches the IdP's `/.well-known/openid-configuration` once per
+    `ID_JAG_JWKS_CACHE_TTL_SECONDS` to discover its `jwks_uri`. We don't cache
+    the `PyJWKClient` object itself because it already does in-process key
+    caching (`lifespan` seconds) — caching only the URI keeps key rotation
+    responsive while avoiding redundant discovery hits.
+
+    Network and parse failures during discovery are normalized to
+    `InvalidGrantError` so callers only have to handle one error type.
+    """
+
+    cache_key = f"id_jag:jwks_uri:{issuer}"
+    jwks_uri = cache.get(cache_key)
+    if not jwks_uri:
+        try:
+            resp = requests.get(f"{issuer}/.well-known/openid-configuration", timeout=10)
+            resp.raise_for_status()
+            metadata = resp.json()
+        except requests.RequestException as e:
+            raise InvalidGrantError(f"IdP {issuer} OIDC discovery request failed: {e}")
+        except ValueError as e:
+            # `resp.json()` raises `json.JSONDecodeError` (a ValueError subclass).
+            raise InvalidGrantError(f"IdP {issuer} OIDC discovery response was not valid JSON: {e}")
+        jwks_uri = metadata.get("jwks_uri")
+        if not jwks_uri:
+            raise InvalidGrantError(f"IdP {issuer} discovery metadata missing jwks_uri")
+        cache.set(cache_key, jwks_uri, settings.ID_JAG_JWKS_CACHE_TTL_SECONDS)
+    return jwt.PyJWKClient(jwks_uri)
+
+
+def _get_sub(provider_name: str, id_jag_sub: str) -> str:
+    """
+    Returns the `sub` claim in the expected ID-JAG format.
+
+    {identity provider name}:{sub from ID-JAG token}
+
+    Note: The ID-JAG token is the JWT issued by the identity provider which is passed
+    in the API request to our django backend to issue a JWT access token to the caller.
+
+    https://xaa.dev/docs/token-structure#sub-claim-format
+    """
+    return f"{provider_name}:{id_jag_sub}"
+
+
+def _get_scopes(id_jag_scopes: list[str], requested_scopes: list[str] | None) -> list[str]:
+    """
+    Basically just takes the intersection of scopes requested in the caller
+    and the scopers granted by the IdP in the ID-JAG token.
+
+    https://xaa.dev/docs/token-structure#scope-intersection-rule
+
+    Per spec, the intersection MAY be empty — the AS still issues a token, which
+    then fails at the resource server with `403 insufficient_scope`. We mirror
+    that behavior so clients see the documented failure mode, not a 400 here.
+
+    `requested_scopes=None` means the client didn't pass a `scope` param, in
+    which case the issued scope is exactly what the ID-JAG authorized. When
+    `requested_scopes` is given, the result follows its order so deterministic
+    output is stable across calls.
+    """
+    if requested_scopes is None:
+        return list(id_jag_scopes)
+    id_jag_set = set(id_jag_scopes)
+    seen: set[str] = set()
+    intersected: list[str] = []
+    for scope in requested_scopes:
+        if scope in id_jag_set and scope not in seen:
+            seen.add(scope)
+            intersected.append(scope)
+    return intersected
+
+
+def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str]:
+    """
+    Verifies the provided ID-JAG token against the IdP's JWKS and returns the
+    claims plus the provider name we stamp into the issued access token's `sub`.
+
+    Raises `IdJagError` (with the right RFC 6749 error code) on every documented
+    failure mode at https://xaa.dev/docs/error-codes
+    """
+    try:
+        header = jwt.get_unverified_header(assertion)
+    except jwt.PyJWTError as e:
+        raise InvalidGrantError(f"ID-JAG header could not be parsed: {e}")
+
+    if header.get("typ") != ID_JAG_TOKEN_TYPE:
+        raise InvalidGrantError(f"ID-JAG typ header is not {ID_JAG_TOKEN_TYPE}")
+
+    try:
+        unverified_claims = jwt.decode(assertion, options={"verify_signature": False})
+    except jwt.PyJWTError as e:
+        raise InvalidGrantError(f"ID-JAG payload could not be parsed: {e}")
+
+    issuer = (unverified_claims.get("iss") or "").rstrip("/")
+    if not issuer:
+        raise InvalidGrantError("ID-JAG is missing the iss claim")
+
+    id_jag_sub = unverified_claims.get("sub") or ""
+    provider_name = _resolve_trusted_provider_for_sub(id_jag_sub)
+    if provider_name is None:
+        raise InvalidGrantError("ID-JAG sub email domain is not a verified domain for any PostHog organization")
+
+    try:
+        jwks_client = _get_jwks_client(issuer)
+        signing_key = jwks_client.get_signing_key_from_jwt(assertion)
+    except jwt.PyJWTError as e:
+        raise InvalidGrantError(f"ID-JAG signing key resolution failed: {e}")
+
+    expected_audience = _get_site_url()
+
+    try:
+        claims = cast(
+            IdJagClaims,
+            jwt.decode(
+                assertion,
+                signing_key.key,
+                algorithms=["RS256", "RS384", "RS512"],
+                audience=expected_audience,
+                issuer=issuer,
+                leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
+                options={
+                    "require": ["iss", "sub", "aud", "exp", "iat", "client_id"],
+                    "verify_signature": True,
+                    "verify_exp": True,
+                    "verify_nbf": True,
+                    "verify_iat": True,
+                    "verify_aud": True,
+                    "verify_iss": True,
+                },
+            ),
+        )
+    except jwt.ExpiredSignatureError:
+        raise InvalidGrantError("ID-JAG has expired")
+    except jwt.ImmatureSignatureError as e:
+        # PyJWT raises this for both `nbf > now+leeway` and `iat > now+leeway`,
+        # and the message disambiguates between them.
+        # https://xaa.dev/docs/token-structure#clock-skew-tolerance
+        raise InvalidGrantError(f"ID-JAG is not yet valid (clock-skew window exceeded): {e}")
+    except jwt.InvalidAudienceError:
+        raise InvalidGrantError("ID-JAG aud doesn't match this Auth Server's URL")
+    except jwt.InvalidIssuerError:
+        raise InvalidGrantError("ID-JAG iss is not valid")
+    except jwt.MissingRequiredClaimError as e:
+        raise InvalidGrantError(f"ID-JAG is missing required claim: {e.claim}")
+    except jwt.PyJWTError as e:
+        raise InvalidGrantError(f"ID-JAG signature verification failed: {e}")
+
+    resource = claims.get("resource")
+    if not resource:
+        raise InvalidGrantError("ID-JAG is missing the resource claim (RFC 8707)")
+    if resource.rstrip("/") != expected_audience:
+        raise InvalidTargetError(f"ID-JAG resource {resource!r} does not match this resource server")
+
+    if not claims.get("client_id"):
+        raise InvalidGrantError("ID-JAG is missing the client_id claim")
+
+    # TODO: needed? we should be verifying this in the org domain object anyways for the XAA configuration fields
+    verified_sub = claims.get("sub") or ""
+    if not OrganizationDomain.objects.email_belongs_to_member_of_verified_org(verified_sub):
+        raise InvalidGrantError(
+            "ID-JAG sub is not an active member of an organization that has verified this email's domain"
+        )
+
+    return claims, provider_name
+
+
+def _construct_access_token_payload(
+    claims: IdJagClaims,
+    provider_name: str,
+    granted_scopes: list[str],
+) -> dict[str, Any]:
+    """
+    Constructs the payload for the JWT access token which will be issued to the ID-JAG caller.
+
+    https://xaa.dev/docs/token-structure#access-token
+    """
+
+    now = datetime.now(tz=UTC)
+    expires_at = now + timedelta(seconds=settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS)
+
+    payload: dict[str, Any] = {
+        "iss": _get_site_url(),
+        "sub": _get_sub(provider_name, cast(str, claims.get("sub"))),
+        "aud": claims.get("resource"),
+        "client_id": claims.get("client_id"),
+        "scope": " ".join(granted_scopes),
+        "app_org": provider_name,
+        "jti": str(uuid.uuid4()),
+        "iat": int(now.timestamp()),
+        "exp": int(expires_at.timestamp()),
+    }
+    return payload
+
+
+def _get_signing_key() -> str:
+    """RS256 private key used to sign access tokens. Reuses the OIDC key already
+    deployed for OAuth so resource servers can verify access tokens against the
+    existing `/.well-known/jwks.json` endpoint without extra wiring."""
+    key = getattr(settings, "OIDC_RSA_PRIVATE_KEY", None)
+    if not key:
+        raise InvalidGrantError(
+            "ID-JAG access tokens cannot be signed: OIDC_RSA_PRIVATE_KEY is not configured",
+            http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            error_code="server_error",
+        )
+    return key
+
+
+def _construct_access_token(payload: dict[str, Any]) -> str:
+    return jwt.encode(
+        payload,
+        _get_signing_key(),
+        algorithm="RS256",
+        headers={"typ": ACCESS_TOKEN_TYPE},
+    )
+
+
+def _parse_request_data(request: Request) -> dict[str, Any]:
+    """Read the token-endpoint request body via DRF's unified `request.data` so
+    both content types land on the same path:
+
+    * `application/x-www-form-urlencoded` (RFC 6749 §4.5 — the canonical OAuth
+      shape; PyJWT-bearer / SDK clients typically use this), parsed by
+      `FormParser` into a `QueryDict`.
+    * `application/json`, parsed by `JSONParser` into a `dict`.
+
+    Both `QueryDict` and `dict` support `.items()`; we normalize to a plain
+    `dict[str, Any]` so callers don't have to care which parser ran.
+
+    Unsupported content types and malformed bodies surface as
+    `InvalidRequestError` so they map to RFC 6749 `invalid_request` rather than
+    DRF's default 415/400 HTML.
+    """
+
+    try:
+        data = request.data
+    except UnsupportedMediaType:
+        raise InvalidRequestError(
+            f"Unsupported Content-Type: {request.content_type or 'unset'}. "
+            "Use application/x-www-form-urlencoded or application/json.",
+        )
+    except ParseError as e:
+        raise InvalidRequestError(f"Request body could not be parsed: {e.detail}")
+
+    if not hasattr(data, "items"):
+        return {}
+    return dict(data.items())
+
+
+def _parse_scope_list(value: str | list[str] | None) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [s for s in value if s]
+    return [s for s in value.split() if s]
+
+
+def issue_access_token(assertion: str, requested_scope: str | list[str] | None) -> tuple[str, list[str], int]:
+    """
+    Validate an ID-JAG `assertion` and mint an access token. Pulled out of the
+    view so the same path is exercised by tests, batch tools, and the HTTP
+    handler. Returns `(access_token, granted_scopes, expires_in_seconds)`.
+    """
+
+    claims, provider_name = _verify_and_extract_id_jag_token(assertion)
+
+    id_jag_scopes = _parse_scope_list(claims.get("scope"))
+    parsed_requested = _parse_scope_list(requested_scope) if requested_scope is not None else None
+
+    known_scopes = set(get_oauth_scopes_supported())
+    sanitized_id_jag_scopes = [s for s in id_jag_scopes if s in known_scopes]
+
+    granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
+    payload = _construct_access_token_payload(claims, provider_name, granted)
+    token = _construct_access_token(payload)
+    return token, granted, settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class IdJagViewSet(APIView):
+    """
+    Token endpoint for the JWT Bearer Grant (RFC 7523) — exchanges an ID-JAG
+    issued by a trusted IdP for a short-lived PostHog access token.
+
+    The XAA flow puts this at the AS `token_endpoint`. We host it at
+    `/id-jag/token` to keep it cleanly separated from the OAuth 2.0 token
+    endpoint at `/oauth/token`.
+
+    https://xaa.dev/docs/step3
+    https://xaa.dev/docs/byor-auth-server
+    """
+
+    authentication_classes: Sequence[type[Any]] = ()
+    permission_classes = [AllowAny]
+    parser_classes = [FormParser, JSONParser]
+    schema = None
+
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            data = _parse_request_data(request)
+        except IdJagError as e:
+            return e.to_response()
+
+        grant_type = data.get("grant_type")
+        if not grant_type:
+            return InvalidRequestError("grant_type is required").to_response()
+        if grant_type != JWT_BEARER_GRANT_TYPE:
+            return UnsupportedGrantTypeError(
+                f"grant_type must be {JWT_BEARER_GRANT_TYPE}",
+                error_code="unsupported_grant_type",
+            ).to_response()
+
+        assertion = data.get("assertion")
+        if not assertion or not isinstance(assertion, str):
+            return InvalidRequestError("assertion is required").to_response()
+
+        requested_scope = data.get("scope")
+        request_client_id = data.get("client_id")
+
+        try:
+            claims, provider_name = _verify_and_extract_id_jag_token(assertion)
+        except IdJagError as e:
+            logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
+            return e.to_response()
+
+        if request_client_id and request_client_id != claims.get("client_id"):
+            return InvalidGrantError("ID-JAG client_id doesn't match the authenticating client").to_response()
+
+        id_jag_scopes = _parse_scope_list(claims.get("scope"))
+        known_scopes = set(get_oauth_scopes_supported())
+        sanitized_id_jag_scopes = [s for s in id_jag_scopes if s in known_scopes]
+        parsed_requested = _parse_scope_list(requested_scope) if requested_scope is not None else None
+
+        granted = _get_scopes(sanitized_id_jag_scopes, parsed_requested)
+
+        try:
+            payload = _construct_access_token_payload(claims, provider_name, granted)
+            access_token = _construct_access_token(payload)
+        except IdJagError as e:
+            logger.exception("id_jag_access_token_signing_failed", error=e.error_code, description=e.description)
+            return e.to_response()
+
+        return Response(
+            {
+                "access_token": access_token,
+                "token_type": "Bearer",
+                "expires_in": settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS,
+                "scope": " ".join(granted),
+            }
+        )
+
+    def get(self, _request: Request, *_args: Any, **_kwargs: Any) -> Response:
+        return InvalidRequestError("Token endpoint only accepts POST", error_code="invalid_request").to_response()

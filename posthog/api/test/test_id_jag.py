@@ -1,0 +1,703 @@
+"""
+Tests for the ID-JAG (XAA) token endpoint + the resource-server side
+authentication backend.
+
+The strategy is:
+  * Generate a throwaway RSA keypair in `setUpClass` and use it to sign a
+    synthetic IdP-issued ID-JAG. We patch `posthog.api.id_jag._get_jwks_client`
+    to return a `PyJWK` whose `.key` is the matching public key so signature
+    verification succeeds without HTTP calls.
+  * For access tokens, we use the OIDC private key already configured for OAuth
+    by overriding `settings.OIDC_RSA_PRIVATE_KEY` (mirrors the OAuth test suite).
+"""
+
+import time
+from typing import Any
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
+from django.utils import timezone
+
+import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from rest_framework import status
+
+from posthog.api.id_jag import (
+    ACCESS_TOKEN_TYPE,
+    ID_JAG_TOKEN_TYPE,
+    JWT_BEARER_GRANT_TYPE,
+    _get_scopes,
+    _get_sub,
+    issue_access_token,
+)
+from posthog.auth import IDJagAccessTokenAuthentication
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user import User as UserModel
+
+
+def _generate_rsa_pem() -> str:
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    return pem.decode("utf-8")
+
+
+# rsa operations are expensive, keep this at the module-level to avoid slow tests
+_IDP_PRIVATE_KEY_PEM = _generate_rsa_pem()
+_AS_PRIVATE_KEY_PEM = _generate_rsa_pem()
+
+_IDP_ISSUER = "https://idp.example.com"
+_VERIFIED_DOMAIN = "example.com"
+_PROVIDER_NAME = _VERIFIED_DOMAIN
+_SITE_URL = "https://posthog.test"
+_AUTH_SERVER_URL = _SITE_URL
+_RESOURCE_URL = _SITE_URL
+_RESOURCE_CLIENT_ID = "client_abc-at-posthog"
+
+
+def _public_key_for(pem: str) -> Any:
+    return serialization.load_pem_private_key(pem.encode(), password=None).public_key()
+
+
+def _make_id_jag(
+    *,
+    issuer: str = _IDP_ISSUER,
+    sub: str = "user@example.com",
+    audience: str = _AUTH_SERVER_URL,
+    client_id: str = _RESOURCE_CLIENT_ID,
+    resource: str = _RESOURCE_URL,
+    scope: str = "feature_flag:read feature_flag:write",
+    iat: int | None = None,
+    nbf: int | None = None,
+    exp_seconds: int = 300,
+    typ_header: str = ID_JAG_TOKEN_TYPE,
+    extra_claims: dict[str, Any] | None = None,
+    signing_pem: str | None = None,
+) -> str:
+    """Forge a synthetic IdP-issued ID-JAG for the test suite."""
+
+    now = int(time.time())
+    payload: dict[str, Any] = {
+        "iss": issuer,
+        "sub": sub,
+        "aud": audience,
+        "client_id": client_id,
+        "resource": resource,
+        "scope": scope,
+        "jti": f"id-jag-{now}",
+        "iat": iat if iat is not None else now,
+        "nbf": nbf if nbf is not None else now,
+        "exp": now + exp_seconds,
+    }
+    if extra_claims:
+        payload.update(extra_claims)
+    return jwt.encode(
+        payload,
+        signing_pem or _IDP_PRIVATE_KEY_PEM,
+        algorithm="RS256",
+        headers={"typ": typ_header, "alg": "RS256"},
+    )
+
+
+@override_settings(
+    OIDC_RSA_PRIVATE_KEY=_AS_PRIVATE_KEY_PEM,
+    SITE_URL=_SITE_URL,
+    ID_JAG_ACCESS_TOKEN_TTL_SECONDS=7200,
+    ID_JAG_CLOCK_SKEW_SECONDS=30,
+)
+class TestIdJagTokenEndpoint(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        super().setUpTestData()
+        cls.user.email = "user@example.com"
+        cls.user.save()
+        OrganizationDomain.objects.create(
+            organization=cls.organization,
+            domain=_VERIFIED_DOMAIN,
+            verified_at=timezone.now(),
+        )
+
+    def setUp(self) -> None:
+        super().setUp()
+
+        # Stub the JWKS fetch so PyJWKClient resolves to our test public key
+        # without hitting the network. `get_signing_key_from_jwt` is the only
+        # surface area we use.
+        signing_key = MagicMock()
+        signing_key.key = _public_key_for(_IDP_PRIVATE_KEY_PEM)
+        mock_jwks_client = MagicMock()
+        mock_jwks_client.get_signing_key_from_jwt.return_value = signing_key
+
+        self._jwks_patch = patch("posthog.api.id_jag._get_jwks_client", return_value=mock_jwks_client)
+        self._jwks_patch.start()
+        self.addCleanup(self._jwks_patch.stop)
+
+    def _post_token(self, body: dict[str, Any]) -> Any:
+        return self.client.post("/id-jag/token", data=body, content_type="application/json")
+
+    def test_issues_access_token_for_valid_id_jag(self) -> None:
+        assertion = _make_id_jag()
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        self.assertEqual(body["token_type"], "Bearer")
+        self.assertEqual(body["expires_in"], 7200)
+        self.assertEqual(set(body["scope"].split()), {"feature_flag:read", "feature_flag:write"})
+
+        claims = jwt.decode(
+            body["access_token"],
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience=_RESOURCE_URL,
+            issuer=_AUTH_SERVER_URL,
+        )
+        self.assertEqual(claims["sub"], f"{_PROVIDER_NAME}:user@example.com")
+        self.assertEqual(claims["aud"], _RESOURCE_URL)
+        self.assertEqual(claims["client_id"], _RESOURCE_CLIENT_ID)
+        self.assertEqual(claims["app_org"], _PROVIDER_NAME)
+        self.assertIn("jti", claims)
+        self.assertIn("iat", claims)
+        self.assertIn("exp", claims)
+
+        header = jwt.get_unverified_header(body["access_token"])
+        self.assertEqual(header["typ"], ACCESS_TOKEN_TYPE)
+        self.assertEqual(header["alg"], "RS256")
+
+    def test_intersection_with_requested_scope(self) -> None:
+        assertion = _make_id_jag(scope="feature_flag:read feature_flag:write dashboard:read")
+        resp = self._post_token(
+            {
+                "grant_type": JWT_BEARER_GRANT_TYPE,
+                "assertion": assertion,
+                "scope": "feature_flag:read dashboard:write",
+            }
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        # Only feature_flag:read intersects — dashboard:write was not in ID-JAG.
+        self.assertEqual(resp.json()["scope"], "feature_flag:read")
+
+    def test_empty_intersection_still_issues_token(self) -> None:
+        """https://xaa.dev/docs/token-structure#scope-intersection-rule
+
+        The AS issues a token with empty scope; the resource server is the one
+        that denies with 403 insufficient_scope.
+        """
+        assertion = _make_id_jag(scope="feature_flag:read")
+        resp = self._post_token(
+            {
+                "grant_type": JWT_BEARER_GRANT_TYPE,
+                "assertion": assertion,
+                "scope": "dashboard:read",
+            }
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.json()["scope"], "")
+
+    def test_unknown_scopes_in_id_jag_are_dropped(self) -> None:
+        """We never propagate scope strings we don't recognize as PostHog scopes —
+        otherwise a malformed IdP could smuggle arbitrary tokens into requests."""
+        assertion = _make_id_jag(scope="feature_flag:read totally_bogus:thing")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.json()["scope"], "feature_flag:read")
+
+    def test_accepts_form_urlencoded_body(self) -> None:
+        from urllib.parse import urlencode
+
+        assertion = _make_id_jag()
+        resp = self.client.post(
+            "/id-jag/token",
+            data=urlencode({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion}),
+            content_type="application/x-www-form-urlencoded",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_accepts_form_urlencoded_body_with_charset_suffix(self) -> None:
+        # RFC 6749 doesn't pin the charset, and real-world clients tack on a
+        # `; charset=utf-8` (or UTF-8) — DRF's FormParser must still match.
+        from urllib.parse import urlencode
+
+        assertion = _make_id_jag()
+        resp = self.client.post(
+            "/id-jag/token",
+            data=urlencode({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion}),
+            content_type="application/x-www-form-urlencoded; charset=UTF-8",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_form_urlencoded_with_scope_parameter(self) -> None:
+        # Scope is a space-separated string per RFC 6749 §3.3 and must survive
+        # the form-encoded round-trip without being treated as a multi-value.
+        from urllib.parse import urlencode
+
+        assertion = _make_id_jag(scope="feature_flag:read feature_flag:write")
+        resp = self.client.post(
+            "/id-jag/token",
+            data=urlencode(
+                {
+                    "grant_type": JWT_BEARER_GRANT_TYPE,
+                    "assertion": assertion,
+                    "scope": "feature_flag:read",
+                }
+            ),
+            content_type="application/x-www-form-urlencoded",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.json()["scope"], "feature_flag:read")
+
+    def test_rejects_unsupported_content_type(self) -> None:
+        assertion = _make_id_jag()
+        resp = self.client.post(
+            "/id-jag/token",
+            data=f"grant_type={JWT_BEARER_GRANT_TYPE}&assertion={assertion}",
+            content_type="text/plain",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        body = resp.json()
+        self.assertEqual(body["error"], "invalid_request")
+        self.assertIn("application/x-www-form-urlencoded", body["error_description"])
+
+    def test_cors_headers_on_response(self) -> None:
+        # Without CORS headers, browsers strip the response body on cross-origin
+        # 4xx replies — the user-visible symptom is Chrome saying "Failed to
+        # load response data" in DevTools even though the status is visible.
+        # Verify the endpoint is in `CORS_URLS_REGEX` so the middleware adds the
+        # right headers to both success and error responses.
+        assertion = _make_id_jag()
+        resp = self.client.post(
+            "/id-jag/token",
+            data={"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion},
+            content_type="application/json",
+            HTTP_ORIGIN="https://example.com",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn("Access-Control-Allow-Origin", resp.headers)
+
+        # Error responses must also carry the CORS header — that's the whole
+        # point of this test (the body would otherwise be hidden in DevTools).
+        bad = self.client.post(
+            "/id-jag/token",
+            data={},
+            content_type="application/json",
+            HTTP_ORIGIN="https://example.com",
+        )
+        self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Access-Control-Allow-Origin", bad.headers)
+
+    def test_cors_preflight(self) -> None:
+        # Preflight (OPTIONS) needs to succeed before browsers will send the
+        # actual POST. The CORS middleware short-circuits this when the path
+        # matches `CORS_URLS_REGEX`.
+        resp = self.client.options(
+            "/id-jag/token",
+            HTTP_ORIGIN="https://example.com",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn("Access-Control-Allow-Origin", resp.headers)
+        self.assertIn("Access-Control-Allow-Methods", resp.headers)
+        self.assertIn("POST", resp.headers["Access-Control-Allow-Methods"])
+
+    def test_missing_grant_type(self) -> None:
+        resp = self._post_token({"assertion": _make_id_jag()})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_request")
+
+    def test_unsupported_grant_type(self) -> None:
+        resp = self._post_token({"grant_type": "authorization_code", "assertion": _make_id_jag()})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "unsupported_grant_type")
+
+    def test_missing_assertion(self) -> None:
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_request")
+
+    def test_get_is_rejected(self) -> None:
+        resp = self.client.get("/id-jag/token")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_wrong_typ_header(self) -> None:
+        assertion = _make_id_jag(typ_header="JWT")  # not oauth-id-jag+jwt
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        body = resp.json()
+        self.assertEqual(body["error"], "invalid_grant")
+        self.assertIn(ID_JAG_TOKEN_TYPE, body["error_description"])
+
+    def test_rejects_unverified_domain_in_sub(self) -> None:
+        # Trust is rooted in the verified-domain → org mapping. An ID-JAG whose
+        # `sub` doesn't belong to a verified domain on any PostHog org is rejected.
+        assertion = _make_id_jag(sub="someone@not-verified.example.org")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+        self.assertIn("verified domain", resp.json()["error_description"].lower())
+
+    def test_rejects_when_no_matching_user_exists(self) -> None:
+        # Domain is verified but no User row exists for the sub email — fail
+        # fast at issuance so we don't mint a token that 401s on every API call.
+        assertion = _make_id_jag(sub="ghost@example.com")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+        self.assertIn("active member", resp.json()["error_description"])
+
+    def test_rejects_when_user_is_inactive(self) -> None:
+        # An existing user that has been deactivated should not be able to
+        # receive a token via ID-JAG.
+        self.user.is_active = False
+        self.user.save()
+        try:
+            assertion = _make_id_jag()
+            resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(resp.json()["error"], "invalid_grant")
+            self.assertIn("active member", resp.json()["error_description"])
+        finally:
+            self.user.is_active = True
+            self.user.save()
+
+    def test_rejects_when_user_belongs_to_different_org(self) -> None:
+        # Cross-org attack: attacker's org verifies a domain, then tries to mint
+        # tokens for users at that domain who actually belong to a DIFFERENT
+        # org. With the org-membership check, signature + domain verification
+        # alone is not enough — the user must belong to the org that owns the
+        # verified domain.
+
+        attacker_org = Organization.objects.create(name="attacker-org")
+        OrganizationDomain.objects.create(
+            organization=attacker_org,
+            domain="bigco.example",
+            verified_at=timezone.now(),
+        )
+
+        # Victim user whose email is on the attacker's verified domain but who
+        # belongs to a completely unrelated org.
+        unrelated_org = Organization.objects.create(name="unrelated-org")
+        victim = UserModel.objects.create_user(
+            email="victim@bigco.example",
+            password="x",
+            first_name="V",
+        )
+        OrganizationMembership.objects.create(organization=unrelated_org, user=victim)
+
+        assertion = _make_id_jag(sub="victim@bigco.example")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+        self.assertIn("active member", resp.json()["error_description"])
+
+    def test_rejects_signature_from_unrecognized_key(self) -> None:
+        other_pem = _generate_rsa_pem()
+        assertion = _make_id_jag(signing_pem=other_pem)
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+
+    def test_rejects_expired_id_jag(self) -> None:
+        assertion = _make_id_jag(exp_seconds=-60)
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+        self.assertIn("expired", resp.json()["error_description"].lower())
+
+    def test_rejects_nbf_in_future(self) -> None:
+        future = int(time.time()) + 120  # past the 30s leeway
+        assertion = _make_id_jag(nbf=future)
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+        self.assertIn("not yet valid", resp.json()["error_description"].lower())
+
+    def test_rejects_iat_in_future_beyond_skew(self) -> None:
+        future = int(time.time()) + 120
+        # PyJWT validates iat in the future beyond `leeway` as
+        # ImmatureSignatureError (https://pyjwt.readthedocs.io/) — we just need
+        # to confirm the error surfaces as invalid_grant per XAA spec.
+        assertion = _make_id_jag(iat=future, nbf=future - 200)
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+
+    def test_accepts_iat_in_future_within_skew(self) -> None:
+        future = int(time.time()) + 10  # within 30s skew
+        assertion = _make_id_jag(iat=future, nbf=future - 200)
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_rejects_aud_mismatch(self) -> None:
+        assertion = _make_id_jag(audience="https://different-as.example.com")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+
+    def test_rejects_missing_required_claims(self) -> None:
+        assertion = jwt.encode(
+            {
+                "iss": _IDP_ISSUER,
+                "sub": "user@example.com",
+                "aud": _AUTH_SERVER_URL,
+                # client_id intentionally missing
+                "resource": _RESOURCE_URL,
+                "scope": "feature_flag:read",
+                "iat": int(time.time()),
+                "exp": int(time.time()) + 300,
+            },
+            _IDP_PRIVATE_KEY_PEM,
+            algorithm="RS256",
+            headers={"typ": ID_JAG_TOKEN_TYPE},
+        )
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+
+    def test_rejects_request_client_id_mismatch(self) -> None:
+        assertion = _make_id_jag(client_id="client_abc-at-posthog")
+        resp = self._post_token(
+            {
+                "grant_type": JWT_BEARER_GRANT_TYPE,
+                "assertion": assertion,
+                "client_id": "client_DIFFERENT-at-posthog",
+            }
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+
+    def test_arbitrary_client_id_is_accepted(self) -> None:
+        # `client_id` allowlists are not enforced anymore — the IdP signed the
+        # ID-JAG and that's the binding. We still require the claim to be present.
+        assertion = _make_id_jag(client_id="client_anything-at-posthog")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        body = resp.json()
+        claims = jwt.decode(
+            body["access_token"],
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience=_RESOURCE_URL,
+            issuer=_AUTH_SERVER_URL,
+        )
+        self.assertEqual(claims["client_id"], "client_anything-at-posthog")
+
+    def test_rejects_resource_not_matching_site_url(self) -> None:
+        assertion = _make_id_jag(resource="https://other-resource.example.com")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_target")
+
+    def test_rejects_missing_resource_claim(self) -> None:
+        assertion = jwt.encode(
+            {
+                "iss": _IDP_ISSUER,
+                "sub": "user@example.com",
+                "aud": _AUTH_SERVER_URL,
+                "client_id": _RESOURCE_CLIENT_ID,
+                # resource intentionally missing
+                "scope": "feature_flag:read",
+                "iat": int(time.time()),
+                "exp": int(time.time()) + 300,
+            },
+            _IDP_PRIVATE_KEY_PEM,
+            algorithm="RS256",
+            headers={"typ": ID_JAG_TOKEN_TYPE},
+        )
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+
+    def test_get_sub_format(self) -> None:
+        self.assertEqual(_get_sub("xaa", "alice@example.com"), "xaa:alice@example.com")
+
+    def test_get_scopes_intersection(self) -> None:
+        self.assertEqual(_get_scopes(["a", "b", "c"], ["b", "c", "d"]), ["b", "c"])
+        # Order follows the requested list.
+        self.assertEqual(_get_scopes(["a", "b", "c"], ["c", "a"]), ["c", "a"])
+        # No requested scope means we issue exactly what the ID-JAG authorized.
+        self.assertEqual(_get_scopes(["a", "b"], None), ["a", "b"])
+        # Empty intersection returns [] (token still issues per spec).
+        self.assertEqual(_get_scopes(["a"], ["b"]), [])
+
+    def test_issue_access_token_helper(self) -> None:
+        assertion = _make_id_jag()
+        token, granted, expires_in = issue_access_token(assertion, requested_scope="feature_flag:read")
+        self.assertEqual(granted, ["feature_flag:read"])
+        self.assertEqual(expires_in, 7200)
+        # Token decodable with the AS public key.
+        jwt.decode(
+            token,
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience=_RESOURCE_URL,
+            issuer=_AUTH_SERVER_URL,
+        )
+
+
+@override_settings(
+    OIDC_RSA_PRIVATE_KEY=_AS_PRIVATE_KEY_PEM,
+    SITE_URL=_SITE_URL,
+    ID_JAG_ACCESS_TOKEN_TTL_SECONDS=7200,
+    ID_JAG_CLOCK_SKEW_SECONDS=30,
+)
+class TestIDJagAccessTokenAuthentication(APIBaseTest):
+    """Resource-server side: verify inbound access tokens authenticate the
+    matching user and surface the scope claim for downstream permission checks.
+    """
+
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.email = "user@example.com"
+        self.user.save()
+
+    def _mint_access_token(
+        self,
+        *,
+        sub: str | None = None,
+        aud: str = _RESOURCE_URL,
+        iss: str = _AUTH_SERVER_URL,
+        scope: str = "feature_flag:read",
+        client_id: str = _RESOURCE_CLIENT_ID,
+        exp_seconds: int = 3600,
+        typ_header: str = ACCESS_TOKEN_TYPE,
+        signing_pem: str | None = None,
+        extra_claims: dict[str, Any] | None = None,
+    ) -> str:
+        now = int(time.time())
+        payload: dict[str, Any] = {
+            "iss": iss,
+            "sub": sub if sub is not None else f"{_PROVIDER_NAME}:{self.user.email}",
+            "aud": aud,
+            "client_id": client_id,
+            "scope": scope,
+            "app_org": _PROVIDER_NAME,
+            "iat": now,
+            "exp": now + exp_seconds,
+            "jti": f"at-{now}",
+        }
+        if extra_claims:
+            payload.update(extra_claims)
+        return jwt.encode(
+            payload,
+            signing_pem or _AS_PRIVATE_KEY_PEM,
+            algorithm="RS256",
+            headers={"typ": typ_header},
+        )
+
+    def _call_authenticated(self, token: str) -> Any:
+        return self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_valid_token_authenticates_user(self) -> None:
+        token = self._mint_access_token(scope="user:read")
+        resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["email"], self.user.email)
+
+    def test_scope_claim_drives_permission(self) -> None:
+        # `user:read` is the scope needed for /api/users/@me/.
+        ok = self._mint_access_token(scope="user:read")
+        self.assertEqual(self._call_authenticated(ok).status_code, status.HTTP_200_OK)
+
+        # Empty scope → no access at any resource endpoint.
+        empty = self._mint_access_token(scope="")
+        self.assertEqual(self._call_authenticated(empty).status_code, status.HTTP_403_FORBIDDEN)
+
+        # Wrong scope → permission denied (403).
+        wrong = self._mint_access_token(scope="feature_flag:read")
+        self.assertEqual(self._call_authenticated(wrong).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_expired_token_rejected(self) -> None:
+        token = self._mint_access_token(exp_seconds=-60, scope="user:read")
+        resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_wrong_audience_rejected(self) -> None:
+        token = self._mint_access_token(aud="https://different-resource.example.com", scope="user:read")
+        resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_wrong_issuer_rejected(self) -> None:
+        token = self._mint_access_token(iss="https://attacker.example.com", scope="user:read")
+        resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_invalid_signature_rejected(self) -> None:
+        other_pem = _generate_rsa_pem()
+        token = self._mint_access_token(scope="user:read", signing_pem=other_pem)
+        resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_missing_required_claim_rejected(self) -> None:
+        # Hand-craft without `scope`
+        now = int(time.time())
+        payload = {
+            "iss": _AUTH_SERVER_URL,
+            "sub": f"{_PROVIDER_NAME}:{self.user.email}",
+            "aud": _RESOURCE_URL,
+            "client_id": _RESOURCE_CLIENT_ID,
+            # scope intentionally missing
+            "iat": now,
+            "exp": now + 300,
+        }
+        token = jwt.encode(payload, _AS_PRIVATE_KEY_PEM, algorithm="RS256", headers={"typ": ACCESS_TOKEN_TYPE})
+        resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_unknown_user_email_rejected(self) -> None:
+        token = self._mint_access_token(
+            sub=f"{_PROVIDER_NAME}:no-such-user@nowhere.example.com",
+            scope="user:read",
+        )
+        resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_malformed_sub_claim_rejected(self) -> None:
+        token = self._mint_access_token(sub="no_provider_prefix", scope="user:read")
+        resp = self._call_authenticated(token)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_non_id_jag_jwt_passes_through(self) -> None:
+        """A JWT without `typ: at+jwt` must not be claimed by ID-JAG auth — it
+        could be e.g. a sharing JWT handled by another backend."""
+        now = int(time.time())
+        non_id_jag = jwt.encode(
+            {"sub": "x", "iat": now, "exp": now + 60},
+            _AS_PRIVATE_KEY_PEM,
+            algorithm="RS256",
+            headers={"typ": "JWT"},
+        )
+        auth = IDJagAccessTokenAuthentication()
+        from unittest.mock import Mock
+
+        req = Mock()
+        req.headers = {"authorization": f"Bearer {non_id_jag}"}
+        self.assertIsNone(auth.authenticate(req))
+
+    def test_personal_api_key_prefix_passes_through(self) -> None:
+        auth = IDJagAccessTokenAuthentication()
+        from unittest.mock import Mock
+
+        for prefix in ("phx_abc", "pha_abc", "phs_abc"):
+            req = Mock()
+            req.headers = {"authorization": f"Bearer {prefix}"}
+            self.assertIsNone(auth.authenticate(req))
+
+    def test_no_authorization_header_passes_through(self) -> None:
+        auth = IDJagAccessTokenAuthentication()
+        from unittest.mock import Mock
+
+        req = Mock()
+        req.headers = {}
+        self.assertIsNone(auth.authenticate(req))

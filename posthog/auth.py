@@ -20,6 +20,7 @@ from django.utils import timezone
 
 import jwt
 import structlog
+from cryptography.hazmat.primitives import serialization
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
@@ -444,6 +445,148 @@ class JwtAuthentication(authentication.BaseAuthentication):
     @classmethod
     def authenticate_header(cls, request) -> str:
         return cls.keyword
+
+
+class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
+    """
+    Authenticates inbound API requests using an access token minted by our
+    ID-JAG token endpoint (`posthog.api.id_jag`). Validates the JWT against the
+    RS256 public key derived from `OIDC_RSA_PRIVATE_KEY` and binds the request
+    to the User whose email matches the `userSub` half of the token's `sub`
+    claim (`{provider}:{userSub}` per
+    https://xaa.dev/docs/token-structure#sub-claim-format).
+
+    Scope enforcement lives in `posthog.permissions.APIScopePermission`; this
+    class only handles signature + claim validation and user resolution.
+    """
+
+    _ID_JAG_ACCESS_TOKEN_TYPE = "at+jwt"
+
+    keyword = "Bearer"
+
+    id_jag_claims: dict[str, Any]
+    scopes: list[str]
+
+    @classmethod
+    def _extract_token(cls, request: Union[HttpRequest, Request]) -> Optional[str]:
+        auth_header = request.headers.get("authorization")
+        if not auth_header:
+            return None
+        match = re.match(rf"^{cls.keyword}\s+(\S.+)$", auth_header)
+        if not match:
+            return None
+        token = match.group(1).strip()
+        # Personal/OAuth API key prefixes are reserved for those auth backends.
+        if token.startswith(("phx_", "pha_", "phs_")):
+            return None
+        return token
+
+    @classmethod
+    def _public_key(cls) -> Any:
+        """Derive the verification key from the configured OIDC RSA private key.
+
+        We don't memoize because the PEM is parsed once per request and parsing
+        is cheap (~ tens of microseconds); caching would risk staleness on
+        in-process key rotation.
+        """
+        pem = getattr(settings, "OIDC_RSA_PRIVATE_KEY", None)
+        if not pem:
+            return None
+        private_key = serialization.load_pem_private_key(pem.encode(), password=None)
+        return private_key.public_key()
+
+    @classmethod
+    def _parse_sub(cls, sub: str) -> Optional[tuple[str, str]]:
+        """`{providerName}:{userSub}` per spec — split into (provider, user_sub).
+
+        Returns None if the format is malformed (no colon, empty provider, empty
+        user_sub) so the caller can fail with `invalid_token`.
+        """
+        if not sub or ":" not in sub:
+            return None
+        provider, user_sub = sub.split(":", 1)
+        if not provider or not user_sub:
+            return None
+        return provider, user_sub
+
+    @classmethod
+    def _is_id_jag_token(cls, token: str) -> bool:
+        if token.count(".") != 2:
+            return False
+        try:
+            header = jwt.get_unverified_header(token)
+        except jwt.PyJWTError:
+            return False
+        return header.get("typ") == cls._ID_JAG_ACCESS_TOKEN_TYPE
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        with tracer.start_as_current_span("posthog.auth.id_jag"):
+            token = self._extract_token(request)
+            if not token:
+                return None
+            if not self._is_id_jag_token(token):
+                return None
+
+            public_key = self._public_key()
+            if public_key is None:
+                raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
+
+            site_url = (settings.SITE_URL or "").rstrip("/")
+            if not site_url:
+                raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
+
+            try:
+                claims = jwt.decode(
+                    token,
+                    public_key,
+                    algorithms=["RS256"],
+                    audience=site_url,
+                    issuer=site_url,
+                    leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
+                    options={
+                        "require": ["iss", "sub", "aud", "exp", "iat", "client_id", "scope"],
+                        "verify_signature": True,
+                        "verify_exp": True,
+                        "verify_aud": True,
+                        "verify_iss": True,
+                    },
+                )
+            except jwt.ExpiredSignatureError:
+                raise AuthenticationFailed(detail="ID-JAG access token has expired.")
+            except jwt.InvalidAudienceError:
+                raise AuthenticationFailed(detail="ID-JAG access token audience does not match this resource server.")
+            except jwt.InvalidIssuerError:
+                raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")
+            except jwt.MissingRequiredClaimError as e:
+                raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")
+            except jwt.PyJWTError:
+                raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
+
+            sub_parts = self._parse_sub(str(claims.get("sub", "")))
+            if sub_parts is None:
+                raise AuthenticationFailed(
+                    detail="ID-JAG access token sub claim is not in the expected '{provider}:{userSub}' format."
+                )
+            _provider, user_sub = sub_parts
+
+            try:
+                user = User.objects.filter(is_active=True).get(email__iexact=user_sub)
+            except User.DoesNotExist:
+                raise AuthenticationFailed(detail="No PostHog user matches the ID-JAG access token subject.")
+
+            self.id_jag_claims = claims
+            self.scopes = str(claims.get("scope") or "").split()
+
+            tag_queries(
+                user_id=user.pk,
+                team_id=user.current_team_id,
+                access_method="id_jag",
+            )
+
+            return user, None
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
 
 
 class ExportRendererAuthentication(authentication.BaseAuthentication):

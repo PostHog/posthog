@@ -60,6 +60,7 @@ from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
@@ -777,8 +778,9 @@ class UserViewSet(
     serializer_class = UserSerializer
     authentication_classes = [
         SessionAuthentication,
-        PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
+        IDJagAccessTokenAuthentication,
+        PersonalAPIKeyAuthentication,
     ]
     permission_classes = [
         IsAuthenticated,

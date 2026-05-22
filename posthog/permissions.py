@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -489,6 +490,11 @@ class APIScopePermission(ScopeBasePermission):
             if not key_scopes:
                 self.message = "OAuth token has no scopes and cannot access this resource"
                 return False
+        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+            key_scopes = list(request.successful_authenticator.scopes)
+            if not key_scopes:
+                self.message = "ID-JAG access token has no scopes and cannot access this resource"
+                return False
         else:
             return True
 
@@ -542,6 +548,12 @@ class APIScopePermission(ScopeBasePermission):
         elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
             scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+            # ID-JAG access tokens do not carry team/org scoping today — the
+            # ID-JAG protocol delegates resource-server access by user identity
+            # + scope, and the user's normal team/org membership governs access.
+            scoped_organizations = None
+            scoped_teams = None
         else:
             raise ValueError("Unexpected authentication type")
 
