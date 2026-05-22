@@ -1,5 +1,7 @@
 import { BreakPointFunction } from 'kea'
 
+import { LemonMenuItem } from '@posthog/lemon-ui'
+
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { UnexpectedNeverError, getDefaultInterval } from 'lib/utils'
 
@@ -27,7 +29,7 @@ export interface WebTileLayout {
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
     rowSpanClassName?: `md:row-span-${number}`
     /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
-    orderWhenLargeClassName?: `xxl:order-${number}`
+    orderWhenLargeClassName?: `2xl:order-${number}`
     className?: string
 }
 
@@ -269,6 +271,7 @@ export interface QueryTile extends BaseTile {
     insightProps: InsightLogicProps
     canOpenModal?: boolean
     canOpenInsight?: boolean
+    extraMenuItems?: LemonMenuItem[]
 }
 
 export interface TabsTileTab {
@@ -282,6 +285,7 @@ export interface TabsTileTab {
     canOpenModal?: boolean
     canOpenInsight?: boolean
     docs?: Docs
+    extraMenuItems?: LemonMenuItem[]
 }
 
 export interface TabsTile extends BaseTile {

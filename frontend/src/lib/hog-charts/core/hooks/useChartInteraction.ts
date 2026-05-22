@@ -58,6 +58,10 @@ interface UseChartInteractionOptions<Meta> {
     pinnable: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
     resolveValue?: ResolveValueFn
+    /** Value used to *anchor* the tooltip per series. Defaults to `resolveValue`. Stacked
+     *  charts pass the stacked-top resolver so the anchor lands at the visual top of each
+     *  segment while each tooltip row still shows its own value via `resolveValue`. */
+    resolvePositionValue?: ResolveValueFn
     interactionAxis?: 'x' | 'y'
     labelToCoord?: (label: string) => number | undefined
 }
@@ -84,9 +88,13 @@ export function useChartInteraction<Meta = unknown>({
     pinnable,
     onPointClick,
     resolveValue = defaultResolveValue,
+    resolvePositionValue,
     interactionAxis = 'x',
     labelToCoord,
 }: UseChartInteractionOptions<Meta>): UseChartInteractionResult<Meta> {
+    // Falls back to the value resolver when the chart doesn't distinguish position from
+    // value (i.e. non-stacked charts, where the two are identical).
+    const effectivePositionResolve = resolvePositionValue ?? resolveValue
     const [hoverIndex, setHoverIndex] = useState<number>(-1)
     const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null)
     const [tooltipCtx, setTooltipCtx] = useState<TooltipContext<Meta> | null>(null)
@@ -119,6 +127,7 @@ export function useChartInteraction<Meta = unknown>({
     // contract on `ChartProps.resolveValue`: any external toggle that changes the
     // resolver's output must also update series or scales.
     const resolveValueRef = useLatest(resolveValue)
+    const effectivePositionResolveRef = useLatest(effectivePositionResolve)
     useEffect(() => {
         if (!isPinned || !scales || !dimensions) {
             return
@@ -141,7 +150,8 @@ export function useChartInteraction<Meta = unknown>({
                 resolveValueRef.current,
                 scales.yAxes,
                 interactionAxis,
-                prev.hoverPosition
+                prev.hoverPosition,
+                effectivePositionResolveRef.current
             )
             if (!fresh) {
                 return null
@@ -257,7 +267,8 @@ export function useChartInteraction<Meta = unknown>({
                         resolveValue,
                         scales.yAxes,
                         interactionAxis,
-                        { x: mouseX, y: mouseY }
+                        { x: mouseX, y: mouseY },
+                        effectivePositionResolve
                     )
                 )
             }
@@ -269,6 +280,7 @@ export function useChartInteraction<Meta = unknown>({
             series,
             showTooltip,
             resolveValue,
+            effectivePositionResolve,
             canvasRef,
             isPinned,
             clearTooltip,

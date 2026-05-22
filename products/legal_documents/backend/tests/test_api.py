@@ -315,6 +315,20 @@ class TestLegalDocumentDownloadEndpoint(APIBaseTest):
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_staff_user_without_membership_can_download(self) -> None:
+        # PostHog staff need to fetch signed PDFs from the Django admin without
+        # joining the customer's org first. Drop the membership entirely and
+        # flip is_staff — the request should still 302 to the presigned URL.
+        self.organization_membership.delete()
+        self.user.is_staff = True
+        self.user.save()
+        with patch(
+            "products.legal_documents.backend.logic.object_storage.get_presigned_url",
+            return_value="https://s3.example/signed-url?token=abc",
+        ):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
 
 @override_settings(CLOUD_DEPLOYMENT="US")
 class TestLegalDocumentPandaDocWebhook(APIBaseTest):

@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { AnalyticsEvent } from '@/lib/analytics'
+import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { FeedbackSubmitSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 

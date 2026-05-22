@@ -543,4 +543,64 @@ describe('personsLogic', () => {
             })
         })
     })
+
+    describe('resetEventsQuery', () => {
+        const person: PersonType = {
+            id: 'person-1',
+            uuid: 'uuid-1',
+            distinct_ids: ['did-1'],
+            properties: {},
+            is_identified: true,
+            created_at: '2024-01-01',
+        }
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/persons/': () => [200, { results: [person] }],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson('did-1')
+            }).toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+        })
+
+        it('eventsQueryIsDirty is false right after the person loads', async () => {
+            await expectLogic(logic).toMatchValues({ eventsQueryIsDirty: false })
+        })
+
+        it('eventsQueryIsDirty becomes true after modifying filters', async () => {
+            const current = logic.values.eventsQuery!
+            logic.actions.setEventsQuery({
+                ...current,
+                source: { ...current.source, events: ['$pageview'] } as any,
+            } as DataTableNode)
+
+            await expectLogic(logic).toMatchValues({ eventsQueryIsDirty: true })
+        })
+
+        it('resetEventsQuery restores the initial query', async () => {
+            const current = logic.values.eventsQuery!
+            logic.actions.setEventsQuery({
+                ...current,
+                source: { ...current.source, events: ['$pageview'], after: '-7d' } as any,
+            } as DataTableNode)
+
+            await expectLogic(logic).toMatchValues({ eventsQueryIsDirty: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.resetEventsQuery()
+            })
+                .toDispatchActions(['resetEventsQuery', 'setEventsQuery'])
+                .toMatchValues({ eventsQueryIsDirty: false })
+
+            const resetSource = logic.values.eventsQuery?.source as any
+            expect(resetSource).toMatchObject({
+                kind: NodeKind.EventsQuery,
+                personId: 'person-1',
+                after: '-24h',
+            })
+            expect(resetSource.events).toBeUndefined()
+        })
+    })
 })

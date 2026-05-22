@@ -28,7 +28,8 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from .data import BALANCE_TRANSACTIONS
 
@@ -545,6 +546,59 @@ def test_validate_credentials_with_missing_table_name():
     mock_client.credit_notes.list.assert_not_called()
 
     assert "bad_table" in str(e)
+
+
+def test_validate_credentials_oauth_skips_account():
+    mock_client = mock.MagicMock()
+
+    mock_client.accounts.list = mock.MagicMock()
+    mock_client.balance_transactions.list = mock.MagicMock()
+    mock_client.charges.list = mock.MagicMock()
+    mock_client.customers.list = mock.MagicMock()
+    mock_client.disputes.list = mock.MagicMock()
+    mock_client.invoice_items.list = mock.MagicMock()
+    mock_client.invoices.list = mock.MagicMock()
+    mock_client.payouts.list = mock.MagicMock()
+    mock_client.prices.list = mock.MagicMock()
+    mock_client.products.list = mock.MagicMock()
+    mock_client.subscriptions.list = mock.MagicMock()
+    mock_client.refunds.list = mock.MagicMock()
+    mock_client.credit_notes.list = mock.MagicMock()
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        result = validate_credentials("oauth_token", auth_method="oauth")
+
+        assert result is True
+
+        # accounts.list requires Connect platform access — must not be called for OAuth tokens
+        mock_client.accounts.list.assert_not_called()
+
+        # All other resources should still be checked
+        mock_client.balance_transactions.list.assert_called_once_with(params={"limit": 1})
+        mock_client.charges.list.assert_called_once_with(params={"limit": 1})
+        mock_client.customers.list.assert_called_once_with(params={"limit": 1})
+        mock_client.disputes.list.assert_called_once_with(params={"limit": 1})
+        mock_client.invoice_items.list.assert_called_once_with(params={"limit": 1})
+        mock_client.invoices.list.assert_called_once_with(params={"limit": 1})
+        mock_client.payouts.list.assert_called_once_with(params={"limit": 1})
+        mock_client.prices.list.assert_called_once_with(params={"limit": 1})
+        mock_client.products.list.assert_called_once_with(params={"limit": 1})
+        mock_client.subscriptions.list.assert_called_once_with(params={"limit": 1})
+        mock_client.refunds.list.assert_called_once_with(params={"limit": 1})
+        mock_client.credit_notes.list.assert_called_once_with(params={"limit": 1})
+
+
+def test_validate_credentials_oauth_account_table_name_returns_true():
+    mock_client = mock.MagicMock()
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        result = validate_credentials("oauth_token", ACCOUNT_RESOURCE_NAME, auth_method="oauth")
+
+        assert result is True
+
+        # No Stripe API calls should be made — Account is skipped for OAuth before any checks run
+        mock_client.accounts.list.assert_not_called()
+        mock_client.balance_transactions.list.assert_not_called()
 
 
 class TestGetApiKey:

@@ -46,6 +46,7 @@ use crate::config::RetryConfig;
 /// reconnects — no client-side recycling needed.
 pub struct ReplicaBackend {
     clients: Vec<PersonHogReplicaClient<Channel>>,
+    raw_channels: Vec<Channel>,
     next_idx: AtomicUsize,
     retry_config: RetryConfig,
 }
@@ -79,11 +80,20 @@ fn build_endpoint(config: &ReplicaBackendConfig) -> Endpoint {
     endpoint
 }
 
-fn create_clients(config: &ReplicaBackendConfig) -> Vec<PersonHogReplicaClient<Channel>> {
+fn create_channels(config: &ReplicaBackendConfig) -> Vec<Channel> {
     (0..config.num_channels)
-        .map(|_| {
-            let channel = build_endpoint(config).connect_lazy();
-            PersonHogReplicaClient::new(channel)
+        .map(|_| build_endpoint(config).connect_lazy())
+        .collect()
+}
+
+fn wrap_clients(
+    channels: &[Channel],
+    config: &ReplicaBackendConfig,
+) -> Vec<PersonHogReplicaClient<Channel>> {
+    channels
+        .iter()
+        .map(|channel| {
+            PersonHogReplicaClient::new(channel.clone())
                 .max_encoding_message_size(config.max_send_message_size)
                 .max_decoding_message_size(config.max_recv_message_size)
                 .send_compressed(CompressionEncoding::Zstd)
@@ -101,7 +111,8 @@ impl ReplicaBackend {
             ..config
         };
 
-        let clients = create_clients(&config);
+        let raw_channels = create_channels(&config);
+        let clients = wrap_clients(&raw_channels, &config);
         info!(
             num_channels,
             url = config.url,
@@ -110,6 +121,7 @@ impl ReplicaBackend {
 
         Self {
             clients,
+            raw_channels,
             next_idx: AtomicUsize::new(0),
             retry_config,
         }
@@ -118,6 +130,16 @@ impl ReplicaBackend {
     fn next_client(&self) -> PersonHogReplicaClient<Channel> {
         let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.clients.len();
         self.clients[idx].clone()
+    }
+
+    /// Get the next raw channel for byte-level proxying.
+    pub fn next_raw_channel(&self) -> Channel {
+        let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.raw_channels.len();
+        self.raw_channels[idx].clone()
+    }
+
+    pub fn retry_config(&self) -> &RetryConfig {
+        &self.retry_config
     }
 }
 

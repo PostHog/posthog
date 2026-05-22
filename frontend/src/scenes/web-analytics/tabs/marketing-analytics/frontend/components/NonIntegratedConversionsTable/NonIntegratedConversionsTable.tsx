@@ -7,6 +7,7 @@ import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
+import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analytics/common'
 import { LearnMorePopover } from 'scenes/web-analytics/WebAnalyticsDashboard'
 
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
@@ -94,6 +95,7 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
             select: selectColumns,
             limit: 50,
             draftConversionGoal: draftConversionGoal || undefined,
+            tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
         }
 
         return {
@@ -147,7 +149,7 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
     // Show empty state when no conversion goals are configured (neither saved nor draft)
     if (allConversionGoals.length === 0) {
         return (
-            <div className="col-span-1 row-span-1 flex flex-col md:col-span-2 xxl:order-3">
+            <div className="col-span-1 row-span-1 flex flex-col md:col-span-2 2xl:order-3">
                 {TileHeader}
                 <div className="p-8 flex flex-col items-center justify-center text-center gap-3 border rounded">
                     <p className="text-muted m-0">No conversion goals configured</p>
@@ -170,7 +172,7 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
 
     if (loading || !query) {
         return (
-            <div className="col-span-1 row-span-1 flex flex-col md:col-span-2 xxl:order-3">
+            <div className="col-span-1 row-span-1 flex flex-col md:col-span-2 2xl:order-3">
                 {TileHeader}
                 <div className="p-4">
                     <LemonSkeleton className="h-32" />
@@ -180,7 +182,7 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
     }
 
     return (
-        <div className="col-span-1 row-span-1 flex flex-col md:col-span-2 xxl:order-3">
+        <div className="col-span-1 row-span-1 flex flex-col md:col-span-2 2xl:order-3">
             {TileHeader}
             <div className="bg-surface-primary rounded border border-border marketing-analytics-table-container">
                 <Query query={query} readOnly={false} context={nonIntegratedContext} />

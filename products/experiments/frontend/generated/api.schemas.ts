@@ -106,13 +106,18 @@ export interface PatchedExperimentHoldoutApi {
  */
 export interface ExperimentSavedMetricApi {
     readonly id: number
-    /** @maxLength 400 */
+    /**
+     * Name of the shared metric. Must be unique within the project (case-insensitive).
+     * @maxLength 400
+     */
     name: string
     /**
+     * Short description of what the metric measures.
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
     query: unknown
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -139,13 +144,18 @@ export interface PaginatedExperimentSavedMetricListApi {
  */
 export interface PatchedExperimentSavedMetricApi {
     readonly id?: number
-    /** @maxLength 400 */
+    /**
+     * Name of the shared metric. Must be unique within the project (case-insensitive).
+     * @maxLength 400
+     */
     name?: string
     /**
+     * Short description of what the metric measures.
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
     query?: unknown
     readonly created_by?: UserBasicApi
     readonly created_at?: string
@@ -605,8 +615,46 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** The key of the variant to ship to 100% of users. */
+    /** The key of the variant to ship. */
     variant_key: string
+    /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
+    release_to_everyone?: boolean
+}
+
+/**
+ * * `cost` - cost
+ * `latency` - latency
+ * `eval_pass_rate` - eval_pass_rate
+ */
+export type TemplatesEnumApi = (typeof TemplatesEnumApi)[keyof typeof TemplatesEnumApi]
+
+export const TemplatesEnumApi = {
+    Cost: 'cost',
+    Latency: 'latency',
+    EvalPassRate: 'eval_pass_rate',
+} as const
+
+export interface CreateFromPromptInputApi {
+    /** The name of the LLM prompt to experiment on. Must already exist for this team. */
+    prompt_name: string
+    /**
+     * Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.
+     * @minItems 2
+     * @maxItems 10
+     */
+    versions: number[]
+    /**
+     * One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.
+     * @minItems 1
+     * @maxItems 3
+     */
+    templates: TemplatesEnumApi[]
+    /** Optional experiment name. If omitted, a name is generated from the prompt and versions. */
+    name?: string
+    /** Optional feature flag key. If omitted, a slug is derived from the experiment name. */
+    feature_flag_key?: string
+    /** Optional experiment description. */
+    description?: string
 }
 
 export type ExperimentHoldoutsListParams = {
@@ -657,6 +705,10 @@ export type ExperimentsListParams = {
      */
     order?: string
     /**
+     * Filter to experiments created from an LLM prompt with this name. Matches experiments whose parameters.prompt_metadata.name equals the given value.
+     */
+    prompt_name?: string
+    /**
      * Free-text search applied to the experiment name (case-insensitive).
      */
     search?: string
@@ -686,4 +738,10 @@ export type ExperimentsTimeseriesResultsRetrieveParams = {
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
     metric_uuid: string
+}
+
+export type ExperimentsPromptTemplatesRetrieve200Item = {
+    key: string
+    label: string
+    description: string
 }

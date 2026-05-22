@@ -2,8 +2,8 @@ import type { z } from 'zod'
 
 import type { ApiClient, GroupType } from '@/api/client'
 import type { Schemas } from '@/api/generated'
-import type { AnalyticsEvent } from '@/lib/analytics'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
+import type { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
 import type { PrefixedString } from '@/lib/types'
@@ -26,6 +26,9 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
+    mcpClientName: string | undefined
+    mcpClientVersion: string | undefined
+    mcpProtocolVersion: string | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &

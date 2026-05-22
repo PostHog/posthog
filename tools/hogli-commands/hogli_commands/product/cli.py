@@ -14,8 +14,49 @@ from .scaffold import bootstrap_product
 @click.option("--dry-run", is_flag=True, help="Show what would be created without creating")
 @click.option("--force", is_flag=True, help="Overwrite existing files")
 @click.option("--non-interactive", is_flag=True, help="Skip prompts, use defaults (for CI)")
-def cmd_bootstrap(name: str, dry_run: bool, force: bool, non_interactive: bool) -> None:
-    bootstrap_product(name, dry_run, force, non_interactive=non_interactive)
+@click.option(
+    "--separate-db/--no-separate-db",
+    default=None,
+    help="Whether to give the product its own database. "
+    "Overrides the interactive prompt; pair with --non-interactive in CI.",
+)
+@click.option(
+    "--db-name",
+    default=None,
+    help="Database name when --separate-db is set. Defaults to the product name.",
+)
+@click.option(
+    "--owner",
+    default=None,
+    help="Owning GitHub team slug (e.g. team-product-analytics). "
+    "Overrides the interactive prompt; pair with --non-interactive in CI.",
+)
+@click.option(
+    "--display-name",
+    default=None,
+    help="Human-friendly product name (e.g. 'Warehouse sources'). "
+    "Defaults to the product name with underscores → spaces.",
+)
+def cmd_bootstrap(
+    name: str,
+    dry_run: bool,
+    force: bool,
+    non_interactive: bool,
+    separate_db: bool | None,
+    db_name: str | None,
+    owner: str | None,
+    display_name: str | None,
+) -> None:
+    bootstrap_product(
+        name,
+        dry_run,
+        force,
+        non_interactive=non_interactive,
+        separate_db_override=separate_db,
+        db_name_override=db_name,
+        owner_override=owner,
+        display_name_override=display_name,
+    )
 
 
 @click.command(name="product:lint", help="Check product structure for misplaced files")

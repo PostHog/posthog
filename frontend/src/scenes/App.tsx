@@ -8,7 +8,6 @@ import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -117,22 +116,25 @@ function AppScene(): JSX.Element | null {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
     }
 
+    const sceneContent = activeExportedScene?.logic ? (
+        <BindLogic
+            key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
+            logic={activeExportedScene.logic}
+            props={activeSceneLogicPropsWithTabId}
+        >
+            {sceneElement}
+        </BindLogic>
+    ) : (
+        sceneElement
+    )
+
     const wrappedSceneElement = (
         <ErrorBoundary
             key={`error-${activeSceneLogicPropsWithTabId.tabId}`}
             exceptionProps={{ feature: activeSceneId }}
         >
-            {activeExportedScene?.logic ? (
-                <BindLogic
-                    key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
-                    logic={activeExportedScene.logic}
-                    props={activeSceneLogicPropsWithTabId}
-                >
-                    {sceneElement}
-                </BindLogic>
-            ) : (
-                sceneElement
-            )}
+            {/* Keep chunk-load failures out of the scene error reporter so stale assets reload once instead. */}
+            <ChunkLoadErrorBoundary>{sceneContent}</ChunkLoadErrorBoundary>
         </ErrorBoundary>
     )
 
@@ -149,9 +151,10 @@ function AppScene(): JSX.Element | null {
         <ChunkLoadErrorBoundary>
             <Suspense
                 fallback={
-                    <WrappingLoadingSkeleton fullWidth>
-                        <span className="block w-full h-screen" />
-                    </WrappingLoadingSkeleton>
+                    // SpinnerOverlay is already imported here — no new lazy deps vs skeleton.
+                    <div className="relative h-screen">
+                        <SpinnerOverlay sceneLevel />
+                    </div>
                 }
             >
                 <AuthenticatedShell>{wrappedSceneElement}</AuthenticatedShell>

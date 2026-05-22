@@ -5,8 +5,8 @@ from rest_framework import status
 
 from products.data_modeling.backend.models import Node
 from products.data_modeling.backend.models.dag import DEFAULT_DAG_NAME
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import NodeType
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 
 class TestSavedQueryDagSyncIntegration(APIBaseTest):

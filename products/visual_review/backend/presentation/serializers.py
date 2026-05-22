@@ -16,6 +16,7 @@ from ..facade.contracts import (
     AutoApproveResult,
     BaselineEntry,
     BaselineOverview,
+    BaselineQuarantineSummary,
     BaselineTotals,
     ClusterSummary,
     CreateRepoInput,
@@ -24,6 +25,7 @@ from ..facade.contracts import (
     DiffCluster,
     QuarantinedIdentifierEntry,
     QuarantineInput,
+    QuarantineSourceRun,
     RecomputeResult,
     Repo,
     Run,
@@ -172,16 +174,42 @@ class MarkToleratedInputSerializer(serializers.Serializer):
     snapshot_id = serializers.UUIDField()
 
 
+class QuarantineSourceRunSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = QuarantineSourceRun
+
+
 class QuarantinedIdentifierEntrySerializer(DataclassSerializer):
     created_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    source_run = QuarantineSourceRunSerializer(
+        allow_null=True,
+        required=False,
+        help_text="Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context.",
+    )
 
     class Meta:
         dataclass = QuarantinedIdentifierEntry
 
 
+class BaselineQuarantineSummarySerializer(DataclassSerializer):
+    created_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    source_run = QuarantineSourceRunSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = BaselineQuarantineSummary
+
+
 class QuarantineInputSerializer(DataclassSerializer):
-    identifier = serializers.CharField(max_length=512)
-    reason = serializers.CharField(max_length=255)
+    identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to quarantine.")
+    reason = serializers.CharField(max_length=255, help_text="Why this snapshot is being quarantined.")
+    source_run_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional pointer to the run whose failing snapshot prompted this quarantine — "
+            "used to surface a 'view the failing run' link later."
+        ),
+    )
 
     class Meta:
         dataclass = QuarantineInput
@@ -197,6 +225,12 @@ class CreateRepoInputSerializer(DataclassSerializer):
 
 
 class BaselineEntrySerializer(DataclassSerializer):
+    quarantine = BaselineQuarantineSummarySerializer(
+        allow_null=True,
+        required=False,
+        help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
+    )
+
     class Meta:
         dataclass = BaselineEntry
 

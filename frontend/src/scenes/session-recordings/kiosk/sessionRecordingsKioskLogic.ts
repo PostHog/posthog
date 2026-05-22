@@ -15,6 +15,10 @@ const SOFT_REFRESH_AFTER_RECORDINGS = 10
 const HARD_REFRESH_AFTER_RECORDINGS = 50
 const MAX_RECORDING_PLAY_TIME_MS = 5 * 60 * 1000 // 5 minutes
 const RETRY_DELAY_MS = 5000
+// Skip recordings still inside the player's "still working on it" window
+// (sessionRecordingDataCoordinatorLogic.isRecentAndInvalid: start < 5 min ago).
+// 10 min gives a buffer for ingestion to settle.
+const INGESTION_GRACE_DATE_TO = '-600s'
 
 let stuckRecordingTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -47,12 +51,16 @@ export interface KioskFilters {
     visitedPage: string | null
     dateFrom: string
     minDurationSeconds: number
+    featureFlagKey: string | null
+    featureFlagValue: string | null
 }
 
 const DEFAULT_FILTERS: KioskFilters = {
     visitedPage: null,
     dateFrom: '-30d',
     minDurationSeconds: 5,
+    featureFlagKey: null,
+    featureFlagValue: null,
 }
 
 export const sessionRecordingsKioskLogic = kea<sessionRecordingsKioskLogicType>([
@@ -118,26 +126,36 @@ export const sessionRecordingsKioskLogic = kea<sessionRecordingsKioskLogicType>(
             [] as SessionRecordingType[],
             {
                 loadRecordings: async () => {
-                    const { visitedPage, dateFrom, minDurationSeconds } = values.filters
+                    const { visitedPage, dateFrom, minDurationSeconds, featureFlagKey, featureFlagValue } =
+                        values.filters
+
+                    const properties: RecordingsQuery['properties'] = []
+                    if (visitedPage) {
+                        properties.push({
+                            type: PropertyFilterType.Recording,
+                            key: 'visited_page',
+                            operator: PropertyOperator.IContains,
+                            value: [visitedPage],
+                        })
+                    }
+                    if (featureFlagKey && featureFlagValue) {
+                        properties.push({
+                            type: PropertyFilterType.Feature,
+                            key: featureFlagKey,
+                            operator: PropertyOperator.Exact,
+                            value: [featureFlagValue],
+                        })
+                    }
 
                     const query: RecordingsQuery = {
                         kind: NodeKind.RecordingsQuery,
                         order: 'start_time',
                         order_direction: 'DESC',
                         date_from: dateFrom || '-30d',
-                        date_to: null,
+                        date_to: INGESTION_GRACE_DATE_TO,
                         limit: 100,
                         filter_test_accounts: true,
-                        properties: visitedPage
-                            ? [
-                                  {
-                                      type: PropertyFilterType.Recording,
-                                      key: 'visited_page',
-                                      operator: PropertyOperator.IContains,
-                                      value: [visitedPage],
-                                  },
-                              ]
-                            : [],
+                        properties,
                         having_predicates:
                             minDurationSeconds > 0
                                 ? [
@@ -243,9 +261,9 @@ export const sessionRecordingsKioskLogic = kea<sessionRecordingsKioskLogicType>(
         },
     })),
 
-    actionToUrl(({ values }) => ({
-        resetPlayback: () => {
-            const params: Record<string, string> = {}
+    actionToUrl(({ values }) => {
+        const filterParams = (extra: Record<string, string | number> = {}): Record<string, string | number> => {
+            const params: Record<string, string | number> = { ...extra }
             if (values.filters.visitedPage) {
                 params.visited_page = values.filters.visitedPage
             }
@@ -255,22 +273,17 @@ export const sessionRecordingsKioskLogic = kea<sessionRecordingsKioskLogicType>(
             if (values.filters.minDurationSeconds !== DEFAULT_FILTERS.minDurationSeconds) {
                 params.min_duration = String(values.filters.minDurationSeconds)
             }
-            return [urls.replayKiosk(), params, undefined, { replace: true }]
-        },
-        startPlayback: () => {
-            const params: Record<string, string | number> = { play: 1 }
-            if (values.filters.visitedPage) {
-                params.visited_page = values.filters.visitedPage
+            if (values.filters.featureFlagKey && values.filters.featureFlagValue) {
+                params.feature_flag = values.filters.featureFlagKey
+                params.feature_flag_value = values.filters.featureFlagValue
             }
-            if (values.filters.dateFrom && values.filters.dateFrom !== '-30d') {
-                params.date_from = values.filters.dateFrom
-            }
-            if (values.filters.minDurationSeconds !== DEFAULT_FILTERS.minDurationSeconds) {
-                params.min_duration = String(values.filters.minDurationSeconds)
-            }
-            return [urls.replayKiosk(), params, undefined, { replace: true }]
-        },
-    })),
+            return params
+        }
+        return {
+            resetPlayback: () => [urls.replayKiosk(), filterParams(), undefined, { replace: true }],
+            startPlayback: () => [urls.replayKiosk(), filterParams({ play: 1 }), undefined, { replace: true }],
+        }
+    }),
 
     urlToAction(({ actions, values }) => ({
         [urls.replayKiosk()]: (_, searchParams) => {
@@ -279,13 +292,17 @@ export const sessionRecordingsKioskLogic = kea<sessionRecordingsKioskLogicType>(
             const minDurationSeconds = searchParams.min_duration
                 ? Number(searchParams.min_duration)
                 : DEFAULT_FILTERS.minDurationSeconds
+            const featureFlagKey = searchParams.feature_flag || null
+            const featureFlagValue = searchParams.feature_flag_value || null
 
             if (
                 visitedPage !== values.filters.visitedPage ||
                 dateFrom !== values.filters.dateFrom ||
-                minDurationSeconds !== values.filters.minDurationSeconds
+                minDurationSeconds !== values.filters.minDurationSeconds ||
+                featureFlagKey !== values.filters.featureFlagKey ||
+                featureFlagValue !== values.filters.featureFlagValue
             ) {
-                actions.setFilters({ visitedPage, dateFrom, minDurationSeconds })
+                actions.setFilters({ visitedPage, dateFrom, minDurationSeconds, featureFlagKey, featureFlagValue })
             }
 
             if (searchParams.play === 1 && !values.started) {
