@@ -78,6 +78,13 @@ class TestDeepLinks(ProvisioningTestBase):
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestAgenticLogin(ProvisioningTestBase):
+    def setUp(self):
+        super().setUp()
+        # Default test user is is_email_verified=None; happy-path tests in this class
+        # assume a verified user. Unverified scenarios opt in explicitly.
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["is_email_verified"])
+
     def _create_deep_link_token(self) -> str:
         token = "test_deep_link_token"
         cache.set(
@@ -160,10 +167,16 @@ class TestAgenticLogin(ProvisioningTestBase):
         assert res.status_code == 302
         assert not res["Location"].startswith("http")
 
-    def test_unverified_user_redirects_to_verify_email(self):
-        # A partner-bootstrapped user starts with is_email_verified=False and must not get
-        # a session until they prove inbox ownership.
-        self.user.is_email_verified = False
+    @parameterized.expand(
+        [
+            ("false", False),
+            ("null_legacy", None),
+        ]
+    )
+    def test_unverified_user_redirects_to_verify_email(self, _name, verified_value):
+        # Both False (new partner account) and None (legacy NULL passthrough) must be
+        # blocked - deep-link login has no password challenge.
+        self.user.is_email_verified = verified_value
         self.user.save(update_fields=["is_email_verified"])
         token = self._create_deep_link_token()
         res = self.client.get(f"/agentic/login?token={token}")
@@ -178,19 +191,7 @@ class TestAgenticLogin(ProvisioningTestBase):
         res = self.client.get("/api/users/@me/")
         assert res.status_code == 401
 
-    def test_legacy_null_verified_user_is_blocked(self):
-        # Standard login allows is_email_verified=None as legacy passthrough; deep-link
-        # login has no password challenge, so None must be treated the same as False.
-        self.user.is_email_verified = None
-        self.user.save(update_fields=["is_email_verified"])
-        token = self._create_deep_link_token()
-        res = self.client.get(f"/agentic/login?token={token}")
-        assert res.status_code == 302
-        assert res["Location"] == f"/verify_email/{self.user.uuid}"
-
     def test_verified_user_logs_in(self):
-        self.user.is_email_verified = True
-        self.user.save(update_fields=["is_email_verified"])
         token = self._create_deep_link_token()
         res = self.client.get(f"/agentic/login?token={token}")
         assert res.status_code == 302
