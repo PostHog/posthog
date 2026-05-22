@@ -586,6 +586,8 @@ export interface ActivityLogApi {
      * @nullable
      */
     client?: string | null
+    /** @nullable */
+    ip_address?: string | null
     /** @maxLength 79 */
     activity: string
     /**
