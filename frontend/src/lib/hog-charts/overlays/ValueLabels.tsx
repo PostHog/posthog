@@ -42,7 +42,7 @@ interface BuildCandidatesArgs {
     series: ResolvedSeries[]
     labels: string[]
     scales: ChartScales
-    resolveValue: ResolveValueFn
+    resolvePositionValue: ResolveValueFn
     valueFormatter: NonNullable<ValueLabelsProps['valueFormatter']>
     isHorizontal: boolean
     mode: ValueLabelsMode
@@ -147,7 +147,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolveValue, valueFormatter, isHorizontal } = args
+    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal } = args
     const out: Candidate[] = []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
@@ -161,7 +161,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             if (typeof rawValue !== 'number' || !isFinite(rawValue) || rawValue === 0) {
                 continue
             }
-            const yValue = resolveValue(s, dIdx)
+            const yValue = resolvePositionValue(s, dIdx)
             if (typeof yValue !== 'number' || !isFinite(yValue)) {
                 continue
             }
@@ -289,7 +289,7 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolveValue, axis } = useChartLayout()
+    const { series, scales, labels, theme, resolvePositionValue, axis } = useChartLayout()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
 
@@ -302,7 +302,7 @@ export function ValueLabels({
                     series,
                     labels,
                     scales,
-                    resolveValue,
+                    resolvePositionValue,
                     valueFormatter: formatter,
                     isHorizontal,
                     mode,
@@ -311,7 +311,7 @@ export function ValueLabels({
                 minGap,
                 isHorizontal
             ),
-        [series, labels, scales, resolveValue, formatter, minGap, isHorizontal, mode, isPercent]
+        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent]
     )
 
     if (visible.length === 0) {

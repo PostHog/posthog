@@ -23,7 +23,8 @@ from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEven
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 
 from products.actions.backend.models.action import Action
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 def format_query(query: ast.SelectQuery):

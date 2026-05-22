@@ -37,8 +37,12 @@ export type CompiledSamplingRule = {
         latencyMsGt: number | null
         attributePredicates: { key: string; op: string; value?: string }[]
     } | null
-    /** Set for rate_limit rules with valid config; ingestion uses Redis token bucket (logs/sec). */
-    rateLimit: { refillPerSecond: number; poolMax: number } | null
+    /**
+     * Set for rate_limit rules with valid config. Token-bucket on Redis; `costUnit` controls
+     * whether each record consumes one token (`'records'`) or its own `bytes_uncompressed`
+     * (`'bytes'`). `refillPerSecond` and `poolMax` are expressed in the matching unit.
+     */
+    rateLimit: { refillPerSecond: number; poolMax: number; costUnit: 'records' | 'bytes' } | null
 }
 
 export type CompiledRuleSet = {
@@ -195,14 +199,18 @@ export type SamplingClassifyResult =
 export type RateLimitPendingByRule = Map<string, number[]>
 
 /**
- * Stateless rule walk for ingestion. When the first applicable rule is `rate_limit` with a compiled
- * bucket, returns `rate_limit` so the caller can batch Redis checks. Otherwise matches `evaluateLogRecord`.
+ * Stateless rule walk for ingestion. Deterministic rules (`path_drop`, `severity_sampling`)
+ * always win over `rate_limit` regardless of priority order: a record that any deterministic
+ * rule resolves never charges the rate-limit bucket. The first applicable `rate_limit` match
+ * is remembered while the walk continues; it is only returned when no deterministic rule
+ * resolves the record. Otherwise matches `evaluateLogRecord`.
  */
 export function classifySamplingRecord(teamRuleSet: CompiledRuleSet | null, record: LogRecord): SamplingClassifyResult {
     if (!teamRuleSet || teamRuleSet.rules.length === 0) {
         return { kind: 'resolved', decision: SAMPLING_DECISION_KEEP, ruleId: null }
     }
     const ord = severityOrdinalFromRecord(record)
+    let pendingRateLimitRuleId: string | null = null
     for (const rule of teamRuleSet.rules) {
         if (!matchesScope(rule, record)) {
             continue
@@ -240,8 +248,14 @@ export function classifySamplingRecord(teamRuleSet: CompiledRuleSet | null, reco
             if (rule.filterGroup && !matchFilterGroup(rule.filterGroup, record)) {
                 continue
             }
-            return { kind: 'rate_limit', ruleId: rule.id }
+            if (pendingRateLimitRuleId === null) {
+                pendingRateLimitRuleId = rule.id
+            }
+            continue
         }
+    }
+    if (pendingRateLimitRuleId !== null) {
+        return { kind: 'rate_limit', ruleId: pendingRateLimitRuleId }
     }
     return { kind: 'resolved', decision: SAMPLING_DECISION_KEEP, ruleId: null }
 }

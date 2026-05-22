@@ -2586,6 +2586,15 @@ class MaterializedColumnsOptimizationMode(StrEnum):
     OPTIMIZED = "optimized"
 
 
+class ParserMode(StrEnum):
+    CPP_ONLY = "cpp_only"
+    CPP_WITH_RUST_SHADOW = "cpp_with_rust_shadow"
+    RUST_WITH_CPP_SHADOW = "rust_with_cpp_shadow"
+    RUST_ONLY = "rust_only"
+    RUST_PY_ONLY = "rust_py_only"
+    RUST_PY_WITH_CPP_SHADOW = "rust_py_with_cpp_shadow"
+
+
 class PersonsArgMaxVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
@@ -7300,6 +7309,16 @@ class HogQLQueryModifiers(BaseModel):
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
+    parserMode: ParserMode | None = Field(
+        default=None,
+        description=(
+            "HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the"
+            " primary result and sample-compare against the other parser, reporting"
+            " divergences without failing the request. The `rust_py_*` modes drive the"
+            " same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast`"
+            " dataclass instances directly via PyO3, skipping the JSON round-trip."
+        ),
+    )
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
@@ -17978,6 +17997,13 @@ class RetentionFilter(BaseModel):
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,
         description="The aggregation type to use for retention",
+    )
+    cohortLabelStartIndex: int | None = Field(
+        default=0,
+        description=(
+            "Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1"
+            " for D1/D2/D3). Display-only — does not affect retention calculations."
+        ),
     )
     cumulative: bool | None = None
     customAggregationTarget: bool | None = Field(
