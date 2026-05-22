@@ -26,11 +26,20 @@ Statistical rigor: each query is timed across `--repeat` batches of
 be told apart from real changes — the default repeat count is sized
 to surface clear medians without ballooning wall-clock.
 
+**Noise floor caveat.** Empirically, back-to-back runs of the SAME
+binary on the SAME machine drift by 5–7% on the per-rule sum, even at
+N=1000 × 7 batches. The within-run min/max bands are tight (~1–2% of
+median), but the between-run drift is larger — thermal, scheduler,
+GC, and other system effects don't cancel out within a single bench
+invocation. Treat single-run deltas under ~7% as inconclusive; for
+optimization tracking, run the bench at least twice and look for
+consistent direction across both runs. The ★★★ significance flag is
+within-run noise-floor only and doesn't account for between-run
+drift.
+
 For tracking optimization gains, write results to JSON via
 `--json-output PATH`, then re-run with `--compare PATH` to see the
-per-query delta. Rows are flagged with `★★★` when the difference is
-larger than the combined min/max range (i.e., the two runs' uncertainty
-bands don't overlap), so accidental noise doesn't read as a win.
+per-query delta.
 
 For deeper profiling, run the bench under `samply` or `py-spy`:
 

@@ -62,8 +62,23 @@ pub struct PyAst {
     /// Map and removes them before the node leaves the parser. Python
     /// `slots=True` dataclasses reject `setattr` for unknown attributes,
     /// so PyEmitter routes sentinel reads/writes through this HashMap
-    /// instead. Empty for the vast majority of nodes.
-    pub rust_sentinels: HashMap<String, Py<PyAny>>,
+    /// instead.
+    ///
+    /// `Option<Box<HashMap>>` instead of a bare `HashMap` because the
+    /// vast majority of nodes never see a sentinel — the inline
+    /// HashMap struct is 48 bytes; the Option<Box> is 8 bytes and
+    /// avoids the allocation altogether for empty cases. Lazy-init
+    /// happens in `sentinel_mut()`.
+    pub rust_sentinels: Option<Box<HashMap<String, Py<PyAny>>>>,
+}
+
+impl PyAst {
+    /// Lazy accessor for the sentinel map. Allocates the inner box
+    /// on first access. Used by the rare `set_field` site that's
+    /// routing a `__rust_*` sentinel.
+    fn sentinels_mut(&mut self) -> &mut HashMap<String, Py<PyAny>> {
+        self.rust_sentinels.get_or_insert_with(|| Box::new(HashMap::new()))
+    }
 }
 
 impl Clone for PyAst {
@@ -74,11 +89,15 @@ impl Clone for PyAst {
         Python::with_gil(|py| Self {
             obj: self.obj.clone_ref(py),
             positions_locked: self.positions_locked,
-            rust_sentinels: self
-                .rust_sentinels
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
-                .collect(),
+            // Skip the allocation entirely when the source had no
+            // sentinels (the common case).
+            rust_sentinels: self.rust_sentinels.as_ref().map(|m| {
+                Box::new(
+                    m.iter()
+                        .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                        .collect(),
+                )
+            }),
         })
     }
 }
@@ -164,9 +183,37 @@ pub struct PyEmitter<'py> {
     cls_window_expr: Bound<'py, PyAny>,
     cls_interpolate_expr: Bound<'py, PyAny>,
     cls_limit_by_expr: Bound<'py, PyAny>,
-    // ===== Op enums (StrEnum lookup via cls[name]) =====
-    arith_op_enum: Bound<'py, PyAny>,
-    compare_op_enum: Bound<'py, PyAny>,
+    // ===== Op enum members (pre-resolved at construction) =====
+    // The previous implementation did `cls.get_item(op)` on every
+    // arith/compare call — a PyDict lookup against the StrEnum class.
+    // For a parser that runs millions of arith/compare ops across the
+    // factory suite, that's millions of avoided lookups. Each cached
+    // entry is one refcount-bumped `Bound` — trivial memory cost.
+    arith_op_add: Bound<'py, PyAny>,
+    arith_op_sub: Bound<'py, PyAny>,
+    arith_op_mult: Bound<'py, PyAny>,
+    arith_op_div: Bound<'py, PyAny>,
+    arith_op_mod: Bound<'py, PyAny>,
+    compare_op_eq: Bound<'py, PyAny>,
+    compare_op_not_eq: Bound<'py, PyAny>,
+    compare_op_gt: Bound<'py, PyAny>,
+    compare_op_gt_eq: Bound<'py, PyAny>,
+    compare_op_lt: Bound<'py, PyAny>,
+    compare_op_lt_eq: Bound<'py, PyAny>,
+    compare_op_like: Bound<'py, PyAny>,
+    compare_op_ilike: Bound<'py, PyAny>,
+    compare_op_not_like: Bound<'py, PyAny>,
+    compare_op_not_ilike: Bound<'py, PyAny>,
+    compare_op_in: Bound<'py, PyAny>,
+    compare_op_global_in: Bound<'py, PyAny>,
+    compare_op_not_in: Bound<'py, PyAny>,
+    compare_op_global_not_in: Bound<'py, PyAny>,
+    compare_op_in_cohort: Bound<'py, PyAny>,
+    compare_op_not_in_cohort: Bound<'py, PyAny>,
+    compare_op_regex: Bound<'py, PyAny>,
+    compare_op_iregex: Bound<'py, PyAny>,
+    compare_op_not_regex: Bound<'py, PyAny>,
+    compare_op_not_iregex: Bound<'py, PyAny>,
     // ===== Module handle as escape hatch for any class not cached
     // above. Currently unused — every node the parser emits has a
     // typed entry, but kept in case a future trait extension needs
@@ -178,6 +225,12 @@ pub struct PyEmitter<'py> {
 impl<'py> PyEmitter<'py> {
     pub fn new(py: Python<'py>) -> PyResult<Self> {
         let ast_module = py.import_bound("posthog.hogql.ast")?;
+        // Bind the two StrEnum classes once so the per-member lookups
+        // below stay readable. Not stored on the struct — once the
+        // members are pulled out, the enum classes themselves are
+        // never read again.
+        let arith_enum = ast_module.getattr("ArithmeticOperationOp")?;
+        let compare_enum = ast_module.getattr("CompareOperationOp")?;
         Ok(Self {
             cls_constant: ast_module.getattr("Constant")?,
             cls_field: ast_module.getattr("Field")?,
@@ -241,11 +294,78 @@ impl<'py> PyEmitter<'py> {
             cls_window_expr: ast_module.getattr("WindowExpr")?,
             cls_interpolate_expr: ast_module.getattr("InterpolateExpr")?,
             cls_limit_by_expr: ast_module.getattr("LimitByExpr")?,
-            arith_op_enum: ast_module.getattr("ArithmeticOperationOp")?,
-            compare_op_enum: ast_module.getattr("CompareOperationOp")?,
+            // Pre-resolve enum members by NAME. The StrEnum classes
+            // are subscriptable by member-name (`cls["Add"]`) — value
+            // (`cls["+"]`) doesn't work, so we always use the name path.
+            arith_op_add: arith_enum.get_item("Add")?,
+            arith_op_sub: arith_enum.get_item("Sub")?,
+            arith_op_mult: arith_enum.get_item("Mult")?,
+            arith_op_div: arith_enum.get_item("Div")?,
+            arith_op_mod: arith_enum.get_item("Mod")?,
+            compare_op_eq: compare_enum.get_item("Eq")?,
+            compare_op_not_eq: compare_enum.get_item("NotEq")?,
+            compare_op_gt: compare_enum.get_item("Gt")?,
+            compare_op_gt_eq: compare_enum.get_item("GtEq")?,
+            compare_op_lt: compare_enum.get_item("Lt")?,
+            compare_op_lt_eq: compare_enum.get_item("LtEq")?,
+            compare_op_like: compare_enum.get_item("Like")?,
+            compare_op_ilike: compare_enum.get_item("ILike")?,
+            compare_op_not_like: compare_enum.get_item("NotLike")?,
+            compare_op_not_ilike: compare_enum.get_item("NotILike")?,
+            compare_op_in: compare_enum.get_item("In")?,
+            compare_op_global_in: compare_enum.get_item("GlobalIn")?,
+            compare_op_not_in: compare_enum.get_item("NotIn")?,
+            compare_op_global_not_in: compare_enum.get_item("GlobalNotIn")?,
+            compare_op_in_cohort: compare_enum.get_item("InCohort")?,
+            compare_op_not_in_cohort: compare_enum.get_item("NotInCohort")?,
+            compare_op_regex: compare_enum.get_item("Regex")?,
+            compare_op_iregex: compare_enum.get_item("IRegex")?,
+            compare_op_not_regex: compare_enum.get_item("NotRegex")?,
+            compare_op_not_iregex: compare_enum.get_item("NotIRegex")?,
             ast_module,
             py,
         })
+    }
+
+    /// Map an arithmetic op symbol to the cached `ArithmeticOperationOp`
+    /// StrEnum member. Compiles to a jump table — one branch + return ref.
+    fn arith_op(&self, op: &str) -> &Bound<'py, PyAny> {
+        match op {
+            "+" => &self.arith_op_add,
+            "-" => &self.arith_op_sub,
+            "*" => &self.arith_op_mult,
+            "/" => &self.arith_op_div,
+            "%" => &self.arith_op_mod,
+            other => panic!("unknown arith op symbol `{other}`"),
+        }
+    }
+
+    /// Map a comparison op symbol to the cached `CompareOperationOp`
+    /// StrEnum member.
+    fn compare_op(&self, op: &str) -> &Bound<'py, PyAny> {
+        match op {
+            "==" => &self.compare_op_eq,
+            "!=" => &self.compare_op_not_eq,
+            ">" => &self.compare_op_gt,
+            ">=" => &self.compare_op_gt_eq,
+            "<" => &self.compare_op_lt,
+            "<=" => &self.compare_op_lt_eq,
+            "like" => &self.compare_op_like,
+            "ilike" => &self.compare_op_ilike,
+            "not like" => &self.compare_op_not_like,
+            "not ilike" => &self.compare_op_not_ilike,
+            "in" => &self.compare_op_in,
+            "global in" => &self.compare_op_global_in,
+            "not in" => &self.compare_op_not_in,
+            "global not in" => &self.compare_op_global_not_in,
+            "in cohort" => &self.compare_op_in_cohort,
+            "not in cohort" => &self.compare_op_not_in_cohort,
+            "=~" => &self.compare_op_regex,
+            "=~*" => &self.compare_op_iregex,
+            "!~" => &self.compare_op_not_regex,
+            "!~*" => &self.compare_op_not_iregex,
+            other => panic!("unknown compare op symbol `{other}`"),
+        }
     }
 
     /// Construct a node by invoking `class(**kwargs)`. Wraps the result
@@ -262,7 +382,7 @@ impl<'py> PyEmitter<'py> {
         PyAst {
             obj,
             positions_locked: false,
-            rust_sentinels: HashMap::new(),
+            rust_sentinels: None,
         }
     }
 
@@ -272,7 +392,7 @@ impl<'py> PyEmitter<'py> {
         PyAst {
             obj,
             positions_locked: false,
-            rust_sentinels: HashMap::new(),
+            rust_sentinels: None,
         }
     }
 }
@@ -362,21 +482,14 @@ impl<'py> Emitter for PyEmitter<'py> {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("left", left.obj.bind(self.py)).unwrap();
         kw.set_item("right", right.obj.bind(self.py)).unwrap();
-        let op_member = self
-            .arith_op_enum
-            .get_item(op)
-            .unwrap_or_else(|_| self.arith_op_enum.get_item(arith_op_name_from_symbol(op)).unwrap());
-        kw.set_item("op", &op_member).unwrap();
+        kw.set_item("op", self.arith_op(op)).unwrap();
         self.build(&self.cls_arith_op, &kw)
     }
     fn compare(&self, left: PyAst, op: &str, right: PyAst) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("left", left.obj.bind(self.py)).unwrap();
         kw.set_item("right", right.obj.bind(self.py)).unwrap();
-        let op_member = self.compare_op_enum.get_item(op).unwrap_or_else(|_| {
-            self.compare_op_enum.get_item(compare_op_name_from_symbol(op)).unwrap()
-        });
-        kw.set_item("op", &op_member).unwrap();
+        kw.set_item("op", self.compare_op(op)).unwrap();
         self.build(&self.cls_compare_op, &kw)
     }
     fn compare_is_null(&self, left: PyAst, negated: bool) -> PyAst {
@@ -386,9 +499,8 @@ impl<'py> Emitter for PyEmitter<'py> {
         kw.set_item("left", left.obj.bind(self.py)).unwrap();
         let null_constant = self.constant(self.null());
         kw.set_item("right", null_constant.obj.bind(self.py)).unwrap();
-        let op_name = if negated { "NotEq" } else { "Eq" };
-        let op_member = self.compare_op_enum.get_item(op_name).unwrap();
-        kw.set_item("op", &op_member).unwrap();
+        let op_member = if negated { &self.compare_op_not_eq } else { &self.compare_op_eq };
+        kw.set_item("op", op_member).unwrap();
         kw.set_item("is_null_comparison_style", true).unwrap();
         self.build(&self.cls_compare_op, &kw)
     }
@@ -1022,8 +1134,10 @@ impl<'py> Emitter for PyEmitter<'py> {
     // ===== Position machinery =====
     fn position(&self, _line: u32, _column: u32, offset: usize) -> PyAst {
         // Python AST `start` / `end` are plain `Optional[int]` —
-        // only the offset survives. Lines/columns are emitted by cpp
-        // for JSON but the Python deserialiser drops them.
+        // only the offset survives. Lines/columns aren't carried on
+        // the final dataclass. We pre-allocate the `Py<int>` here so
+        // `with_pos` / `replace_pos` can setattr it via a `Bound`
+        // (fast IntoPy path, no per-setattr int allocation).
         self.wrap_prim(offset.into_py(self.py))
     }
     fn with_pos(&self, value: PyAst, start: PyAst, end: PyAst) -> PyAst {
@@ -1076,11 +1190,11 @@ impl<'py> Emitter for PyEmitter<'py> {
         // Sentinel fields (`__rust_*`) live in the side-channel map
         // rather than as dataclass attributes — see `rust_sentinels`
         // on `PyAst`.
-        if let Some(stored) = v.rust_sentinels.get(name) {
+        if let Some(stored) = v.rust_sentinels.as_ref().and_then(|m| m.get(name)) {
             return Some(PyAst {
                 obj: stored.clone_ref(self.py),
                 positions_locked: false,
-                rust_sentinels: HashMap::new(),
+                rust_sentinels: None,
             });
         }
         let bound = v.obj.bind(self.py);
@@ -1088,7 +1202,7 @@ impl<'py> Emitter for PyEmitter<'py> {
             Ok(got) => Some(PyAst {
                 obj: got.unbind(),
                 positions_locked: false,
-                rust_sentinels: HashMap::new(),
+                rust_sentinels: None,
             }),
             Err(_) => None,
         }
@@ -1105,7 +1219,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         // (wrap_pivot_chain's decoration check, the array-join FROM
         // check). The `not None` semantic matches the JSON Map "key
         // exists" check for those uses.
-        if v.rust_sentinels.contains_key(name) {
+        if v.rust_sentinels.as_ref().is_some_and(|m| m.contains_key(name)) {
             return true;
         }
         let bound = v.obj.bind(self.py);
@@ -1129,7 +1243,7 @@ impl<'py> Emitter for PyEmitter<'py> {
             out.push(PyAst {
                 obj: item.unbind(),
                 positions_locked: false,
-                rust_sentinels: HashMap::new(),
+                rust_sentinels: None,
             });
         }
         Some(out)
@@ -1150,11 +1264,11 @@ impl<'py> Emitter for PyEmitter<'py> {
     // ===== Mutation =====
     fn remove_field(&self, v: &mut PyAst, name: &str) -> Option<PyAst> {
         // Sentinel fields live in the side-channel.
-        if let Some(prev) = v.rust_sentinels.remove(name) {
+        if let Some(prev) = v.rust_sentinels.as_mut().and_then(|m| m.remove(name)) {
             return Some(PyAst {
                 obj: prev,
                 positions_locked: false,
-                rust_sentinels: HashMap::new(),
+                rust_sentinels: None,
             });
         }
         let bound = v.obj.bind(self.py);
@@ -1171,7 +1285,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         Some(PyAst {
             obj: prev.unbind(),
             positions_locked: false,
-            rust_sentinels: HashMap::new(),
+            rust_sentinels: None,
         })
     }
     fn set_field(&self, v: &mut PyAst, name: &str, value: PyAst) {
@@ -1179,7 +1293,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         // on the dataclass; slots=True rejects setattr for them. Route
         // to the side-channel HashMap instead.
         if name.starts_with("__rust_") {
-            v.rust_sentinels.insert(name.to_string(), value.obj);
+            v.sentinels_mut().insert(name.to_string(), value.obj);
             return;
         }
         let bound = v.obj.bind(self.py);
@@ -1241,43 +1355,3 @@ fn build_list(py: Python<'_>, items: Vec<PyAst>) -> Bound<'_, PyList> {
     list
 }
 
-/// Map operator symbol ("+", "-", "*", "/", "%") to the
-/// ArithmeticOperationOp member name. First-try `cls[symbol]` works
-/// because StrEnum subscript accepts the value; fallback by member name.
-fn arith_op_name_from_symbol(symbol: &str) -> &'static str {
-    match symbol {
-        "+" => "Add",
-        "-" => "Sub",
-        "*" => "Mult",
-        "/" => "Div",
-        "%" => "Mod",
-        other => panic!("unknown arithmetic op symbol `{other}`"),
-    }
-}
-
-/// Map comparison operator symbol to CompareOperationOp member name.
-fn compare_op_name_from_symbol(symbol: &str) -> &'static str {
-    match symbol {
-        "==" => "Eq",
-        "!=" => "NotEq",
-        ">" => "Gt",
-        ">=" => "GtEq",
-        "<" => "Lt",
-        "<=" => "LtEq",
-        "like" => "Like",
-        "ilike" => "ILike",
-        "not like" => "NotLike",
-        "not ilike" => "NotILike",
-        "in" => "In",
-        "global in" => "GlobalIn",
-        "not in" => "NotIn",
-        "global not in" => "GlobalNotIn",
-        "in cohort" => "InCohort",
-        "not in cohort" => "NotInCohort",
-        "=~" => "Regex",
-        "=~*" => "IRegex",
-        "!~" => "NotRegex",
-        "!~*" => "NotIRegex",
-        other => panic!("unknown comparison op symbol `{other}`"),
-    }
-}
