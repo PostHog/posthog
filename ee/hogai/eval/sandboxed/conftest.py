@@ -659,9 +659,9 @@ _EVAL_MATERIALIZED_EVENT_PROPERTIES: tuple[str, ...] = (
 
 
 def _ensure_event_search_columns_materialized(django_db_blocker) -> None:
-    from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+    from ee.clickhouse.materialized_columns.analyze import Suggestion, materialize_properties_task
 
-    suggestions = [("events", "properties", prop) for prop in _EVAL_MATERIALIZED_EVENT_PROPERTIES]
+    suggestions: list[Suggestion] = [("events", "properties", prop) for prop in _EVAL_MATERIALIZED_EVENT_PROPERTIES]
     with django_db_blocker.unblock():
         materialize_properties_task(
             properties_to_materialize=suggestions,

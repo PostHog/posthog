@@ -854,9 +854,10 @@ class IssueDrilldownOrder(Scorer):
                 metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} did not run after its prerequisite drill-down"
                 return Score(name=self._name(), score=0.0, metadata=metadata)
             recordings_call = self._first_successful_call(parser, SESSION_RECORDINGS_LIST_TOOL)
-            recordings_session_ids = (
-                _session_ids_from_recordings_input(recordings_call.input) if recordings_call is not None else set()
-            )
+            if recordings_call is None:
+                metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} was never called successfully"
+                return Score(name=self._name(), score=0.0, metadata=metadata)
+            recordings_session_ids = _session_ids_from_recordings_input(recordings_call.input)
             metadata["recordings_session_ids"] = sorted(recordings_session_ids)
             if not recordings_session_ids:
                 metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} did not include session_ids from sampled events"
