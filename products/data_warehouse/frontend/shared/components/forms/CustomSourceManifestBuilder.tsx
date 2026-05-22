@@ -1,48 +1,16 @@
-import { FieldName } from 'kea-forms'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-type AuthType = 'none' | 'bearer' | 'api_key' | 'http_basic'
-type Paginator =
-    | { type: 'single_page' }
-    | { type: 'json_response'; next_url_path?: string }
-    | { type: 'cursor'; cursor_path?: string; cursor_param?: string }
-    | { type: 'offset'; limit?: number; offset_param?: string; limit_param?: string }
-    | { type: 'page_number'; page_param?: string; initial_page?: number }
-    | { type: 'header_link'; links_next_key?: string }
-
-interface HeaderEntry {
-    key: string
-    value: string
-}
-
-interface StreamForm {
-    name: string
-    path: string
-    method: 'GET' | 'POST'
-    data_selector: string
-    primary_key: string
-    paginator: Paginator
-    incremental_enabled: boolean
-    cursor_path: string
-    start_param: string
-}
-
-export interface ManifestState {
-    base_url: string
-    auth_type: AuthType
-    auth_token: string
-    auth_api_key: string
-    auth_api_key_name: string
-    auth_username: string
-    auth_password: string
-    headers: HeaderEntry[]
-    streams: StreamForm[]
-}
+import { AuthType, HeaderEntry, ManifestState, Paginator, StreamForm } from './customSourceManifest'
+import {
+    customSourceManifestBuilderLogic,
+    type CustomSourceManifestBuilderLogicProps,
+} from './customSourceManifestBuilderLogic'
 
 const PAGINATOR_OPTIONS: { value: Paginator['type']; label: string }[] = [
     { value: 'single_page', label: 'Single page (no pagination)' },
@@ -60,295 +28,27 @@ const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
     { value: 'http_basic', label: 'HTTP basic auth' },
 ]
 
-function emptyStream(): StreamForm {
-    return {
-        name: '',
-        path: '',
-        method: 'GET',
-        data_selector: 'data',
-        primary_key: 'id',
-        paginator: { type: 'single_page' },
-        incremental_enabled: false,
-        cursor_path: '',
-        start_param: '',
-    }
-}
-
-function defaultState(): ManifestState {
-    return {
-        base_url: '',
-        auth_type: 'bearer',
-        auth_token: '',
-        auth_api_key: '',
-        auth_api_key_name: 'Authorization',
-        auth_username: '',
-        auth_password: '',
-        headers: [],
-        streams: [emptyStream()],
-    }
-}
-
-export function buildManifest(state: ManifestState): Record<string, unknown> {
-    const headerEntries = state.headers.filter((h) => h.key.trim().length > 0)
-    const headerMap: Record<string, string> = {}
-    for (const entry of headerEntries) {
-        headerMap[entry.key.trim()] = entry.value
-    }
-
-    // Auth carries only NON-secret fields. The credential values (token /
-    // api_key / password) are written to separate secret form fields by
-    // `extractAuthSecrets` so the backend can redact them generically.
-    const auth: Record<string, unknown> | undefined = (() => {
-        switch (state.auth_type) {
-            case 'bearer':
-                return { type: 'bearer' }
-            case 'api_key':
-                return { type: 'api_key', name: state.auth_api_key_name, location: 'header' }
-            case 'http_basic':
-                return { type: 'http_basic', username: state.auth_username }
-            default:
-                return undefined
-        }
-    })()
-
-    const client: Record<string, unknown> = { base_url: state.base_url }
-    if (auth) {
-        client.auth = auth
-    }
-    if (Object.keys(headerMap).length > 0) {
-        client.headers = headerMap
-    }
-
-    const resources = state.streams.map((stream) => {
-        const endpoint: Record<string, unknown> = {
-            path: stream.path,
-            data_selector: stream.data_selector || 'data',
-        }
-        if (stream.method !== 'GET') {
-            endpoint.method = stream.method
-        }
-        endpoint.paginator = serializePaginator(stream.paginator)
-        if (stream.incremental_enabled && stream.cursor_path.trim()) {
-            endpoint.incremental = {
-                cursor_path: stream.cursor_path.trim(),
-                start_param: stream.start_param.trim() || stream.cursor_path.trim(),
-            }
-        }
-        const primaryKeys = stream.primary_key
-            .split(',')
-            .map((part) => part.trim())
-            .filter(Boolean)
-        return {
-            name: stream.name,
-            primary_key: primaryKeys.length === 1 ? primaryKeys[0] : primaryKeys,
-            endpoint,
-        }
-    })
-
-    return { client, resources }
-}
-
-export interface AuthSecrets {
-    auth_token: string
-    auth_api_key: string
-    auth_password: string
-}
-
 /**
- * The credential values for the currently selected auth type. These are
- * written to separate secret form fields (`payload.auth_*`), never inlined
- * into the manifest — so the backend redacts them with the generic
- * sensitive-field machinery. Non-active auth types yield empty strings.
- */
-export function extractAuthSecrets(state: ManifestState): AuthSecrets {
-    return {
-        auth_token: state.auth_type === 'bearer' ? state.auth_token : '',
-        auth_api_key: state.auth_type === 'api_key' ? state.auth_api_key : '',
-        auth_password: state.auth_type === 'http_basic' ? state.auth_password : '',
-    }
-}
-
-function serializePaginator(paginator: Paginator): Record<string, unknown> {
-    switch (paginator.type) {
-        case 'json_response':
-            return { type: 'json_response', next_url_path: paginator.next_url_path || 'links.next' }
-        case 'cursor':
-            return {
-                type: 'cursor',
-                cursor_path: paginator.cursor_path || 'meta.next_cursor',
-                cursor_param: paginator.cursor_param || 'cursor',
-            }
-        case 'offset':
-            return {
-                type: 'offset',
-                limit: paginator.limit ?? 100,
-                offset_param: paginator.offset_param || 'offset',
-                limit_param: paginator.limit_param || 'limit',
-            }
-        case 'page_number':
-            return {
-                type: 'page_number',
-                page_param: paginator.page_param || 'page',
-                initial_page: paginator.initial_page ?? 1,
-            }
-        case 'header_link':
-            return { type: 'header_link', links_next_key: paginator.links_next_key || 'next' }
-        case 'single_page':
-        default:
-            return { type: 'single_page' }
-    }
-}
-
-export function parseManifestIntoState(rawJson: string | undefined): ManifestState {
-    if (!rawJson) {
-        return defaultState()
-    }
-    try {
-        const manifest = JSON.parse(rawJson)
-        const client = manifest.client ?? {}
-        const auth = client.auth ?? {}
-        const authType: AuthType = ['bearer', 'api_key', 'http_basic'].includes(auth.type) ? auth.type : 'none'
-        const headerObj: Record<string, string> = client.headers ?? {}
-        const headers: HeaderEntry[] = Object.entries(headerObj).map(([key, value]) => ({ key, value: String(value) }))
-        const resources: any[] = Array.isArray(manifest.resources) ? manifest.resources : []
-        const streams: StreamForm[] = resources.length > 0 ? resources.map(parseStream) : [emptyStream()]
-        return {
-            base_url: client.base_url ?? '',
-            auth_type: authType,
-            auth_token: auth.token ?? '',
-            auth_api_key: auth.api_key ?? '',
-            auth_api_key_name: auth.name ?? 'Authorization',
-            auth_username: auth.username ?? '',
-            auth_password: auth.password ?? '',
-            headers,
-            streams,
-        }
-    } catch {
-        return defaultState()
-    }
-}
-
-function parseStream(resource: any): StreamForm {
-    const endpoint = resource?.endpoint ?? {}
-    const paginatorRaw = endpoint.paginator ?? { type: 'single_page' }
-    const paginator: Paginator = [
-        'single_page',
-        'json_response',
-        'cursor',
-        'offset',
-        'page_number',
-        'header_link',
-    ].includes(paginatorRaw.type)
-        ? paginatorRaw
-        : { type: 'single_page' }
-    const primaryKey = resource?.primary_key
-    return {
-        name: resource?.name ?? '',
-        path: endpoint?.path ?? '',
-        method: endpoint?.method === 'POST' ? 'POST' : 'GET',
-        data_selector: endpoint?.data_selector ?? 'data',
-        primary_key: Array.isArray(primaryKey) ? primaryKey.join(', ') : (primaryKey ?? 'id'),
-        paginator,
-        incremental_enabled: !!endpoint?.incremental,
-        cursor_path: endpoint?.incremental?.cursor_path ?? '',
-        start_param: endpoint?.incremental?.start_param ?? '',
-    }
-}
-
-export interface CustomSourceManifestBuilderProps {
-    initialManifestJson?: string
-    /**
-     * Writes the serialized manifest into the outer form. Differs between
-     * mount sites: the wizard provides
-     * `sourceWizardLogic.actions.setSourceConnectionDetailsValue`, and the
-     * configuration page (existing source) provides
-     * `sourceSettingsLogic.actions.setSourceConfigValue`. Either accepts a
-     * `(path, value)` signature.
-     */
-    setValue: (path: FieldName, value: unknown) => void
-}
-
-/**
- * Visual builder for the Custom REST source's manifest. Maintains its own
- * structured form state (base URL, auth, headers, streams) and writes it to
- * the outer form as `payload.manifest_json` (the non-secret RESTAPIConfig
- * structure) plus separate `payload.auth_*` secret fields for the credentials.
- *
- * The backend rejoins the two before handing the config to `rest_api_resource()`.
- * Keeping credentials out of the manifest lets the generic API layer redact
- * them with no Custom-source-specific serializer code.
+ * Visual builder for the Custom REST source's manifest. State and the
+ * outer-form sync live in `customSourceManifestBuilderLogic`; this component
+ * only renders the form and dispatches actions.
  */
 export function CustomSourceManifestBuilder({
     initialManifestJson,
     setValue,
-}: CustomSourceManifestBuilderProps): JSX.Element {
-    const [state, setState] = useState<ManifestState>(() => parseManifestIntoState(initialManifestJson))
-
-    // The configuration page loads `source.job_inputs` via a poll, so the
-    // first render typically has no manifest and a real one arrives a beat
-    // later. Re-parse when the prop changes (but only on *prop* changes —
-    // we ignore our own re-renders to avoid wiping the user's edits).
-    const lastSeenInitialRef = useRef(initialManifestJson)
-    useEffect(() => {
-        if (initialManifestJson !== lastSeenInitialRef.current) {
-            lastSeenInitialRef.current = initialManifestJson
-            if (initialManifestJson) {
-                setState(parseManifestIntoState(initialManifestJson))
-            }
-        }
-    }, [initialManifestJson])
-
-    // Only write to the outer form once the user has actually engaged — either
-    // by typing, or by an initial manifest arriving from the parent. Without
-    // this guard, the configuration page would clobber the saved manifest with
-    // empty defaults on the render that sits between mount and prop-arrival.
-    const [hasContent, setHasContent] = useState<boolean>(() => !!initialManifestJson)
-    useEffect(() => {
-        if (initialManifestJson) {
-            setHasContent(true)
-        }
-    }, [initialManifestJson])
-
-    const manifestJson = useMemo(() => JSON.stringify(buildManifest(state), null, 2), [state])
-    const authSecrets = useMemo(() => extractAuthSecrets(state), [state])
-
-    useEffect(() => {
-        if (!hasContent) {
-            return
-        }
-        setValue(['payload', 'manifest_json'] as FieldName, manifestJson)
-        // Secrets go to their own fields so the backend redacts them generically;
-        // the manifest itself stays non-secret and round-trips to the config tab.
-        setValue(['payload', 'auth_token'] as FieldName, authSecrets.auth_token)
-        setValue(['payload', 'auth_api_key'] as FieldName, authSecrets.auth_api_key)
-        setValue(['payload', 'auth_password'] as FieldName, authSecrets.auth_password)
-    }, [manifestJson, authSecrets, hasContent, setValue])
-
-    // Wrap every mutation so a user edit also unblocks the setValue effect —
-    // in wizard mode `initialManifestJson` is undefined, so without this any
-    // typing would compute a new manifest but never push it to the form.
-    const editState = (updater: (prev: ManifestState) => ManifestState): void => {
-        setHasContent(true)
-        setState(updater)
-    }
-    const updateState = (patch: Partial<ManifestState>): void => editState((prev) => ({ ...prev, ...patch }))
-    const updateStream = (index: number, patch: Partial<StreamForm>): void =>
-        editState((prev) => ({
-            ...prev,
-            streams: prev.streams.map((stream, i) => (i === index ? { ...stream, ...patch } : stream)),
-        }))
-    const updatePaginator = (index: number, paginator: Paginator): void => updateStream(index, { paginator })
-    const addStream = (): void => editState((prev) => ({ ...prev, streams: [...prev.streams, emptyStream()] }))
-    const removeStream = (index: number): void =>
-        editState((prev) => ({ ...prev, streams: prev.streams.filter((_, i) => i !== index) }))
-    const addHeader = (): void => editState((prev) => ({ ...prev, headers: [...prev.headers, { key: '', value: '' }] }))
-    const removeHeader = (index: number): void =>
-        editState((prev) => ({ ...prev, headers: prev.headers.filter((_, i) => i !== index) }))
-    const updateHeader = (index: number, patch: Partial<HeaderEntry>): void =>
-        editState((prev) => ({
-            ...prev,
-            headers: prev.headers.map((header, i) => (i === index ? { ...header, ...patch } : header)),
-        }))
+}: CustomSourceManifestBuilderLogicProps): JSX.Element {
+    const logic = customSourceManifestBuilderLogic({ initialManifestJson, setValue })
+    const { manifestState, manifestJson } = useValues(logic)
+    const {
+        updateState,
+        updateStream,
+        updatePaginator,
+        addStream,
+        removeStream,
+        addHeader,
+        removeHeader,
+        updateHeader,
+    } = useActions(logic)
 
     return (
         <div className="space-y-6">
@@ -356,7 +56,7 @@ export function CustomSourceManifestBuilder({
                 <LemonInput
                     id="custom-source-base-url"
                     placeholder="https://api.example.com"
-                    value={state.base_url}
+                    value={manifestState.base_url}
                     onChange={(value) => updateState({ base_url: value })}
                 />
                 <p className="mt-1 text-xs text-secondary">
@@ -364,9 +64,14 @@ export function CustomSourceManifestBuilder({
                 </p>
             </LemonField.Pure>
 
-            <AuthSection state={state} update={updateState} />
+            <AuthSection state={manifestState} update={updateState} />
 
-            <HeadersSection headers={state.headers} onAdd={addHeader} onRemove={removeHeader} onUpdate={updateHeader} />
+            <HeadersSection
+                headers={manifestState.headers}
+                onAdd={addHeader}
+                onRemove={removeHeader}
+                onUpdate={updateHeader}
+            />
 
             <LemonDivider />
 
@@ -382,12 +87,12 @@ export function CustomSourceManifestBuilder({
                         Add stream
                     </LemonButton>
                 </div>
-                {state.streams.map((stream, index) => (
+                {manifestState.streams.map((stream, index) => (
                     <StreamCard
                         key={index}
                         index={index}
                         stream={stream}
-                        canRemove={state.streams.length > 1}
+                        canRemove={manifestState.streams.length > 1}
                         onUpdate={(patch) => updateStream(index, patch)}
                         onUpdatePaginator={(paginator) => updatePaginator(index, paginator)}
                         onRemove={() => removeStream(index)}
@@ -397,7 +102,9 @@ export function CustomSourceManifestBuilder({
 
             <details className="rounded border border-border p-3">
                 <summary className="cursor-pointer text-xs text-secondary">Show generated manifest</summary>
-                <LemonTextArea className="mt-2 font-mono text-xs" value={manifestJson} readOnly minRows={8} />
+                <CodeSnippet language={Language.JSON} className="mt-2 text-xs" wrap maxLinesWithoutExpansion={20}>
+                    {manifestJson}
+                </CodeSnippet>
             </details>
         </div>
     )
@@ -663,8 +370,8 @@ function PaginatorSection({
                     <LemonField.Pure label="Page size">
                         <LemonInput
                             type="number"
-                            value={String(paginator.limit ?? 100)}
-                            onChange={(value) => onUpdate({ ...paginator, limit: Number(value) || 100 })}
+                            value={paginator.limit ?? 100}
+                            onChange={(value) => onUpdate({ ...paginator, limit: value || 100 })}
                         />
                     </LemonField.Pure>
                     <LemonField.Pure label="Offset param">
@@ -695,8 +402,8 @@ function PaginatorSection({
                     <LemonField.Pure label="Initial page">
                         <LemonInput
                             type="number"
-                            value={String(paginator.initial_page ?? 1)}
-                            onChange={(value) => onUpdate({ ...paginator, initial_page: Number(value) || 1 })}
+                            value={paginator.initial_page ?? 1}
+                            onChange={(value) => onUpdate({ ...paginator, initial_page: value || 1 })}
                         />
                     </LemonField.Pure>
                 </div>
@@ -723,14 +430,11 @@ function IncrementalSection({
 }): JSX.Element {
     return (
         <div className="rounded border border-border p-3 space-y-2">
-            <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                    type="checkbox"
-                    checked={stream.incremental_enabled}
-                    onChange={(event) => onUpdate({ incremental_enabled: event.target.checked })}
-                />
-                <span>Enable incremental sync</span>
-            </label>
+            <LemonCheckbox
+                checked={stream.incremental_enabled}
+                onChange={(checked) => onUpdate({ incremental_enabled: checked })}
+                label="Enable incremental sync"
+            />
             {stream.incremental_enabled && (
                 <div className="grid grid-cols-2 gap-2">
                     <LemonField.Pure label="Cursor JSONPath">
