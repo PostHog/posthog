@@ -112,6 +112,31 @@ def record_request(
     _maybe_capture_sample(request, response, record=record, ctx=ctx, exception=exception)
 
 
+def record_blocked_request(*, host: str, team_id: int | None, reason: str, layer: str) -> None:
+    """Log an SSRF-guard block at warning level. Never raises.
+
+    The host check is not infallible — a transient DNS failure surfaces as
+    "Host could not be resolved", and the region/team allowlist and
+    `.postwh.com` exemption all have edges — so a block can land on a
+    legitimate customer API. Logging every block makes "is the guard firing,
+    on what host, for which team, how often" answerable in Grafana/Loki
+    before a support ticket is. `layer` separates the cheap pre-flight check
+    (`preflight`) from the post-connect peer check (`postconnect`).
+    """
+    try:
+        fields: dict[str, int | str | None] = {}
+        ctx = current_job_context()
+        if ctx is not None:
+            fields.update(ctx.as_log_fields())
+        fields["host"] = host
+        fields["team_id"] = team_id
+        fields["reason"] = reason
+        fields["layer"] = layer
+        logger.warning(f"data_imports.http.blocked {host}", **fields)
+    except Exception:
+        _fallback_logger.debug("Failed to log blocked HTTP request", exc_info=True)
+
+
 def _emit_log(
     record: RequestRecord,
     *,

@@ -211,6 +211,9 @@ def create_resources(
             headers=client_config.get("headers"),
             auth=create_auth(client_config.get("auth")),
             paginator=create_paginator(client_config.get("paginator")),
+            # The tracked session is always SSRF-guarded; team_id carries the
+            # team whose internal-host allowlist applies.
+            team_id=team_id,
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"))
