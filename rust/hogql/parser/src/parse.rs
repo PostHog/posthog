@@ -37,8 +37,16 @@ use template::parse_template_body;
 // Public entry points
 // ============================================================================
 
-pub fn parse_expr(src: &str, _is_internal: bool) -> Result<Value, ParseError> {
-    let mut p = Parser::new(src)?;
+pub fn parse_expr(src: &str, is_internal: bool) -> Result<Value, ParseError> {
+    parse_expr_with_emit(JsonEmitter, src, is_internal)
+}
+
+pub fn parse_expr_with_emit<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+    _is_internal: bool,
+) -> Result<E::Value, ParseError> {
+    let mut p = Parser::new_with_emit(src, emit)?;
     // Bare-list lambda `IDENT (, IDENT)* -> body` is only valid at the
     // outermost expression level; inside an argument list each item parses
     // independently and the commas are separators. So we try it here
@@ -62,7 +70,14 @@ pub fn parse_expr(src: &str, _is_internal: bool) -> Result<Value, ParseError> {
 }
 
 pub fn parse_order_expr(src: &str) -> Result<Value, ParseError> {
-    let mut p = Parser::new(src)?;
+    parse_order_expr_with_emit(JsonEmitter, src)
+}
+
+pub fn parse_order_expr_with_emit<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+) -> Result<E::Value, ParseError> {
+    let mut p = Parser::new_with_emit(src, emit)?;
     let exprs = p.parse_order_expr_list()?;
     // cpp's `parse_order_expr_json` entry point silently drops any
     // trailing tokens after the first OrderExpr — `a ASC extra` parses
@@ -79,7 +94,14 @@ pub fn parse_order_expr(src: &str) -> Result<Value, ParseError> {
 }
 
 pub fn parse_select(src: &str) -> Result<Value, ParseError> {
-    let mut p = Parser::new(src)?;
+    parse_select_with_emit(JsonEmitter, src)
+}
+
+pub fn parse_select_with_emit<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+) -> Result<E::Value, ParseError> {
+    let mut p = Parser::new_with_emit(src, emit)?;
     // `select` rule top-level admits a bare HogQLX tag element as the
     // third alternative (alongside selectSetStmt / selectStmt). The tag
     // covers both standalone-`<Tag />` use and the `from <Tag />` shape
@@ -95,13 +117,27 @@ pub fn parse_select(src: &str) -> Result<Value, ParseError> {
 }
 
 pub fn parse_program(src: &str) -> Result<Value, ParseError> {
-    let mut p = Parser::new(src)?;
+    parse_program_with_emit(JsonEmitter, src)
+}
+
+pub fn parse_program_with_emit<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+) -> Result<E::Value, ParseError> {
+    let mut p = Parser::new_with_emit(src, emit)?;
     let prog = p.parse_program()?;
     p.expect_eof()?;
     Ok(prog)
 }
 
 pub fn parse_full_template_string(src: &str) -> Result<Value, ParseError> {
+    parse_full_template_string_with_emit(JsonEmitter, src)
+}
+
+pub fn parse_full_template_string_with_emit<E: Emitter + Clone>(
+    emit: E,
+    src: &str,
+) -> Result<E::Value, ParseError> {
     // The Python wrapper `parse_string_template` prepends `F'` to the
     // template body before handing the source off to either backend
     // (see `posthog/hogql/parser.py::parse_string_template`). Strip
@@ -117,7 +153,7 @@ pub fn parse_full_template_string(src: &str) -> Result<Value, ParseError> {
     // `body_offset` and `body_end`. For the standalone entry point the
     // body extends to the end of `src` — there is no trailing `'`.
     let body_end = src.len();
-    parse_template_body(&JsonEmitter, src, body_offset, body_end)
+    parse_template_body(&emit, src, body_offset, body_end)
 }
 
 // ============================================================================

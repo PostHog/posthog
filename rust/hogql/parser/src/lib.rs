@@ -16,6 +16,7 @@
 use pyo3::prelude::*;
 
 mod emit;
+mod emit_py;
 mod error;
 mod lex;
 mod parse;
@@ -35,26 +36,31 @@ where
     }
 }
 
-/// Counterpart to [`run`] for the `parse_*_py` entry points: build the
-/// `Value` AST and convert directly to Python objects in Rust, skipping the
-/// JSON-string serialise step. A parse error is raised as the matching
-/// Python exception (`ExposedHogQLError` / `SyntaxError`) rather than
-/// round-tripped through the JSON error envelope.
-fn run_py<F>(py: Python<'_>, f: F) -> PyResult<PyObject>
+/// Counterpart to [`run`] for the `parse_*_py` entry points: drive a
+/// `PyEmitter` so the parser constructs `posthog.hogql.ast` instances
+/// directly, returning the unbound `Py<PyAny>` handle. Skips both the
+/// JSON-string serialise step on the Rust side AND the post-walk
+/// `Value`→`PyObject` converter from Phase 1 — there is no
+/// `serde_json::Value` intermediate on the success path at all.
+///
+/// Error path still routes through the JSON-envelope `Converter` so
+/// the Python exception construction stays in one place.
+fn run_py<'py, F>(py: Python<'py>, f: F) -> PyResult<PyObject>
 where
-    F: FnOnce() -> Result<serde_json::Value, error::ParseError>,
+    F: FnOnce(emit_py::PyEmitter<'py>) -> Result<emit_py::PyAst, error::ParseError>,
 {
-    let converter = pyobject::Converter::new(py)?;
-    let value = match f() {
-        Ok(v) => v,
+    let emitter = emit_py::PyEmitter::new(py)?;
+    match f(emitter) {
+        Ok(v) => Ok(v.obj),
         Err(err) => {
-            // Build the same JSON error envelope the JSON entry points emit,
-            // so the converter can raise the matching Python exception with
-            // start/end positions. One code path for both error sources.
-            err.to_json_value()
+            // Build the JSON error envelope so the converter can raise
+            // the matching Python exception with start/end positions.
+            // One code path for both error sources.
+            let value = err.to_json_value();
+            let converter = pyobject::Converter::new(py)?;
+            converter.convert_root(&value)
         }
-    };
-    converter.convert_root(&value)
+    }
 }
 
 #[pyfunction]
@@ -91,27 +97,31 @@ fn parse_full_template_string_json(string: &str) -> String {
 #[pyfunction]
 #[pyo3(signature = (statement, is_internal=false))]
 fn parse_expr_py(py: Python<'_>, statement: &str, is_internal: bool) -> PyResult<PyObject> {
-    run_py(py, || parse::parse_expr(statement, is_internal))
+    run_py(py, |emit| {
+        parse::parse_expr_with_emit(emit, statement, is_internal)
+    })
 }
 
 #[pyfunction]
 fn parse_order_expr_py(py: Python<'_>, statement: &str) -> PyResult<PyObject> {
-    run_py(py, || parse::parse_order_expr(statement))
+    run_py(py, |emit| parse::parse_order_expr_with_emit(emit, statement))
 }
 
 #[pyfunction]
 fn parse_select_py(py: Python<'_>, statement: &str) -> PyResult<PyObject> {
-    run_py(py, || parse::parse_select(statement))
+    run_py(py, |emit| parse::parse_select_with_emit(emit, statement))
 }
 
 #[pyfunction]
 fn parse_program_py(py: Python<'_>, source: &str) -> PyResult<PyObject> {
-    run_py(py, || parse::parse_program(source))
+    run_py(py, |emit| parse::parse_program_with_emit(emit, source))
 }
 
 #[pyfunction]
 fn parse_full_template_string_py(py: Python<'_>, string: &str) -> PyResult<PyObject> {
-    run_py(py, || parse::parse_full_template_string(string))
+    run_py(py, |emit| {
+        parse::parse_full_template_string_with_emit(emit, string)
+    })
 }
 
 #[pymodule]

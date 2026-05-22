@@ -18,9 +18,10 @@
 //!    flag for idempotent `with_pos` / `no_pos` semantics).
 //!
 //! Position handling:
-//!  - The trait's `position()` returns a `Self::Value`. For PyEmitter
-//!    it's just a plain `PyInt` (the offset). Lines/columns aren't
-//!    used by the Python side — only `offset` ends up on the dataclass.
+//!  - `position()` returns a plain `PyInt` (the offset). Lines/columns
+//!    aren't used by the Python side — `AST.start` / `AST.end` are
+//!    `Optional[int]`. Mirrors the post-walk extraction done by
+//!    `pyobject::Converter` for the `parse_*_py` Phase 1 path.
 //!  - `with_pos` / `no_pos` / `replace_pos` mirror cpp's idempotent
 //!    semantics:
 //!    * `with_pos(v, start, end)`: set `v.start = start, v.end = end`
@@ -35,6 +36,7 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use std::borrow::Cow;
+use std::collections::HashMap;
 
 use crate::emit::Emitter;
 
@@ -54,6 +56,14 @@ use crate::emit::Emitter;
 pub struct PyAst {
     pub obj: Py<PyAny>,
     pub positions_locked: bool,
+    /// Out-of-band storage for parser-internal sentinel fields like
+    /// `__rust_offset_liftable` and `__rust_table_args`. The JSON path
+    /// stores these as transient keys on the underlying `Value::Object`
+    /// Map and removes them before the node leaves the parser. Python
+    /// `slots=True` dataclasses reject `setattr` for unknown attributes,
+    /// so PyEmitter routes sentinel reads/writes through this HashMap
+    /// instead. Empty for the vast majority of nodes.
+    pub rust_sentinels: HashMap<String, Py<PyAny>>,
 }
 
 impl Clone for PyAst {
@@ -64,6 +74,11 @@ impl Clone for PyAst {
         Python::with_gil(|py| Self {
             obj: self.obj.clone_ref(py),
             positions_locked: self.positions_locked,
+            rust_sentinels: self
+                .rust_sentinels
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                .collect(),
         })
     }
 }
@@ -75,42 +90,84 @@ impl Clone for PyAst {
 
 /// Constructs `posthog.hogql.ast` instances directly. Holds the GIL
 /// token + cached class references for the full duration of one parse.
+///
+/// `Clone` is required by the Emitter trait bound — the parser clones
+/// the emitter into a sub-`Parser` when handling `f'{…}'` template
+/// blocks. Each `Bound<'py, _>` clone is just a refcount bump, so
+/// cloning the whole struct is ~60 refcount bumps (one per cached
+/// class). Cheap compared to a parse round.
+#[derive(Clone)]
 pub struct PyEmitter<'py> {
     py: Python<'py>,
-    // ===== Expression node classes =====
-    constant: Bound<'py, PyAny>,
-    field: Bound<'py, PyAny>,
-    arith_op: Bound<'py, PyAny>,
-    compare_op: Bound<'py, PyAny>,
-    is_distinct_from: Bound<'py, PyAny>,
-    between_expr: Bound<'py, PyAny>,
-    not_: Bound<'py, PyAny>,
-    and_: Bound<'py, PyAny>,
-    or_: Bound<'py, PyAny>,
-    tuple_: Bound<'py, PyAny>,
-    array_: Bound<'py, PyAny>,
-    array_access: Bound<'py, PyAny>,
-    tuple_access: Bound<'py, PyAny>,
-    alias: Bound<'py, PyAny>,
-    call: Bound<'py, PyAny>,
-    expr_call: Bound<'py, PyAny>,
-    lambda_: Bound<'py, PyAny>,
-    type_cast: Bound<'py, PyAny>,
-    try_cast: Bound<'py, PyAny>,
-    array_slice: Bound<'py, PyAny>,
-    dict_: Bound<'py, PyAny>,
-    placeholder: Bound<'py, PyAny>,
-    named_argument: Bound<'py, PyAny>,
-    order_expr: Bound<'py, PyAny>,
-    columns_expr: Bound<'py, PyAny>,
-    spread_expr: Bound<'py, PyAny>,
+    // ===== Expression node classes (28) =====
+    cls_constant: Bound<'py, PyAny>,
+    cls_field: Bound<'py, PyAny>,
+    cls_arith_op: Bound<'py, PyAny>,
+    cls_compare_op: Bound<'py, PyAny>,
+    cls_is_distinct_from: Bound<'py, PyAny>,
+    cls_between_expr: Bound<'py, PyAny>,
+    cls_not: Bound<'py, PyAny>,
+    cls_and: Bound<'py, PyAny>,
+    cls_or: Bound<'py, PyAny>,
+    cls_tuple: Bound<'py, PyAny>,
+    cls_array: Bound<'py, PyAny>,
+    cls_array_access: Bound<'py, PyAny>,
+    cls_tuple_access: Bound<'py, PyAny>,
+    cls_alias: Bound<'py, PyAny>,
+    cls_call: Bound<'py, PyAny>,
+    cls_expr_call: Bound<'py, PyAny>,
+    cls_lambda: Bound<'py, PyAny>,
+    cls_type_cast: Bound<'py, PyAny>,
+    cls_try_cast: Bound<'py, PyAny>,
+    cls_array_slice: Bound<'py, PyAny>,
+    cls_dict: Bound<'py, PyAny>,
+    cls_placeholder: Bound<'py, PyAny>,
+    cls_named_argument: Bound<'py, PyAny>,
+    cls_order_expr: Bound<'py, PyAny>,
+    cls_columns_expr: Bound<'py, PyAny>,
+    cls_spread_expr: Bound<'py, PyAny>,
+    cls_positional_ref: Bound<'py, PyAny>,
+    // ===== Statement / program classes (13) =====
+    cls_program: Bound<'py, PyAny>,
+    cls_block: Bound<'py, PyAny>,
+    cls_expr_statement: Bound<'py, PyAny>,
+    cls_if_statement: Bound<'py, PyAny>,
+    cls_while_statement: Bound<'py, PyAny>,
+    cls_for_in_statement: Bound<'py, PyAny>,
+    cls_for_statement: Bound<'py, PyAny>,
+    cls_function: Bound<'py, PyAny>,
+    cls_variable_assignment: Bound<'py, PyAny>,
+    cls_return_statement: Bound<'py, PyAny>,
+    cls_try_catch_statement: Bound<'py, PyAny>,
+    cls_throw_statement: Bound<'py, PyAny>,
+    cls_variable_declaration: Bound<'py, PyAny>,
+    // ===== Query / clause classes =====
+    cls_cte: Bound<'py, PyAny>,
+    cls_join_constraint: Bound<'py, PyAny>,
+    cls_values_query: Bound<'py, PyAny>,
+    cls_pivot_column: Bound<'py, PyAny>,
+    cls_unpivot_column: Bound<'py, PyAny>,
+    cls_grouping_set: Bound<'py, PyAny>,
+    cls_hogqlx_tag: Bound<'py, PyAny>,
+    cls_hogqlx_attribute: Bound<'py, PyAny>,
+    cls_window_frame_expr: Bound<'py, PyAny>,
+    cls_select_set_query: Bound<'py, PyAny>,
+    cls_select_query: Bound<'py, PyAny>,
+    cls_select_set_node: Bound<'py, PyAny>,
+    cls_sample_expr: Bound<'py, PyAny>,
+    cls_ratio_expr: Bound<'py, PyAny>,
+    cls_pivot_expr: Bound<'py, PyAny>,
+    cls_unpivot_expr: Bound<'py, PyAny>,
+    cls_join_expr: Bound<'py, PyAny>,
+    cls_window_function: Bound<'py, PyAny>,
+    cls_with_fill_expr: Bound<'py, PyAny>,
+    cls_window_expr: Bound<'py, PyAny>,
+    cls_interpolate_expr: Bound<'py, PyAny>,
+    cls_limit_by_expr: Bound<'py, PyAny>,
     // ===== Op enums (StrEnum lookup via cls[name]) =====
     arith_op_enum: Bound<'py, PyAny>,
     compare_op_enum: Bound<'py, PyAny>,
-    // ===== Module handle so we can `getattr` for less-common classes
-    // (program statements, select sub-structures, hogqlx, etc.) on
-    // demand. The parser cascade may add typed methods for these
-    // later; for now we'll do a getattr per call. =====
+    // ===== Module handle as escape hatch for any class not cached above.
     pub ast_module: Bound<'py, PyModule>,
 }
 
@@ -118,32 +175,68 @@ impl<'py> PyEmitter<'py> {
     pub fn new(py: Python<'py>) -> PyResult<Self> {
         let ast_module = py.import_bound("posthog.hogql.ast")?;
         Ok(Self {
-            constant: ast_module.getattr("Constant")?,
-            field: ast_module.getattr("Field")?,
-            arith_op: ast_module.getattr("ArithmeticOperation")?,
-            compare_op: ast_module.getattr("CompareOperation")?,
-            is_distinct_from: ast_module.getattr("IsDistinctFrom")?,
-            between_expr: ast_module.getattr("BetweenExpr")?,
-            not_: ast_module.getattr("Not")?,
-            and_: ast_module.getattr("And")?,
-            or_: ast_module.getattr("Or")?,
-            tuple_: ast_module.getattr("Tuple")?,
-            array_: ast_module.getattr("Array")?,
-            array_access: ast_module.getattr("ArrayAccess")?,
-            tuple_access: ast_module.getattr("TupleAccess")?,
-            alias: ast_module.getattr("Alias")?,
-            call: ast_module.getattr("Call")?,
-            expr_call: ast_module.getattr("ExprCall")?,
-            lambda_: ast_module.getattr("Lambda")?,
-            type_cast: ast_module.getattr("TypeCast")?,
-            try_cast: ast_module.getattr("TryCast")?,
-            array_slice: ast_module.getattr("ArraySlice")?,
-            dict_: ast_module.getattr("Dict")?,
-            placeholder: ast_module.getattr("Placeholder")?,
-            named_argument: ast_module.getattr("NamedArgument")?,
-            order_expr: ast_module.getattr("OrderExpr")?,
-            columns_expr: ast_module.getattr("ColumnsExpr")?,
-            spread_expr: ast_module.getattr("SpreadExpr")?,
+            cls_constant: ast_module.getattr("Constant")?,
+            cls_field: ast_module.getattr("Field")?,
+            cls_arith_op: ast_module.getattr("ArithmeticOperation")?,
+            cls_compare_op: ast_module.getattr("CompareOperation")?,
+            cls_is_distinct_from: ast_module.getattr("IsDistinctFrom")?,
+            cls_between_expr: ast_module.getattr("BetweenExpr")?,
+            cls_not: ast_module.getattr("Not")?,
+            cls_and: ast_module.getattr("And")?,
+            cls_or: ast_module.getattr("Or")?,
+            cls_tuple: ast_module.getattr("Tuple")?,
+            cls_array: ast_module.getattr("Array")?,
+            cls_array_access: ast_module.getattr("ArrayAccess")?,
+            cls_tuple_access: ast_module.getattr("TupleAccess")?,
+            cls_alias: ast_module.getattr("Alias")?,
+            cls_call: ast_module.getattr("Call")?,
+            cls_expr_call: ast_module.getattr("ExprCall")?,
+            cls_lambda: ast_module.getattr("Lambda")?,
+            cls_type_cast: ast_module.getattr("TypeCast")?,
+            cls_try_cast: ast_module.getattr("TryCast")?,
+            cls_array_slice: ast_module.getattr("ArraySlice")?,
+            cls_dict: ast_module.getattr("Dict")?,
+            cls_placeholder: ast_module.getattr("Placeholder")?,
+            cls_named_argument: ast_module.getattr("NamedArgument")?,
+            cls_order_expr: ast_module.getattr("OrderExpr")?,
+            cls_columns_expr: ast_module.getattr("ColumnsExpr")?,
+            cls_spread_expr: ast_module.getattr("SpreadExpr")?,
+            cls_positional_ref: ast_module.getattr("PositionalRef")?,
+            cls_program: ast_module.getattr("Program")?,
+            cls_block: ast_module.getattr("Block")?,
+            cls_expr_statement: ast_module.getattr("ExprStatement")?,
+            cls_if_statement: ast_module.getattr("IfStatement")?,
+            cls_while_statement: ast_module.getattr("WhileStatement")?,
+            cls_for_in_statement: ast_module.getattr("ForInStatement")?,
+            cls_for_statement: ast_module.getattr("ForStatement")?,
+            cls_function: ast_module.getattr("Function")?,
+            cls_variable_assignment: ast_module.getattr("VariableAssignment")?,
+            cls_return_statement: ast_module.getattr("ReturnStatement")?,
+            cls_try_catch_statement: ast_module.getattr("TryCatchStatement")?,
+            cls_throw_statement: ast_module.getattr("ThrowStatement")?,
+            cls_variable_declaration: ast_module.getattr("VariableDeclaration")?,
+            cls_cte: ast_module.getattr("CTE")?,
+            cls_join_constraint: ast_module.getattr("JoinConstraint")?,
+            cls_values_query: ast_module.getattr("ValuesQuery")?,
+            cls_pivot_column: ast_module.getattr("PivotColumn")?,
+            cls_unpivot_column: ast_module.getattr("UnpivotColumn")?,
+            cls_grouping_set: ast_module.getattr("GroupingSet")?,
+            cls_hogqlx_tag: ast_module.getattr("HogQLXTag")?,
+            cls_hogqlx_attribute: ast_module.getattr("HogQLXAttribute")?,
+            cls_window_frame_expr: ast_module.getattr("WindowFrameExpr")?,
+            cls_select_set_query: ast_module.getattr("SelectSetQuery")?,
+            cls_select_query: ast_module.getattr("SelectQuery")?,
+            cls_select_set_node: ast_module.getattr("SelectSetNode")?,
+            cls_sample_expr: ast_module.getattr("SampleExpr")?,
+            cls_ratio_expr: ast_module.getattr("RatioExpr")?,
+            cls_pivot_expr: ast_module.getattr("PivotExpr")?,
+            cls_unpivot_expr: ast_module.getattr("UnpivotExpr")?,
+            cls_join_expr: ast_module.getattr("JoinExpr")?,
+            cls_window_function: ast_module.getattr("WindowFunction")?,
+            cls_with_fill_expr: ast_module.getattr("WithFillExpr")?,
+            cls_window_expr: ast_module.getattr("WindowExpr")?,
+            cls_interpolate_expr: ast_module.getattr("InterpolateExpr")?,
+            cls_limit_by_expr: ast_module.getattr("LimitByExpr")?,
             arith_op_enum: ast_module.getattr("ArithmeticOperationOp")?,
             compare_op_enum: ast_module.getattr("CompareOperationOp")?,
             ast_module,
@@ -152,8 +245,7 @@ impl<'py> PyEmitter<'py> {
     }
 
     /// Construct a node by invoking `class(**kwargs)`. Wraps the result
-    /// in [`PyAst`] with `positions_locked = false` (caller can mark it
-    /// locked via [`Emitter::no_pos`]).
+    /// in [`PyAst`] with `positions_locked = false`.
     fn build(
         &self,
         class: &Bound<'py, PyAny>,
@@ -166,33 +258,18 @@ impl<'py> PyEmitter<'py> {
         PyAst {
             obj,
             positions_locked: false,
+            rust_sentinels: HashMap::new(),
         }
     }
 
-    /// Helper: wrap a non-AST primitive (None, bool, int, str, list) as
-    /// a PyAst so it can flow through the parser as `Self::Value`.
+    /// Helper: wrap a non-AST primitive (None, bool, int, str, list)
+    /// in PyAst so it flows through the parser as `Self::Value`.
     fn wrap_prim(&self, obj: PyObject) -> PyAst {
         PyAst {
             obj,
             positions_locked: false,
+            rust_sentinels: HashMap::new(),
         }
-    }
-
-    /// Bind the inner `Py<PyAny>` to the GIL we already hold.
-    #[inline]
-    fn bind<'a>(&'a self, v: &'a PyAst) -> Bound<'py, PyAny>
-    where
-        'a: 'py,
-    {
-        v.obj.bind(self.py).clone()
-    }
-
-    /// Look up a class on the cached `ast` module — fallback for
-    /// less-common node types not held as a typed field.
-    fn ast_class(&self, name: &str) -> Bound<'py, PyAny> {
-        self.ast_module
-            .getattr(name)
-            .unwrap_or_else(|_| panic!("posthog.hogql.ast has no class `{name}`"))
     }
 }
 
@@ -217,19 +294,38 @@ impl<'py> Emitter for PyEmitter<'py> {
     fn string(&self, v: &str) -> PyAst {
         self.wrap_prim(v.into_py(self.py))
     }
+    fn float(&self, v: f64) -> PyAst {
+        self.wrap_prim(v.into_py(self.py))
+    }
+    fn uint(&self, v: u64) -> PyAst {
+        self.wrap_prim(v.into_py(self.py))
+    }
+    fn list_value(&self, items: Vec<PyAst>) -> PyAst {
+        let list = PyList::empty_bound(self.py);
+        for item in items {
+            list.append(item.obj).unwrap();
+        }
+        self.wrap_prim(list.into_any().unbind())
+    }
+    fn string_keyed_map(&self, pairs: Vec<(String, PyAst)>) -> PyAst {
+        let dict = PyDict::new_bound(self.py);
+        for (k, v) in pairs {
+            dict.set_item(k, v.obj.bind(self.py)).unwrap();
+        }
+        self.wrap_prim(dict.into_any().unbind())
+    }
 
     // ===== AST node constructors =====
 
     fn constant(&self, value: PyAst) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("value", value.obj.bind(self.py)).unwrap();
-        self.build(&self.constant, &kw)
+        self.build(&self.cls_constant, &kw)
     }
     fn constant_special_number(&self, name: &'static str) -> PyAst {
         // cpp's `Infinity` / `-Infinity` / `NaN` shipped as a string in
-        // the JSON form. The Python deserialiser (and our PyEmitter)
-        // unwrap to the f64 value here, so the resulting Constant has
-        // `value: float('inf')` etc.
+        // the JSON form. The Python side unwraps to the f64 value, so
+        // the Constant holds `value: float('inf')` etc.
         let f = match name {
             "Infinity" => f64::INFINITY,
             "-Infinity" => f64::NEG_INFINITY,
@@ -238,7 +334,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         };
         let kw = PyDict::new_bound(self.py);
         kw.set_item("value", f).unwrap();
-        self.build(&self.constant, &kw)
+        self.build(&self.cls_constant, &kw)
     }
     fn constant_number_string(&self, text: String) -> PyAst {
         // Lossless big int: hand the digit string to Python `int(text, base)`.
@@ -251,23 +347,23 @@ impl<'py> Emitter for PyEmitter<'py> {
         let int_obj = int_cls.call(&args, None).unwrap();
         let kw = PyDict::new_bound(self.py);
         kw.set_item("value", &int_obj).unwrap();
-        self.build(&self.constant, &kw)
+        self.build(&self.cls_constant, &kw)
     }
     fn field(&self, chain: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("chain", build_list(self.py, chain)).unwrap();
-        self.build(&self.field, &kw)
+        self.build(&self.cls_field, &kw)
     }
     fn arith(&self, left: PyAst, op: &str, right: PyAst) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("left", left.obj.bind(self.py)).unwrap();
         kw.set_item("right", right.obj.bind(self.py)).unwrap();
-        // Coerce op-string → ArithmeticOperationOp via `cls[name]`.
-        let op_member = self.arith_op_enum.get_item(op).unwrap_or_else(|_| {
-            self.arith_op_enum.get_item(arith_op_name_from_symbol(op)).unwrap()
-        });
+        let op_member = self
+            .arith_op_enum
+            .get_item(op)
+            .unwrap_or_else(|_| self.arith_op_enum.get_item(arith_op_name_from_symbol(op)).unwrap());
         kw.set_item("op", &op_member).unwrap();
-        self.build(&self.arith_op, &kw)
+        self.build(&self.cls_arith_op, &kw)
     }
     fn compare(&self, left: PyAst, op: &str, right: PyAst) -> PyAst {
         let kw = PyDict::new_bound(self.py);
@@ -277,11 +373,11 @@ impl<'py> Emitter for PyEmitter<'py> {
             self.compare_op_enum.get_item(compare_op_name_from_symbol(op)).unwrap()
         });
         kw.set_item("op", &op_member).unwrap();
-        self.build(&self.compare_op, &kw)
+        self.build(&self.cls_compare_op, &kw)
     }
     fn compare_is_null(&self, left: PyAst, negated: bool) -> PyAst {
-        // `expr IS NULL` / `expr IS NOT NULL` → CompareOperation(left,
-        // Constant(None), == / !=, is_null_comparison_style=True).
+        // `expr IS [NOT] NULL` → CompareOperation(left, Constant(None),
+        // == / !=, is_null_comparison_style=True).
         let kw = PyDict::new_bound(self.py);
         kw.set_item("left", left.obj.bind(self.py)).unwrap();
         let null_constant = self.constant(self.null());
@@ -290,14 +386,14 @@ impl<'py> Emitter for PyEmitter<'py> {
         let op_member = self.compare_op_enum.get_item(op_name).unwrap();
         kw.set_item("op", &op_member).unwrap();
         kw.set_item("is_null_comparison_style", true).unwrap();
-        self.build(&self.compare_op, &kw)
+        self.build(&self.cls_compare_op, &kw)
     }
     fn is_distinct_from(&self, left: PyAst, right: PyAst, negated: bool) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("left", left.obj.bind(self.py)).unwrap();
         kw.set_item("right", right.obj.bind(self.py)).unwrap();
         kw.set_item("negated", negated).unwrap();
-        self.build(&self.is_distinct_from, &kw)
+        self.build(&self.cls_is_distinct_from, &kw)
     }
     fn between(&self, expr: PyAst, low: PyAst, high: PyAst, negated: bool) -> PyAst {
         let kw = PyDict::new_bound(self.py);
@@ -305,32 +401,32 @@ impl<'py> Emitter for PyEmitter<'py> {
         kw.set_item("low", low.obj.bind(self.py)).unwrap();
         kw.set_item("high", high.obj.bind(self.py)).unwrap();
         kw.set_item("negated", negated).unwrap();
-        self.build(&self.between_expr, &kw)
+        self.build(&self.cls_between_expr, &kw)
     }
     fn not_(&self, expr: PyAst) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
-        self.build(&self.not_, &kw)
+        self.build(&self.cls_not, &kw)
     }
     fn and_(&self, exprs: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("exprs", build_list(self.py, exprs)).unwrap();
-        self.build(&self.and_, &kw)
+        self.build(&self.cls_and, &kw)
     }
     fn or_(&self, exprs: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("exprs", build_list(self.py, exprs)).unwrap();
-        self.build(&self.or_, &kw)
+        self.build(&self.cls_or, &kw)
     }
     fn tuple_(&self, exprs: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("exprs", build_list(self.py, exprs)).unwrap();
-        self.build(&self.tuple_, &kw)
+        self.build(&self.cls_tuple, &kw)
     }
     fn array_(&self, exprs: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("exprs", build_list(self.py, exprs)).unwrap();
-        self.build(&self.array_, &kw)
+        self.build(&self.cls_array, &kw)
     }
     fn array_access(&self, array: PyAst, property: PyAst, nullish: bool) -> PyAst {
         let kw = PyDict::new_bound(self.py);
@@ -339,7 +435,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         if nullish {
             kw.set_item("nullish", true).unwrap();
         }
-        self.build(&self.array_access, &kw)
+        self.build(&self.cls_array_access, &kw)
     }
     fn tuple_access(&self, tuple_: PyAst, index: i64, nullish: bool) -> PyAst {
         let kw = PyDict::new_bound(self.py);
@@ -348,19 +444,19 @@ impl<'py> Emitter for PyEmitter<'py> {
         if nullish {
             kw.set_item("nullish", true).unwrap();
         }
-        self.build(&self.tuple_access, &kw)
+        self.build(&self.cls_tuple_access, &kw)
     }
     fn alias(&self, expr: PyAst, name: &str) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
         kw.set_item("alias", name).unwrap();
-        self.build(&self.alias, &kw)
+        self.build(&self.cls_alias, &kw)
     }
     fn call(&self, name: &str, args: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("name", name).unwrap();
         kw.set_item("args", build_list(self.py, args)).unwrap();
-        self.build(&self.call, &kw)
+        self.build(&self.cls_call, &kw)
     }
     fn call_full(
         &self,
@@ -390,7 +486,7 @@ impl<'py> Emitter for PyEmitter<'py> {
         if let Some(wg) = within_group {
             kw.set_item("within_group", build_list(self.py, wg)).unwrap();
         }
-        self.build(&self.call, &kw)
+        self.build(&self.cls_call, &kw)
     }
     fn lambda(&self, args: Vec<String>, expr: PyAst) -> PyAst {
         let kw = PyDict::new_bound(self.py);
@@ -400,25 +496,25 @@ impl<'py> Emitter for PyEmitter<'py> {
         }
         kw.set_item("args", args_list).unwrap();
         kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
-        self.build(&self.lambda_, &kw)
+        self.build(&self.cls_lambda, &kw)
     }
     fn expr_call(&self, expr: PyAst, args: Vec<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
         kw.set_item("args", build_list(self.py, args)).unwrap();
-        self.build(&self.expr_call, &kw)
+        self.build(&self.cls_expr_call, &kw)
     }
     fn type_cast(&self, expr: PyAst, type_name: &str) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
         kw.set_item("type_name", type_name).unwrap();
-        self.build(&self.type_cast, &kw)
+        self.build(&self.cls_type_cast, &kw)
     }
     fn try_cast(&self, expr: PyAst, type_name: &str) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
         kw.set_item("type_name", type_name).unwrap();
-        self.build(&self.try_cast, &kw)
+        self.build(&self.cls_try_cast, &kw)
     }
     fn array_slice(&self, array: PyAst, start: Option<PyAst>, end: Option<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
@@ -429,10 +525,9 @@ impl<'py> Emitter for PyEmitter<'py> {
         if let Some(e) = end {
             kw.set_item("end_expr", e.obj.bind(self.py)).unwrap();
         }
-        self.build(&self.array_slice, &kw)
+        self.build(&self.cls_array_slice, &kw)
     }
     fn dict_(&self, items: Vec<(PyAst, PyAst)>) -> PyAst {
-        // Python Dict dataclass has `items: list[tuple[Expr, Expr]]`.
         let kw = PyDict::new_bound(self.py);
         let items_list = PyList::empty_bound(self.py);
         for (k, v) in items {
@@ -440,38 +535,32 @@ impl<'py> Emitter for PyEmitter<'py> {
             items_list.append(pair).unwrap();
         }
         kw.set_item("items", items_list).unwrap();
-        self.build(&self.dict_, &kw)
+        self.build(&self.cls_dict, &kw)
     }
     fn placeholder(&self, expr: PyAst) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
-        self.build(&self.placeholder, &kw)
+        self.build(&self.cls_placeholder, &kw)
     }
     fn named_argument(&self, name: &str, value: PyAst) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("name", name).unwrap();
         kw.set_item("value", value.obj.bind(self.py)).unwrap();
-        let mut node = self.build(&self.named_argument, &kw);
-        // cpp's `VISIT(NamedArgument)` emits this without
-        // `addPositionInfo` — Python AST shows `start=None, end=None`.
-        // Mark the wrapper position-locked so the outer `with_pos` is
-        // a no-op.
+        let mut node = self.build(&self.cls_named_argument, &kw);
+        // cpp's `VISIT(NamedArgument)` emits this without `addPositionInfo`.
+        // The wrapper's `positions_locked` short-circuits future `with_pos`
+        // calls.
         node.positions_locked = true;
         node
     }
-    fn order_expr(
-        &self,
-        expr: PyAst,
-        order: &str,
-        with_fill: Option<PyAst>,
-    ) -> PyAst {
+    fn order_expr(&self, expr: PyAst, order: &str, with_fill: Option<PyAst>) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
         kw.set_item("order", order).unwrap();
         if let Some(wf) = with_fill {
             kw.set_item("with_fill", wf.obj.bind(self.py)).unwrap();
         }
-        self.build(&self.order_expr, &kw)
+        self.build(&self.cls_order_expr, &kw)
     }
     fn columns_expr(
         &self,
@@ -505,20 +594,432 @@ impl<'py> Emitter for PyEmitter<'py> {
             }
             kw.set_item("replace", rep_dict).unwrap();
         }
-        self.build(&self.columns_expr, &kw)
+        self.build(&self.cls_columns_expr, &kw)
     }
     fn spread_expr(&self, expr: PyAst) -> PyAst {
         let kw = PyDict::new_bound(self.py);
         kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
-        self.build(&self.spread_expr, &kw)
+        self.build(&self.cls_spread_expr, &kw)
+    }
+    fn positional_ref(&self, index: i64) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("index", index).unwrap();
+        self.build(&self.cls_positional_ref, &kw)
+    }
+
+    // ===== Statement / program builders =====
+
+    fn program(&self, declarations: Vec<PyAst>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("declarations", build_list(self.py, declarations)).unwrap();
+        self.build(&self.cls_program, &kw)
+    }
+    fn block(&self, declarations: Vec<PyAst>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("declarations", build_list(self.py, declarations)).unwrap();
+        self.build(&self.cls_block, &kw)
+    }
+    fn expr_statement(&self, expr: PyAst) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_expr_statement, &kw)
+    }
+    fn if_statement(&self, cond: PyAst, then: PyAst, else_: PyAst) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("expr", cond.obj.bind(self.py)).unwrap();
+        kw.set_item("then", then.obj.bind(self.py)).unwrap();
+        kw.set_item("else_", else_.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_if_statement, &kw)
+    }
+    fn while_statement(&self, cond: PyAst, body: PyAst) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("expr", cond.obj.bind(self.py)).unwrap();
+        kw.set_item("body", body.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_while_statement, &kw)
+    }
+    fn for_in_statement(
+        &self,
+        key_var: PyAst,
+        value_var: PyAst,
+        expr: PyAst,
+        body: PyAst,
+    ) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("keyVar", key_var.obj.bind(self.py)).unwrap();
+        kw.set_item("valueVar", value_var.obj.bind(self.py)).unwrap();
+        kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
+        kw.set_item("body", body.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_for_in_statement, &kw)
+    }
+    fn for_statement(
+        &self,
+        initializer: PyAst,
+        condition: PyAst,
+        increment: PyAst,
+        body: PyAst,
+    ) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("initializer", initializer.obj.bind(self.py)).unwrap();
+        kw.set_item("condition", condition.obj.bind(self.py)).unwrap();
+        kw.set_item("increment", increment.obj.bind(self.py)).unwrap();
+        kw.set_item("body", body.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_for_statement, &kw)
+    }
+    fn function_(&self, name: &str, params: Vec<PyAst>, body: PyAst) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("name", name).unwrap();
+        kw.set_item("params", build_list(self.py, params)).unwrap();
+        kw.set_item("body", body.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_function, &kw)
+    }
+    fn variable_assignment(&self, left: PyAst, right: PyAst) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("left", left.obj.bind(self.py)).unwrap();
+        kw.set_item("right", right.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_variable_assignment, &kw)
+    }
+    fn return_statement(&self, expr: PyAst) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_return_statement, &kw)
+    }
+    fn try_catch_statement(
+        &self,
+        try_stmt: PyAst,
+        catches: Vec<PyAst>,
+        finally_stmt: PyAst,
+    ) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("try_stmt", try_stmt.obj.bind(self.py)).unwrap();
+        kw.set_item("catches", build_list(self.py, catches)).unwrap();
+        kw.set_item("finally_stmt", finally_stmt.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_try_catch_statement, &kw)
+    }
+    fn throw_statement(&self, expr: PyAst) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_throw_statement, &kw)
+    }
+    fn variable_declaration(&self, name: &str, expr: PyAst) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("name", name).unwrap();
+        kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_variable_declaration, &kw)
+    }
+    fn catch_clause(&self, var: PyAst, ty: PyAst, body: PyAst) -> PyAst {
+        // cpp emits this as a `[var, type, body]` JSON array — for Py
+        // we represent the catch clause the same way (the
+        // `TryCatchStatement.catches` field is `list[list[Expr | Type
+        // | Block]]` shape).
+        let list = PyList::empty_bound(self.py);
+        list.append(var.obj).unwrap();
+        list.append(ty.obj).unwrap();
+        list.append(body.obj).unwrap();
+        self.wrap_prim(list.into_any().unbind())
+    }
+
+    // ===== Query / clause builders =====
+
+    fn cte(&self, name: &str, expr: PyAst, cte_type: &str) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("name", name).unwrap();
+        kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
+        kw.set_item("cte_type", cte_type).unwrap();
+        self.build(&self.cls_cte, &kw)
+    }
+    fn cte_subquery(
+        &self,
+        name: &str,
+        expr: PyAst,
+        columns: Option<Vec<String>>,
+        using_key: Option<Vec<String>>,
+        materialized: Option<bool>,
+    ) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("name", name).unwrap();
+        kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
+        kw.set_item("cte_type", "subquery").unwrap();
+        if let Some(c) = columns {
+            let l = PyList::empty_bound(self.py);
+            for s in c {
+                l.append(s).unwrap();
+            }
+            kw.set_item("columns", l).unwrap();
+        }
+        if let Some(uk) = using_key {
+            let l = PyList::empty_bound(self.py);
+            for s in uk {
+                l.append(s).unwrap();
+            }
+            kw.set_item("using_key", l).unwrap();
+        }
+        if let Some(m) = materialized {
+            kw.set_item("materialized", m).unwrap();
+        }
+        self.build(&self.cls_cte, &kw)
+    }
+    fn join_constraint(&self, expr: PyAst, constraint_type: &str) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
+        kw.set_item("constraint_type", constraint_type).unwrap();
+        self.build(&self.cls_join_constraint, &kw)
+    }
+    fn values_query(&self, rows: Vec<PyAst>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("rows", build_list(self.py, rows)).unwrap();
+        self.build(&self.cls_values_query, &kw)
+    }
+    fn pivot_column(&self, column: PyAst, values: Vec<PyAst>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("column", column.obj.bind(self.py)).unwrap();
+        kw.set_item("values", build_list(self.py, values)).unwrap();
+        self.build(&self.cls_pivot_column, &kw)
+    }
+    fn unpivot_column(
+        &self,
+        value_columns: PyAst,
+        name_columns: PyAst,
+        unpivot_values: Vec<PyAst>,
+    ) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("value_columns", value_columns.obj.bind(self.py)).unwrap();
+        kw.set_item("name_columns", name_columns.obj.bind(self.py)).unwrap();
+        kw.set_item("unpivot_values", build_list(self.py, unpivot_values)).unwrap();
+        self.build(&self.cls_unpivot_column, &kw)
+    }
+    fn grouping_set(&self, exprs: Vec<PyAst>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("exprs", build_list(self.py, exprs)).unwrap();
+        self.build(&self.cls_grouping_set, &kw)
+    }
+    fn hogqlx_tag(&self, kind: &str, attributes: Vec<PyAst>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("kind", kind).unwrap();
+        kw.set_item("attributes", build_list(self.py, attributes)).unwrap();
+        self.build(&self.cls_hogqlx_tag, &kw)
+    }
+    fn hogqlx_attribute(&self, name: &str, value: PyAst) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("name", name).unwrap();
+        kw.set_item("value", value.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_hogqlx_attribute, &kw)
+    }
+    fn window_frame_expr(
+        &self,
+        frame_type: &str,
+        start_type: &str,
+        start_expr: Option<PyAst>,
+        end_type: Option<&str>,
+        end_expr: Option<PyAst>,
+    ) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("frame_type", frame_type).unwrap();
+        kw.set_item("frame_start_type", start_type).unwrap();
+        if let Some(se) = start_expr {
+            kw.set_item("frame_start_expr", se.obj.bind(self.py)).unwrap();
+        }
+        if let Some(et) = end_type {
+            kw.set_item("frame_end_type", et).unwrap();
+        }
+        if let Some(ee) = end_expr {
+            kw.set_item("frame_end_expr", ee.obj.bind(self.py)).unwrap();
+        }
+        self.build(&self.cls_window_frame_expr, &kw)
+    }
+    fn select_set_query(&self, initial: PyAst, subsequent: Vec<PyAst>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("initial_select_query", initial.obj.bind(self.py)).unwrap();
+        kw.set_item("subsequent_select_queries", build_list(self.py, subsequent))
+            .unwrap();
+        self.build(&self.cls_select_set_query, &kw)
+    }
+    fn window_expr_empty(&self) -> PyAst {
+        // `WindowExpr()` with all-defaults.
+        self.build(&self.cls_window_expr, &PyDict::new_bound(self.py))
+    }
+    fn window_frame_bound(&self, frame_type: &str, frame_value: PyAst) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("frame_type", frame_type).unwrap();
+        kw.set_item("frame_value", frame_value.obj.bind(self.py)).unwrap();
+        self.build(&self.cls_window_frame_expr, &kw)
+    }
+    fn interpolate_expr(&self, expr: PyAst, value: Option<PyAst>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("expr", expr.obj.bind(self.py)).unwrap();
+        if let Some(v) = value {
+            kw.set_item("value", v.obj.bind(self.py)).unwrap();
+        }
+        self.build(&self.cls_interpolate_expr, &kw)
+    }
+    fn limit_by_expr(&self, n: PyAst, exprs: Vec<PyAst>, offset_value: Option<PyAst>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("n", n.obj.bind(self.py)).unwrap();
+        kw.set_item("exprs", build_list(self.py, exprs)).unwrap();
+        if let Some(o) = offset_value {
+            kw.set_item("offset_value", o.obj.bind(self.py)).unwrap();
+        }
+        self.build(&self.cls_limit_by_expr, &kw)
+    }
+    fn select_query_empty(&self) -> PyAst {
+        // `SelectQuery` has `select: list[Expr]` as a required (no-default)
+        // field — passing nothing trips dataclass `__init__` validation.
+        // The parser fills the real value via `set_field("select", ...)`
+        // before the node leaves the parser, so an empty list is a
+        // safe placeholder. Same idea for the other AST surgery sites
+        // that work on top of an `_empty()` shell.
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("select", PyList::empty_bound(self.py)).unwrap();
+        self.build(&self.cls_select_query, &kw)
+    }
+    fn select_set_node(&self, select_query: PyAst, set_operator: Option<&str>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("select_query", select_query.obj.bind(self.py)).unwrap();
+        if let Some(op) = set_operator {
+            kw.set_item("set_operator", op).unwrap();
+        }
+        self.build(&self.cls_select_set_node, &kw)
+    }
+    fn sample_expr(&self, sample_value: PyAst, offset_value: Option<PyAst>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("sample_value", sample_value.obj.bind(self.py)).unwrap();
+        if let Some(o) = offset_value {
+            kw.set_item("offset_value", o.obj.bind(self.py)).unwrap();
+        }
+        self.build(&self.cls_sample_expr, &kw)
+    }
+    fn ratio_expr(&self, left: PyAst, right: Option<PyAst>) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("left", left.obj.bind(self.py)).unwrap();
+        if let Some(r) = right {
+            kw.set_item("right", r.obj.bind(self.py)).unwrap();
+        }
+        self.build(&self.cls_ratio_expr, &kw)
+    }
+    fn pivot_expr(
+        &self,
+        table: PyAst,
+        aggregates: Vec<PyAst>,
+        columns: Vec<PyAst>,
+        group_by: Option<Vec<PyAst>>,
+    ) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("table", table.obj.bind(self.py)).unwrap();
+        kw.set_item("aggregates", build_list(self.py, aggregates)).unwrap();
+        kw.set_item("columns", build_list(self.py, columns)).unwrap();
+        if let Some(g) = group_by {
+            kw.set_item("group_by", build_list(self.py, g)).unwrap();
+        }
+        self.build(&self.cls_pivot_expr, &kw)
+    }
+    fn unpivot_expr(&self, table: PyAst, columns: Vec<PyAst>, include_nulls: bool) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("table", table.obj.bind(self.py)).unwrap();
+        kw.set_item("columns", build_list(self.py, columns)).unwrap();
+        kw.set_item("include_nulls", include_nulls).unwrap();
+        self.build(&self.cls_unpivot_expr, &kw)
+    }
+    fn join_expr(
+        &self,
+        table: PyAst,
+        alias: Option<String>,
+        table_args: Option<PyAst>,
+        column_aliases: Option<Vec<String>>,
+        table_final: bool,
+        sample: Option<PyAst>,
+    ) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("table", table.obj.bind(self.py)).unwrap();
+        if let Some(ta) = table_args {
+            kw.set_item("table_args", ta.obj.bind(self.py)).unwrap();
+        }
+        if let Some(a) = alias {
+            kw.set_item("alias", a).unwrap();
+        }
+        if table_final {
+            kw.set_item("table_final", true).unwrap();
+        }
+        if let Some(s) = sample {
+            kw.set_item("sample", s.obj.bind(self.py)).unwrap();
+        }
+        if let Some(ca) = column_aliases {
+            let l = PyList::empty_bound(self.py);
+            for s in ca {
+                l.append(s).unwrap();
+            }
+            kw.set_item("column_aliases", l).unwrap();
+        }
+        self.build(&self.cls_join_expr, &kw)
+    }
+    fn window_function(
+        &self,
+        name: &str,
+        exprs: Vec<PyAst>,
+        args: Vec<PyAst>,
+        over_expr: Option<PyAst>,
+        over_identifier: Option<String>,
+    ) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        kw.set_item("name", name).unwrap();
+        kw.set_item("exprs", build_list(self.py, exprs)).unwrap();
+        kw.set_item("args", build_list(self.py, args)).unwrap();
+        if let Some(we) = over_expr {
+            kw.set_item("over_expr", we.obj.bind(self.py)).unwrap();
+        }
+        if let Some(id) = over_identifier {
+            kw.set_item("over_identifier", id).unwrap();
+        }
+        self.build(&self.cls_window_function, &kw)
+    }
+    fn with_fill_expr(
+        &self,
+        from_value: Option<PyAst>,
+        to_value: Option<PyAst>,
+        step_value: Option<PyAst>,
+    ) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        if let Some(v) = from_value {
+            kw.set_item("from_value", v.obj.bind(self.py)).unwrap();
+        }
+        if let Some(v) = to_value {
+            kw.set_item("to_value", v.obj.bind(self.py)).unwrap();
+        }
+        if let Some(v) = step_value {
+            kw.set_item("step_value", v.obj.bind(self.py)).unwrap();
+        }
+        self.build(&self.cls_with_fill_expr, &kw)
+    }
+    fn window_expr(
+        &self,
+        partition_by: Option<Vec<PyAst>>,
+        order_by: Option<Vec<PyAst>>,
+        frame_method: Option<&str>,
+        frame_start: Option<PyAst>,
+        frame_end: Option<PyAst>,
+    ) -> PyAst {
+        let kw = PyDict::new_bound(self.py);
+        if let Some(p) = partition_by {
+            kw.set_item("partition_by", build_list(self.py, p)).unwrap();
+        }
+        if let Some(o) = order_by {
+            kw.set_item("order_by", build_list(self.py, o)).unwrap();
+        }
+        if let Some(fm) = frame_method {
+            kw.set_item("frame_method", fm).unwrap();
+        }
+        if let Some(fs) = frame_start {
+            kw.set_item("frame_start", fs.obj.bind(self.py)).unwrap();
+        }
+        if let Some(fe) = frame_end {
+            kw.set_item("frame_end", fe.obj.bind(self.py)).unwrap();
+        }
+        self.build(&self.cls_window_expr, &kw)
     }
 
     // ===== Position machinery =====
     fn position(&self, _line: u32, _column: u32, offset: usize) -> PyAst {
-        // Python AST `start` / `end` fields are plain `Optional[int]` —
+        // Python AST `start` / `end` are plain `Optional[int]` —
         // only the offset survives. Lines/columns are emitted by cpp
-        // for JSON but the Python deserialiser drops them too (see
-        // `pyobject::Converter::convert::{position envelope extraction}`).
+        // for JSON but the Python deserialiser drops them.
         self.wrap_prim(offset.into_py(self.py))
     }
     fn with_pos(&self, value: PyAst, start: PyAst, end: PyAst) -> PyAst {
@@ -526,13 +1027,12 @@ impl<'py> Emitter for PyEmitter<'py> {
             return value;
         }
         let bound = value.obj.bind(self.py);
-        // `start` is only present on AST dataclasses (via the `AST`
-        // base) — primitives like int / str / None don't have it.
-        // Probe `hasattr`-style; skip silently if absent.
+        // `start` is only present on AST dataclasses (via `AST` base);
+        // primitives like int / str / None don't have it.
         if let Ok(existing) = bound.getattr("start") {
             if existing.is_none() {
-                let _ = bound.setattr("start", start.obj.bind(self.py));
-                let _ = bound.setattr("end", end.obj.bind(self.py));
+                bound.setattr("start", start.obj.bind(self.py)).unwrap();
+                bound.setattr("end", end.obj.bind(self.py)).unwrap();
             }
         }
         value
@@ -547,41 +1047,68 @@ impl<'py> Emitter for PyEmitter<'py> {
         }
         let bound = value.obj.bind(self.py);
         if bound.hasattr("start").unwrap_or(false) {
-            let _ = bound.setattr("start", start.obj.bind(self.py));
-            let _ = bound.setattr("end", end.obj.bind(self.py));
+            bound.setattr("start", start.obj.bind(self.py)).unwrap();
+            bound.setattr("end", end.obj.bind(self.py)).unwrap();
         }
         value
     }
 
     // ===== Inspection =====
     fn node_kind<'a>(&self, v: &'a PyAst) -> Option<Cow<'a, str>> {
-        // Python class name: `type(v).__name__`.
         let bound = v.obj.bind(self.py);
-        bound
-            .get_type()
-            .name()
-            .ok()
-            .and_then(|cow_str| {
-                // PyO3's name() returns Cow<'a, str>; we want the same
-                // semantics as JsonEmitter's `Cow::Borrowed`.
-                let s: String = cow_str.into();
-                if s == "NoneType" {
-                    None
-                } else {
-                    Some(Cow::Owned(s))
-                }
-            })
+        // Plain primitives (int / str / None / list / dict / bool)
+        // aren't AST nodes — return None to match JsonEmitter semantics.
+        // Distinguish by checking if the type name matches an ast.*
+        // class. Simplest: try `_visit_method_name` attr (every AST
+        // dataclass has it via `__init_subclass__`) — fast attribute
+        // probe, no string parsing.
+        if !bound.hasattr("_visit_method_name").unwrap_or(false) {
+            return None;
+        }
+        let type_name = bound.get_type().qualname().ok()?;
+        Some(Cow::Owned(type_name.to_string()))
     }
     fn get_field(&self, v: &PyAst, name: &str) -> Option<PyAst> {
+        // Sentinel fields (`__rust_*`) live in the side-channel map
+        // rather than as dataclass attributes — see `rust_sentinels`
+        // on `PyAst`.
+        if let Some(stored) = v.rust_sentinels.get(name) {
+            return Some(PyAst {
+                obj: stored.clone_ref(self.py),
+                positions_locked: false,
+                rust_sentinels: HashMap::new(),
+            });
+        }
         let bound = v.obj.bind(self.py);
-        bound.getattr(name).ok().map(|got| PyAst {
-            obj: got.unbind(),
-            positions_locked: false,
-        })
+        match bound.getattr(name) {
+            Ok(got) => Some(PyAst {
+                obj: got.unbind(),
+                positions_locked: false,
+                rust_sentinels: HashMap::new(),
+            }),
+            Err(_) => None,
+        }
     }
     fn has_field(&self, v: &PyAst, name: &str) -> bool {
+        // JsonEmitter's `has_field` returns true iff the key exists in
+        // the JSON Map — which the JSON impl only inserts when the
+        // parser explicitly emitted a non-default value for the field.
+        // The Python equivalent is "attribute exists AND is not None":
+        // slots=True dataclasses always declare every field as an
+        // attribute (even when its default is None), so a plain
+        // `hasattr` returns true for unset fields too. The parser uses
+        // `has_field` to gate "did the parser set this?" branches
+        // (wrap_pivot_chain's decoration check, the array-join FROM
+        // check). The `not None` semantic matches the JSON Map "key
+        // exists" check for those uses.
+        if v.rust_sentinels.contains_key(name) {
+            return true;
+        }
         let bound = v.obj.bind(self.py);
-        bound.hasattr(name).unwrap_or(false)
+        match bound.getattr(name) {
+            Ok(value) => !value.is_none(),
+            Err(_) => false,
+        }
     }
     fn is_null(&self, v: &PyAst) -> bool {
         v.obj.is_none(self.py)
@@ -598,6 +1125,7 @@ impl<'py> Emitter for PyEmitter<'py> {
             out.push(PyAst {
                 obj: item.unbind(),
                 positions_locked: false,
+                rust_sentinels: HashMap::new(),
             });
         }
         Some(out)
@@ -605,6 +1133,95 @@ impl<'py> Emitter for PyEmitter<'py> {
     fn position_offset(&self, v: &PyAst) -> Option<usize> {
         let bound = v.obj.bind(self.py);
         bound.extract::<usize>().ok()
+    }
+    fn as_bool(&self, v: &PyAst) -> Option<bool> {
+        let bound = v.obj.bind(self.py);
+        bound.extract::<bool>().ok()
+    }
+    fn as_i64(&self, v: &PyAst) -> Option<i64> {
+        let bound = v.obj.bind(self.py);
+        bound.extract::<i64>().ok()
+    }
+
+    // ===== Mutation =====
+    fn remove_field(&self, v: &mut PyAst, name: &str) -> Option<PyAst> {
+        // Sentinel fields live in the side-channel.
+        if let Some(prev) = v.rust_sentinels.remove(name) {
+            return Some(PyAst {
+                obj: prev,
+                positions_locked: false,
+                rust_sentinels: HashMap::new(),
+            });
+        }
+        let bound = v.obj.bind(self.py);
+        let prev = bound.getattr(name).ok()?;
+        if prev.is_none() {
+            // Field already unset (slots=True keeps the attr bound but
+            // None) — treat as "absent" to match the JSON `as_object_mut().remove`
+            // semantics where remove returns None if the key isn't present.
+            return None;
+        }
+        // Replace with `None` (the default) so the field still exists
+        // (slots=True keeps it bound) but reads as missing semantically.
+        bound.setattr(name, self.py.None()).unwrap();
+        Some(PyAst {
+            obj: prev.unbind(),
+            positions_locked: false,
+            rust_sentinels: HashMap::new(),
+        })
+    }
+    fn set_field(&self, v: &mut PyAst, name: &str, value: PyAst) {
+        // Parser-internal sentinel fields (`__rust_*`) aren't declared
+        // on the dataclass; slots=True rejects setattr for them. Route
+        // to the side-channel HashMap instead.
+        if name.starts_with("__rust_") {
+            v.rust_sentinels.insert(name.to_string(), value.obj);
+            return;
+        }
+        let bound = v.obj.bind(self.py);
+        // Dict-shaped AST fields (`_DICT_FIELDS` in `json_ast.py`):
+        // `ctes`, `replace`, `window_exprs`. The parser builds `ctes`
+        // as a list (see `inject_ctes_into_select`) — the JSON path
+        // leaves it as a list and `json_ast.py::_deserialize_node`
+        // folds into a dict on the Python side. PyEmitter has no
+        // such post-walk, so the fold has to happen here. Each item
+        // carries its own `name` attribute (it's a `CTE`); use that as
+        // the dict key.
+        if name == "ctes" {
+            let val_bound = value.obj.bind(self.py);
+            if let Ok(list) = val_bound.downcast::<PyList>() {
+                let dict = PyDict::new_bound(self.py);
+                for item in list.iter() {
+                    let cte_name = item
+                        .getattr("name")
+                        .expect("ctes list item missing `name` attribute");
+                    dict.set_item(cte_name, &item).unwrap();
+                }
+                bound.setattr(name, dict).unwrap();
+                return;
+            }
+        }
+        bound.setattr(name, value.obj.bind(self.py)).unwrap();
+    }
+    fn extend_list_field(&self, v: &mut PyAst, name: &str, items: Vec<PyAst>) {
+        let bound = v.obj.bind(self.py);
+        // Try to read the existing list; fall back to creating a fresh
+        // list if absent or non-list.
+        match bound.getattr(name) {
+            Ok(existing) if existing.is_instance_of::<PyList>() => {
+                let list = existing.downcast::<PyList>().unwrap();
+                for item in items {
+                    list.append(item.obj).unwrap();
+                }
+            }
+            _ => {
+                let list = PyList::empty_bound(self.py);
+                for item in items {
+                    list.append(item.obj).unwrap();
+                }
+                bound.setattr(name, list).unwrap();
+            }
+        }
     }
 }
 
@@ -621,7 +1238,7 @@ fn build_list(py: Python<'_>, items: Vec<PyAst>) -> Bound<'_, PyList> {
 }
 
 /// Map operator symbol ("+", "-", "*", "/", "%") to the
-/// ArithmeticOperationOp member NAME — first-try `cls[symbol]` works
+/// ArithmeticOperationOp member name. First-try `cls[symbol]` works
 /// because StrEnum subscript accepts the value; fallback by member name.
 fn arith_op_name_from_symbol(symbol: &str) -> &'static str {
     match symbol {

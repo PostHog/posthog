@@ -101,3 +101,24 @@ Don't attempt mixed `impl<'a> Parser<'a, JsonEmitter>` (legacy) + `impl<'a, E: E
 ### Expected outcome
 
 After Phase 2 completion: a `rust-py` backend that constructs `posthog.hogql.ast` instances directly during parsing, with no `serde_json::Value` intermediate. Faster than the Phase 1 converter approach (probably 1.3-1.5× over `rust-json`). WASM path stays intact via `parse_*_json` + `JsonEmitter`.
+
+### Actual outcome (Phase 2 landed)
+
+`rust-py` (`PyEmitter`) constructs `posthog.hogql.ast` dataclass instances directly during parsing. **Bench at N=1000 per row, oracle=rust-json, candidate=rust-py:**
+
+| rule         | mean (sum-weighted)  | best gain          |
+| ------------ | -------------------- | ------------------ |
+| parse_expr   | **1.5×** over rust-json | `and_chain_10` 2.5×, `mixed_and_or` 1.9×, `ternary` 1.8×, `nasty_backtrack` 1.8× |
+| parse_select | **1.4×** over rust-json | `pathological_deep` 1.5×, `trends_like_breakdown` 1.3×, `subquery_with_filters` 1.4× |
+
+Phase 1 over rust-json was ~1.1× — Phase 2 adds another ~36% on top (Phase-1-→Phase-2 is the win you get from skipping the `Value` intermediate AST tree).
+
+**Test parity**: 378 factory tests pass via `rust-py`, plus 1135 across `rust-json` + `python` + `cpp-json`. 13 cargo lib tests pass. Same `__eq__`-equivalent AST as the JSON path produces.
+
+**Notes on PyEmitter design** (worth recording for follow-up work):
+
+- `PyAst { obj: Py<PyAny>, positions_locked: bool, rust_sentinels: HashMap<String, Py<PyAny>> }`. The sentinel HashMap holds the parser-internal `__rust_*` keys (`__rust_offset_liftable`, `__rust_table_args`) that slots-only dataclasses can't carry. `set_field` routes `__rust_` names to the HashMap; the JSON path stores them transiently in the underlying Map.
+- `has_field` semantics differ from the JSON impl: JsonEmitter's `Map::contains_key` is only true after explicit insert; Python's `hasattr` on a slots dataclass is true for every declared field. PyEmitter's `has_field` returns "attr exists AND is not None" — matches the parser's usage (gating on "did the parser set this?").
+- `set_field` special-cases the `ctes` key: when a `PyList` is being set, fold into a `dict[name, CTE]` by reading each item's `.name`. The JSON path leaves the list intact and the Python deserialiser does the fold; PyEmitter has to do it inline. (`window_exprs` and `replace` are constructed as dicts directly via `string_keyed_map` / `columns_expr`.)
+- `select_query_empty()` passes `select=[]` as a placeholder because the dataclass requires `select: list[Expr]`. Parser overwrites via `set_field("select", ...)` before the node leaves the parser.
+- Class cache: 60 `Bound<'py, PyAny>` references plus the two op-StrEnums, all looked up once at `PyEmitter::new`.
