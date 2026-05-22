@@ -159,3 +159,29 @@ class TestAgenticLogin(ProvisioningTestBase):
         res = self.client.get(f"/agentic/login?token={token}")
         assert res.status_code == 302
         assert not res["Location"].startswith("http")
+
+    def test_unverified_user_redirects_to_verify_email(self):
+        # A partner-bootstrapped user starts with is_email_verified=False and must not get
+        # a session until they prove inbox ownership.
+        self.user.is_email_verified = False
+        self.user.save(update_fields=["is_email_verified"])
+        token = self._create_deep_link_token()
+        res = self.client.get(f"/agentic/login?token={token}")
+        assert res.status_code == 302
+        assert res["Location"] == f"/verify_email/{self.user.uuid}"
+
+    def test_unverified_user_does_not_create_session(self):
+        self.user.is_email_verified = False
+        self.user.save(update_fields=["is_email_verified"])
+        token = self._create_deep_link_token()
+        self.client.get(f"/agentic/login?token={token}")
+        res = self.client.get("/api/users/@me/")
+        assert res.status_code == 401
+
+    def test_verified_user_logs_in(self):
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["is_email_verified"])
+        token = self._create_deep_link_token()
+        res = self.client.get(f"/agentic/login?token={token}")
+        assert res.status_code == 302
+        assert res["Location"] == f"/project/{self.team.id}"

@@ -30,7 +30,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.authentication import password_reset_token_generator
+from posthog.api.authentication import is_email_verified_for_login, password_reset_token_generator
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import (
@@ -625,6 +625,7 @@ def _handle_new_user(
             email=email,
             password=None,
             first_name=first_name,
+            is_email_verified=False,
         )
     except IntegrityError:
         existing = User.objects.filter(email=email).first()
@@ -2321,6 +2322,13 @@ def agentic_login(request: Any) -> HttpResponseBase:
         _capture_deep_link_event("user_inactive", user_id=user_id)
         logger.warning("agentic_login.user_inactive", user_id=user_id)
         return HttpResponseRedirect("/?error=user_inactive")
+
+    # Partner-asserted email ownership is not enough to grant a session. Require the user
+    # to prove the email is theirs first; this side-effects a verification email send.
+    if not is_email_verified_for_login(user):
+        _capture_deep_link_event("email_unverified", user_id=user_id)
+        logger.warning("agentic_login.email_unverified", user_id=user_id)
+        return HttpResponseRedirect(f"/verify_email/{user.uuid}")
 
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 

@@ -61,6 +61,14 @@ class TestAccountRequests(ProvisioningTestBase):
         assert user.organization is not None
         assert user.team is not None
 
+    def test_new_user_starts_unverified(self):
+        # Partner-asserted email ownership is not trusted: the user must prove they own
+        # the inbox before any session is issued (see agentic_login).
+        payload = self._account_request_payload()
+        self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        user = User.objects.get(email="newuser@example.com")
+        assert user.is_email_verified is False
+
     def test_existing_user_returns_oauth_type_with_code(self):
         User.objects.create_and_join(
             organization=self.organization, email="existing@example.com", password="testpass", first_name="Existing"
