@@ -4353,10 +4353,9 @@ class TestExternalDataSource(APIBaseTest):
     def test_snowflake_auth_type_create_and_update(self):
         """Test that we can create and update the auth type for a Snowflake source"""
         with patch(
-            "posthog.temporal.data_imports.sources.snowflake.source.get_snowflake_schemas"
-        ) as mocked_get_snowflake_schemas:
-            mocked_get_snowflake_schemas.return_value = {"my_table": [("something", "DATE", False)]}
-
+            "posthog.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+            return_value=(True, None),
+        ):
             # Create a Snowflake source with password auth
             response = self.client.post(
                 f"/api/environments/{self.team.pk}/external_data_sources/",
