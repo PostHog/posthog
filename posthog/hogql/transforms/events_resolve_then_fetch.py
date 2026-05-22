@@ -83,7 +83,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 WIDE_EVENTS_COLUMNS = {"properties", "elements_chain"}
 
 
-def optimize_events_resolve_then_fetch(node: ast.Expr, context: HogQLContext) -> None:
+def optimize_events_resolve_then_fetch(node: ast.AST, context: HogQLContext) -> None:
     """Mutate ``node`` in place, splitting qualifying wide events scans into resolve + point-fetch."""
     EventsResolveThenFetchRewriter(context).visit(node)
 
