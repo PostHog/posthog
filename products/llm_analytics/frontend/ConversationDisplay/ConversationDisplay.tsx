@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { EventType } from '~/types'
 
 import { AIDataLoading } from '../components/AIDataLoading'
-import { buildInputSourceIndices } from '../conversationDedup'
+import { buildInputSourceIndices } from '../extractSessionTurns'
 import { useAIData } from '../hooks/useAIData'
 import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
 import { costContextFromProperties, normalizeMessages } from '../utils'

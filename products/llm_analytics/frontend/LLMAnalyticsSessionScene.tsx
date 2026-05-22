@@ -23,8 +23,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { SentimentBar } from './components/SentimentTag'
-import { SessionTurn } from './conversationDedup'
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { SessionTurn } from './extractSessionTurns'
 import { TraceSummary, llmAnalyticsSessionDataLogic } from './llmAnalyticsSessionDataLogic'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
@@ -364,8 +364,8 @@ function TurnBody({
     // `turn.newInputs` / `outputs` come pre-deduped from `extractSessionTurns`.
     // Rendering goes through the same `ConversationMessagesDisplay` the Trace page
     // uses, so parser coverage is identical: shapes recognized by `normalizeMessage`
-    // render natively, anything else falls back to JSON. See `conversationDedup.ts`
-    // for the provenance of the dedup + user-visible-turn conventions.
+    // render natively, anything else falls back to JSON. See `extractSessionTurns.ts`
+    // and `messageSignature.ts` for the dedup + user-visible-turn conventions.
     return (
         <ConversationMessagesDisplay
             inputNormalized={turn.newInputs}

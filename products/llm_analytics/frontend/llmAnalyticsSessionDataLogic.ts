@@ -17,7 +17,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
-import { SessionTurn, extractSessionTurns } from './conversationDedup'
+import { SessionTurn, extractSessionTurns } from './extractSessionTurns'
 import { llmAnalyticsSummarizationBatchCheckCreate } from './generated/api'
 import type { llmAnalyticsSessionDataLogicType } from './llmAnalyticsSessionDataLogicType'
 import { llmAnalyticsSessionLogic } from './llmAnalyticsSessionLogic'
