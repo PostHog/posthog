@@ -773,10 +773,10 @@ class TestAccountViewSet(APIBaseTest):
             account.tagged_items.create(tag=billing_tag)
             account.tagged_items.create(tag=urgent_tag)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(12):
             # Query budget for a tag-filtered account list. Constant regardless of result count
-            # because tagged_items is prefetched once. If a query is added, please confirm it
-            # does not scale with the number of accounts before raising the limit:
+            # because tagged_items and notebooks are prefetched once. If a query is added, please
+            # confirm it does not scale with the number of accounts before raising the limit:
             # 1: load Django session
             # 2: load authenticated user
             # 3: load user's current organization
@@ -787,7 +787,8 @@ class TestAccountViewSet(APIBaseTest):
             # 8: load constance instance setting (rate limit config)
             # 9: COUNT(*) for pagination
             # 10: SELECT page of accounts filtered by tag name
-            # 11: prefetch tagged_items + tag for the page (the prefetch that prevents N+1)
+            # 11: prefetch resourcenotebook (joined with notebook) for the page
+            # 12: prefetch tagged_items + tag for the page (the prefetch that prevents N+1)
             response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
 
         self.assertEqual(status.HTTP_200_OK, response.status_code)

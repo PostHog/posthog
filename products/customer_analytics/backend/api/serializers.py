@@ -9,7 +9,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountProperties
-from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.notebooks.backend.models import Notebook
 
 _ACCOUNT_ASSIGNMENT_SCHEMA = {
     "type": "object",
@@ -182,11 +182,7 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
 
     @extend_schema_field({"type": "array", "items": {"type": "string"}})
     def get_notebooks(self, obj: Account) -> list[str]:
-        return list(
-            ResourceNotebook.objects.filter(account=obj)
-            .select_related("notebook")
-            .values_list("notebook__short_id", flat=True)
-        )
+        return [link.notebook.short_id for link in obj.notebooks.all()]
 
     def validate_properties(self, value):
         if value is None:

@@ -1,7 +1,7 @@
 import json
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
 
 from drf_spectacular.types import OpenApiTypes
@@ -147,7 +147,9 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
         return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(team_id=self.team.id)
+        queryset = queryset.filter(team_id=self.team.id).prefetch_related(
+            Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook"))
+        )
 
         search = self.request.query_params.get("search", "").strip()
         if search:
