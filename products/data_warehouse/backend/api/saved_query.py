@@ -46,6 +46,11 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
+from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.data_load.saved_query_service import (
     pause_saved_query_schedule,
     saved_query_workflow_exists,
@@ -53,19 +58,11 @@ from products.data_warehouse.backend.data_load.saved_query_service import (
     trigger_saved_query_schedule,
     unpause_saved_query_schedule,
 )
-from products.data_warehouse.backend.models import (
-    CLICKHOUSE_HOGQL_MAPPING,
-    DataModelingJob,
-    DataWarehouseJoin,
-    DataWarehouseModelPath,
-    DataWarehouseSavedQuery,
-    DataWarehouseSavedQueryFolder,
-    clean_type,
-)
-from products.data_warehouse.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
 
 logger = structlog.get_logger(__name__)
 

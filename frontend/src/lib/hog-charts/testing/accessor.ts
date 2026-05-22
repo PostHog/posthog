@@ -12,9 +12,16 @@ import type { TooltipContext } from '../core/types'
 import { dimensions } from './jsdom'
 import { type HogChartTooltip, waitForHogChartTooltip } from './tooltip'
 
+/** A single entry of `TooltipContext.seriesData`. */
+type TooltipSeriesEntry<Meta = unknown> = TooltipContext<Meta>['seriesData'][number]
+
 /** Handle returned by `chart.waitForTooltip()` — every field of the structured `TooltipContext`,
- *  plus the rendered portal `element` and an `isPinned` snapshot. */
-export type TooltipSnapshot<Meta = unknown> = TooltipContext<Meta> & HogChartTooltip
+ *  plus the rendered portal `element`, an `isPinned` snapshot, and `series` (seriesData indexed
+ *  by series key, for order-independent lookups like `tooltip.series.a.value`). */
+export type TooltipSnapshot<Meta = unknown> = TooltipContext<Meta> &
+    HogChartTooltip & {
+        series: Record<string, TooltipSeriesEntry<Meta>>
+    }
 
 interface ReferenceLineSummary {
     label: string | null
@@ -209,6 +216,7 @@ export function getHogChart<Meta = unknown>(
                 ...ctx,
                 element,
                 isPinned: element.classList.contains('hog-charts-tooltip--pinned'),
+                series: Object.fromEntries(ctx.seriesData.map((s) => [s.series.key, s])),
             }
         },
     }

@@ -32,12 +32,21 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
         throw new Error(`Failed to get experiment results: ${result.error.message}`)
     }
 
-    const { experiment, primaryMetricsResults, secondaryMetricsResults, exposures } = result.data
+    const {
+        experiment,
+        primaryMetricEntries,
+        secondaryMetricEntries,
+        primaryMetricsResults,
+        secondaryMetricsResults,
+        exposures,
+    } = result.data
 
     return withPostHogUrl(
         context,
         transformExperimentResults({
             experiment,
+            primaryMetricEntries,
+            secondaryMetricEntries,
             primaryMetricsResults,
             secondaryMetricsResults,
             exposures,

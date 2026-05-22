@@ -2051,6 +2051,95 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         assert "is not supported with histogram breakdowns" in str(exc_info.value)
 
+    @parameterized.expand(
+        [
+            # Numeric-looking values stored as strings register the property as
+            # String, so the property-type swapper does not coerce it. The
+            # histogram bin math (max - min) must still work rather than raising
+            # ILLEGAL_TYPE_OF_ARGUMENT.
+            ("numeric_strings", ["10", "40"], {"[10,25]", "[25,40.01]"}),
+            # A stray non-numeric value must bucket as NULL (toFloat maps to
+            # accurateCastOrNull) rather than throw and fail the whole query.
+            (
+                "mixed_with_non_numeric",
+                ["10", "40", "abc"],
+                {"[10,25]", "[25,40.01]", BREAKDOWN_NULL_STRING_LABEL},
+            ),
+            # Missing property entirely also buckets as NULL.
+            (
+                "mixed_with_missing",
+                ["10", "40", None],
+                {"[10,25]", "[25,40.01]", BREAKDOWN_NULL_STRING_LABEL},
+            ),
+        ]
+    )
+    def test_trends_histogram_breakdown_on_string_typed_property(self, _name, values, expected_buckets):
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id=f"p{i}",
+                    events=[Series(event="$pageview", timestamps=[f"2020-01-1{1 + i}T12:00:00Z"])],
+                    properties={"str_amount": value} if value is not None else {},
+                )
+                for i, value in enumerate(values)
+            ]
+        )
+
+        response = self._run_trends_query(
+            "2020-01-11",
+            "2020-01-15",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT,
+                breakdown="str_amount",
+                breakdown_histogram_bin_count=2,
+            ),
+        )
+
+        assert {r["breakdown_value"] for r in response.results} == expected_buckets
+
+    def test_trends_histogram_breakdown_on_string_typed_property_actors_drill_in(self):
+        # The actors drill-in filter (_get_actors_query_where_expr) coerces the
+        # property to a float the same way the breakdown column does — exercise
+        # that path so the toFloatOrNull symmetry stays pinned end to end.
+        self._create_events(
+            [
+                SeriesTestData(
+                    distinct_id="p1",
+                    events=[Series(event="$pageview", timestamps=["2020-01-11T12:00:00Z"])],
+                    properties={"str_amount": "10"},
+                ),
+                SeriesTestData(
+                    distinct_id="p2",
+                    events=[Series(event="$pageview", timestamps=["2020-01-12T12:00:00Z"])],
+                    properties={"str_amount": "40"},
+                ),
+            ]
+        )
+        flush_persons_and_events()
+
+        query_runner = self._create_query_runner(
+            "2020-01-11",
+            "2020-01-13",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            None,
+            BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT,
+                breakdown="str_amount",
+                breakdown_histogram_bin_count=2,
+            ),
+        )
+
+        actors_query = query_runner.to_actors_query(
+            time_frame="2020-01-11", series_index=0, breakdown_value="[10,25]", compare_value=None
+        )
+        result = execute_hogql_query(query=actors_query, team=self.team)
+        actual_actor_ids = [row[2][0] for row in result.results]
+        assert actual_actor_ids == ["p1"]
+
     def test_trends_aggregation_hogql(self):
         self._create_test_events()
 

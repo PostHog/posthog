@@ -120,11 +120,13 @@ jobs:
                         - 'ee/billing/**'
                         - 'ee/clickhouse/**'
                         - 'ee/hogai/**'
-                        # --- Only the 8 products that DAGs actually import from ---
+                        # --- Only the products that DAGs actually import from ---
+                        - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
+                        - 'products/ai_observability/backend/**/*.py'
                         - 'products/llm_analytics/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
                         - 'products/revenue_analytics/backend/**/*.py'

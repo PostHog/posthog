@@ -424,6 +424,45 @@ class AIResearchBurstRateThrottle(_AIThrottleBase):
     action_name = "ai research burst rate limited"
 
 
+# Hands-free throttles are split per-action so a burst on /token/ (e.g. a flapping
+# mobile network triggering the reconnect path) can't lock the user out of /synthesize/
+# and vice versa. Each action's burst/sustained bucket caps a different cost surface:
+# token mints bound Scribe (STT) spend; synthesize calls bound ElevenLabs TTS spend.
+class MaxHandsFreeTokenBurstRateThrottle(_AIThrottleBase):
+    # 10/min covers normal reconnects (network blip, tab refocus) and stays well below
+    # any plausible legitimate flow. Dev gets a far larger ceiling for the dev loop.
+    scope = "max_hands_free_token_burst"
+    rate = "1000/minute" if settings.DEBUG else "10/minute"
+    action_name = "max hands-free token burst rate limited"
+
+
+class MaxHandsFreeTokenSustainedRateThrottle(_AIThrottleBase):
+    # Each token grants ~15 min of Scribe usage. A 2-hour gym session is ~8 tokens at
+    # minimum plus reconnects, call it 15. 60/day covers several long sessions a day
+    # with headroom and bounds worst-case Scribe spend per compromised account.
+    scope = "max_hands_free_token_sustained"
+    rate = "10000/day" if settings.DEBUG else "60/day"
+    action_name = "max hands-free token sustained rate limited"
+
+
+class MaxHandsFreeSynthesizeBurstRateThrottle(_AIThrottleBase):
+    # TTS calls fire once per assistant turn so the burst rate has to keep pace with
+    # rapid back-and-forth. 20/min still well above any natural conversation cadence
+    # but tight enough to slow a runaway client looping on synthesize.
+    scope = "max_hands_free_synthesize_burst"
+    rate = "1000/minute" if settings.DEBUG else "20/minute"
+    action_name = "max hands-free synthesize burst rate limited"
+
+
+class MaxHandsFreeSynthesizeSustainedRateThrottle(_AIThrottleBase):
+    # Bounds TTS spend per account per day. 150 calls * 2000 chars max ~= 300k chars
+    # ceiling/day — comfortable for power users, hard cap on a compromised account's
+    # daily ElevenLabs bill until the broader char-budget kill switch lands.
+    scope = "max_hands_free_synthesize_sustained"
+    rate = "10000/day" if settings.DEBUG else "150/day"
+    action_name = "max hands-free synthesize sustained rate limited"
+
+
 class AIResearchSustainedRateThrottle(_AIThrottleBase):
     scope = "ai_research_sustained"
     rate = "10/day"

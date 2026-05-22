@@ -526,7 +526,7 @@ services:
                 condition: service_healthy
         restart: 'no'
         volumes:
-            - ./products/llm_analytics/opensearch:/work:ro
+            - ./products/ai_observability/opensearch:/work:ro
         entrypoint: ['sh', '/work/init.sh']
         profiles: [opensearch]
 

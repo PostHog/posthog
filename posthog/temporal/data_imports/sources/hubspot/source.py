@@ -192,8 +192,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         endpoint_config = HUBSPOT_ENDPOINT_CONFIGS.get(inputs.schema_name)
         if endpoint_config is None or not endpoint_config.cursor_filter_property_field:
             return False
-
-        from products.data_warehouse.backend.models import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         try:
             schema = ExternalDataSchema.objects.get(id=inputs.schema_id, team_id=inputs.team_id)

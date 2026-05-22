@@ -27,9 +27,11 @@ from products.ai_observability.backend.summarization.llm.schema import (
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.experiments.backend.models.experiment import Experiment
 from products.surveys.backend.models import Survey
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
