@@ -44,18 +44,25 @@ FEATURE_FLAG_KEY = "mcp-analytics-clustering-schedule"
 FEATURE_FLAG_DISTINCT_ID = "internal_mcpa_clustering_schedule"
 
 
-def _schedule_enabled() -> bool:
-    """Return True only when the feature flag is explicitly ON.
+def _schedule_enabled() -> tuple[bool, bool]:
+    """Return ``(enabled, check_succeeded)``.
 
-    Any FF error (network, missing key, malformed payload) defaults to OFF —
-    the schedule registration is the riskier side, so fail-closed is right.
+    Three logical states the caller must distinguish:
+
+    * ``(True, True)``  — FF explicitly ON. Register / update the schedule.
+    * ``(False, True)`` — FF explicitly OFF. Delete any existing schedule
+      (kill switch).
+    * ``(False, False)`` — FF check raised. **Preserve current state.** Do
+      not register a new schedule (fail-closed on registration) and do not
+      delete an existing one (a transient PostHog API outage shouldn't tear
+      down a properly-enabled production schedule).
     """
     try:
         enabled = posthoganalytics.feature_enabled(FEATURE_FLAG_KEY, FEATURE_FLAG_DISTINCT_ID)
-        return bool(enabled)
+        return bool(enabled), True
     except Exception:
         logger.warning("mcpa.intent_clustering.schedule.feature_flag_check_failed_defaulting_off", exc_info=True)
-        return False
+        return False, False
 
 
 async def create_intent_clustering_coordinator_schedule(client: Client) -> None:
@@ -64,12 +71,24 @@ async def create_intent_clustering_coordinator_schedule(client: Client) -> None:
     When the feature flag is OFF, any existing schedule is deleted so flipping
     the flag off cleanly disables the daily path. The schedule is created
     with ``trigger_immediately=False`` to avoid stampeding a worker on first
-    deploy.
+    deploy. If the FF check itself fails (transient PostHog API outage),
+    the current schedule state is preserved — we don't tear down a valid
+    production schedule on a blip.
     """
     # posthoganalytics.feature_enabled() is sync and can block on a network call,
     # so offload to a thread to keep the asyncio loop responsive — matches the
     # llm_analytics/team_discovery.py pattern.
-    if not await asyncio.to_thread(_schedule_enabled):
+    enabled, check_succeeded = await asyncio.to_thread(_schedule_enabled)
+
+    if not enabled:
+        if not check_succeeded:
+            # FF check raised. Don't touch the existing schedule (if any) —
+            # transient PostHog outages must not silently disable production.
+            logger.info(
+                "mcpa.intent_clustering.schedule.feature_flag_check_failed_preserving_state",
+                schedule_id=COORDINATOR_SCHEDULE_ID,
+            )
+            return
         if await a_schedule_exists(client, COORDINATOR_SCHEDULE_ID):
             logger.info(
                 "mcpa.intent_clustering.schedule.disabled_removing_existing", schedule_id=COORDINATOR_SCHEDULE_ID

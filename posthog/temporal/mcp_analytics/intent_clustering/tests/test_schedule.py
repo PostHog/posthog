@@ -53,9 +53,15 @@ class TestCreateIntentClusteringCoordinatorSchedule:
             ("flag_on_no_existing", True, False, True, False, False),
             # Flag ON + existing schedule → update.
             ("flag_on_existing", True, True, False, True, False),
-            # FF check raises → defaults to disabled, no schedule exists → no-op.
+            # FF check raises + no schedule exists → no-op. We don't register
+            # on an uncertain FF state.
             # Sentinel value None means "raise from the FF SDK".
-            ("flag_check_raises", None, False, False, False, False),
+            ("flag_check_raises_no_existing", None, False, False, False, False),
+            # FF check raises + schedule EXISTS → preserve state (no delete!).
+            # A transient PostHog API outage must not silently disable a
+            # properly-enabled production schedule. This is the regression
+            # test for the graphite-app P1 bug.
+            ("flag_check_raises_preserves_existing", None, True, False, False, False),
         ],
     )
     async def test_create_intent_clustering_coordinator_schedule(
