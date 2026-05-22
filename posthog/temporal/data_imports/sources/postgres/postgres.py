@@ -40,9 +40,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.sources.common.mixins import make_ssh_tunnel_factory, open_ssh_tunnel
+from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
-from posthog.temporal.data_imports.sources.common.sql.implementation import SourceMetadata, SQLSourceImplementation
+from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
@@ -2049,20 +2049,6 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
         discovered = _schemas_from_conn(conn, config.schema, names)
         return {display_name: discovered_schema.columns for display_name, discovered_schema in discovered.items()}
 
-    def get_discovered_schemas(
-        self,
-        conn: psycopg.Connection,
-        config: PostgresSourceConfig,
-        names: list[str] | None,
-    ) -> dict[str, PostgresDiscoveredSchema]:
-        """Return the full multi-schema discovery payload.
-
-        Postgres needs catalog/schema/table-name per discovered row to reconcile
-        display names with the source location at sync time; this exposes the
-        richer payload that `PostgresSource.get_schemas` consumes.
-        """
-        return _schemas_from_conn(conn, config.schema, names)
-
     def get_primary_keys(
         self,
         conn: psycopg.Connection,
@@ -2109,19 +2095,6 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
             return {}
         schema = config.schema or "public"
         return get_leading_index_columns(conn, schema, tables)
-
-    def get_source_metadata(
-        self,
-        conn: psycopg.Connection,
-        config: PostgresSourceConfig,
-        tables: list[str],
-    ) -> SourceMetadata:
-        discovered = _schemas_from_conn(conn, config.schema, tables or None)
-        return SourceMetadata(
-            catalog_by_table={name: schema.source_catalog for name, schema in discovered.items()},
-            schema_by_table={name: schema.source_schema for name, schema in discovered.items()},
-            table_name_by_table={name: schema.source_table_name for name, schema in discovered.items()},
-        )
 
     def get_cdc_support(
         self,
@@ -2194,28 +2167,19 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
     # ------------------------------------------------------------------
 
     def build_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        """Build a basic non-CDC pipeline against `config.schema`.
+        """Postgres syncs go through `PostgresSource.source_for_pipeline`, not this method.
 
-        `PostgresSource.source_for_pipeline` overrides this with the per-row
-        schema_metadata reconciliation (multi-schema dispatch, CDC streaming
-        guard, `enabled_columns`, `require_ssl`, `is_initial_sync`). This base
-        implementation handles the simpler single-schema case and is what gets
-        called when callers go through the SQLSource template without the
-        Postgres-specific reconciliation.
+        The production path needs the `ExternalDataSchema` lookup to thread
+        `enabled_columns`, `require_ssl` (derived from `source_requires_ssl`),
+        `is_initial_sync`, `chunk_size_override`, and the multi-schema /
+        CDC-streaming reconciliation into `postgres_source(...)`. None of that is
+        available from `SourceInputs` alone, and silently defaulting `require_ssl`
+        to `False` here would let new (post-cutoff) sources bypass SSL on the base
+        template path. Raise loudly so a refactor that drops the source-level
+        override surfaces immediately rather than going to prod unencrypted.
         """
-        tunnel = make_ssh_tunnel_factory(config)
-        return postgres_source(
-            tunnel=tunnel,
-            user=config.user,
-            password=config.password,
-            database=config.database,
-            sslmode="prefer",
-            schema=config.schema or "public",
-            table_names=[inputs.schema_name],
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            logger=inputs.logger,
-            incremental_field=inputs.incremental_field,
-            incremental_field_type=inputs.incremental_field_type,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-            team_id=inputs.team_id,
+        raise NotImplementedError(
+            "PostgresImplementation.build_pipeline is intentionally not implemented — "
+            "use PostgresSource.source_for_pipeline which forwards require_ssl, "
+            "enabled_columns, chunk_size_override, and CDC reconciliation."
         )
