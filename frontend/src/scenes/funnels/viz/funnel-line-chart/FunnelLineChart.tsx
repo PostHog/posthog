@@ -17,7 +17,7 @@ import type { Noun } from '~/models/groupsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { isFunnelsQuery } from '~/queries/utils'
-import { ChartParams } from '~/types'
+import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelDataLogic } from '../../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../../funnelPersonsModalLogic'
@@ -84,7 +84,9 @@ export function FunnelLineChart({
         () =>
             buildFunnelLineSeries(steps, {
                 incompletenessOffsetFromEnd,
-                getColor: (step) => getFunnelsColor(step),
+                // getFunnelsColor is typed for the steps-viz datasets; for the trends viz it
+                // only reads `breakdown_value`, which IndexedFunnelStep carries.
+                getColor: (step) => getFunnelsColor(step as unknown as FunnelStepWithConversionMetrics),
             }),
         [steps, incompletenessOffsetFromEnd, getFunnelsColor]
     )
