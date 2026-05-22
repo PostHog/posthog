@@ -286,6 +286,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
         disconnectStream: () => {
             cache.abortController?.abort()
             cache.abortController = null
+            cache.lastEventId = undefined
         },
     })),
 
