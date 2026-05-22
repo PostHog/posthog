@@ -35571,6 +35571,14 @@ export namespace Schemas {
       rates: SurveyStatsResponseRates;
     }
 
+    export interface Synthesize {
+      /**
+         * The text the assistant should speak aloud.
+         * @maxLength 2000
+         */
+      text: string;
+    }
+
     export interface TaggerCreate {
       /** @maxLength 400 */
       name: string;
@@ -40686,6 +40694,8 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
+
     export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
 
     export type McpAnalyticsFeedbackListParams = {
@@ -41714,6 +41724,7 @@ export namespace Schemas {
     * `AlertSubscription` - AlertSubscription
     * `ExternalDataSource` - ExternalDataSource
     * `ExternalDataSchema` - ExternalDataSchema
+    * `Evaluation` - Evaluation
     * `LLMTrace` - LLMTrace
     * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
     * `CustomerProfileConfig` - CustomerProfileConfig
@@ -41789,6 +41800,7 @@ export namespace Schemas {
       AlertSubscription: 'AlertSubscription',
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
+      Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
@@ -41850,6 +41862,7 @@ export namespace Schemas {
     * `AlertSubscription` - AlertSubscription
     * `ExternalDataSource` - ExternalDataSource
     * `ExternalDataSchema` - ExternalDataSchema
+    * `Evaluation` - Evaluation
     * `LLMTrace` - LLMTrace
     * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
     * `CustomerProfileConfig` - CustomerProfileConfig
@@ -41913,6 +41926,7 @@ export namespace Schemas {
       AlertSubscription: 'AlertSubscription',
       ExternalDataSource: 'ExternalDataSource',
       ExternalDataSchema: 'ExternalDataSchema',
+      Evaluation: 'Evaluation',
       LLMTrace: 'LLMTrace',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
