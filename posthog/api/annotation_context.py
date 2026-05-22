@@ -35,8 +35,9 @@ def get_annotations_for_ai_context(
     if insight_id is not None:
         scopes |= Q(scope=Annotation.Scope.INSIGHT, dashboard_item_id=insight_id)
 
-    most_recent = list(
-        Annotation.objects.filter(
+    most_recent: list[dict[str, Any]] = [
+        dict(row)
+        for row in Annotation.objects.filter(
             visibility,
             scopes,
             deleted=False,
@@ -45,7 +46,7 @@ def get_annotations_for_ai_context(
         )
         .order_by("-date_marker")
         .values("date_marker", "content", "scope")[:MAX_ANNOTATIONS_FOR_AI_CONTEXT]
-    )
+    ]
     most_recent.reverse()
     return most_recent
 
