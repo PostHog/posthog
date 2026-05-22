@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     `property_type` LowCardinality(String),
     `property_key` String,
     `property_value` String,
+    `event_name` LowCardinality(String),
     `property_count` UInt64
 ) ENGINE = {engine}
 """
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     `property_type` LowCardinality(String),
     `property_key` LowCardinality(String),
     `property_value` String,
+    `event_name` LowCardinality(String),
     `property_count` SimpleAggregateFunction(sum, UInt64),
     `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
     {extra_fields}
@@ -41,7 +43,7 @@ def PROPERTY_VALUES_TABLE_SQL() -> str:
     return (
         PROPERTY_VALUES_TABLE_BASE_SQL
         + """
-ORDER BY (team_id, property_type, property_key, property_value)
+ORDER BY (team_id, property_type, property_key, property_value, event_name)
 TTL last_seen + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
@@ -74,6 +76,10 @@ def DROP_PROPERTY_VALUES_MV_SQL() -> str:
     return f"DROP TABLE IF EXISTS {MV_NAME}"
 
 
+def DROP_PROPERTY_VALUES_TABLE_SQL() -> str:
+    return f"DROP TABLE IF EXISTS {TABLE_NAME} SYNC"
+
+
 def PROPERTY_VALUES_MV_SQL() -> str:
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
@@ -83,6 +89,7 @@ AS SELECT
     property_type,
     property_key,
     property_value,
+    event_name,
     property_count,
     coalesce(_timestamp, now()) as last_seen
 FROM {database}.{kafka_table}
