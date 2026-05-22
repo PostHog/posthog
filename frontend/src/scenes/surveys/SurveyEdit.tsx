@@ -66,6 +66,7 @@ import {
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
+import { COMMON_LANGUAGES, getBaseLanguage, getSurveyLanguageName } from './language'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
@@ -73,7 +74,6 @@ import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQ
 import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { DataCollectionType, SurveyEditSection, surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
-import { COMMON_LANGUAGES } from './SurveyTranslations'
 import { canUseSurveyWizard } from './utils'
 
 function SurveyCompletionConditions(): JSX.Element {
@@ -556,7 +556,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                         className="font-semibold hover:underline cursor-pointer"
                                                                     >
                                                                         {lang === 'default'
-                                                                            ? 'Default language'
+                                                                            ? `Original (${getSurveyLanguageName(
+                                                                                  getBaseLanguage(survey)
+                                                                              )})`
                                                                             : COMMON_LANGUAGES.find(
                                                                                   (l) => l.value === lang
                                                                               )?.label || lang}
@@ -587,6 +589,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                 />
                             )
                         } else if (activeEditingLanguage) {
+                            const baseLanguageName = getSurveyLanguageName(getBaseLanguage(survey))
                             return (
                                 <div className="px-4 py-2 mt-1 mb-1.5 bg-warning-highlight rounded border border-warning">
                                     <span className="text-sm">
@@ -595,15 +598,15 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                             {COMMON_LANGUAGES.find((l) => l.value === activeEditingLanguage)?.label ||
                                                 activeEditingLanguage}
                                         </strong>
-                                        . Only user-facing text can be translated - all other fields are editable in the{' '}
+                                        . Only user-facing text can be translated — structural fields stay in the{' '}
                                         <button
                                             type="button"
                                             onClick={() => setEditingLanguage(null)}
                                             className="font-semibold hover:underline cursor-pointer"
                                         >
-                                            default language
-                                        </button>{' '}
-                                        only.
+                                            original ({baseLanguageName})
+                                        </button>
+                                        .
                                     </span>
                                 </div>
                             )
@@ -1194,7 +1197,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                       <Tooltip
                                                                                           title={
                                                                                               activeEditingLanguage
-                                                                                                  ? 'Auto disappear can only be changed in the default language'
+                                                                                                  ? 'Auto disappear can only be changed in the original language'
                                                                                                   : undefined
                                                                                           }
                                                                                       >

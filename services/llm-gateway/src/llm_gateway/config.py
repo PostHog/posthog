@@ -137,7 +137,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     fireworks_api_key: str | None = None
 
-    # Project token for LLM analytics events
+    # Project token for AI observability events
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
 

@@ -53,7 +53,7 @@ const baseScore: TraceReviewScore = {
 const baseReview: TraceReview = {
     id: 'review-1',
     trace_id: 'trace-abc',
-    trace_url: 'https://us.posthog.com/project/1/llm-analytics/traces/trace-abc',
+    trace_url: 'https://us.posthog.com/project/1/ai-observability/traces/trace-abc',
     comment: 'Looks good',
     created_at: '2026-03-12T00:00:00Z',
     updated_at: '2026-03-12T01:00:00Z',
@@ -138,7 +138,7 @@ describe('traceReviewsExport', () => {
         it('includes the absolute trace URL alongside the trace_id', () => {
             const [row] = getReviewClipboardRows([baseReview])
 
-            expect(row.trace_url).toBe('https://us.posthog.com/project/1/llm-analytics/traces/trace-abc')
+            expect(row.trace_url).toBe('https://us.posthog.com/project/1/ai-observability/traces/trace-abc')
         })
 
         it('preserves null user fields without throwing', () => {

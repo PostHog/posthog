@@ -1,5 +1,5 @@
 """
-Team discovery activity for LLM analytics workflows.
+Team discovery activity for AI observability workflows.
 
 Provides dynamic team discovery that combines a guaranteed allowlist
 with a configurable random sample of teams that have AI events.
@@ -139,7 +139,7 @@ class TeamDiscoveryInput:
 @temporalio.activity.defn
 async def get_team_ids_for_llm_analytics(inputs: TeamDiscoveryInput) -> list[int]:
     """
-    Discover teams for LLM analytics workflows.
+    Discover teams for AI observability workflows.
 
     Returns guaranteed allowlist teams + a random sample of other teams with AI events.
     On failure, falls back to guaranteed teams only.

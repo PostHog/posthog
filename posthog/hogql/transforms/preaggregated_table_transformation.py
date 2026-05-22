@@ -36,7 +36,7 @@ from posthog.hogql.helpers.timestamp_visitor import (
 )
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.hogql_queries.web_analytics.pre_aggregated.properties import (
+from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import (
     EVENT_PROPERTY_TO_FIELD,
     SESSION_PROPERTY_TO_FIELD,
 )

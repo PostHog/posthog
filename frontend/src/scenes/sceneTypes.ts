@@ -10,6 +10,7 @@ export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
+    AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
     Annotations = 'Annotations',
     Approval = 'Approval',
@@ -116,6 +117,7 @@ export enum Scene {
     Person = 'Person',
     Persons = 'Persons',
     AccountConnected = 'AccountConnected',
+    CredentialReview = 'CredentialReview',
     Pipeline = 'Pipeline',
     PipelineStatus = 'PipelineStatus',
     PipelineNode = 'PipelineNode',
@@ -356,7 +358,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.CustomerJourneyBuilder]: AccessControlResourceType.CustomerAnalytics,
     [Scene.CustomerJourneyTemplates]: AccessControlResourceType.CustomerAnalytics,
 
-    // LLM Analytics
+    // AI observability
     [Scene.LLMAnalytics]: AccessControlResourceType.LlmAnalytics,
     [Scene.LLMAnalyticsDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.LLMAnalyticsDatasets]: AccessControlResourceType.LlmAnalytics,

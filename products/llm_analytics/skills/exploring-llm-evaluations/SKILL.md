@@ -1,7 +1,7 @@
 ---
 name: exploring-llm-evaluations
 description: >
-  Investigate LLM analytics evaluations of both types — `hog` (deterministic
+  Investigate AI observability evaluations of both types — `hog` (deterministic
   code-based) and `llm_judge` (LLM-prompt-based). Find existing evaluations,
   inspect their configuration, run them against specific generations, query
   individual pass/fail results, and generate AI-powered summaries of patterns
@@ -369,8 +369,8 @@ or wiring evaluations into a larger agent loop.
 
 ## Constructing UI links
 
-- **Evaluations list**: `https://app.posthog.com/llm-analytics/evaluations`
-- **Single evaluation**: `https://app.posthog.com/llm-analytics/evaluations/<evaluation_id>`
+- **Evaluations list**: `https://app.posthog.com/ai-evals/evaluations`
+- **Single evaluation**: `https://app.posthog.com/ai-evals/evaluations/<evaluation_id>`
 - **Underlying generation/trace**: see the `exploring-llm-traces` skill's URL conventions
 
 Always surface the relevant link so the user can verify in the UI.

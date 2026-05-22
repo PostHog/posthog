@@ -7,8 +7,8 @@ import {
     EndpointsDestroyParams,
     EndpointsListQueryParams,
     EndpointsMaterializationStatusRetrieveParams,
-    EndpointsOpenapiJsonRetrieveParams,
-    EndpointsOpenapiJsonRetrieveQueryParams,
+    EndpointsOpenapiSpecRetrieveParams,
+    EndpointsOpenapiSpecRetrieveQueryParams,
     EndpointsPartialUpdateBody,
     EndpointsPartialUpdateParams,
     EndpointsRetrieveParams,
@@ -107,8 +107,8 @@ const endpointMaterializationStatus = (): ToolBase<
     },
 })
 
-const EndpointOpenapiSpecSchema = EndpointsOpenapiJsonRetrieveParams.omit({ project_id: true }).extend(
-    EndpointsOpenapiJsonRetrieveQueryParams.shape
+const EndpointOpenapiSpecSchema = EndpointsOpenapiSpecRetrieveParams.omit({ project_id: true }).extend(
+    EndpointsOpenapiSpecRetrieveQueryParams.shape
 )
 
 const endpointOpenapiSpec = (): ToolBase<typeof EndpointOpenapiSpecSchema, unknown> => ({

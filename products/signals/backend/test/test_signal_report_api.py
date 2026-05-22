@@ -12,8 +12,8 @@ from social_django.models import UserSocialAuth
 
 from posthog.models.team.team import Team
 
+from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
-from products.signals.backend.views import SignalReportViewSet
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -510,9 +510,7 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
         self._create_implementation_task_with_run(report_without_pr, output={"commit_sha": "abc123"})
 
-        viewset = SignalReportViewSet()
-        viewset.team = self.team
-        result = viewset._fetch_implementation_pr_urls_for_reports([str(report_with_pr.id), str(report_without_pr.id)])
+        result = fetch_implementation_pr_urls_for_reports([str(report_with_pr.id), str(report_without_pr.id)])
 
         assert result == {
             str(report_with_pr.id): "https://github.com/org/repo/pull/42",
