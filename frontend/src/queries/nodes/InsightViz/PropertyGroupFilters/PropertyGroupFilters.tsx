@@ -57,17 +57,19 @@ export function PropertyGroupFilters({
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
                     <div className="flex flex-col gap-2 @lg:flex-row @lg:items-center">
-                        <LemonButton
-                            data-attr={`${pageKey}-add-filter-group-inline`}
-                            type="secondary"
-                            onClick={addFilterGroup}
-                            icon={<IconPlusSmall />}
-                            sideIcon={null}
-                            disabledReason={disabledReason}
-                            className="order-2 @lg:order-none PropertyGroupFilters__add-filter-group-inline"
-                        >
-                            Add filter group
-                        </LemonButton>
+                        <div className="order-2 @lg:order-none PropertyGroupFilters__add-filter-group-inline-wrapper">
+                            <LemonButton
+                                data-attr={`${pageKey}-add-filter-group-inline`}
+                                type="secondary"
+                                onClick={addFilterGroup}
+                                icon={<IconPlusSmall />}
+                                sideIcon={null}
+                                disabledReason={disabledReason}
+                                className="PropertyGroupFilters__add-filter-group-inline"
+                            >
+                                Add filter group
+                            </LemonButton>
+                        </div>
                         <div className="order-1 @lg:order-none">
                             <div className="flex flex-wrap items-center gap-2">
                                 <InsightTestAccountFilter
