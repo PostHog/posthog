@@ -28,10 +28,10 @@ use super::KafkaProducerTrait;
 /// hotspotting on a single token:distinct_id pair.
 fn effective_partition_key<'a>(
     key_buf: &'a str,
-    force_disable_person_processing: Option<bool>,
+    force_disable_person_processing: bool,
     destination: &Destination,
 ) -> Option<&'a str> {
-    if force_disable_person_processing.is_some()
+    if force_disable_person_processing
         && matches!(
             destination,
             Destination::AnalyticsMain | Destination::Overflow
@@ -184,7 +184,9 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             event.partition_key(ctx, &mut key_buf);
             let key = effective_partition_key(
                 &key_buf,
-                captured_headers.force_disable_person_processing,
+                captured_headers
+                    .force_disable_person_processing
+                    .unwrap_or(false),
                 event.destination(),
             );
 
@@ -481,14 +483,14 @@ mod effective_partition_key_tests {
     use rstest::rstest;
 
     #[rstest]
-    #[case::main_disabled(Some(true), Destination::AnalyticsMain, None)]
-    #[case::overflow_disabled(Some(true), Destination::Overflow, None)]
-    #[case::dlq_disabled(Some(true), Destination::Dlq, Some("k"))]
-    #[case::historical_disabled(Some(true), Destination::AnalyticsHistorical, Some("k"))]
-    #[case::custom_disabled(Some(true), Destination::Custom("t".into()), Some("k"))]
-    #[case::main_not_disabled(None, Destination::AnalyticsMain, Some("k"))]
+    #[case::main_disabled(true, Destination::AnalyticsMain, None)]
+    #[case::overflow_disabled(true, Destination::Overflow, None)]
+    #[case::dlq_disabled(true, Destination::Dlq, Some("k"))]
+    #[case::historical_disabled(true, Destination::AnalyticsHistorical, Some("k"))]
+    #[case::custom_disabled(true, Destination::Custom("t".into()), Some("k"))]
+    #[case::main_not_disabled(false, Destination::AnalyticsMain, Some("k"))]
     fn policy(
-        #[case] force_disable: Option<bool>,
+        #[case] force_disable: bool,
         #[case] dest: Destination,
         #[case] expected: Option<&str>,
     ) {
