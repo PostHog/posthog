@@ -56,13 +56,10 @@
       commitMessageExtra: '(chrome-headless-shell)',
       labels: ['dependencies', 'recording-rasterizer'],
     },
-    // Split github-actions pin updates out of the default `renovate/pin-dependencies`
-    // bundle so they can be approved on the dashboard independently of the cross-manager
-    // pin bundle (which also touches every npm/cargo/pep621/gomod lockfile and is
-    // impractical to land in one PR). Approval gate is preserved.
+    // Split github-actions updates out of the default `renovate/pin-dependencies`
+    // bundle so they can be approved on the dashboard independently
     {
       matchManagers: ['github-actions'],
-      matchUpdateTypes: ['pin'],
       groupName: 'github-actions pin',
     },
   ],
