@@ -305,7 +305,10 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         assert result == {} or result["exception_count"] == 0
 
-    def test_auto_select_project_picks_busiest(self):
+    def test_auto_select_project_picks_busiest_for_engineering_role(self):
+        self.user.role_at_organization = "engineering"
+        self.user.save()
+
         team_b = Team.objects.create(organization=self.organization, name="Team B")
 
         team_exception_counts = {
@@ -321,7 +324,83 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         assert str(self.team.pk) not in project_enabled
         assert project_enabled[str(team_b.pk)] is True
 
+    def test_auto_select_project_picks_busiest_for_data_role(self):
+        self.user.role_at_organization = "data"
+        self.user.save()
+
+        team_exception_counts = {
+            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
+        }
+
+        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
+        self.user.refresh_from_db()
+
+        settings = self.user.notification_settings
+        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
+        assert project_enabled[str(self.team.pk)] is True
+
+    def test_auto_select_project_picks_busiest_for_founder_role(self):
+        self.user.role_at_organization = "founder"
+        self.user.save()
+
+        team_exception_counts = {
+            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
+        }
+
+        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
+        self.user.refresh_from_db()
+
+        settings = self.user.notification_settings
+        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
+        assert project_enabled[str(self.team.pk)] is True
+
+    def test_auto_select_project_sets_empty_for_marketing_role(self):
+        self.user.role_at_organization = "marketing"
+        self.user.save()
+
+        team_exception_counts = {
+            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
+        }
+
+        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
+        self.user.refresh_from_db()
+
+        settings = self.user.notification_settings
+        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
+        assert project_enabled == {}
+
+    def test_auto_select_project_sets_empty_for_sales_role(self):
+        self.user.role_at_organization = "sales"
+        self.user.save()
+
+        team_exception_counts = {
+            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
+        }
+
+        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
+        self.user.refresh_from_db()
+
+        settings = self.user.notification_settings
+        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
+        assert project_enabled == {}
+
+    def test_auto_select_project_sets_empty_for_none_role(self):
+        self.user.role_at_organization = None
+        self.user.save()
+
+        team_exception_counts = {
+            self.team.pk: {"exception_count": 10, "ingestion_failure_count": 0, "prev_exception_count": 0},
+        }
+
+        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
+        self.user.refresh_from_db()
+
+        settings = self.user.notification_settings
+        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
+        assert project_enabled == {}
+
     def test_auto_select_project_skips_if_already_configured(self):
+        self.user.role_at_organization = "engineering"
         self.user.partial_notification_settings = {
             "error_tracking_weekly_digest_project_enabled": {str(self.team.pk): True},
         }
