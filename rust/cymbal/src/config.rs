@@ -131,16 +131,16 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub process_slow_log_threshold_ms: u64,
 
-    // Total time budget for a single /v2/process request, in milliseconds. After
+    // Total time budget for a single /v2/resolve request, in milliseconds. After
     // this elapses, any events still being processed get a fallback Retry disposition
     // so the response returns within budget regardless of slow events.
     //
-    // This is the latency SLO cymbal commits to: 99% of /v2/process requests
+    // This is the latency SLO cymbal commits to: 99% of /v2/resolve requests
     // return within `process_request_deadline_ms`.
     #[envconfig(default = "30000")]
     pub process_request_deadline_ms: u64,
 
-    // Per-event time budget within a /v2/process request, in milliseconds. Events
+    // Per-event time budget within a /v2/resolve request, in milliseconds. Events
     // exceeding this get a Retry disposition (reason: deadline_exceeded) so they
     // don't dominate the request budget at the expense of faster siblings.
     //

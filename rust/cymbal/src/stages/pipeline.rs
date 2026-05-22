@@ -28,7 +28,7 @@ pub struct ExceptionEventPipeline {
     app_context: Arc<AppContext>,
     /// Optional override for `LinkingStage::batch_issue_cache`. When `Some`,
     /// the supplied cache is reused; when `None`, the linking stage allocates
-    /// a fresh per-batch cache. The `/v2/process` handler creates one cache
+    /// a fresh per-batch cache. The `/v2/resolve` handler creates one cache
     /// per request and threads it through so every per-event invocation
     /// shares the same fingerprint -> Issue dedup.
     batch_issue_cache: Option<Cache<(TeamId, String), Issue>>,

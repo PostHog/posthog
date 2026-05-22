@@ -38,7 +38,7 @@ pub struct LinkingStage {
     // resolve the Issue exactly once. moka's `try_get_with` also deduplicates
     // concurrent misses for the same key inside the same batch.
     //
-    // The `/v2/process` flow runs the pipeline once per event for isolation. To
+    // The `/v2/resolve` flow runs the pipeline once per event for isolation. To
     // preserve cross-event dedup within a request, the handler creates one cache
     // and threads it through `new(ctx, Some(cache))` to every per-event invocation.
     pub batch_issue_cache: Cache<(TeamId, String), Issue>,
@@ -46,7 +46,7 @@ pub struct LinkingStage {
 
 impl LinkingStage {
     /// Build a `LinkingStage`. When `batch_issue_cache` is `Some`, the supplied
-    /// cache is reused (the `/v2/process` flow uses this to share one cache
+    /// cache is reused (the `/v2/resolve` flow uses this to share one cache
     /// across the per-event pipeline invocations within a single request).
     /// When `None`, a fresh per-batch cache is allocated — the legacy
     /// `/process` behaviour.
@@ -94,7 +94,7 @@ mod tests {
 
     /// A `LinkingStage` constructed with a supplied cache reuses that
     /// instance — multiple stages built around the same cache see each
-    /// other's writes. This is the property the `/v2/process` flow relies on.
+    /// other's writes. This is the property the `/v2/resolve` flow relies on.
     #[tokio::test]
     async fn supplied_batch_issue_cache_is_shared() {
         let shared = LinkingStage::default_batch_issue_cache();

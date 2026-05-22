@@ -22,7 +22,7 @@ use crate::{
 ///
 /// The legacy `/process` flow runs `SpikeAlertStage` at the end of the
 /// per-batch pipeline and does one batched Redis call covering every
-/// issue in the batch. The `/v2/process` flow runs the pipeline once per
+/// issue in the batch. The `/v2/resolve` flow runs the pipeline once per
 /// event for isolation — without this accumulator, each per-event run
 /// would make its own Redis call, amplifying call volume by a factor of
 /// events-per-request.
@@ -106,7 +106,7 @@ impl SpikeAlertAccumulatorState {
 
 pub struct AlertingStage {
     context: Arc<AppContext>,
-    /// Optional accumulator for the deferred-mode `/v2/process` flow.
+    /// Optional accumulator for the deferred-mode `/v2/resolve` flow.
     /// When `Some`, the stage appends events to the accumulator instead
     /// of making Redis calls; the request handler invokes spike detection
     /// once at end-of-request. When `None`, spike detection runs inline

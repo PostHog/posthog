@@ -95,7 +95,7 @@ pub(crate) async fn get_raw_response(
 
 /// Variant of `get_response` that lets the caller supply a pre-configured
 /// `MockRedisClient` and apply config tweaks before constructing `AppContext`.
-/// Used by `/v2/process` tests that need to assert on Redis call counts
+/// Used by `/v2/resolve` tests that need to assert on Redis call counts
 /// (spike-detection batching) or force errors (spike-detection failure path).
 #[allow(dead_code)]
 pub(crate) async fn get_response_with_overrides<T: for<'de> Deserialize<'de>>(

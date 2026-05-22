@@ -26,7 +26,7 @@ use crate::{
     },
 };
 
-/// Runs per-event Cymbal processing for `/v2/process` and converts each raw
+/// Runs per-event Cymbal processing for `/v2/resolve` and converts each raw
 /// result into an `EventDisposition`. The struct owns the request-scoped shared
 /// state that must be reused across all isolated `Batch<1>` invocations.
 #[derive(Clone)]

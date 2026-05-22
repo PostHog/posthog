@@ -1,4 +1,4 @@
-//! `/v2/process` request handler. Returns per-event dispositions in a
+//! `/v2/resolve` request handler. Returns per-event dispositions in a
 //! structured response shape that the ingestion pipeline can route on
 //! without inference.
 //!
@@ -46,10 +46,10 @@ use crate::{
     types::{event::AnyEvent, event_disposition::EventDisposition},
 };
 
-/// Handler for `POST /v2/process`. Accepts a JSON array of events and
+/// Handler for `POST /v2/resolve`. Accepts a JSON array of events and
 /// returns a JSON array of dispositions aligned 1:1 with the input.
 #[axum::debug_handler]
-pub async fn process_events_v2(
+pub async fn resolve_events_v2(
     State(ctx): State<Arc<AppContext>>,
     headers: HeaderMap,
     Json(events): Json<Vec<AnyEvent>>,
@@ -71,7 +71,7 @@ pub async fn process_events_v2(
         request_id = %request_id,
         batch_event_count,
         team_count,
-        "Started /v2/process request"
+        "Started /v2/resolve request"
     );
 
     // Same backpressure semaphore as /process — when the in-flight limit is
@@ -99,7 +99,7 @@ pub async fn process_events_v2(
                 request_id = %request_id,
                 batch_event_count,
                 team_count,
-                "Rejected /v2/process request due to backpressure"
+                "Rejected /v2/resolve request due to backpressure"
             );
             ProcessEventsError::Backpressure
         })?;
@@ -153,7 +153,7 @@ pub async fn process_events_v2(
             duration_ms,
             batch_event_count,
             team_count,
-            "Failed /v2/process request (deferred spike detection error)"
+            "Failed /v2/resolve request (deferred spike detection error)"
         );
         return Err(ProcessEventsError::Unhandled(err));
     }
@@ -184,7 +184,7 @@ pub async fn process_events_v2(
             drop_count = disposition_counts.drop,
             retry_count = disposition_counts.retry,
             dlq_count = disposition_counts.dlq,
-            "Completed /v2/process request (slow)"
+            "Completed /v2/resolve request (slow)"
         );
     } else {
         debug!(
@@ -196,7 +196,7 @@ pub async fn process_events_v2(
             drop_count = disposition_counts.drop,
             retry_count = disposition_counts.retry,
             dlq_count = disposition_counts.dlq,
-            "Completed /v2/process request"
+            "Completed /v2/resolve request"
         );
     }
 

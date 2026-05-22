@@ -1,4 +1,4 @@
-//! Integration tests for the `/v2/process` endpoint — verifies the disposition
+//! Integration tests for the `/v2/resolve` endpoint — verifies the disposition
 //! contract end-to-end (HTTP → pipeline → response shape) and the failure
 //! paths the new endpoint promises:
 //!
@@ -156,7 +156,7 @@ impl V2Harness {
         .await
     }
 
-    /// POST `/v2/process` with a caller-supplied `MockRedisClient` and a
+    /// POST `/v2/resolve` with a caller-supplied `MockRedisClient` and a
     /// config-tweak closure. Returns the JSON response decoded into either
     /// `Vec<V2Disposition>` (on 2xx) or `serde_json::Value` (on 4xx/5xx).
     async fn post_events_with_overrides<T: serde::de::DeserializeOwned>(
@@ -180,7 +180,7 @@ impl V2Harness {
         Request::builder()
             .method("POST")
             .header("content-type", "application/json")
-            .uri("/v2/process")
+            .uri("/v2/resolve")
             .body(Body::from(serde_json::to_vec(events).unwrap()))
             .unwrap()
     }
@@ -320,7 +320,7 @@ async fn invalid_json_returns_400(db: PgPool) {
             Request::builder()
                 .method("POST")
                 .header("content-type", "application/json")
-                .uri("/v2/process")
+                .uri("/v2/resolve")
                 .body(Body::from(b"{\"not\": \"an array\"}".to_vec()))
                 .unwrap()
         },

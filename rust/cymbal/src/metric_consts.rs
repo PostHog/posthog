@@ -88,7 +88,7 @@ pub const PROCESS_REQUEST_DURATION_SECONDS: &str = "cymbal_process_request_durat
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
 
-// Disposition-based /v2/process observability. These count individual event
+// Disposition-based /v2/resolve observability. These count individual event
 // outcomes (labelled by `{action, reason}`) and surface the new contract's
 // per-event classification to operators. Combined with PROCESS_REQUESTS_TOTAL
 // (which counts whole requests), they give a complete picture of cymbal's

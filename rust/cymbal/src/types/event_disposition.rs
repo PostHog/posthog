@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::UnhandledError;
 use crate::types::event::AnyEvent;
 
-/// Per-event routing decision from `/v2/process`. The full response is a `Vec<EventDisposition>`
+/// Per-event routing decision from `/v2/resolve`. The full response is a `Vec<EventDisposition>`
 /// aligned 1:1 with the input batch's events.
 ///
 /// This is the contract surface between cymbal and the ingestion pipeline.
@@ -48,7 +48,7 @@ pub enum EventDisposition {
     /// cases cymbal can name with certainty (parse failures, schema
     /// violations, etc.).
     ///
-    /// `/v2/process` currently preserves the legacy `/process` behavior for
+    /// `/v2/resolve` currently preserves the legacy `/process` behavior for
     /// handled event errors by forwarding the original event with
     /// `$cymbal_errors` attached. This variant is reserved for future cases
     /// where Cymbal can safely make a terminal DLQ decision.

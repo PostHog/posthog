@@ -31,7 +31,7 @@ pub fn get_router(context: Arc<AppContext>) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/process", post(process_events))
-        .route("/v2/process", post(process_events_v2))
+        .route("/v2/resolve", post(resolve_events_v2))
         .route("/_readiness", get(index))
         .route("/_liveness", get(liveness))
         .fallback(not_found)

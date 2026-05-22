@@ -23,7 +23,7 @@ use crate::{
 /// Raw per-event result from Cymbal's HTTP processing pipeline, before any
 /// endpoint-specific response adaptation. The original event is kept alongside
 /// the processing result so callers can either enrich it (legacy `/process`) or
-/// map the handled error directly into a routing decision (`/v2/process`).
+/// map the handled error directly into a routing decision (`/v2/resolve`).
 pub struct HttpEventProcessingResult {
     pub original_event: AnyEvent,
     pub result: Result<ExceptionProperties, EventError>,
@@ -80,12 +80,12 @@ impl Stage for HttpEventProcessingPipeline {
 pub struct HttpEventPipeline {
     app_context: Arc<AppContext>,
     /// Optional shared per-batch issue cache, threaded down to `LinkingStage`.
-    /// `/v2/process` creates one cache per request and supplies it on every
+    /// `/v2/resolve` creates one cache per request and supplies it on every
     /// per-event invocation so they share fingerprint -> Issue dedup across
     /// the request. `None` for the legacy `/process` flow (linking stage
     /// allocates a fresh cache).
     batch_issue_cache: Option<Cache<(TeamId, String), Issue>>,
-    /// Optional accumulator for deferring spike-alert work. `/v2/process`
+    /// Optional accumulator for deferring spike-alert work. `/v2/resolve`
     /// creates one accumulator per request, threads it through every
     /// per-event invocation, and runs spike detection once at end-of-request
     /// with the merged inputs. `None` for the legacy `/process` flow
