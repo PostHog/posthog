@@ -278,6 +278,10 @@ export function FinishExperimentModal(): JSX.Element {
     // `suggestionDismissed` hides the recommendation chip after the user accepts (tick) or rejects (cross).
     const [noShip, setNoShip] = useState<boolean>(false)
     const [suggestionDismissed, setSuggestionDismissed] = useState<boolean>(false)
+    // Whether the user explicitly accepted the recommendation (tick). Drives kept_variant_was_recommended
+    // by intent, not by key-matching — so manually picking the recommended variant after rejecting it
+    // doesn't report the recommendation as followed (which would contradict the rejected event).
+    const [recommendationAccepted, setRecommendationAccepted] = useState<boolean>(false)
 
     useEffect(() => {
         if (showRecommendationPattern) {
@@ -302,6 +306,7 @@ export function FinishExperimentModal(): JSX.Element {
         }
         setNoShip(false)
         setSuggestionDismissed(false)
+        setRecommendationAccepted(false)
         setSelectedVariantKey(null)
     }, [experiment.conclusion, showRecommendationPattern])
 
@@ -316,6 +321,7 @@ export function FinishExperimentModal(): JSX.Element {
         }
         setSelectedVariantKey(recommendedVariantToKeep.variantKey)
         setSuggestionDismissed(true)
+        setRecommendationAccepted(true)
         reportExperimentRecommendationAccepted(experiment, recommendedVariantToKeep.variantKey)
     }
 
@@ -325,6 +331,7 @@ export function FinishExperimentModal(): JSX.Element {
             reportExperimentRecommendationRejected(experiment, recommendedVariantToKeep.variantKey)
         }
         setSuggestionDismissed(true)
+        setRecommendationAccepted(false)
     }
 
     const handleNoShipToggle = (checked: boolean): void => {
@@ -343,9 +350,7 @@ export function FinishExperimentModal(): JSX.Element {
             finishExperiment({
                 selectedVariantKey,
                 releaseToEveryone: showReleaseModeChoice ? releaseToEveryone : true,
-                keptVariantWasRecommended: recommendedVariantToKeep
-                    ? selectedVariantKey === recommendedVariantToKeep.variantKey
-                    : null,
+                keptVariantWasRecommended: recommendedVariantToKeep ? recommendationAccepted : null,
             })
         }
     }
@@ -439,7 +444,10 @@ export function FinishExperimentModal(): JSX.Element {
                                             disabledReason={
                                                 noShip ? 'Turn off "Don\'t ship a variant" to choose one' : undefined
                                             }
-                                            onChange={(variantKey) => setSelectedVariantKey(variantKey)}
+                                            onChange={(variantKey) => {
+                                                setSelectedVariantKey(variantKey)
+                                                setRecommendationAccepted(false)
+                                            }}
                                             allowClear={true}
                                             options={
                                                 experiment.feature_flag?.filters.multivariate?.variants?.map(
