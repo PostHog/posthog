@@ -30,7 +30,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.authentication import is_email_verified_for_login, password_reset_token_generator
+from posthog.api.authentication import password_reset_token_generator
+from posthog.api.email_verification import EmailVerifier
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import (
@@ -2323,9 +2324,17 @@ def agentic_login(request: Any) -> HttpResponseBase:
         logger.warning("agentic_login.user_inactive", user_id=user_id)
         return HttpResponseRedirect("/?error=user_inactive")
 
-    # Partner-asserted email ownership is not enough to grant a session. Require the user
-    # to prove the email is theirs first; this side-effects a verification email send.
-    if not is_email_verified_for_login(user):
+    # Deep-link login has no password challenge and no SSO step, so partner-asserted
+    # email ownership is the only thing standing between an attacker and a session.
+    # Require explicit is_email_verified=True - don't trust the legacy None passthrough
+    # or the org-level email-verification-disabled flag.
+    if user.is_email_verified is not True:
+        try:
+            EmailVerifier.create_token_and_send_email_verification(user)
+        except Exception:
+            capture_exception(
+                additional_properties={"user_id": user.id, "step": "agentic_login_verification_email"},
+            )
         _capture_deep_link_event("email_unverified", user_id=user_id)
         logger.warning("agentic_login.email_unverified", user_id=user_id)
         return HttpResponseRedirect(f"/verify_email/{user.uuid}")

@@ -178,6 +178,16 @@ class TestAgenticLogin(ProvisioningTestBase):
         res = self.client.get("/api/users/@me/")
         assert res.status_code == 401
 
+    def test_legacy_null_verified_user_is_blocked(self):
+        # Standard login allows is_email_verified=None as legacy passthrough; deep-link
+        # login has no password challenge, so None must be treated the same as False.
+        self.user.is_email_verified = None
+        self.user.save(update_fields=["is_email_verified"])
+        token = self._create_deep_link_token()
+        res = self.client.get(f"/agentic/login?token={token}")
+        assert res.status_code == 302
+        assert res["Location"] == f"/verify_email/{self.user.uuid}"
+
     def test_verified_user_logs_in(self):
         self.user.is_email_verified = True
         self.user.save(update_fields=["is_email_verified"])
