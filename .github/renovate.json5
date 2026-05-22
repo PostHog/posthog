@@ -60,7 +60,7 @@
     // bundle so they can be approved on the dashboard independently
     {
       matchManagers: ['github-actions'],
-      groupName: 'github-actions pin',
+      groupName: 'github-actions',
     },
   ],
 }
