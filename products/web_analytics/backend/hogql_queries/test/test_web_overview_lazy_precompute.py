@@ -622,7 +622,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             patch.object(
                 mod,
                 "ensure_web_overview_precomputed",
-                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], jobs_inserted=1),
+                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], inserted_job_ids=[uuid.uuid4()]),
             ),
             patch.object(mod, "_wait_for_replication", return_value=True) as wait_mock,
             patch.object(mod, "execute_read_query", return_value=[[1, 1, 2, 2, 3, 3, 4, 4, 5, 5]]),
@@ -635,7 +635,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_sync_replica_skipped_on_warm_cache_hit(self):
-        # The warm-cache path (`ensure_*` returns ready=True, jobs_inserted=0)
+        # The warm-cache path (`ensure_*` returns ready=True, inserted_job_ids=[])
         # must skip `_wait_for_replication` so reads stay fast — every part is
         # already on every replica from previous calls.
         from posthog.hogql_queries.web_analytics import web_overview_lazy_precompute as mod
@@ -646,7 +646,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             patch.object(
                 mod,
                 "ensure_web_overview_precomputed",
-                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], jobs_inserted=0),
+                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], inserted_job_ids=[]),
             ),
             patch.object(mod, "_wait_for_replication", return_value=True) as wait_mock,
             patch.object(mod, "execute_read_query", return_value=[[1, 1, 2, 2, 3, 3, 4, 4, 5, 5]]),
@@ -679,7 +679,11 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             patch.object(
                 mod,
                 "ensure_web_overview_precomputed",
-                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], jobs_inserted=3),
+                return_value=LazyComputationResult(
+                    ready=True,
+                    job_ids=[uuid.uuid4()],
+                    inserted_job_ids=[uuid.uuid4(), uuid.uuid4(), uuid.uuid4()],
+                ),
             ),
             patch.object(mod, "_wait_for_replication", return_value=False),
             patch.object(mod, "execute_read_query", side_effect=fake_read),
@@ -709,7 +713,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             return LazyComputationResult(
                 ready=True,
                 job_ids=[uuid.uuid4()],
-                jobs_inserted=0 if call_count["n"] == 1 else 5,
+                inserted_job_ids=[] if call_count["n"] == 1 else [uuid.uuid4() for _ in range(5)],
             )
 
         with (

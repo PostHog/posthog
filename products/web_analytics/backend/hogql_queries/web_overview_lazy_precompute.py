@@ -613,7 +613,14 @@ def execute_lazy_precomputed_read(
             return None
 
         job_ids: list[str] = [str(jid) for jid in result.job_ids]
-        jobs_inserted = result.jobs_inserted
+        # Track which job_ids this request actually INSERTed across current +
+        # previous `ensure_*` calls. Only these are at risk of replication lag —
+        # pre-existing READY jobs in `result.job_ids` were written by earlier
+        # requests and have long since propagated. `len(job_ids)` can't tell
+        # us "did we write anything in this request?" because warm-cache hits
+        # also return non-empty `job_ids`. See `LazyComputationResult.
+        # inserted_job_ids`.
+        inserted_job_ids: list[str] = [str(jid) for jid in result.inserted_job_ids]
 
         previous_start_utc: Optional[datetime] = None
         previous_end_utc: Optional[datetime] = None
@@ -648,7 +655,7 @@ def execute_lazy_precomputed_read(
                         return None
 
                     job_ids.extend(str(jid) for jid in prev_result.job_ids)
-                    jobs_inserted += prev_result.jobs_inserted
+                    inserted_job_ids.extend(str(jid) for jid in prev_result.inserted_job_ids)
 
         # If anything was newly INSERTed during this request, wait for fresh
         # parts to replicate before reading. Without this, the SELECT can hit
@@ -656,7 +663,7 @@ def execute_lazy_precomputed_read(
         # parts are still propagating — observed empirically as previous-period
         # counts dropping to <1% of actual on first cold-cache load with
         # compareFilter on (parts settle within a second or two on refresh).
-        if jobs_inserted > 0:
+        if inserted_job_ids:
             if not _wait_for_replication(team_id):
                 return None
 
@@ -676,7 +683,7 @@ def execute_lazy_precomputed_read(
             "web_overview_lazy_precompute_completed",
             team_id=team_id,
             job_count=len(result.job_ids),
-            jobs_inserted=jobs_inserted,
+            jobs_inserted=len(inserted_job_ids),
             rows_returned=len(rows) if rows else 0,
             ensure_duration_ms=ensure_duration_ms,
             read_duration_ms=read_duration_ms,
