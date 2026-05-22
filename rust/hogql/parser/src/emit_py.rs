@@ -137,6 +137,8 @@ pub struct PyEmitter<'py> {
     cls_window_expr: Bound<'py, PyAny>,
     cls_interpolate_expr: Bound<'py, PyAny>,
     cls_limit_by_expr: Bound<'py, PyAny>,
+    /// Python builtin `int` class — used by `constant_number_string` for arbitrary-precision integer literals (i64-wider hex/decimal). Cached once instead of `py.eval_bound("int", ...)` per call.
+    cls_int: Bound<'py, PyAny>,
     // ===== Op enum members (pre-resolved at construction) =====
     // Previous impl did `cls.get_item(op)` per arith/compare call — a PyDict lookup against the StrEnum class. Caching saves millions of lookups across the factory suite; each entry is one refcount-bumped `Bound`.
     arith_op_add: Bound<'py, PyAny>,
@@ -235,6 +237,7 @@ impl<'py> PyEmitter<'py> {
             cls_window_expr: ast_module.getattr("WindowExpr")?,
             cls_interpolate_expr: ast_module.getattr("InterpolateExpr")?,
             cls_limit_by_expr: ast_module.getattr("LimitByExpr")?,
+            cls_int: py.import_bound("builtins")?.getattr("int")?,
             // Pre-resolve enum members by NAME — StrEnum classes are subscriptable by member-name (`cls["Add"]`), not by value (`cls["+"]` fails).
             arith_op_add: arith_enum.get_item("Add")?,
             arith_op_sub: arith_enum.get_item("Sub")?,
@@ -393,9 +396,8 @@ impl<'py> Emitter for PyEmitter<'py> {
         let body = text.strip_prefix('-').unwrap_or(&text);
         let is_hex = body.starts_with("0x") || body.starts_with("0X");
         let base = if is_hex { 16 } else { 10 };
-        let int_cls = self.py.eval_bound("int", None, None).unwrap();
         let args = PyTuple::new_bound(self.py, [text.into_py(self.py), base.into_py(self.py)]);
-        let int_obj = int_cls.call(&args, None).unwrap();
+        let int_obj = self.cls_int.call(&args, None).unwrap();
         let kw = PyDict::new_bound(self.py);
         kw.set_item("value", &int_obj).unwrap();
         self.build(&self.cls_constant, &kw)

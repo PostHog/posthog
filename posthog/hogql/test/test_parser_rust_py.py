@@ -9,8 +9,10 @@ dataclass instances directly, skipping the JSON round-trip).
 
 from ._test_parser import parser_test_factory
 
-# Same deferral as `rust-json`: position emission is shared between the two
-# backends since `rust-py` is just a converter over the same `Value` tree.
+# Same deferral as `rust-json`: PyEmitter's `with_pos` chain doesn't yet
+# propagate positions onto the promoted assignment target node. Underlying
+# parser logic is shared, so the gap is wired in `with_pos` rather than
+# in the per-backend AST shape.
 _DEFERRED_EXACT: set[str] = {
     "test_promoted_assignment_target_carries_position",
 }
