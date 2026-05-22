@@ -2861,7 +2861,7 @@ class FeatureFlagViewSet(
         request=BulkKeysRequestSerializer,
         responses={
             200: OpenApiResponse(response=BulkKeysResponseSerializer),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="No valid IDs supplied."),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid flag IDs provided."),
         },
     )
     @action(methods=["POST"], detail=False, required_scopes=["feature_flag:read"])
