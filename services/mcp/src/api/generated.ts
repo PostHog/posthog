@@ -6560,6 +6560,14 @@ export namespace Schemas {
       ids?: number[];
     }
 
+    /**
+     * Schema-only — referenced from ``@extend_schema(responses=...)`` to describe the wire format.
+    Never instantiate this for validation or call ``.is_valid()`` / ``.errors`` on it: the
+    declared ``errors`` field shadows DRF's inherited ``Serializer.errors`` ReturnDict property,
+    so accessing ``serializer.errors`` would return this field descriptor instead of validation
+    errors. The handler builds the response dict directly; this class exists only so drf-spectacular
+    can render the response in the OpenAPI spec and downstream generated clients.
+     */
     export interface BulkDeleteResponse {
       /** Flags successfully soft-deleted. */
       deleted: BulkDeleteDeletedItem[];
