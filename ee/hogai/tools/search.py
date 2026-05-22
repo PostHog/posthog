@@ -163,7 +163,7 @@ class SearchTool(MaxTool):
 
         if kind == "business-knowledge":
             if not self._has_business_knowledge:
-                raise MaxToolRetryableError(
+                raise MaxToolFatalError(
                     "Business knowledge search is not available: this project has no ready knowledge sources."
                 )
             if not self.user_access_control.check_access_level_for_resource("business_knowledge", "viewer"):
