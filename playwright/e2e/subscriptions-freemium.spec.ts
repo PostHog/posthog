@@ -3,7 +3,7 @@
  *
  * Verifies the free-tier subscription gate in a real browser against the real frontend:
  *  - A free org UNDER the limit sees the normal "New Subscription" create form.
- *  - A free org AT the limit sees the PayGateMini upsell instead of the create form.
+ *  - A free org AT the limit sees the usage-limit paywall instead of the create form.
  *
  * The org's feature entitlement and the team-wide subscription count are mocked
  * (the gate is a pure frontend decision: `!hasSubscriptionsFeature && count >= FREE_LIMIT`),
@@ -20,9 +20,9 @@ import { test } from '../utils/playwright-test-base'
 
 const FREE_LIMIT = 5
 
-// PayGateMini renders this button (data-attr=`${feature}-learn-more`) when the gate is shown.
-// Stable across billing gate-variants, unlike the CTA copy.
-const GATE_HOOK = 'subscriptions-learn-more'
+// UsageLimitPaywall renders this title when a free org hits the cap. Anchoring on it
+// distinguishes the paywall from the create form without depending on CTA button copy.
+const GATE_TITLE = 'Subscription limit reached'
 
 /** Force the current org to look free (no SUBSCRIPTIONS entitlement) by stripping it from /api/users/@me/. */
 async function mockFreeOrg(page: Page): Promise<void> {
@@ -75,7 +75,7 @@ test.describe('subscriptions freemium gate', () => {
         await page.goto(`/project/${teamId}/insights/${shortId}/subscriptions/new`)
 
         await expect(page.getByText('New Subscription')).toBeVisible()
-        await expect(page.getByTestId(GATE_HOOK)).toBeHidden()
+        await expect(page.getByText(GATE_TITLE)).toBeHidden()
     })
 
     test('free org at the limit sees the upgrade paywall instead of the create form', async ({ page }) => {
@@ -87,7 +87,7 @@ test.describe('subscriptions freemium gate', () => {
 
         await page.goto(`/project/${teamId}/insights/${shortId}/subscriptions/new`)
 
-        await expect(page.getByTestId(GATE_HOOK)).toBeVisible()
+        await expect(page.getByText(GATE_TITLE)).toBeVisible()
         await expect(page.getByText('New Subscription')).toBeHidden()
     })
 })
