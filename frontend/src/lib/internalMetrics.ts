@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 
 import api, { getJSONOrNull } from 'lib/api'
+import { ReadOnlyModeError, isReadOnly } from 'lib/readOnlyGuard'
 import { getResponseBytes } from 'scenes/insights/utils'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -37,6 +38,12 @@ export async function captureTimeToSeeData(teamId: number | null, payload: TimeT
             return
         }
 
+        if (isReadOnly()) {
+            // Telemetry POSTs are blocked by the read-only guard; skipping avoids a guaranteed throw
+            // (and the resulting captureException) on every filter interaction.
+            return
+        }
+
         try {
             await api.create(`api/projects/${teamId}/insights/timing`, {
                 session_id: currentSessionId(),
@@ -46,7 +53,9 @@ export async function captureTimeToSeeData(teamId: number | null, payload: TimeT
         } catch (e) {
             // NOTE: As this is only telemetry, we don't want to block the user if it fails
             console.warn('Failed to capture time to see data', e)
-            posthog.captureException(e)
+            if (!(e instanceof ReadOnlyModeError)) {
+                posthog.captureException(e)
+            }
         }
     }
 }
