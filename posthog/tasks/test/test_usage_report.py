@@ -27,6 +27,7 @@ from django.utils.timezone import now
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
+from parameterized import parameterized
 
 from posthog.schema import EventsQuery
 
@@ -3679,6 +3680,30 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.org_1_team_1.id)
         self.assertEqual(result[0][1], 240)
+
+    @parameterized.expand(
+        [
+            ("none", None),
+            ("dev", "DEV"),
+            ("unknown", "ASIA"),
+        ]
+    )
+    @patch("posthog.tasks.usage_report.sync_execute")
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_ai_credits_returns_empty_for_non_billing_region(
+        self, _name: str, region: str | None, mock_region: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
+
+        mock_region.return_value = region
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+
+        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+
+        self.assertEqual(result, [])
+        mock_sync_execute.assert_not_called()
 
 
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
