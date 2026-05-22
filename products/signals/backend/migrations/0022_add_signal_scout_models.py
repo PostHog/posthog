@@ -85,6 +85,7 @@ class Migration(migrations.Migration):
                 ),
                 ("skill_name", models.CharField(max_length=200)),
                 ("skill_version", models.IntegerField()),
+                ("summary", models.TextField(blank=True, db_default="", default="")),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "task_run",

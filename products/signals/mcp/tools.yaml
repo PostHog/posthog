@@ -132,8 +132,9 @@ tools:
         title: List recent scout runs
         description: >
             Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless
-            scout to dedupe against work other runs already covered. ILIKE matches on `summary`; results capped at
-            100.
+            scout to dedupe against work other runs already covered. Pass `text` for a case-insensitive substring
+            match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `since`
+            to scope to a recent window. Results capped at 100.
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
@@ -145,8 +146,10 @@ tools:
             idempotent: true
         title: Get a scout run by ID
         description: >
-            Return the full `SignalScoutRun` row including `summary`, `findings`, `hypotheses_considered`,
-            `run_metrics`, and `metadata`. Strictly team-scoped — a UUID belonging to another team returns 404.
+            Return the full `SignalScoutRun` row, including the agent's end-of-run `summary`. Status, timestamps,
+            and error flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows queryable by
+            `source_id = run:<run_id>:finding:<finding_id>`. Strictly team-scoped — a UUID belonging to another
+            team returns 404.
     signals-scout-runs-findings-create:
         operation: signals_scout_runs_findings_create
         enabled: true

@@ -117,6 +117,25 @@ class TestSearchRecentRuns(BaseTest):
         assert hits[0].run_id == str(run.id)
         assert hits[0].status == TaskRun.Status.COMPLETED
 
+    def test_text_filter_uses_ilike_on_summary(self) -> None:
+        keep = _create_run(self.team, summary="Looked at /checkout 500s — nothing actionable")
+        _create_run(self.team, summary="Scanned LLM costs, all normal")
+        _create_run(self.team, summary="")
+
+        hits = search_recent_runs(team_id=self.team.id, text="checkout")
+
+        assert [h.run_id for h in hits] == [str(keep.id)]
+
+    def test_summary_field_round_trips_through_projection(self) -> None:
+        run = _create_run(self.team, summary="emit-free run; only known-noise patterns")
+
+        hits = search_recent_runs(team_id=self.team.id, limit=1)
+
+        assert hits[0].summary == "emit-free run; only known-noise patterns"
+        detail = get_run(team_id=self.team.id, run_id=str(run.id))
+        assert detail is not None
+        assert detail.summary == "emit-free run; only known-noise patterns"
+
 
 class TestGetRun(BaseTest):
     def test_returns_full_run_payload(self) -> None:
@@ -129,6 +148,8 @@ class TestGetRun(BaseTest):
         assert detail.skill_name == "signals-scout-errors"
         assert detail.skill_version == 1
         assert detail.task_run_id == str(run.task_run_id)
+        # Default-empty summary on rows that didn't go through the runner's finalize step.
+        assert detail.summary == ""
 
     def test_returns_none_for_unknown_id(self) -> None:
         detail = get_run(team_id=self.team.id, run_id="00000000-0000-0000-0000-000000000000")

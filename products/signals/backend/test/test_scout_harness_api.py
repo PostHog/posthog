@@ -71,8 +71,16 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()) == 2
 
+    def test_list_text_filter_matches_summary_ilike(self) -> None:
+        keep = _make_run(self.team, summary="emit-free /checkout pass")
+        _make_run(self.team, summary="LLM cost scan, all normal")
+        response = self.client.get(f"{self._list_url()}?text=checkout")
+        assert response.status_code == status.HTTP_200_OK
+        ids = [row["run_id"] for row in response.json()]
+        assert ids == [str(keep.id)]
+
     def test_retrieve_returns_bridge_projection(self) -> None:
-        run = _make_run(self.team)
+        run = _make_run(self.team, summary="looked at /checkout, nothing actionable")
         response = self.client.get(self._detail_url(str(run.id)))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -81,6 +89,7 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert body["task_run_id"] == str(run.task_run_id)
         # Status flows from the linked TaskRun (default fixture sets IN_PROGRESS).
         assert body["status"] == TaskRun.Status.IN_PROGRESS
+        assert body["summary"] == "looked at /checkout, nothing actionable"
 
     def test_retrieve_unknown_id_returns_404(self) -> None:
         response = self.client.get(self._detail_url("00000000-0000-0000-0000-000000000000"))

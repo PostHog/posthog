@@ -249,6 +249,14 @@ async def _spawn_and_run(
         # sandbox poll-loop timeout). `max_findings` is a soft target the agent
         # self-respects via emit-finding idempotency.
         _ = limits
+        # Persist the agent's end-of-turn close-out so non-emitting runs leave a
+        # discoverable trace for future-run dedupe. Failure paths skip this on
+        # purpose — the bridge row keeps its empty default and the linked TaskRun
+        # carries the error context.
+        await database_sync_to_async(_finalize_run_summary, thread_sensitive=False)(
+            run_id=run_id,
+            summary=result.summary,
+        )
         return result.summary, str(session.task_run.id)
     finally:
         await session.end()
@@ -297,6 +305,12 @@ def _create_run_row(
         skill_name=skill.name,
         skill_version=skill.version,
     )
+
+
+def _finalize_run_summary(*, run_id: Any, summary: str) -> None:
+    # Targeted UPDATE rather than `.save()` — the row's other fields are untouched
+    # by the agent's close-out, and `update()` skips the full model refresh.
+    SignalScoutRun.objects.unscoped().filter(id=run_id).update(summary=summary)
 
 
 def _step_name(skill: LoadedSkill) -> str:

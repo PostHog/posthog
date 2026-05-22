@@ -47,12 +47,19 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
         required=False,
         help_text="Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`.",
     )
+    summary = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "One-paragraph close-out the scout wrote at end-of-run. Empty string for "
+            "runs that errored before close-out. The dedupe key for non-emitting runs."
+        ),
+    )
 
 
 class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
     """Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
-    post-refactor — the bridge row no longer holds structured payloads. Future
-    extensions (linked Signal rows, LLMA token-cost join) land here."""
+    today; kept distinct so future detail-only extensions (linked Signal rows,
+    LLMA token-cost join) can land here without bloating the list response."""
 
 
 class SearchRecentRunsQuerySerializer(serializers.Serializer):
@@ -61,6 +68,10 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
     since = serializers.DateTimeField(
         required=False,
         help_text="ISO-8601 lower bound on `created_at`. Use to scope to a recent window.",
+    )
+    text = serializers.CharField(
+        required=False,
+        help_text="Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.",
     )
     limit = serializers.IntegerField(
         required=False,

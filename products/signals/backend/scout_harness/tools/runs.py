@@ -4,11 +4,12 @@ These are the agent's window into what previous runs concluded. Used for best-ef
 dedupe ("have I seen this hypothesis recently?") and continuity ("what was I
 working on yesterday?"). Strictly team-scoped — no cross-team reads.
 
-Per the PR 2 refactor, `SignalScoutRun` is now a thin bridge to `tasks.TaskRun`
-(see model docstring). Status, timestamps, and error all flow from the linked
-TaskRun via `select_related("task_run")`. The prior `summary` / `findings` /
-`hypotheses_considered` / `run_metrics` / `metadata` jsonb fields are gone —
-findings are recoverable as emitted `Signal` rows keyed by
+`SignalScoutRun` is a thin bridge to `tasks.TaskRun`: status, timestamps, and
+error all flow from the linked TaskRun via `select_related("task_run")`. The
+only scout-owned content on the row itself is `summary` — the one-paragraph
+close-out the agent emits at end_turn, used as the dedupe key for runs that
+didn't emit any findings (and so left no `Signal` row to query against).
+Findings are recoverable as emitted `Signal` rows keyed by
 `source_id = run:<run_id>:finding:<finding_id>`.
 """
 
@@ -35,6 +36,7 @@ class RunSummary:
     status: str
     started_at: str
     completed_at: str | None
+    summary: str
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -47,10 +49,9 @@ class RunSummary:
 class RunDetail:
     """Full run row — call `get_run` to fetch this when a `RunSummary` looks relevant.
 
-    Identical shape to `RunSummary` post-refactor — `SignalScoutRun` no longer
-    holds any structured payloads. Kept as a distinct type so callers expecting
-    a "detail" projection continue to type-check; future extensions (e.g. linked
-    Signal rows, LLMA token-cost join) land here.
+    Same fields as `RunSummary` today; kept distinct so future detail-only
+    extensions (linked Signal rows, LLMA token-cost join) can land here without
+    bloating the list projection.
     """
 
     run_id: str
@@ -59,6 +60,7 @@ class RunDetail:
     status: str
     started_at: str
     completed_at: str | None
+    summary: str
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -71,20 +73,22 @@ def search_recent_runs(
     *,
     team_id: int,
     since: datetime | None = None,
+    text: str | None = None,
     limit: int = DEFAULT_RUN_SEARCH_LIMIT,
 ) -> list[RunSummary]:
     """Return the most recent runs for a team, newest first.
 
     `since` filters on `created_at` (the bridge-row insert timestamp, which fires
-    right after `MultiTurnSession.start`). Results are capped at
-    `MAX_RUN_SEARCH_LIMIT`. The previous `text` ILIKE filter (which matched against
-    the dropped `summary` field) is gone — natural-language search across past
-    runs is now an LLMA chat-log query keyed by `task_run.id`.
+    right after `MultiTurnSession.start`). `text` is a case-insensitive substring
+    match on the agent's end-of-run `summary` — the primary dedupe path for runs
+    that didn't emit findings. Results are capped at `MAX_RUN_SEARCH_LIMIT`.
     """
     clamped_limit = _clamp_limit(limit)
     qs = SignalScoutRun.objects.filter(team_id=team_id).select_related("task_run").order_by("-created_at")
     if since is not None:
         qs = qs.filter(created_at__gte=since)
+    if text:
+        qs = qs.filter(summary__icontains=text)
     qs = qs[:clamped_limit]
     return [_to_summary(row, team_id=team_id) for row in qs]
 
@@ -112,6 +116,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         status=task_run.status if task_run is not None else "",
         started_at=task_run.created_at.isoformat() if task_run is not None else row.created_at.isoformat(),
         completed_at=task_run.completed_at.isoformat() if task_run is not None and task_run.completed_at else None,
+        summary=row.summary,
         task_id=task_id,
         task_run_id=task_run_id,
         task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),

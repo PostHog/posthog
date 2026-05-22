@@ -234,6 +234,9 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
     assert str(bridge.task_run_id) == str(session.task_run.id)
     assert bridge.skill_name == "signals-scout-errors"
     assert bridge.skill_version == 1
+    # Agent close-out is persisted on the bridge row so future runs can dedupe
+    # against non-emitting runs via the runs-list ILIKE filter.
+    assert bridge.summary == "I would investigate /checkout 500s next."
     config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam)
     assert config.enabled is False
     assert bridge.scout_config_id == config.id
