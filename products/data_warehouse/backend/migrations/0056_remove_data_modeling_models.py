@@ -42,6 +42,11 @@ def reverse_content_types(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("data_warehouse", "0055_remove_data_modeling_models"),
+        # data_tools.0002 retargets DataWarehouseViewLink.saved_query off of
+        # data_warehouse.DataWarehouseSavedQuery; it must run before we delete
+        # the model here, or Django can pick a topo order that drops the
+        # referenced model first (only safe by alphabetical tiebreaker today).
+        ("data_tools", "0002_migrate_data_modeling_models"),
         ("endpoints", "0029_remove_data_modeling_models"),
     ]
 
