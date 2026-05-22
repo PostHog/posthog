@@ -9,12 +9,17 @@ from parameterized import parameterized
 from posthog.schema import (
     ArtifactSource,
     AssistantHogQLQuery,
+    ChartAxis,
+    ChartDisplayType,
+    ChartSettings,
     DataTableNode,
+    DataVisualizationNode,
     EventsNode,
     FunnelsQuery,
     HogQLQuery,
     InsightVizNode,
     LifecycleQuery,
+    NodeKind,
     RetentionFilter,
     RetentionQuery,
     TrendsQuery,
@@ -547,6 +552,58 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(insights[0].name, "Insight")
         self.assertEqual(insights[1].name, "Artifact Insight")
         self.assertEqual(insights[2].name, "Database Insight")
+
+    @parameterized.expand(
+        [
+            (
+                "data_visualization_node",
+                DataVisualizationNode(
+                    source=HogQLQuery(query="SELECT 1 AS one, 2 AS two"),
+                    display=ChartDisplayType.ACTIONS_BAR,
+                    chartSettings=ChartSettings(
+                        xAxis=ChartAxis(column="one"),
+                        yAxis=[ChartAxis(column="two")],
+                    ),
+                ),
+                NodeKind.DATA_VISUALIZATION_NODE,
+            ),
+            (
+                "data_table_node",
+                DataTableNode(source=HogQLQuery(query="SELECT 1")),
+                NodeKind.DATA_TABLE_NODE,
+            ),
+        ]
+    )
+    async def test_resolve_insights_preserves_hogql_visualization_wrappers(
+        self, _name: str, query: DataVisualizationNode | DataTableNode, expected_kind: NodeKind
+    ):
+        conversation = await Conversation.objects.acreate(team=self.team, user=self.user)
+
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=conversation,
+            name="HogQL Chart",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={
+                "query": query.model_dump(exclude_none=True),
+                "name": "HogQL Chart",
+                "description": "From artifact",
+            },
+        )
+
+        context_manager = AssistantContextManager(team=self.team, user=self.user)
+        tool = UpsertDashboardTool(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[], root_tool_call_id=str(uuid4())),
+            context_manager=context_manager,
+        )
+
+        artifacts = await tool._get_visualization_artifacts([artifact.short_id])
+        insights = tool._resolve_insights(artifacts)
+
+        self.assertEqual(len(insights), 1)
+        self.assertEqual(insights[0].query["kind"], expected_kind.value)
 
     async def test_full_integration_positional_reordering(self):
         """

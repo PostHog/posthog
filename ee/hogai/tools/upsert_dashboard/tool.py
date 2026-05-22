@@ -5,7 +5,7 @@ from django.db import transaction
 import structlog
 from pydantic import BaseModel, Field
 
-from posthog.schema import DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
+from posthog.schema import DataTableNode, DataVisualizationNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
 from posthog.event_usage import EventSource, report_user_action
 from posthog.models import Insight
@@ -226,6 +226,13 @@ class UpsertDashboardTool(MaxTool):
                 coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root
                 if isinstance(coerced_query, HogQLQuery):
                     converted = DataTableNode(source=coerced_query).model_dump(exclude_none=True)
+                elif isinstance(coerced_query, DataVisualizationNode | DataTableNode):
+                    # DataVisualizationNode and DataTableNode already wrap a HogQLQuery in their
+                    # `source` and are valid as a top-level Insight.query value. Re-wrapping them
+                    # in InsightVizNode raises ValidationError because InsightVizNode.source is a
+                    # narrow union (TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery,
+                    # StickinessQuery, LifecycleQuery, WebStatsTableQuery, WebOverviewQuery).
+                    converted = coerced_query.model_dump(exclude_none=True)
                 else:
                     converted = InsightVizNode(source=coerced_query).model_dump(exclude_none=True)
 
