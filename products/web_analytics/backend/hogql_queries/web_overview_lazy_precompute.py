@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
 
 from posthog.schema import EventPropertyFilter, PropertyOperator
@@ -16,7 +17,6 @@ from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
     DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models.instance_setting import get_instance_setting
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -67,7 +67,7 @@ class LazyPrecomputeIneligible(Exception):
     """
 
 
-class TeamNotInAllowlist(LazyPrecomputeIneligible):
+class OrgFeatureFlagDisabled(LazyPrecomputeIneligible):
     pass
 
 
@@ -150,14 +150,32 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
     the lazy path. Returns None on success."""
     query = runner.query
 
-    # Rollout gate: instance allowlist AND per-query opt-in.
-    #   - `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` (admin-controlled instance
-    #     setting): scope of teams eligible to opt in.
+    # Rollout gate: shared PostHog feature flag AND per-query opt-in.
+    #   - `web-analytics-precompute-toggle` (PostHog feature flag): the same
+    #     flag the frontend already uses to show/hide the "Allow precompute"
+    #     button in the Web Analytics ScenePanel. One switch controls both the
+    #     UI surface and the backend gate. The flag is evaluated at the
+    #     organization level — set up an org-level release condition on the
+    #     flag to enable rollout per org. The SDK swallows its own exceptions
+    #     and returns None (falsy) on failure, so a flag-service outage
+    #     fails-closed (gate raised, fall back to v2 / raw) automatically.
     #   - `query.useWebAnalyticsPrecompute` (per-query parameter set by the
-    #     "Allow precompute" toggle in the Web Analytics ScenePanel).
-    enabled_team_ids = get_instance_setting("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS") or []
-    if runner.team.pk not in enabled_team_ids:
-        raise TeamNotInAllowlist()
+    #     "Allow precompute" toggle).
+    if not posthoganalytics.feature_enabled(
+        "web-analytics-precompute-toggle",
+        str(runner.team.uuid),
+        groups={
+            "organization": str(runner.team.organization_id),
+            "project": str(runner.team.id),
+        },
+        group_properties={
+            "organization": {"id": str(runner.team.organization_id)},
+            "project": {"id": str(runner.team.id)},
+        },
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    ):
+        raise OrgFeatureFlagDisabled()
 
     if query.useWebAnalyticsPrecompute is not True:
         raise PerQueryOptInNotSet()

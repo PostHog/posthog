@@ -2586,6 +2586,13 @@ class MaterializedColumnsOptimizationMode(StrEnum):
     OPTIMIZED = "optimized"
 
 
+class ParserMode(StrEnum):
+    CPP_ONLY = "cpp_only"
+    CPP_WITH_RUST_SHADOW = "cpp_with_rust_shadow"
+    RUST_WITH_CPP_SHADOW = "rust_with_cpp_shadow"
+    RUST_ONLY = "rust_only"
+
+
 class PersonsArgMaxVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
@@ -7300,6 +7307,14 @@ class HogQLQueryModifiers(BaseModel):
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
+    parserMode: ParserMode | None = Field(
+        default=None,
+        description=(
+            "HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the"
+            " primary result and sample-compare against the other parser, reporting"
+            " divergences without failing the request."
+        ),
+    )
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
@@ -17979,6 +17994,13 @@ class RetentionFilter(BaseModel):
         default=AggregationType.COUNT,
         description="The aggregation type to use for retention",
     )
+    cohortLabelStartIndex: int | None = Field(
+        default=0,
+        description=(
+            "Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1"
+            " for D1/D2/D3). Display-only — does not affect retention calculations."
+        ),
+    )
     cumulative: bool | None = None
     customAggregationTarget: bool | None = Field(
         default=None,
@@ -18702,8 +18724,8 @@ class WebOverviewQuery(BaseModel):
         default=None,
         description=(
             "Opt this specific query into the web_overview_query precompute path."
-            " Requires the team to be in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`"
-            " allowlist for the gate to pass. *"
+            " Requires the `web-analytics-precompute-toggle` PostHog feature flag to be"
+            " on for the team's organization for the gate to pass. *"
         ),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")

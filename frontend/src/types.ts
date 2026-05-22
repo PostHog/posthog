@@ -330,6 +330,7 @@ export interface UserType extends UserBaseType {
     date_joined: string
     notification_settings: NotificationSettings
     active_realtime_notification_types?: readonly string[]
+    requires_credential_review?: boolean
     events_column_config: ColumnConfig
     anonymize_data: boolean
     allow_impersonation: boolean
@@ -495,6 +496,10 @@ export interface OrganizationType extends OrganizationBasicType {
     customer_id: string | null
     enforce_2fa: boolean | null
     is_ai_data_processing_approved?: boolean
+    is_ai_training_opted_in?: boolean
+    is_ai_training_locked?: boolean
+    is_ai_training_cta_shown?: boolean
+    is_hipaa?: boolean
     members_can_invite?: boolean
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
