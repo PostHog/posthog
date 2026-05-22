@@ -22,8 +22,8 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
     )
     search_fields = ("group_type", "name_singular", "name_plural")
     fields = (
-        "team_link",
         "organization_link",
+        "team_link",
         "project_link",
         "group_type",
         "group_type_index",
@@ -34,8 +34,8 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
         "created_at",
     )
     readonly_fields = (
-        "team_link",
         "organization_link",
+        "team_link",
         "project_link",
         "group_type",
         "group_type_index",
