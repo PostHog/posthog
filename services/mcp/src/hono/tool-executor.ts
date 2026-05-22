@@ -1,7 +1,16 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
-import { handleToolError } from '@/lib/errors'
+import {
+    handleToolError,
+    MissingOrganizationContextError,
+    MissingProjectContextError,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogValidationError,
+    findRecoverableApiError,
+    findPostHogPermissionError,
+} from '@/lib/errors'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
 import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
@@ -9,7 +18,7 @@ import type { Context, ZodObjectAny } from '@/tools/types'
 
 import { trackToolCall } from './analytics'
 import type { InstructionsBuilder } from './instructions'
-import { toolCallDurationSeconds, toolCallsTotal } from './metrics'
+import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { ToolCatalog } from './tool-catalog'
 
@@ -140,6 +149,8 @@ export class ToolExecutor {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
 
+            classifyToolError(error, tool.name)
+
             void trackToolCall(tool.name, Date.now() - startMs, true, props, state)
 
             const sessionUuid = await state.reqCtx.getSessionUuid(props.sessionId)
@@ -181,3 +192,25 @@ export class ToolExecutor {
         }
     }
 }
+
+function classifyToolError(error: unknown, toolName: string): void {
+    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
+        toolErrorsTotal.inc({ tool: toolName, error_type: 'missing_context' })
+    } else if (findPostHogPermissionError(error)) {
+        toolErrorsTotal.inc({ tool: toolName, error_type: 'permission' })
+    } else if (error instanceof Error && error.name === 'TimeoutError') {
+        toolErrorsTotal.inc({ tool: toolName, error_type: 'timeout' })
+    } else {
+        const apiError = findRecoverableApiError(error)
+        if (apiError instanceof PostHogValidationError) {
+            toolErrorsTotal.inc({ tool: toolName, error_type: 'validation' })
+        } else if (apiError instanceof PostHogApiError && apiError.status >= 500) {
+            toolErrorsTotal.inc({ tool: toolName, error_type: 'api_5xx' })
+        } else if (apiError instanceof PostHogApiError) {
+            toolErrorsTotal.inc({ tool: toolName, error_type: 'api_4xx' })
+        } else {
+            toolErrorsTotal.inc({ tool: toolName, error_type: 'internal' })
+        }
+    }
+}
+

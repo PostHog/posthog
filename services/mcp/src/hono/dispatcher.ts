@@ -22,7 +22,7 @@ import type { RequestProperties } from '@/lib/request-properties'
 
 import type { RedisLike } from './cache/RedisCache'
 import { getEnv } from './constants'
-import { initDurationSeconds } from './metrics'
+import { initDurationSeconds, initTotal } from './metrics'
 import { ToolCatalog } from './tool-catalog'
 
 import { trackInitEvent } from './analytics'
@@ -201,26 +201,32 @@ class McpDispatcher {
         props: RequestProperties,
         state: ResolvedState
     ): Promise<InitializeResult> {
-        const requestedVersion = (params?.protocolVersion as string) ?? LATEST_PROTOCOL_VERSION
-        const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
-            ? requestedVersion
-            : LATEST_PROTOCOL_VERSION
+        try {
+            const requestedVersion = (params?.protocolVersion as string) ?? LATEST_PROTOCOL_VERSION
+            const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion)
+                ? requestedVersion
+                : LATEST_PROTOCOL_VERSION
 
-        const instructions = await this.instructionsBuilder.build(props, state)
+            const instructions = await this.instructionsBuilder.build(props, state)
 
-        initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
+            initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
+            initTotal.inc({ status: 'success' })
 
-        void trackInitEvent(props, state)
+            void trackInitEvent(props, state)
 
-        return {
-            protocolVersion,
-            capabilities: {
-                tools: { listChanged: false },
-                resources: { listChanged: false },
-                prompts: { listChanged: false },
-            },
-            serverInfo: { name: 'PostHog', version: '1.0.0' },
-            ...(instructions ? { instructions } : {}),
+            return {
+                protocolVersion,
+                capabilities: {
+                    tools: { listChanged: false },
+                    resources: { listChanged: false },
+                    prompts: { listChanged: false },
+                },
+                serverInfo: { name: 'PostHog', version: '1.0.0' },
+                ...(instructions ? { instructions } : {}),
+            }
+        } catch (error) {
+            initTotal.inc({ status: 'error' })
+            throw error
         }
     }
 }

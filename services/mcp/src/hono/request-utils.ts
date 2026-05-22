@@ -11,6 +11,7 @@ import {
 import { getRegionFromRequest } from '@/lib/routing'
 import { sanitizeHeaderValue } from '@/lib/utils'
 
+import { authFailuresTotal } from './metrics'
 import type { HonoCtx } from './types'
 
 const InitializeParamsSchema = z.object({
@@ -53,7 +54,12 @@ function parseClientInfo(bodyText: string): ClientInfo {
 
 function authenticate(c: HonoCtx): Response | null {
     const token = c.req.header('Authorization')?.split(' ')[1]
-    return validateBearerToken(token, c.req.raw, getRegionFromRequest(c.req.raw))
+    const error = validateBearerToken(token, c.req.raw, getRegionFromRequest(c.req.raw))
+    if (error) {
+        const reason = !token ? 'missing_token' : 'invalid_token'
+        authFailuresTotal.inc({ reason })
+    }
+    return error
 }
 
 async function preserveBody(c: HonoCtx): Promise<string> {
@@ -89,6 +95,7 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
     console.error('[handleCatchError]', error)
     const authResponse = mapErrorToAuthResponse(error)
     if (authResponse) {
+        authFailuresTotal.inc({ reason: 'inactive_oauth' })
         return authResponse
     }
     try {
