@@ -610,6 +610,16 @@ impl FlagsCanonicalLogLine {
         self.set_error(error);
         self.emit();
     }
+
+    /// Emit dependent histograms then the canonical log. For short-circuit
+    /// paths that bypass `run_with_canonical_log` (IP rate-limit blocked,
+    /// bot-Enforced).
+    pub fn emit_short_circuit(&self) {
+        self.emit_db_operations_metrics();
+        self.emit_timing_metrics();
+        self.emit_phase_metrics();
+        self.emit();
+    }
 }
 
 #[cfg(test)]

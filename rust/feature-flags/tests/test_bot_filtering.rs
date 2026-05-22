@@ -407,6 +407,45 @@ async fn bot_response_does_not_carry_rate_limit_warning_header() -> Result<()> {
     Ok(())
 }
 
+/// Positive control for `bot_response_does_not_carry_rate_limit_warning_header`.
+/// Same limiter config, non-bot UA: the second request must surface
+/// `X-PostHog-Rate-Limit-Warning`.
+#[tokio::test]
+async fn non_bot_response_carries_rate_limit_warning_header() -> Result<()> {
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.flags_ip_rate_limit_enabled = FlexBool(true);
+    config.flags_ip_rate_limit_log_only = FlexBool(true);
+    config.flags_ip_burst_size = 1;
+    config.flags_warn_capacity_ratio = 0.5;
+    config.flags_ip_replenish_rate = 0.1;
+
+    let (server, token) = setup_server_with_a_flag(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": "any-id",
+    });
+
+    let benign_ua =
+        Some("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120.0.0.0 Safari/537.36");
+
+    // Burn the burst token; second request hits the IP warn.
+    let first = post_flags(server.addr, "/flags", payload.clone(), benign_ua).await;
+    assert_eq!(
+        first.status(),
+        StatusCode::OK,
+        "first non-bot request must be admitted by the IP limiter",
+    );
+    let res = post_flags(server.addr, "/flags", payload, benign_ua).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(
+        res.headers().get("X-PostHog-Rate-Limit-Warning").is_some(),
+        "non-bot path must surface X-PostHog-Rate-Limit-Warning when IP warn fires",
+    );
+
+    Ok(())
+}
+
 /// A bot hit on the `X-Original-Endpoint: decide` path must return the
 /// Decide envelope (`featureFlags`), not the Flags envelope (`flags` +
 /// `featureFlagPayloads`). v=1 → array; v=2 → object.

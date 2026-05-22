@@ -992,6 +992,8 @@ impl Config {
             object_storage_bucket: "posthog".to_string(),
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
+            // `Enforced` so tests exercise the bot short-circuit envelope.
+            // Tests wanting prod posture override to `LogOnly` explicitly.
             bot_filter_mode: BotFilterMode::Enforced,
             flags_rate_limit_enabled: FlexBool(false),
             flags_bucket_capacity: 625,

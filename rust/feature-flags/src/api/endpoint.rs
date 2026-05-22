@@ -108,11 +108,11 @@ fn rate_limit_error(error: FlagError) -> FlagError {
 
 /// Empty-flags + minimal-config response shared by the GET and bot-reject
 /// paths. The envelope is selected by [`get_versioned_response`] so the
-/// `is_from_decide × version` matrix lives in one place.
+/// `is_from_legacy_decide × version` matrix lives in one place.
 fn get_minimal_flags_response(
     headers: &HeaderMap,
     version: Option<&str>,
-    is_from_decide: bool,
+    is_from_legacy_decide: bool,
 ) -> Json<ServiceResponse> {
     let request_id = extract_request_id(headers);
 
@@ -136,8 +136,9 @@ fn get_minimal_flags_response(
     let mut response = FlagsResponse::new(false, HashMap::new(), None, request_id);
     response.config = config;
 
-    let (service_response, _) = get_versioned_response(is_from_decide, version_num, response)
-        .expect("get_versioned_response is total for any (bool, Option<i32>, FlagsResponse)");
+    let (service_response, _) =
+        get_versioned_response(is_from_legacy_decide, version_num, response)
+            .expect("get_versioned_response is total for any (bool, Option<i32>, FlagsResponse)");
     Json(service_response)
 }
 
@@ -155,11 +156,11 @@ fn get_minimal_flags_response(
 ///
 /// Returns a tuple of (response, format_name) for logging purposes
 fn get_versioned_response(
-    is_from_decide: bool,
+    is_from_legacy_decide: bool,
     version: Option<i32>,
     response: FlagsResponse,
 ) -> Result<(ServiceResponse, &'static str), FlagError> {
-    if is_from_decide {
+    if is_from_legacy_decide {
         match version {
             Some(1) | None => Ok((
                 ServiceResponse::DecideV1(crate::api::types::DecideV1Response::from_response(
@@ -230,7 +231,7 @@ pub async fn flags(
     match method {
         Method::GET => {
             // The decide proxy forwards POSTs only, so GETs are always
-            // direct hits (`is_from_decide = false`).
+            // direct hits (`is_from_legacy_decide = false`).
             return Ok(get_minimal_flags_response(
                 &headers,
                 query_params.version.as_deref(),
@@ -310,7 +311,7 @@ pub async fn flags(
 
     // Needed by both the bot short-circuit and the normal-path response
     // for envelope selection (Decide vs Flags shape).
-    let is_from_decide = headers
+    let is_from_legacy_decide = headers
         .get("X-Original-Endpoint")
         .and_then(|v| v.to_str().ok())
         .map(|v| v == "decide")
@@ -348,14 +349,8 @@ pub async fn flags(
             let err = FlagError::ClientFacing(ClientFacingError::IpRateLimited);
             canonical_log.rate_limited = true;
             canonical_log.set_error(&err);
-            // Publish queue_time/body_read histograms (team_id="unknown")
-            // so dashboards still see IP-rate-limited traffic. The other
-            // two emitters are no-ops on this path but keep the call
-            // order symmetric with the post-scope branch below.
-            canonical_log.emit_db_operations_metrics();
-            canonical_log.emit_timing_metrics();
-            canonical_log.emit_phase_metrics();
-            canonical_log.emit();
+            // queue_time/body_read histograms emit with team_id="unknown".
+            canonical_log.emit_short_circuit();
             return Err(err);
         }
         RateLimitResult::Warned => canonical_log.rate_limit_warned = true,
@@ -364,7 +359,7 @@ pub async fn flags(
 
     // Runs after IP rate-limit (so spoofed UAs are still throttled) but
     // before token rate-limit, auth, billing, and evaluation. Envelope
-    // selection honors `is_from_decide × version` so proxied /decide
+    // selection honors `is_from_legacy_decide × version` so proxied /decide
     // bots get the Decide shape.
     //
     // Behavior is controlled by `bot_filter_mode`:
@@ -399,26 +394,14 @@ pub async fn flags(
             );
 
             if matches!(state.config.bot_filter_mode, BotFilterMode::Enforced) {
-                // Short-circuit path. `rate_limit_warned` stays on the
-                // canonical log but is not surfaced as the
-                // `X-PostHog-Rate-Limit-Warning` header here — bots do not
-                // read response headers.
-                //
-                // Mirror the IP-rate-limit-blocked branch above: emit the
-                // queue_time / body_read / phase / db-operations histograms
-                // with `team_id="unknown"` so bot traffic still appears in
-                // the dashboards that the normal-path requests populate.
-                // The helpers no-op for fields that are None / counters
-                // that are zero, so on the bot path only `queue_time_ms`
-                // and `body_read_ms` actually produce samples.
-                canonical_log.emit_db_operations_metrics();
-                canonical_log.emit_timing_metrics();
-                canonical_log.emit_phase_metrics();
-                canonical_log.emit();
+                // `rate_limit_warned` is recorded on the canonical log but
+                // not surfaced as `X-PostHog-Rate-Limit-Warning`: bots do
+                // not read response headers.
+                canonical_log.emit_short_circuit();
                 return Ok(get_minimal_flags_response(
                     &headers,
                     query_params.version.as_deref(),
-                    is_from_decide,
+                    is_from_legacy_decide,
                 )
                 .into_response());
             }
@@ -432,7 +415,7 @@ pub async fn flags(
 
     // Modify query params to enable config for decide requests
     let mut modified_query_params = query_params.clone();
-    if is_from_decide && modified_query_params.config.is_none() {
+    if is_from_legacy_decide && modified_query_params.config.is_none() {
         modified_query_params.config = Some(true);
     }
 
@@ -527,7 +510,7 @@ pub async fn flags(
     match result {
         Ok(response) => {
             // Determine the response format based on whether request is from decide and version
-            match get_versioned_response(is_from_decide, query_version, response) {
+            match get_versioned_response(is_from_legacy_decide, query_version, response) {
                 Ok((versioned_response, _response_format)) => {
                     log.http_status = 200;
                     log.emit();

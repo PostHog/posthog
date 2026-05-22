@@ -137,8 +137,9 @@ const BOT_PATTERNS: &[(&str, BotCategory)] = &[
     ("turnitin", BotCategory::Other),
     ("vercelbot", BotCategory::Other),
     ("zoombot", BotCategory::Other),
-    // Generic bot-like substrings (checked last so they don't shadow the
-    // specific entries above).
+    // Generic substrings — keep below the named-bot entries. `classify`
+    // returns the lowest pattern index, so specific names win over `bot/`
+    // / `crawler`. Guarded by `specific_pattern_beats_generic_bot_substring`.
     ("bot.htm", BotCategory::Crawler),
     ("bot.php", BotCategory::Crawler),
     ("(bot;", BotCategory::Crawler),
@@ -220,12 +221,34 @@ struct BotIpRanges {
 
 static BOT_IP_RANGES: LazyLock<BotIpRanges> = LazyLock::new(|| build_ranges(BOT_CIDRS));
 
+/// Minimum CIDR prefix in `BOT_CIDRS` — bounds how many addresses a
+/// single entry classifies as bots. Enforced by `build_ranges`, surfaced
+/// at server start via `warm_caches()`.
+///
+/// Current widest entries: `/17` (Yandex v4), `/48` (Googlebot v6).
+const MIN_V4_PREFIX: u32 = 16;
+const MIN_V6_PREFIX: u32 = 32;
+
 fn build_ranges(cidrs: &[(&str, BotCategory)]) -> BotIpRanges {
     let mut v4 = Vec::new();
     let mut v6 = Vec::new();
     for (cidr, category) in cidrs {
         let parsed =
             parse_cidr(cidr).unwrap_or_else(|| panic!("invalid CIDR in BOT_CIDRS: {cidr}"));
+        // `2^host_bits = end - start + 1` for an inclusive [start, end].
+        let host_bits = (parsed.end - parsed.start + 1).trailing_zeros();
+        let max_host_bits = if parsed.is_v4 {
+            32 - MIN_V4_PREFIX
+        } else {
+            128 - MIN_V6_PREFIX
+        };
+        assert!(
+            host_bits <= max_host_bits,
+            "BOT_CIDRS entry {cidr} is broader than the minimum prefix \
+             (/{} v4, /{} v6); refusing to classify that many addresses as bots",
+            MIN_V4_PREFIX,
+            MIN_V6_PREFIX,
+        );
         let range = IpRange {
             start: parsed.start,
             end: parsed.end,
@@ -490,6 +513,28 @@ mod tests {
         }
     }
 
+    /// UAs that contain both a specific bot name and the generic `bot/`
+    /// substring — exercises the lowest-index tiebreaker.
+    #[rstest]
+    #[case(
+        "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)",
+        BotCategory::Seo
+    )]
+    #[case(
+        "Mozilla/5.0 (compatible; SemrushBot/7~bl; +http://www.semrush.com/bot.html)",
+        BotCategory::Seo
+    )]
+    #[case(
+        "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+        BotCategory::Crawler
+    )]
+    fn specific_pattern_beats_generic_bot_substring(
+        #[case] ua: &str,
+        #[case] expected: BotCategory,
+    ) {
+        assert_eq!(classify(ua), Some(expected));
+    }
+
     mod ip {
         use super::*;
         use std::net::Ipv4Addr;
@@ -584,12 +629,8 @@ mod tests {
 
         #[test]
         fn built_ranges_are_non_overlapping() {
-            // `lookup` only inspects the entry whose `start` is the largest
-            // value <= key. If two entries overlap, a key inside the larger
-            // (earlier-starting) range but past the end of the smaller
-            // (later-starting) range is silently missed. Guard against a
-            // future CIDR addition violating the invariant the lookup relies
-            // on. Pairs with `built_ranges_are_sorted_by_start`.
+            // `lookup` only inspects the largest `start <= key` entry,
+            // so an overlapping later range would mask an earlier one.
             let ranges = &*BOT_IP_RANGES;
             for w in ranges.v4.windows(2) {
                 assert!(
@@ -620,6 +661,35 @@ mod tests {
             for (cidr, _) in BOT_CIDRS {
                 assert!(parse_cidr(cidr).is_some(), "failed to parse {cidr}");
             }
+        }
+
+        #[test]
+        fn published_cidrs_respect_width_floor() {
+            for (cidr, _) in BOT_CIDRS {
+                let parsed = parse_cidr(cidr).expect("BOT_CIDRS entry parses");
+                let host_bits = (parsed.end - parsed.start + 1).trailing_zeros();
+                let max_host_bits = if parsed.is_v4 {
+                    32 - MIN_V4_PREFIX
+                } else {
+                    128 - MIN_V6_PREFIX
+                };
+                assert!(
+                    host_bits <= max_host_bits,
+                    "{cidr} exceeds the BOT_CIDRS width floor",
+                );
+            }
+        }
+
+        #[test]
+        #[should_panic(expected = "broader than the minimum prefix")]
+        fn build_ranges_rejects_overly_broad_v4_cidr() {
+            drop(build_ranges(&[("66.0.0.0/8", BotCategory::Google)]));
+        }
+
+        #[test]
+        #[should_panic(expected = "broader than the minimum prefix")]
+        fn build_ranges_rejects_overly_broad_v6_cidr() {
+            drop(build_ranges(&[("2001::/16", BotCategory::Google)]));
         }
     }
 
