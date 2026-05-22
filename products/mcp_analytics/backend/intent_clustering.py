@@ -67,7 +67,7 @@ class IntentRecord:
 # TODO(mcp-sessions): when the parallel-team posthog_mcp_session table ships,
 # change MCPSession.objects.filter(...) below to point at the real model.
 # TODO(intent-routing): chaining is by $session_id today; swap to
-# $conversation_id once tool calls carry it.
+# $mcp_session_id once tool calls carry it consistently.
 _SESSION_TOOL_STATS_SQL = """
 SELECT
     properties.$session_id AS session_id,

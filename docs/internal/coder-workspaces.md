@@ -68,9 +68,32 @@ This does the host-side setup only:
 - installs the `coder` CLI at the version matching the server
 - logs you into the Coder deployment
 - configures `~/.ssh/config` with Coder workspace entries (use `--skip-configure-ssh` to skip)
+- shows a compact "Currently configured:" status block with your saved settings
 - prompts for Git identity, an optional dotfiles repo, and an optional Claude OAuth token (stored as a Coder user secret)
 
+A Y/n confirmation gate appears before the configuration prompts. It is automatically bypassed when stdin is non-TTY (scripts/CI) or when any explicit `--configure-*` or `--skip-configure-*` flag is passed.
+
 To reconfigure individual settings later, pass `--configure-git-identity`, `--configure-dotfiles`, or `--configure-claude`. The `--configure-claude` flag manages the `CLAUDE_CODE_OAUTH_TOKEN` Coder user secret and will offer to migrate any existing macOS Keychain token.
+
+## Managing devbox configuration
+
+View your current devbox configuration:
+
+```bash
+hogli devbox:config:show
+```
+
+Clear specific saved settings with `devbox:config:rm`:
+
+```bash
+hogli devbox:config:rm git-identity   # clear saved Git name/email
+hogli devbox:config:rm git-signing    # remove Git signing key from Coder user secrets
+hogli devbox:config:rm dotfiles       # clear dotfiles URI (also pushes empty parameter to existing workspaces)
+hogli devbox:config:rm claude         # remove Claude OAuth token from Coder user secrets
+hogli devbox:config:rm --all          # clear everything
+```
+
+Clearing dotfiles also pushes an empty `dotfiles_uri` parameter to all existing workspaces so they stop re-cloning the old repo on next boot.
 
 ## Available commands
 

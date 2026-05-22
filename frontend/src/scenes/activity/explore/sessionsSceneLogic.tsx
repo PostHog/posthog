@@ -1,11 +1,11 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual } from 'lib/utils'
 import { applyTestAccountFilter, getDefaultSessionsSceneQuery } from 'scenes/activity/explore/defaults'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -19,15 +19,38 @@ import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { sessionsSceneLogicType } from './sessionsSceneLogicType'
 
+export interface SessionsSceneLogicProps {
+    tabId?: string
+}
+
 export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
-    path(['scenes', 'sessions', 'sessionsSceneLogic']),
-    tabAwareScene(),
+    props({} as SessionsSceneLogicProps),
+    key((props) => props.tabId || 'scene'),
+    path((key) => ['scenes', 'sessions', 'sessionsSceneLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], filterTestAccountsDefaultsLogic, ['filterTestAccountsDefault']],
+        values: [
+            teamLogic,
+            ['currentTeam'],
+            filterTestAccountsDefaultsLogic,
+            ['filterTestAccountsDefault'],
+            tabUiStateLogic,
+            ['savedQueryFor'],
+        ],
+        actions: [tabUiStateLogic, ['setSavedQueryForTab']],
     })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
+    listeners(({ props, actions, values }) => ({
+        setQuery: ({ query }) => {
+            // No owning tab → no removeTab cleanup will reach this slot. See eventsSceneLogic.
+            if (props.tabId === undefined) {
+                return
+            }
+            const isDefault = objectsEqual(query, values.defaultQuery)
+            actions.setSavedQueryForTab(props.tabId, 'sessions', isDefault ? null : query)
+        },
+    })),
     selectors({
         defaultQuery: [
             (s) => [s.currentTeam, s.filterTestAccountsDefault],
@@ -55,17 +78,19 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
         ],
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values, props }) => {
         const sessionsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
             // If query hasn't changed, do nothing
             if (equal(queryParam, values.query)) {
                 return
             }
 
-            // Handle missing query param - set default if needed
+            // Handle missing query param - restore from per-tab persisted query, else fall back to default
             if (!queryParam) {
-                if (!objectsEqual(values.query, values.defaultQuery)) {
-                    actions.setQuery(values.defaultQuery)
+                const persisted = values.savedQueryFor(props.tabId, 'sessions')
+                const target = persisted ?? values.defaultQuery
+                if (!objectsEqual(values.query, target)) {
+                    actions.setQuery(target)
                 }
                 return
             }

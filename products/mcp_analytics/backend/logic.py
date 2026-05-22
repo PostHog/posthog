@@ -35,7 +35,7 @@ SELECT
     toString(properties.$mcp_duration_ms) AS duration_ms_raw
 FROM events
 WHERE event = {event}
-    AND properties.$mcp_conversation_id = {session_id}
+    AND properties.$mcp_session_id = {session_id}
 ORDER BY timestamp ASC
 LIMIT 500
 """

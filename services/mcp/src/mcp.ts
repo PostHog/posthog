@@ -47,7 +47,7 @@ export type RequestProperties = {
     apiToken: string
     // Wrapper-app-provided hint from `?sessionId=` query param. Resolved to a
     // UUID via `SessionManager.getSessionUuid()` and emitted as `$session_id`
-    // for Session Replay / LLM Analytics grouping. Only set by wrapping
+    // for Session Replay / AI observability grouping. Only set by wrapping
     // consumer apps (setup wizard, sandbox, etc.).
     sessionId?: string
     // Streamable-HTTP transport session id (`Mcp-Session-Id` HTTP header).
@@ -97,6 +97,9 @@ export class MCP extends McpAgent<Env> {
         region: undefined,
         apiKey: undefined,
         clientName: undefined,
+        mcpClientName: undefined,
+        mcpClientVersion: undefined,
+        mcpProtocolVersion: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined

@@ -28,10 +28,11 @@ export interface ChartLayoutContextValue<Meta = unknown> {
     /** Theme passed to the chart. Use {@link ChartTheme.backgroundColor} for borders/fills
      *  that need to blend into the chart background (e.g. value-label borders). */
     theme: ChartTheme
-    /** Resolves the y-value for a series at a given index. Honors stacking when the
-     *  parent chart provides a stacked resolver — overlays should always go through
-     *  this rather than reading `series.data[i]` directly. */
-    resolveValue: ResolveValueFn
+    /** Resolves the y-value used to *position* (anchor) a series at a given index — the
+     *  stacked top when the parent chart stacks, otherwise the raw value. Overlays use this
+     *  for placement (e.g. value-label anchoring). The value to *display* is the series's own
+     *  segment; read it from `series.data[i]`, not from this resolver. */
+    resolvePositionValue: ResolveValueFn
     /** Returns the current canvas bounding rect, or null if the canvas is unmounted.
      *  This is a getter (not a value) because DOMRect changes on scroll. Useful for
      *  custom overlays that portal positioned content outside the chart wrapper. */

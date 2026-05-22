@@ -132,6 +132,7 @@ import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OAuthApps } from './organization/OAuthApps'
 import { OrganizationAI } from './organization/OrgAI'
+import { OrganizationAITrainingOptOut } from './organization/OrgAITraining'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationIntegrations } from './organization/OrganizationIntegrations'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
@@ -696,18 +697,17 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-llm-analytics',
-        title: 'LLM analytics',
+        id: 'environment-ai-observability',
+        title: 'AI observability',
         group: 'Products',
-        flag: 'LLM_ANALYTICS_EVALUATIONS',
         settings: [
             {
-                id: 'llm-analytics-byok',
-                title: 'Bring Your Own Key (BYOK)',
+                id: 'ai-observability-byok',
+                title: 'Bring your own key (BYOK)',
                 description:
-                    'Add and manage provider API keys for LLM analytics features, including evaluations and playground.',
+                    'Add and manage provider API keys for AI observability features, including evaluations and playground.',
                 component: <LLMProviderKeysSettings />,
-                docsUrl: 'https://posthog.com/docs/llm-analytics/evaluations',
+                docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
                 keywords: ['llm', 'provider', 'api key', 'openai', 'anthropic', 'gemini', 'playground'],
             },
         ],
@@ -1484,7 +1484,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'organization-ai-consent',
-                title: 'PostHog AI data analysis',
+                title: 'AI service providers',
                 description: (
                     <>
                         PostHog AI features, such as the PostHog AI chat, use{' '}
@@ -1496,7 +1496,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                         This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
                         below.
                         <br />
-                        <strong>Your data will not be used for training models.</strong>
+                        <strong>Your data will not be used for training third-party models.</strong>
                         <br />
                         <br />
                         <AIHipaaDisclaimer />
@@ -1506,6 +1506,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['llm', 'consent', 'opt-in', 'data sharing'],
                 searchDescription:
                     'PostHog AI features use external AI services for data analysis. This can involve transfer of identifying user data.',
+            },
+            {
+                id: 'organization-ai-training-opt-out',
+                title: 'Internal AI training',
+                component: <OrganizationAITrainingOptOut />,
+                flag: 'AI_TRAINING',
+                keywords: ['ai', 'training', 'opt-out', 'opt-in', 'model', 'max'],
+                searchDescription:
+                    'Control whether PostHog can use your data to train AI models. Turning this off disables AI features for your organization.',
             },
             {
                 id: 'organization-ip-anonymization-default',
