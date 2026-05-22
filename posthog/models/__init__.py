@@ -47,7 +47,6 @@ from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
-from .heatmap_saved import SavedHeatmap, HeatmapSnapshot
 from .host_definition import HostDefinition
 from .hog_flow import HogFlow
 from .hog_functions import HogFunction
@@ -97,7 +96,6 @@ from .repo_routing_rule import RepoRoutingRule
 from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
-from .web_analytics_filter_preset import WebAnalyticsFilterPreset
 from .oauth import (
     CIMDVerificationToken,
     OAuthAccessToken,
@@ -160,7 +158,6 @@ __all__ = [
     "Group",
     "GroupUsageMetric",
     "GroupTypeMapping",
-    "HeatmapSnapshot",
     "HealthIssue",
     "HogFlow",
     "HogFunction",
@@ -213,7 +210,6 @@ __all__ = [
     "RemoteConfig",
     "ResourceTransfer",
     "EventSchema",
-    "SavedHeatmap",
     "SchemaPropertyGroup",
     "SchemaPropertyGroupProperty",
     "SessionRecording",
@@ -240,7 +236,6 @@ __all__ = [
     "UserIntegration",
     "UserPushToken",
     "ScheduledChange",
-    "WebAnalyticsFilterPreset",
     "Comment",
     # Deprecated models here for backwards compatibility
     "Prompt",
