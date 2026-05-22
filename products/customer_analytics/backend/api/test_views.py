@@ -933,6 +933,47 @@ class TestAccountViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=7")
         assert [r["name"] for r in response.json()["results"]] == ["MyAccount"]
 
+    def test_retrieve_returns_empty_notebooks_when_none_linked(self):
+        account = self._create_account()
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["notebooks"], [])
+
+    def test_retrieve_returns_all_linked_notebooks(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        account = self._create_account()
+        notebook_a = Notebook.objects.create(
+            team=self.team, title="A", content=[], visibility=Notebook.Visibility.INTERNAL
+        )
+        notebook_b = Notebook.objects.create(
+            team=self.team, title="B", content=[], visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=notebook_a, account=account)
+        ResourceNotebook.objects.create(notebook=notebook_b, account=account)
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(set(response.json()["notebooks"]), {notebook_a.short_id, notebook_b.short_id})
+
+    def test_list_includes_notebooks_field(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        account = self._create_account()
+        notebook = Notebook.objects.create(
+            team=self.team, title="Existing", content=[], visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=notebook, account=account)
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        result = next(r for r in response.json()["results"] if r["id"] == str(account.id))
+        self.assertEqual(result["notebooks"], [notebook.short_id])
+
 
 @pytest.mark.ee
 class TestCustomerAnalyticsAccessControl(APIBaseTest):

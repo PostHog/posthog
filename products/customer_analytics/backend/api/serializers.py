@@ -8,6 +8,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountProperties
+from products.notebooks.backend.models import ResourceNotebook
 
 _ACCOUNT_ASSIGNMENT_SCHEMA = {
     "type": "object",
@@ -150,6 +151,12 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         required=False,
         help_text="Tag names attached to the account. Pass a list to replace existing tags.",
     )
+    notebooks = serializers.SerializerMethodField(
+        help_text=(
+            "Short IDs of the internal notebooks linked to this account, used to persist investigations, "
+            "call notes, and other free-form context. Empty list if no notebooks have been created for the account."
+        )
+    )
 
     class Meta:
         model = Account
@@ -159,16 +166,26 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "external_id",
             "properties",
             "tags",
+            "notebooks",
             "created_at",
             "created_by",
             "updated_at",
         ]
         read_only_fields = [
             "id",
+            "notebooks",
             "created_at",
             "created_by",
             "updated_at",
         ]
+
+    @extend_schema_field({"type": "array", "items": {"type": "string"}})
+    def get_notebooks(self, obj: Account) -> list[str]:
+        return list(
+            ResourceNotebook.objects.filter(account=obj)
+            .select_related("notebook")
+            .values_list("notebook__short_id", flat=True)
+        )
 
     def validate_properties(self, value):
         if value is None:

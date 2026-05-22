@@ -39,9 +39,6 @@ export type AccountApiProperties = {
     zendesk_id?: string | null
 } | null
 
-/**
- * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
- */
 export interface AccountApi {
     readonly id: string
     /**
@@ -60,8 +57,8 @@ export interface AccountApi {
      * @nullable
      */
     properties?: AccountApiProperties
-    /** Tag names attached to the account. Pass a list to replace existing tags. */
-    tags?: string[]
+    /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
+    readonly notebooks: readonly string[]
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
@@ -110,9 +107,6 @@ export type PatchedAccountApiProperties = {
     zendesk_id?: string | null
 } | null
 
-/**
- * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
- */
 export interface PatchedAccountApi {
     readonly id?: string
     /**
@@ -131,8 +125,8 @@ export interface PatchedAccountApi {
      * @nullable
      */
     properties?: PatchedAccountApiProperties
-    /** Tag names attached to the account. Pass a list to replace existing tags. */
-    tags?: string[]
+    /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
+    readonly notebooks?: readonly string[]
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
@@ -342,22 +336,6 @@ export interface PatchedGroupUsageMetricApi {
 
 export type AccountsListParams = {
     /**
-     * Filter by account executive. Use 'unassigned' or an integer user id.
-     */
-    account_executive?: string
-    /**
-     * Filter by account owner. Use 'unassigned' or an integer user id.
-     */
-    account_owner?: string
-    /**
-     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
-     */
-    all_roles_unassigned?: boolean
-    /**
-     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
-     */
-    csm?: string
-    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -365,18 +343,6 @@ export type AccountsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-    /**
-     * Sort order. Defaults to '-created_at'.
-     */
-    ordering?: string
-    /**
-     * Case-insensitive substring search across account name and external ID.
-     */
-    search?: string
-    /**
-     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
-     */
-    tags?: string
 }
 
 export type CustomerJourneysListParams = {
