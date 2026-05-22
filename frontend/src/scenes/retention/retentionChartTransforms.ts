@@ -1,4 +1,11 @@
-import type { GoalLineConfig, Series, TimeSeriesLineChartConfig, TooltipConfig, TrendLineConfig } from 'lib/hog-charts'
+import type {
+    GoalLineConfig,
+    Series,
+    TimeSeriesBarChartConfig,
+    TimeSeriesLineChartConfig,
+    TooltipConfig,
+    TrendLineConfig,
+} from 'lib/hog-charts'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 
@@ -90,6 +97,20 @@ export function buildRetentionLineChartConfig(opts: BuildRetentionChartConfigOpt
         },
         goalLines: buildGoalLines(opts.goalLines),
         trendLines: buildTrendLines(opts.series, opts.showTrendLines),
+        tooltip: opts.tooltip,
+    }
+}
+
+export function buildRetentionBarChartConfig(opts: BuildRetentionChartConfigOpts): TimeSeriesBarChartConfig {
+    return {
+        yAxis: {
+            format: opts.isPercentage ? 'percentage' : 'numeric',
+            scale: 'linear',
+            showGrid: true,
+        },
+        // Bars side-by-side so the retention trend per cohort stays distinguishable.
+        barLayout: 'grouped',
+        goalLines: buildGoalLines(opts.goalLines),
         tooltip: opts.tooltip,
     }
 }

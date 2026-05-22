@@ -48,8 +48,10 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
 
     const isBarDisplay = retentionFilter?.display === ChartDisplayType.ActionsBar
-    // Bar display still uses the legacy d3 graph — the hog-charts bar path lands separately.
-    if (!isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_LINE]) {
+    const useHogCharts = isBarDisplay
+        ? featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_BAR]
+        : featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_LINE]
+    if (useHogCharts) {
         return <RetentionGraphHogCharts inSharedMode={inSharedMode} />
     }
 

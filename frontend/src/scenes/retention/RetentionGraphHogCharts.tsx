@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { TimeSeriesLineChart } from 'lib/hog-charts'
+import { TimeSeriesBarChart, TimeSeriesLineChart } from 'lib/hog-charts'
 import type { PointClickData, TooltipConfig, TooltipContext } from 'lib/hog-charts'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -11,9 +11,11 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
 import {
+    buildRetentionBarChartConfig,
     buildRetentionLineChartConfig,
     buildRetentionSeries,
     type RetentionSeriesMeta,
@@ -71,6 +73,7 @@ export function RetentionGraphHogCharts({ inSharedMode = false }: RetentionGraph
     const selectedInterval = retentionFilter?.selectedInterval ?? null
     const period = retentionFilter?.period
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
+    const isBarDisplay = retentionFilter?.display === ChartDisplayType.ActionsBar
     const isIntervalView = selectedInterval !== null
     // Shared (public) views don't have the persons modal mounted — disable click-to-open there.
     const canClick = !shouldShowMeanPerBreakdown && !inSharedMode
@@ -144,6 +147,10 @@ export function RetentionGraphHogCharts({ inSharedMode = false }: RetentionGraph
 
     const goalLines = retentionFilter?.goalLines ?? EMPTY_GOAL_LINES
 
+    const barConfig = useMemo(
+        () => buildRetentionBarChartConfig({ isPercentage, goalLines, series, tooltip: TOOLTIP_CONFIG }),
+        [isPercentage, goalLines, series]
+    )
     const lineConfig = useMemo(
         () =>
             buildRetentionLineChartConfig({ isPercentage, goalLines, showTrendLines, series, tooltip: TOOLTIP_CONFIG }),
@@ -155,6 +162,22 @@ export function RetentionGraphHogCharts({ inSharedMode = false }: RetentionGraph
             <p className="w-full m-0 text-center text-sm text-gray-500">
                 Select a breakdown to see the retention graph
             </p>
+        )
+    }
+
+    if (isBarDisplay) {
+        return (
+            <TimeSeriesBarChart<RetentionSeriesMeta>
+                series={series}
+                labels={xAxisLabels}
+                theme={theme}
+                config={barConfig}
+                tooltip={renderTooltip}
+                onPointClick={canClick ? onPointClick : undefined}
+                className="LineGraph"
+                dataAttr="trend-line-graph"
+                onError={handleChartError}
+            />
         )
     }
 

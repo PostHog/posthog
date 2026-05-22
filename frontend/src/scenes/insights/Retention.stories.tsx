@@ -5,6 +5,9 @@ import { Meta, StoryObj } from '@storybook/react'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
+import type { InsightVizNode, RetentionQuery } from '~/queries/schema/schema-general'
+import type { QueryBasedInsightModel } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 type Story = StoryObj<{}>
 const meta: Meta = {
@@ -63,6 +66,24 @@ RetentionEditViewports.parameters = {
         waitForSelector: '[data-attr=trend-line-graph] > canvas',
         viewportWidths: ['medium', 'wide', 'superwide'],
     },
+}
+
+const retentionInsight =
+    require('../../mocks/fixtures/api/projects/team_id/insights/retention.json') as QueryBasedInsightModel
+const retentionBaseQuery = retentionInsight.query as InsightVizNode
+const retentionBaseSource = retentionBaseQuery.source as RetentionQuery
+const retentionBarQuery: InsightVizNode = {
+    ...retentionBaseQuery,
+    source: {
+        ...retentionBaseSource,
+        retentionFilter: { ...retentionBaseSource.retentionFilter, display: ChartDisplayType.ActionsBar },
+    },
+}
+const retentionBarInsight: QueryBasedInsightModel = { ...retentionInsight, query: retentionBarQuery }
+
+export const RetentionBar: Story = createInsightStory(retentionBarInsight)
+RetentionBar.parameters = {
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
 /* eslint-enable @typescript-eslint/no-var-requires */
