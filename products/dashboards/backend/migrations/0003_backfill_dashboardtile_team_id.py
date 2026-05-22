@@ -5,12 +5,10 @@ def backfill_team_id(apps, schema_editor) -> None:
     """
     Backfill DashboardTile.team_id from dashboard.team_id in batches.
 
-    Idempotent: only operates on rows where team_id IS NULL, so reruns after a
-    partial failure simply pick up where the previous run stopped. Each batch
-    commits its own transaction because the Migration class sets `atomic = False`,
-    which puts the database connection in autocommit mode — every statement
-    commits immediately without an enclosing BEGIN/COMMIT, so no row locks are
-    held across the full backfill.
+    The whole backfill runs in the migration's single transaction (Django's
+    default `atomic = True`). Batching keeps individual `UPDATE` statements
+    small — bounded memory, bounded statement runtime — rather than splitting
+    the work into independent commits.
 
     Uses keyset pagination (`id__gt=last_id`) so each batch query only scans
     forward from the previous batch's last id. Without this, every iteration
@@ -55,8 +53,6 @@ class Migration(migrations.Migration):
     independently — keep the backfill out of any release that also touches
     the column shape.
     """
-
-    atomic = False
 
     dependencies = [
         ("dashboards", "0002_add_dashboardtile_team_id_column"),
