@@ -8,6 +8,8 @@ export CLICKHOUSE_API_USER="api"
 export CLICKHOUSE_API_PASSWORD="apipass"
 export CLICKHOUSE_APP_USER="app"
 export CLICKHOUSE_APP_PASSWORD="apppass"
+export CLICKHOUSE_BILLING_USER="billing"
+export CLICKHOUSE_BILLING_PASSWORD="billingpass"
 
 source ./bin/celery-queues.env
 

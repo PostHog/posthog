@@ -141,7 +141,11 @@ export class PluginServer implements NodeServer {
         }
 
         // Create shared job queue backends — each consumer gets the one(s) it needs
-        const kafkaQueue = new CyclotronJobQueueKafka(this.config.KAFKA_CLIENT_RACK, this.config)
+        const kafkaQueue = new CyclotronJobQueueKafka(
+            this.config.KAFKA_CLIENT_RACK,
+            this.config,
+            this.config.CONSUMER_BATCH_SIZE
+        )
         const postgresV2Queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
 
         if (capabilities.cdpProcessedEvents) {
