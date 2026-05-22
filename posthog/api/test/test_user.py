@@ -31,6 +31,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.webauthn_credential import WebauthnCredential
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -223,13 +224,24 @@ class TestUserAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unreviewed_no_keys", False, False, False),
-            ("unreviewed_with_keys", False, True, True),
-            ("reviewed_with_keys", True, True, False),
-            ("reviewed_no_keys", True, False, False),
+            ("unreviewed_nothing", False, False, False, False),
+            ("unreviewed_pat_only", False, True, False, True),
+            ("unreviewed_passkey_only", False, False, True, True),
+            ("unreviewed_pat_and_passkey", False, True, True, True),
+            ("reviewed_pat_only", True, True, False, False),
+            ("reviewed_passkey_only", True, False, True, False),
+            ("reviewed_pat_and_passkey", True, True, True, False),
+            ("reviewed_nothing", True, False, False, False),
         ]
     )
-    def test_requires_credential_review(self, _name: str, reviewed: bool, with_key: bool, expected: bool):
+    def test_requires_credential_review(
+        self,
+        _name: str,
+        reviewed: bool,
+        with_key: bool,
+        with_passkey: bool,
+        expected: bool,
+    ):
         self.user.credentials_reviewed_at = timezone.now() if reviewed else None
         self.user.save(update_fields=["credentials_reviewed_at"])
         if with_key:
@@ -239,9 +251,37 @@ class TestUserAPI(APIBaseTest):
                 secure_value=hash_key_value("phx_test_value_1234567890"),
                 scopes=["*"],
             )
+        if with_passkey:
+            WebauthnCredential.objects.create(
+                user=self.user,
+                label="Test passkey",
+                credential_id=b"test-credential-id",
+                public_key=b"test-public-key",
+                algorithm=-7,
+                transports=["internal"],
+                verified=True,
+            )
         response = self.client.get("/api/users/@me/")
         assert response.status_code == 200
         assert response.json()["requires_credential_review"] is expected
+
+    def test_requires_credential_review_unverified_passkey(self):
+        # Unverified passkeys are the realistic pre-claim attack artifact - a partner
+        # session can register a credential without ever completing verification.
+        self.user.credentials_reviewed_at = None
+        self.user.save(update_fields=["credentials_reviewed_at"])
+        WebauthnCredential.objects.create(
+            user=self.user,
+            label="Unverified passkey",
+            credential_id=b"unverified-credential-id",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            transports=["internal"],
+            verified=False,
+        )
+        response = self.client.get("/api/users/@me/")
+        assert response.status_code == 200
+        assert response.json()["requires_credential_review"] is True
 
     def test_credentials_review_complete_endpoint(self):
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
