@@ -106,6 +106,57 @@ fn rate_limit_error(error: FlagError) -> FlagError {
     error
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BotFilterOutcome {
+    /// No match, `Disabled` mode, or `LogOnly` classified — continue through
+    /// the normal pipeline.
+    Continue,
+    /// `Enforced` classified — short-circuit with the minimal flags envelope.
+    Reject,
+}
+
+/// Classify the request against the bot filter, stamp the canonical log,
+/// and bump `flags_bot_detected_total`. Side effects are scoped so a unit
+/// test can drive the function directly and inspect the log + recorded
+/// metric without spinning up the request pipeline.
+fn classify_and_stamp(
+    log: &mut FlagsCanonicalLogLine,
+    mode: &BotFilterMode,
+    user_agent: Option<&str>,
+    ip: IpAddr,
+) -> BotFilterOutcome {
+    if matches!(mode, BotFilterMode::Disabled) {
+        return BotFilterOutcome::Continue;
+    }
+    let Some((category, source)) = bot_detection::classify_request(user_agent, ip) else {
+        return BotFilterOutcome::Continue;
+    };
+    log.is_bot = true;
+    log.bot_category = Some(category);
+    log.bot_source = Some(source);
+
+    let mode_label = match mode {
+        BotFilterMode::LogOnly => "log_only",
+        BotFilterMode::Enforced => "enforced",
+        BotFilterMode::Disabled => unreachable!("guarded above"),
+    };
+    common_metrics::inc(
+        FLAG_BOT_DETECTED_COUNTER,
+        &[
+            ("bot_category".to_string(), category.as_str().to_string()),
+            ("bot_source".to_string(), source.as_str().to_string()),
+            ("mode".to_string(), mode_label.to_string()),
+        ],
+        1,
+    );
+
+    match mode {
+        BotFilterMode::Enforced => BotFilterOutcome::Reject,
+        BotFilterMode::LogOnly => BotFilterOutcome::Continue,
+        BotFilterMode::Disabled => unreachable!("guarded above"),
+    }
+}
+
 /// Empty-flags + minimal-config response shared by the GET and bot-reject
 /// paths. The envelope is selected by [`get_versioned_response`] so the
 /// `is_from_legacy_decide × version` matrix lives in one place.
@@ -358,59 +409,25 @@ pub async fn flags(
     }
 
     // Runs after IP rate-limit (so spoofed UAs are still throttled) but
-    // before token rate-limit, auth, billing, and evaluation. Envelope
-    // selection honors `is_from_legacy_decide × version` so proxied /decide
-    // bots get the Decide shape.
-    //
-    // Behavior is controlled by `bot_filter_mode`:
-    //   Disabled — skip the classifier entirely.
-    //   LogOnly  — classify, stamp the canonical log, bump the counter
-    //              with mode="log_only", then continue through the full
-    //              pipeline (request not short-circuited). The default;
-    //              gives operators a week of observability in Loki +
-    //              Prometheus before flipping to Enforced.
-    //   Enforced — classify, stamp, bump with mode="enforced", and return
-    //              the minimal envelope without running token rate-limit,
-    //              auth, billing, or eval.
-    if !matches!(state.config.bot_filter_mode, BotFilterMode::Disabled) {
-        if let Some((category, source)) = bot_detection::classify_request(user_agent, ip) {
-            canonical_log.is_bot = true;
-            canonical_log.bot_category = Some(category);
-            canonical_log.bot_source = Some(source);
-
-            let mode_label = match state.config.bot_filter_mode {
-                BotFilterMode::LogOnly => "log_only",
-                BotFilterMode::Enforced => "enforced",
-                BotFilterMode::Disabled => unreachable!("guarded by outer matches!"),
-            };
-            common_metrics::inc(
-                FLAG_BOT_DETECTED_COUNTER,
-                &[
-                    ("bot_category".to_string(), category.as_str().to_string()),
-                    ("bot_source".to_string(), source.as_str().to_string()),
-                    ("mode".to_string(), mode_label.to_string()),
-                ],
-                1,
-            );
-
-            if matches!(state.config.bot_filter_mode, BotFilterMode::Enforced) {
-                // `rate_limit_warned` is recorded on the canonical log but
-                // not surfaced as `X-PostHog-Rate-Limit-Warning`: bots do
-                // not read response headers.
-                canonical_log.emit_short_circuit();
-                return Ok(get_minimal_flags_response(
-                    &headers,
-                    query_params.version.as_deref(),
-                    is_from_legacy_decide,
-                )
-                .into_response());
-            }
-            // LogOnly: fall through. The local `canonical_log` is moved
-            // into `run_with_canonical_log` below, so the
-            // `is_bot`/`bot_category`/`bot_source` fields persist into
-            // the final emission at the end of the request. Same mechanism
-            // the IP-rate-limit warn path already relies on above.
-        }
+    // before token rate-limit, auth, billing, and evaluation. LogOnly
+    // stamps the canonical log and falls through; Enforced short-circuits.
+    let bot_outcome = classify_and_stamp(
+        &mut canonical_log,
+        &state.config.bot_filter_mode,
+        user_agent,
+        ip,
+    );
+    if bot_outcome == BotFilterOutcome::Reject {
+        // `rate_limit_warned` stays on the canonical log but is not
+        // surfaced as `X-PostHog-Rate-Limit-Warning`: bots do not read
+        // response headers.
+        canonical_log.emit_short_circuit();
+        return Ok(get_minimal_flags_response(
+            &headers,
+            query_params.version.as_deref(),
+            is_from_legacy_decide,
+        )
+        .into_response());
     }
 
     // Modify query params to enable config for decide requests
@@ -891,5 +908,164 @@ mod tests {
     #[case("1774859827.7821", Some(1774859827782))] // extra digits beyond ms are truncated
     fn test_parse_request_start_ms(#[case] input: &str, #[case] expected: Option<i64>) {
         assert_eq!(parse_request_start_ms(input), expected);
+    }
+
+    mod bot_filter_tests {
+        use super::*;
+        use crate::utils::bot_detection::{BotCategory, BotSource};
+        use metrics_util::debugging::DebuggingRecorder;
+        use std::net::Ipv4Addr;
+
+        const GOOGLEBOT_UA: &str =
+            "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+        const GOOGLEBOT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(66, 249, 79, 123));
+        const BENIGN_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+        const BENIGN_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X) Chrome/120 Safari/537.36";
+
+        fn fresh_log() -> FlagsCanonicalLogLine {
+            FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string())
+        }
+
+        /// True iff `FLAG_BOT_DETECTED_COUNTER` was emitted with all three
+        /// labels matching.
+        fn counter_labels_match(
+            recorder: &DebuggingRecorder,
+            mode: &str,
+            category: &str,
+            source: &str,
+        ) -> bool {
+            recorder
+                .snapshotter()
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .any(|(ckey, _, _, _)| {
+                    let key = ckey.key();
+                    if key.name() != FLAG_BOT_DETECTED_COUNTER {
+                        return false;
+                    }
+                    let pairs: Vec<(String, String)> = key
+                        .labels()
+                        .map(|l| (l.key().to_string(), l.value().to_string()))
+                        .collect();
+                    pairs.iter().any(|(k, v)| k == "mode" && v == mode)
+                        && pairs
+                            .iter()
+                            .any(|(k, v)| k == "bot_category" && v == category)
+                        && pairs.iter().any(|(k, v)| k == "bot_source" && v == source)
+                })
+        }
+
+        fn any_bot_counter_emitted(recorder: &DebuggingRecorder) -> bool {
+            recorder
+                .snapshotter()
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .any(|(ckey, _, _, _)| ckey.key().name() == FLAG_BOT_DETECTED_COUNTER)
+        }
+
+        #[test]
+        fn disabled_mode_does_not_stamp_or_count() {
+            let recorder = DebuggingRecorder::new();
+            let mut log = fresh_log();
+            let outcome = metrics::with_local_recorder(&recorder, || {
+                classify_and_stamp(
+                    &mut log,
+                    &BotFilterMode::Disabled,
+                    Some(GOOGLEBOT_UA),
+                    GOOGLEBOT_IP,
+                )
+            });
+            assert_eq!(outcome, BotFilterOutcome::Continue);
+            assert!(!log.is_bot);
+            assert_eq!(log.bot_category, None);
+            assert_eq!(log.bot_source, None);
+            assert!(!any_bot_counter_emitted(&recorder));
+        }
+
+        #[test]
+        fn no_match_continues_without_stamping() {
+            let recorder = DebuggingRecorder::new();
+            let mut log = fresh_log();
+            let outcome = metrics::with_local_recorder(&recorder, || {
+                classify_and_stamp(
+                    &mut log,
+                    &BotFilterMode::Enforced,
+                    Some(BENIGN_UA),
+                    BENIGN_IP,
+                )
+            });
+            assert_eq!(outcome, BotFilterOutcome::Continue);
+            assert!(!log.is_bot);
+            assert!(!any_bot_counter_emitted(&recorder));
+        }
+
+        #[test]
+        fn log_only_ua_match_continues_and_records_observability() {
+            let recorder = DebuggingRecorder::new();
+            let mut log = fresh_log();
+            let outcome = metrics::with_local_recorder(&recorder, || {
+                classify_and_stamp(
+                    &mut log,
+                    &BotFilterMode::LogOnly,
+                    Some(GOOGLEBOT_UA),
+                    BENIGN_IP,
+                )
+            });
+            assert_eq!(outcome, BotFilterOutcome::Continue);
+            assert!(log.is_bot);
+            assert_eq!(log.bot_category, Some(BotCategory::Google));
+            assert_eq!(log.bot_source, Some(BotSource::UserAgent));
+            assert!(counter_labels_match(
+                &recorder,
+                "log_only",
+                "google",
+                "user_agent"
+            ));
+        }
+
+        #[test]
+        fn log_only_ip_match_stamps_with_ip_source() {
+            let recorder = DebuggingRecorder::new();
+            let mut log = fresh_log();
+            let outcome = metrics::with_local_recorder(&recorder, || {
+                classify_and_stamp(
+                    &mut log,
+                    &BotFilterMode::LogOnly,
+                    Some(BENIGN_UA),
+                    GOOGLEBOT_IP,
+                )
+            });
+            assert_eq!(outcome, BotFilterOutcome::Continue);
+            assert!(log.is_bot);
+            assert_eq!(log.bot_category, Some(BotCategory::Google));
+            assert_eq!(log.bot_source, Some(BotSource::Ip));
+            assert!(counter_labels_match(&recorder, "log_only", "google", "ip"));
+        }
+
+        #[test]
+        fn enforced_match_rejects_and_records_observability() {
+            let recorder = DebuggingRecorder::new();
+            let mut log = fresh_log();
+            let outcome = metrics::with_local_recorder(&recorder, || {
+                classify_and_stamp(
+                    &mut log,
+                    &BotFilterMode::Enforced,
+                    Some(GOOGLEBOT_UA),
+                    BENIGN_IP,
+                )
+            });
+            assert_eq!(outcome, BotFilterOutcome::Reject);
+            assert!(log.is_bot);
+            assert_eq!(log.bot_category, Some(BotCategory::Google));
+            assert_eq!(log.bot_source, Some(BotSource::UserAgent));
+            assert!(counter_labels_match(
+                &recorder,
+                "enforced",
+                "google",
+                "user_agent"
+            ));
+        }
     }
 }
