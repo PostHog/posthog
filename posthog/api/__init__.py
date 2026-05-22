@@ -22,6 +22,7 @@ from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
+from posthog.batch_exports.api import file_download
 from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
 
 import products.logs.backend.api as logs
@@ -31,6 +32,7 @@ import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
 import products.deployments.backend.api as deployments
+import products.alerts.backend.api.alert as alert
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
 import products.web_analytics.backend.api as web_analytics_api
@@ -126,18 +128,23 @@ from products.visual_review.backend.presentation.views import (
     RunViewSet as VisualReviewRunViewSet,
     SnapshotViewSet as VisualReviewSnapshotViewSet,
 )
+from products.web_analytics.backend.api.heatmaps_api import (
+    HeatmapScreenshotViewSet,
+    HeatmapViewSet,
+    LegacyHeatmapViewSet,
+    SavedHeatmapViewSet,
+)
+from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
-from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_external_reference_api import SessionRecordingExternalReferenceViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
 from . import (
     advanced_activity_logs,
-    alert,
     annotation,
     async_migration,
     authentication,
@@ -198,7 +205,6 @@ from .file_system import file_system, file_system_shortcut, persisted_folder, us
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
-from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -490,12 +496,21 @@ environment_batch_exports_router, legacy_project_batch_exports_router = (
         r"batch_exports", batch_exports.BatchExportViewSet, "environment_batch_exports", ["team_id"]
     )
 )
+
+register_grandfathered_environment_nested_viewset(
+    r"file_download_batch_exports",
+    file_download.FileDownloadBatchExportOnDemandViewSet,
+    "environment_file_download_batch_exports",
+    ["team_id"],
+)
+
 environment_batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "environment_batch_export_runs", ["team_id", "batch_export_id"]
 )
 legacy_project_batch_exports_router.register(
     r"runs", batch_exports.BatchExportRunViewSet, "project_batch_export_runs", ["team_id", "batch_export_id"]
 )
+
 environment_batch_exports_router.register(
     r"backfills",
     batch_exports.BatchExportBackfillViewSet,
@@ -804,13 +819,14 @@ router.register(r"instance_settings", instance_settings.InstanceSettingsViewset,
 router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
 router.register(r"query_performance_proxy", QueryPerformanceProxyViewSet, "query_performance_proxy")
 
-from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.insight import InsightViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
 from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
+
+from products.actions.backend.api.action import ActionViewSet  # noqa: E402
 
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")

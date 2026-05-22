@@ -16,8 +16,11 @@ on:
     merge_group:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # PRs: one active run per branch, cancel stale. Push: per-SHA so master
+    # pushes never cancel each other (check-migrations always completes).
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -397,7 +400,7 @@ jobs:
               run: sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
@@ -607,7 +610,7 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
@@ -1161,7 +1164,25 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   GH_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
               run: |
-                  ./bin/hogli build:openapi
+                  if ! ./bin/hogli build:openapi; then
+                      echo ""
+                      echo "::error::OpenAPI schema generation failed."
+                      echo ""
+                      echo "If the failure above mentions \"enum naming encountered a non-optimally"
+                      echo "resolvable collision\" or \"SchemaGenerationError: Failing as requested due"
+                      echo "to warnings\", drf-spectacular found a problem in a serializer/viewset and"
+                      echo "\`--fail-on-warn\` turned it into an error."
+                      echo ""
+                      echo "Diagnose locally:"
+                      echo "  python manage.py find_enum_collisions   # prints a suggested override entry to add"
+                      echo "  hogli build:openapi-schema              # to reproduce the full warning set"
+                      echo ""
+                      echo "Where to fix:"
+                      echo "  posthog/settings/web.py                 # ENUM_NAME_OVERRIDES (see comment block at the top)"
+                      echo "  /improving-drf-endpoints                # invoke this skill for the full serializer/viewset guide"
+                      echo ""
+                      exit 1
+                  fi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
                   if git diff --exit-code; then
                       echo "OpenAPI types are up to date"
@@ -1396,7 +1417,7 @@ jobs:
 
             - name: Install Rust
               if: needs.changes.outputs.backend == 'true'
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo
@@ -1623,12 +1644,13 @@ jobs:
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
                   set +e
-                  # Bumped from 900 → 1500: shards 1/4 consistently exceed 900s in the
-                  # package-scoped django_db_setup → migrate → create_clickhouse_tables
-                  # chain (the first package on those shards is heavier). 1500s gives
-                  # ample headroom while still catching genuine hangs before the
-                  # 30-minute job-level kill.
-                  pytest -v --tb=short --reuse-db -o junit_duration_report=call --timeout=1500 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                  # No per-test pytest --timeout; rely on the job-level timeout-minutes
+                  # as the single safety net. The per-test guillotine added nothing
+                  # over it (--timeout-method=thread os._exit()s the whole process
+                  # anyway, so the shard dies either way) and was the reason the
+                  # transaction=True overhead in async tests looked like "the
+                  # timeout problem" instead of a per-test cost worth fixing.
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \
@@ -1647,7 +1669,7 @@ jobs:
 
             # Post tests
             - name: Show docker compose logs on failure
-              if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
+              if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
 
@@ -2022,7 +2044,7 @@ jobs:
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
                   components: cargo

@@ -1,9 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { LineChart, ValueLabels } from 'lib/hog-charts'
-import type { LineChartConfig, Series } from 'lib/hog-charts'
-
+import { LineChart } from '../charts/LineChart'
+import type { LineChartConfig, Series } from '../core/types'
 import { Stage, useReactiveTheme } from '../story-helpers'
+import { ValueLabels } from './ValueLabels'
 
 const LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 

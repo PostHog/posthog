@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.models import AlertConfiguration
 from posthog.tasks.alerts import schedule_restriction as schedule_restriction_module
 from posthog.tasks.alerts.schedule_restriction import (
     is_utc_datetime_blocked,
@@ -15,6 +14,8 @@ from posthog.tasks.alerts.schedule_restriction import (
     validate_and_normalize_schedule_restriction,
 )
 from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
+
+from products.alerts.backend.models.alert import AlertConfiguration
 
 
 class TestValidateAndNormalizeScheduleRestriction:
@@ -189,6 +190,11 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
             setattr(alert, k, v)
         return alert
 
+    def _every_15_minutes_alert(self, **kwargs: Any) -> MagicMock:
+        alert = self._hourly_alert(**kwargs)
+        alert.calculation_interval = "every_15_minutes"
+        return alert
+
     def test_cleared_restriction_delegates_to_next_check_time(self) -> None:
         with freeze_time("2026-04-06T14:00:00Z"):
             alert = self._hourly_alert(schedule_restriction=None, next_check_at=None)
@@ -218,6 +224,36 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
     def test_null_next_check_at_with_restriction_uses_interval_then_snap(self) -> None:
         with freeze_time("2026-04-06T14:00:00Z"):
             alert = self._hourly_alert(
+                schedule_restriction={"blocked_windows": [{"start": "11:00", "end": "16:00"}]},
+                next_check_at=None,
+            )
+            out = next_check_at_after_schedule_restriction_change(alert)
+            assert out == datetime(2026, 4, 6, 16, 0, 0, tzinfo=UTC)
+
+    def test_every_15_minutes_future_next_check_inside_blocked_window_snaps_to_first_unblocked_minute(
+        self,
+    ) -> None:
+        with freeze_time("2026-04-06T14:00:00Z"):
+            alert = self._every_15_minutes_alert(
+                schedule_restriction={"blocked_windows": [{"start": "11:00", "end": "16:00"}]},
+                next_check_at=datetime(2026, 4, 6, 15, 30, tzinfo=UTC),
+            )
+            out = next_check_at_after_schedule_restriction_change(alert)
+            assert out == datetime(2026, 4, 6, 16, 0, 0, tzinfo=UTC)
+
+    def test_every_15_minutes_does_not_keep_stale_snap_when_earlier_runs_are_allowed(self) -> None:
+        with freeze_time("2026-04-06T16:44:00Z"):
+            alert = self._every_15_minutes_alert(
+                team=MagicMock(timezone="America/Toronto"),
+                schedule_restriction={"blocked_windows": [{"start": "14:00", "end": "16:00"}]},
+                next_check_at=datetime(2026, 4, 6, 20, 0, 0, tzinfo=UTC),
+            )
+            out = next_check_at_after_schedule_restriction_change(alert)
+            assert out == datetime(2026, 4, 6, 16, 59, 0, tzinfo=UTC)
+
+    def test_every_15_minutes_null_next_check_at_with_restriction_uses_interval_then_snap(self) -> None:
+        with freeze_time("2026-04-06T14:00:00Z"):
+            alert = self._every_15_minutes_alert(
                 schedule_restriction={"blocked_windows": [{"start": "11:00", "end": "16:00"}]},
                 next_check_at=None,
             )

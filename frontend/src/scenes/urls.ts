@@ -152,6 +152,8 @@ export const urls = {
      */
     accountConnected: (kind: string = ':kind'): string =>
         kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
+    /** One-shot credential review interstitial shown to users with existing API keys they haven't acknowledged. */
+    credentialReview: (): string => '/account/credential-review',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     emailMFAVerify: (): string => '/login/verify',
@@ -165,6 +167,7 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     vercelConnect: (): string => '/connect/vercel/link',
     vercelLinkError: (): string => '/integrations/vercel/link-error',
+    agenticAccountMismatch: (): string => '/agentic/account-mismatch',
     inviteSignup: (id: string): string => `/signup/${id}`,
     onboarding: ({
         campaign,

@@ -59,7 +59,6 @@ from posthog.helpers.trigram_search import (
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.alert import AlertConfiguration
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -72,6 +71,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.api.dashboard_ai import generate_refresh_analysis
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
@@ -263,6 +263,9 @@ class DashboardTileSerializer(serializers.ModelSerializer):
             "last_refresh",
             "refreshing",
             "refresh_attempt",
+            # Denormalization for HogQL printing; combined with depth=1, leaving it
+            # in expands `team` into a full nested Team dict on every tile response.
+            "team",
         ]
         read_only_fields = ["id", "insight"]
         depth = 1
@@ -614,6 +617,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
             DashboardTile.objects.create(
                 dashboard=dashboard,
+                team_id=dashboard.team_id,
                 insight=insight,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
@@ -633,6 +637,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             text = cast(Text, text_serializer.instance)
             DashboardTile.objects.create(
                 dashboard=dashboard,
+                team_id=dashboard.team_id,
                 text=text,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
@@ -652,6 +657,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             button_tile = cast(ButtonTile, button_tile_serializer.instance)
             DashboardTile.objects.create(
                 dashboard=dashboard,
+                team_id=dashboard.team_id,
                 button_tile=button_tile,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,

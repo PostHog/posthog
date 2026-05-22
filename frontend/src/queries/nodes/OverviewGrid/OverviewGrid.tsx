@@ -46,6 +46,7 @@ interface OverviewGridProps {
     numSkeletons: number
     samplingRate?: SamplingRate
     usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
     labelFromKey: (key: string) => string
     filterEmptyItems?: (item: OverviewItem) => boolean
     compact?: boolean
@@ -57,6 +58,7 @@ export function OverviewGrid({
     numSkeletons,
     samplingRate,
     usedPreAggregatedTables = false,
+    usedLazyPrecompute = false,
     labelFromKey,
     filterEmptyItems = () => true,
     compact = false,
@@ -81,6 +83,7 @@ export function OverviewGrid({
                               key={item.key}
                               item={item}
                               usedPreAggregatedTables={usedPreAggregatedTables}
+                              usedLazyPrecompute={usedLazyPrecompute}
                               labelFromKey={labelFromKey}
                               compact={compact}
                           />
@@ -125,6 +128,7 @@ const OverviewItemCellSkeleton = ({ compact }: { compact: boolean }): JSX.Elemen
 interface OverviewItemCellProps {
     item: OverviewItem
     usedPreAggregatedTables: boolean
+    usedLazyPrecompute: boolean
     labelFromKey: (key: string) => string
     compact: boolean
 }
@@ -132,6 +136,7 @@ interface OverviewItemCellProps {
 const OverviewItemCell = ({
     item,
     usedPreAggregatedTables,
+    usedLazyPrecompute,
     labelFromKey,
     compact,
 }: OverviewItemCellProps): JSX.Element => {
@@ -186,7 +191,11 @@ const OverviewItemCell = ({
                     'relative'
                 )}
             >
-                {usedPreAggregatedTables && <PreAggregatedBadge />}
+                {usedLazyPrecompute ? (
+                    <PreAggregatedBadge variant="precomputed" />
+                ) : usedPreAggregatedTables ? (
+                    <PreAggregatedBadge variant="preagg" />
+                ) : null}
                 <div className="flex flex-row w-full justify-center items-center gap-1">
                     <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>{label}</div>
                     {item.warning && (

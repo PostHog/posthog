@@ -289,7 +289,10 @@ class UpsertDashboardTool(MaxTool):
         )
         insights = self._create_resolved_insights(insights)
         DashboardTile.objects.bulk_create(
-            [DashboardTile(dashboard=dashboard, insight=insight, layouts={}) for insight in insights]
+            [
+                DashboardTile(dashboard=dashboard, team_id=dashboard.team_id, insight=insight, layouts={})
+                for insight in insights
+            ]
         )
         return dashboard
 
@@ -362,6 +365,7 @@ class UpsertDashboardTool(MaxTool):
                 # Create new tile
                 new_tile = DashboardTile.objects.create(
                     dashboard=dashboard,
+                    team_id=dashboard.team_id,
                     insight=insight,
                     layouts={},
                 )
