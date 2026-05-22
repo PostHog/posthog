@@ -1236,12 +1236,6 @@ def route_posthog_code_event_to_relevant_region(
 
     event_type = event.get("type")
 
-    # Coding-agent workflows only run in the secondary region (US). Force-reset local_match in
-    # the primary region for app_mention so it always proxies to the secondary, regardless of
-    # whether a slack integration row exists in the primary.
-    if event_type == "app_mention" and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
-        local_match = None
-
     if local_match and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         if event_type == "app_mention":
             if not _posthog_code_enabled_for_integration(local_match):
