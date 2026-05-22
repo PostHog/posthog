@@ -79,11 +79,13 @@ describe('reverseProxyCheckerLogic', () => {
             })
     })
 
-    it('should swallow server errors silently instead of showing a toast', async () => {
+    it('should swallow server errors silently without showing a toast or reporting to error tracking', async () => {
         // Regression test: previously a 500 from the HogQL endpoint would propagate
         // through kea-loaders and surface a user-visible
         // 'Load has reverse proxy failed: A server error occurred' toast on every
-        // scene that mounts ProductSetupButton.
+        // scene that mounts ProductSetupButton. A later iteration re-emitted the
+        // failure via posthog.captureException, which created noise in error tracking
+        // even though this check is advisory and has no user-facing impact.
         useMocks({
             post: {
                 '/api/environments/:team_id/query/:kind': () => [500, { detail: 'A server error occurred' }],
@@ -104,11 +106,7 @@ describe('reverseProxyCheckerLogic', () => {
             })
 
         expect(toastErrorSpy).not.toHaveBeenCalled()
-        expect(captureExceptionSpy).toHaveBeenCalledWith(
-            expect.objectContaining({
-                message: expect.stringContaining('reverseProxyCheckerLogic: loadHasReverseProxy query failed'),
-            })
-        )
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
 
         toastErrorSpy.mockRestore()
         captureExceptionSpy.mockRestore()

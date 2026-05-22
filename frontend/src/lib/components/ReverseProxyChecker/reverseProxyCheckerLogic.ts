@@ -1,6 +1,5 @@
 import { afterMount, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -41,13 +40,11 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                             productKey: 'platform_and_support',
                         })
                         return !!res.results?.find((x) => !!x[0])
-                    } catch (error) {
+                    } catch {
                         // This check is advisory (used only to auto-complete a setup task).
                         // Swallow errors so kea-loaders does not surface a user-visible toast
-                        // on every scene that mounts ProductSetupButton.
-                        posthog.captureException(
-                            new Error('reverseProxyCheckerLogic: loadHasReverseProxy query failed', { cause: error })
-                        )
+                        // on every scene that mounts ProductSetupButton, and do not report to
+                        // error tracking — transient ClickHouse failures here have no user impact.
                         return values.hasReverseProxy
                     }
                 },
