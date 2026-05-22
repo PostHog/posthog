@@ -14,6 +14,7 @@ import {
 
 import { BusBridgingRegistry } from './ass-server-bridge'
 import { ExecutorTurnInput, ExecutorTurnOutput, SessionExecutor } from './executor'
+import { makeToolSandboxFactory } from './tool-sandbox'
 
 export interface AssServerExecutorOptions {
     bundleStore: BundleStore
@@ -27,10 +28,11 @@ export interface AssServerExecutorOptions {
  * object storage, loads it with `@repo/ass-config`, and hands the result to
  * `runSession()` (ass-server's whole-session loop powered by the Claude Agent SDK).
  *
- * Custom tools are intentionally skipped for v1 — server-side builtins still
- * work because ass-server registers them as MCP tools internally, but anything
- * declared as a *local* tool in the project's `tools/` folder is ignored until
- * we land the parent-process dispatch sandbox.
+ * Custom (local) tools run sandboxed: the executor picks a provider
+ * (`AGENT_RUNNER_TOOL_SANDBOX` — Docker by default) and hands `runSession` a
+ * sandbox factory. ass-server registers the tools from the bundle metadata and
+ * dispatches each call into the sandbox, so a tool's code — and the secrets it
+ * uses — never run in this worker process.
  *
  * `runSession` runs the entire agent loop in-process and returns a handle whose
  * `.done` resolves on completion, error, or abort. The per-turn `SessionExecutor`
@@ -129,6 +131,13 @@ export class AssServerExecutor implements SessionExecutor {
             },
             'invoking runSession'
         )
+        let makeToolSandbox
+        try {
+            makeToolSandbox = makeToolSandboxFactory(agent, (line) => logger.debug({ sessionId, line }, 'tool-sandbox'))
+        } catch (err) {
+            return { kind: 'failed', error: `tool sandbox unavailable: ${String(err)}` }
+        }
+
         const handle = runSession({
             project,
             agent,
@@ -136,6 +145,7 @@ export class AssServerExecutor implements SessionExecutor {
             sessionId,
             triggerPayload,
             env: input.job.secrets,
+            makeToolSandbox,
             onLog: (line: string) => {
                 logger.debug({ sessionId, line }, 'runSession')
                 sessionLogger.appendLog({ level: 'INFO', message: line })

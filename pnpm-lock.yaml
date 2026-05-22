@@ -3782,6 +3782,9 @@ importers:
       '@repo/ass-config':
         specifier: link:../../../agent-stack/packages/ass-config
         version: link:../../../agent-stack/packages/ass-config
+      '@repo/ass-sandbox':
+        specifier: link:../../../agent-stack/packages/ass-sandbox
+        version: link:../../../agent-stack/packages/ass-sandbox
       '@repo/ass-server':
         specifier: link:../../../agent-stack/packages/ass-server
         version: link:../../../agent-stack/packages/ass-server

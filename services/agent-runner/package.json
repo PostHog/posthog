@@ -22,6 +22,7 @@
     "dependencies": {
         "@posthog/agent-core": "workspace:*",
         "@repo/ass-config": "link:../../../agent-stack/packages/ass-config",
+        "@repo/ass-sandbox": "link:../../../agent-stack/packages/ass-sandbox",
         "@repo/ass-server": "link:../../../agent-stack/packages/ass-server",
         "luxon": "^3.4.4",
         "zod": "^4.3.6"
