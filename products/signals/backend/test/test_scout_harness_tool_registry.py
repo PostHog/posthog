@@ -7,11 +7,8 @@ from products.llm_analytics.backend.models.skills import LLMSkill
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
 from products.signals.backend.scout_harness.tool_registry import (
     HARNESS_INTERNAL_TOOLS,
-    AllowedToolsResolution,
-    EffectiveToolset,
     InvalidAllowedToolsError,
     UnknownHarnessToolError,
-    compute_effective_toolset,
     validate_and_partition_allowed_tools,
 )
 
@@ -75,53 +72,6 @@ class TestValidateAndPartitionAllowedTools:
                 "search_recent_runs",
             }
         )
-
-
-class TestComputeEffectiveToolset:
-    def test_undeclared_resolution_inherits_full_union(self) -> None:
-        resolution = AllowedToolsResolution(declared=False, harness_tools=frozenset(), mcp_tool_candidates=frozenset())
-        effective = compute_effective_toolset(
-            resolution=resolution,
-            mcp_tools_available=["mcp__posthog__exec", "posthog:execute-sql"],
-        )
-        assert effective.harness_tools == HARNESS_INTERNAL_TOOLS
-        assert effective.mcp_tools == frozenset({"mcp__posthog__exec", "posthog:execute-sql"})
-
-    def test_declared_resolution_narrows_to_intersection(self) -> None:
-        resolution = AllowedToolsResolution(
-            declared=True,
-            harness_tools=frozenset({"remember", "search_scratchpad"}),
-            mcp_tool_candidates=frozenset({"mcp__posthog__exec"}),
-        )
-        effective = compute_effective_toolset(
-            resolution=resolution,
-            mcp_tools_available=["mcp__posthog__exec", "posthog:execute-sql"],
-        )
-        assert effective.harness_tools == frozenset({"remember", "search_scratchpad"})
-        # `posthog:execute-sql` is not in the skill's allowed list, so it's excluded.
-        assert effective.mcp_tools == frozenset({"mcp__posthog__exec"})
-
-    def test_unavailable_mcp_candidates_silently_dropped(self) -> None:
-        resolution = AllowedToolsResolution(
-            declared=True,
-            harness_tools=frozenset(),
-            mcp_tool_candidates=frozenset({"mcp__posthog__exec", "mcp__nonexistent__tool"}),
-        )
-        effective = compute_effective_toolset(
-            resolution=resolution,
-            mcp_tools_available=["mcp__posthog__exec"],
-        )
-        assert effective.mcp_tools == frozenset({"mcp__posthog__exec"})
-
-    def test_empty_intersection_yields_empty_toolset(self) -> None:
-        resolution = AllowedToolsResolution(
-            declared=True,
-            harness_tools=frozenset(),
-            mcp_tool_candidates=frozenset({"mcp__posthog__exec"}),
-        )
-        effective = compute_effective_toolset(resolution=resolution, mcp_tools_available=[])
-        assert effective == EffectiveToolset(harness_tools=frozenset(), mcp_tools=frozenset())
-        assert effective.empty is True
 
 
 class TestSkillLoaderAllowedToolsIntegration(BaseTest):

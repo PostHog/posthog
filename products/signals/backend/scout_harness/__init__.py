@@ -17,10 +17,8 @@ from products.signals.backend.scout_harness.skill_loader import LoadedSkill, Ski
 from products.signals.backend.scout_harness.tool_registry import (
     HARNESS_INTERNAL_TOOLS,
     AllowedToolsResolution,
-    EffectiveToolset,
     InvalidAllowedToolsError,
     UnknownHarnessToolError,
-    compute_effective_toolset,
     validate_and_partition_allowed_tools,
 )
 
@@ -30,7 +28,6 @@ __all__ = [
     "CanonicalSkillFile",
     "CanonicalSkillParseError",
     "DEFAULT_LIMITS",
-    "EffectiveToolset",
     "HARNESS_INTERNAL_TOOLS",
     "InvalidAllowedToolsError",
     "LoadedSkill",
@@ -38,7 +35,6 @@ __all__ = [
     "SeedResult",
     "SkillNotFoundError",
     "UnknownHarnessToolError",
-    "compute_effective_toolset",
     "discover_canonical_skills",
     "load_skill_for_run",
     "resolve_limits",

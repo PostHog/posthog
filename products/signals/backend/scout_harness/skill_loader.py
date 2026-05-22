@@ -70,8 +70,12 @@ def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = Non
     file_rows = LLMSkillFile.objects.filter(skill=skill).only("path", "content_type").order_by("path")
     raw_allowed_tools = list(skill.allowed_tools or [])
     # Validate at load time so a typo in a skill body fails the run before we spawn a
-    # sandbox. Unknown harness names raise; unknown MCP-shaped names pass and are
-    # validated at agent-dispatch time once the sandbox surface is known.
+    # sandbox: unknown harness-internal names raise (typo guard). MCP-shaped names pass
+    # through — `allowed_tools` is portable skill metadata that travels with the skill
+    # across consumers (scout harness, Claude Code, custom agents). The scout harness
+    # itself gates runtime tool access via `posthog_mcp_scopes` at the OAuth/MCP
+    # boundary (scope-level), not via this list (tool-level). Downstream consumers
+    # that want tool-level narrowing can read `allowed_tools` directly.
     resolution = validate_and_partition_allowed_tools(raw_allowed_tools)
     return LoadedSkill(
         name=skill.name,

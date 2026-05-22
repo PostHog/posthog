@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 
 # Canonical names of harness-internal tools the agent can call during a run.
@@ -27,9 +26,11 @@ class UnknownHarnessToolError(LookupError):
 
     Raised when a name in `allowed_tools` looks like a harness-internal tool — i.e. it
     is a bare identifier with no namespace prefix — but is not in `HARNESS_INTERNAL_TOOLS`.
-    Names that look like MCP tools (containing a prefix marker like `:` or `__`) are not
-    validated here because the harness cannot enumerate sandbox-provided MCP tools at
-    skill-load time; the intersection runs later, at agent-dispatch time.
+    Names that look like MCP tools (containing a prefix marker like `:` or `__`) are
+    not validated against the runtime MCP registry here: `allowed_tools` is portable
+    skill metadata that travels with the skill across consumers (scout harness,
+    Claude Code, custom agents), and the canonical MCP surface for any given
+    consumer is only known at that consumer's dispatch time.
     """
 
 
@@ -39,9 +40,13 @@ class AllowedToolsResolution:
 
     `harness_tools` is the subset that maps to harness-internal tools (validated against
     the registry). `mcp_tool_candidates` is everything else — names that look like MCP
-    tool identifiers, validated lazily at dispatch time when the sandbox surface is known.
-    Empty `allowed_tools` on the skill means "no narrowing"; the runner exposes the full
-    union of harness-internal + MCP-provided tools in that case.
+    tool identifiers; these are kept as the skill author wrote them and surfaced to
+    downstream consumers. `allowed_tools` itself is portable skill metadata: the scout
+    harness gates runtime tool access via `posthog_mcp_scopes` at the OAuth/MCP
+    boundary (scope-level), while other consumers (e.g. Claude Code) may read this
+    list directly to narrow their own tool exposure (tool-level).
+
+    Empty `allowed_tools` on the skill means "no narrowing intent declared".
     """
 
     declared: bool
@@ -54,21 +59,6 @@ class AllowedToolsResolution:
             "harness_tools": sorted(self.harness_tools),
             "mcp_tool_candidates": sorted(self.mcp_tool_candidates),
         }
-
-
-@dataclass(frozen=True)
-class EffectiveToolset:
-    """Result of intersecting a skill's allowed-tools with the runtime tool surface.
-
-    Computed at agent-dispatch time once the sandbox-provided MCP tool list is known.
-    """
-
-    harness_tools: frozenset[str]
-    mcp_tools: frozenset[str]
-
-    @property
-    def empty(self) -> bool:
-        return not self.harness_tools and not self.mcp_tools
 
 
 def _looks_like_mcp_tool(name: str) -> bool:
@@ -127,26 +117,4 @@ def validate_and_partition_allowed_tools(allowed_tools: list[str]) -> AllowedToo
         declared=True,
         harness_tools=frozenset(harness),
         mcp_tool_candidates=frozenset(mcp_candidates),
-    )
-
-
-def compute_effective_toolset(
-    *,
-    resolution: AllowedToolsResolution,
-    mcp_tools_available: Iterable[str],
-) -> EffectiveToolset:
-    """Apply the intersection rule once we know the sandbox-provided MCP surface.
-
-    - `resolution.declared = False` (skill declared no narrowing): expose the full union.
-    - `resolution.declared = True`: expose only the names the skill listed, intersected
-      with what the runtime actually has. Unknown MCP candidates that the sandbox does
-      not provide are silently dropped — agent-dispatch is the source of truth, not the
-      skill's intent.
-    """
-    available_mcp = frozenset(mcp_tools_available)
-    if not resolution.declared:
-        return EffectiveToolset(harness_tools=HARNESS_INTERNAL_TOOLS, mcp_tools=available_mcp)
-    return EffectiveToolset(
-        harness_tools=resolution.harness_tools & HARNESS_INTERNAL_TOOLS,
-        mcp_tools=resolution.mcp_tool_candidates & available_mcp,
     )
