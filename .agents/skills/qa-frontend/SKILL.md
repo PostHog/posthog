@@ -142,7 +142,7 @@ mkdir -p "$RUN_DIR"
 
 If `$RUN_DIR` already exists, append a short suffix like `-2` or the short head
 SHA. Use `RUN_DIR` for every screenshot, GIF, log, `findings.json`, run notes,
-and report path. Never use legacy `qa-runtime` names in new artifacts.
+and report path.
 
 ### PR mode preconditions
 
