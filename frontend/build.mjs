@@ -47,6 +47,7 @@ await buildInParallel(
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
+            writeMetaFile: !isDev,
             ...common,
         },
         {
@@ -86,6 +87,7 @@ await buildInParallel(
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
+            writeMetaFile: !isDev,
             ...common,
         },
         {
