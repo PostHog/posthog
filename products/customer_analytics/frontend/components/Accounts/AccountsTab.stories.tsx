@@ -98,5 +98,8 @@ export const FeatureGateOff: Story = {
     render: () => <App />,
     parameters: {
         featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS],
+        testOptions: {
+            waitForSelector: '#feature-preview-gate-switch',
+        },
     },
 }
