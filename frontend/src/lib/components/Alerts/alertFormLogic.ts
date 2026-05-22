@@ -178,6 +178,13 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
     }
 }
 
+function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id']): AlertFormType {
+    return {
+        ...alert,
+        insight: insightId,
+    }
+}
+
 const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
     if (goalLines == null || goalLines.length == 0) {
         return {}
@@ -240,39 +247,40 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
     forms(({ props, values }) => ({
         alertForm: {
-            defaults:
-                props.alert ??
-                ({
-                    id: undefined,
-                    name: values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
-                    created_by: null,
-                    created_at: '',
-                    enabled: true,
-                    config: {
-                        type: 'TrendsAlertConfig',
-                        series_index: 0,
-                        check_ongoing_interval: false,
-                    },
-                    threshold: {
-                        configuration: {
-                            type: InsightThresholdType.ABSOLUTE,
-                            bounds: getThresholdBounds(values.goalLines),
-                        },
-                    },
-                    condition: {
-                        type: AlertConditionType.ABSOLUTE_VALUE,
-                    },
-                    subscribed_users: [],
-                    checks: [],
-                    calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
-                    skip_weekend: false,
-                    schedule_restriction: null,
-                    detector_config: null,
-                    investigation_agent_enabled: false,
-                    investigation_gates_notifications: false,
-                    investigation_inconclusive_action: 'notify',
-                    insight: props.insightId,
-                } as AlertFormType),
+            defaults: props.alert
+                ? alertToFormType(props.alert, props.insightId)
+                : ({
+                      id: undefined,
+                      name:
+                          values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
+                      created_by: null,
+                      created_at: '',
+                      enabled: true,
+                      config: {
+                          type: 'TrendsAlertConfig',
+                          series_index: 0,
+                          check_ongoing_interval: false,
+                      },
+                      threshold: {
+                          configuration: {
+                              type: InsightThresholdType.ABSOLUTE,
+                              bounds: getThresholdBounds(values.goalLines),
+                          },
+                      },
+                      condition: {
+                          type: AlertConditionType.ABSOLUTE_VALUE,
+                      },
+                      subscribed_users: [],
+                      checks: [],
+                      calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
+                      skip_weekend: false,
+                      schedule_restriction: null,
+                      detector_config: null,
+                      investigation_agent_enabled: false,
+                      investigation_gates_notifications: false,
+                      investigation_inconclusive_action: 'notify',
+                      insight: props.insightId,
+                  } as AlertFormType),
             errors: (alert: AlertType | AlertFormType) =>
                 ({
                     name: !alert.name ? 'You need to give your alert a name' : undefined,

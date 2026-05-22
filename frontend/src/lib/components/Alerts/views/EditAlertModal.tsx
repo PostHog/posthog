@@ -53,9 +53,7 @@ export function EditAlertModal({
     onEditSuccess,
     insightLogicProps,
 }: EditAlertModalProps): JSX.Element {
-    const alertsHistoryChartEnabled = useFeatureFlag('ALERTS_HISTORY_CHART')
-
-    const _alertLogic = alertLogic({ alertId, historyChartEnabled: alertsHistoryChartEnabled })
+    const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
 
     /** Parent callback only (e.g. close modal). `alertLogic` is hydrated from the save response inside `alertFormLogic`. */
@@ -81,7 +79,6 @@ export function EditAlertModal({
         onEditSuccess: _onEditSuccess,
         insightVizDataLogicProps: insightLogicProps,
         insightInterval: trendInterval ?? undefined,
-        historyChartEnabled: alertsHistoryChartEnabled,
     }
     const formLogic = alertFormLogic(formLogicProps)
     const {
@@ -100,7 +97,6 @@ export function EditAlertModal({
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
     const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
-    const quietHoursEnabled = useFeatureFlag('ALERTS_QUIET_HOURS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
     const alerts15MinuteIntervalEnabled = useFeatureFlag('ALERTS_15_MINUTE_INTERVAL')
 
@@ -158,7 +154,7 @@ export function EditAlertModal({
         ) {
             n += 1
         }
-        if (quietHoursEnabled && (alertForm.schedule_restriction?.blocked_windows?.length ?? 0) > 0) {
+        if ((alertForm.schedule_restriction?.blocked_windows?.length ?? 0) > 0) {
             n += 1
         }
         return n
@@ -168,7 +164,6 @@ export function EditAlertModal({
         alertForm.schedule_restriction?.blocked_windows?.length,
         alertForm.skip_weekend,
         can_check_ongoing_interval,
-        quietHoursEnabled,
     ])
 
     return (
@@ -282,7 +277,6 @@ export function EditAlertModal({
                             <AlertAdvancedOptionsSection
                                 alertForm={alertForm}
                                 canCheckOngoingInterval={can_check_ongoing_interval}
-                                quietHoursEnabled={quietHoursEnabled}
                                 projectTimezone={projectTimezone}
                                 enabledAdvancedOptionsCount={enabledAdvancedOptionsCount}
                                 onSetAlertFormValue={setAlertFormValue}
@@ -293,7 +287,7 @@ export function EditAlertModal({
                             alert ? (
                                 <AlertHistorySection alertId={alert.id} />
                             ) : alertLoading ? (
-                                <AlertHistorySectionSkeleton showChartArea={alertsHistoryChartEnabled} />
+                                <AlertHistorySectionSkeleton />
                             ) : null
                         ) : null}
                     </LemonModal.Content>

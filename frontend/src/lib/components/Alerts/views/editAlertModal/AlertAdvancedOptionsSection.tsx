@@ -13,7 +13,6 @@ import { QuietHoursFields } from '../QuietHoursFields'
 export interface AlertAdvancedOptionsSectionProps {
     alertForm: AlertFormType
     canCheckOngoingInterval: boolean
-    quietHoursEnabled: boolean
     projectTimezone: string
     enabledAdvancedOptionsCount: number
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
@@ -22,7 +21,6 @@ export interface AlertAdvancedOptionsSectionProps {
 export function AlertAdvancedOptionsSection({
     alertForm,
     canCheckOngoingInterval: can_check_ongoing_interval,
-    quietHoursEnabled,
     projectTimezone,
     enabledAdvancedOptionsCount,
     onSetAlertFormValue,
@@ -100,14 +98,12 @@ export function AlertAdvancedOptionsSection({
                                         }
                                     />
                                 </LemonField>
-                                {quietHoursEnabled ? (
-                                    <QuietHoursFields
-                                        scheduleRestriction={alertForm.schedule_restriction}
-                                        calculationInterval={alertForm.calculation_interval}
-                                        teamTimezone={projectTimezone}
-                                        onChange={(next) => onSetAlertFormValue('schedule_restriction', next)}
-                                    />
-                                ) : null}
+                                <QuietHoursFields
+                                    scheduleRestriction={alertForm.schedule_restriction}
+                                    calculationInterval={alertForm.calculation_interval}
+                                    teamTimezone={projectTimezone}
+                                    onChange={(next) => onSetAlertFormValue('schedule_restriction', next)}
+                                />
                             </div>
                         ),
                     },
