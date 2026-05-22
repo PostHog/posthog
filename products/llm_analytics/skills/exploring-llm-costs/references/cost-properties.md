@@ -59,7 +59,7 @@ you'll double-count.
 
 `$ai_evaluation` events also emit cost properties (ingestion treats them
 as costed alongside `$ai_generation` and `$ai_embedding`), but the stock
-`/llm-analytics` rollups and the query runners **do not** include them
+`/ai-observability` rollups and the query runners **do not** include them
 in cost totals. If the user wants "total spend including evaluations",
 add `$ai_evaluation` to the event filter explicitly (e.g.
 `event IN ('$ai_generation', '$ai_embedding', '$ai_evaluation')`) and

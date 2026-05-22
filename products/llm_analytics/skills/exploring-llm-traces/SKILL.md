@@ -2,7 +2,7 @@
 name: exploring-llm-traces
 description: >
   ABSOLUTE MUST to debug and inspect LLM/AI agent traces using PostHog's MCP tools.
-  Use when the user pastes a trace or session URL (e.g. /llm-analytics/traces/<id> or /llm-analytics/sessions/<id>),
+  Use when the user pastes a trace or session URL (e.g. /ai-observability/traces/<id> or /ai-observability/sessions/<id>),
   asks to debug a trace, figure out what went wrong, check if an agent used a tool correctly,
   verify context/files were surfaced, inspect subagent behavior, investigate LLM decisions,
   or analyze token usage and costs.
@@ -41,8 +41,8 @@ Events are linked via `$ai_parent_id` → parent's `$ai_span_id` or `$ai_trace_i
 
 First inspect the path. Do not treat every UUID-looking value as a trace ID.
 
-- `/llm-analytics/traces/<trace_id>` or legacy `/llm-observability/traces/<trace_id>` is a single trace. Fetch it with `posthog:query-llm-trace`.
-- `/llm-analytics/sessions/<session_id>` is an AI session, not a trace. Fetch traces with `posthog:query-llm-traces-list` filtered by event property `$ai_session_id`.
+- `/ai-observability/traces/<trace_id>` or legacy `/llm-analytics/traces/<trace_id>` / `/llm-observability/traces/<trace_id>` is a single trace. Fetch it with `posthog:query-llm-trace`.
+- `/ai-observability/sessions/<session_id>` or legacy `/llm-analytics/sessions/<session_id>` is an AI session, not a trace. Fetch traces with `posthog:query-llm-traces-list` filtered by event property `$ai_session_id`.
 
 Preserve `date_from` / `date_to` query parameters from the URL when present.
 If none are present but the URL has a `timestamp` query parameter, use that timestamp as the anchor and query an absolute window around it, for example `timestamp - 36h` to `timestamp + 36h`.
@@ -149,7 +149,7 @@ The trace tools return `_posthogUrl` — always surface this to the user.
 
 You can also construct links manually:
 
-- **Trace detail**: `https://app.posthog.com/llm-observability/traces/<trace_id>?timestamp=<url_encoded_timestamp>&event=<optional_event_id>`
+- **Trace detail**: `https://app.posthog.com/ai-observability/traces/<trace_id>?timestamp=<url_encoded_timestamp>&event=<optional_event_id>`
 - **Traces list with filters**: returned in `_posthogUrl` from `query-llm-traces-list`
 
 The `timestamp` query param is **required** — use the `createdAt` of the earliest event in the trace, URL-encoded (e.g. `timestamp=2026-04-01T19%3A39%3A20Z`).

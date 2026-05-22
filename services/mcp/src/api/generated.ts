@@ -89,6 +89,9 @@ export namespace Schemas {
       zendesk_id?: string | null;
     } | null;
 
+    /**
+     * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+     */
     export interface Account {
       readonly id: string;
       /**
@@ -107,6 +110,8 @@ export namespace Schemas {
          * @nullable
          */
       properties?: AccountProperties;
+      /** Tag names attached to the account. Pass a list to replace existing tags. */
+      tags?: string[];
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -2956,6 +2961,7 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -2983,6 +2989,8 @@ export namespace Schemas {
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
+      /** Opt this specific query into the web_overview_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+      useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -8958,6 +8966,7 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -14643,7 +14652,18 @@ export namespace Schemas {
       /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
       filters?: PropertyGroupFilterValue;
       /**
-         * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+         * Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; `0.5` drops half. Higher values suppress more.
+         * @minimum 0
+         * @maximum 1
+         */
+      sampling_rate?: number;
+    }
+
+    export interface ErrorTrackingSuppressionRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /**
+         * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
          * @minimum 0
          * @maximum 1
          */
@@ -20415,7 +20435,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: LogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` (integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
       config: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version: number;
@@ -25476,6 +25496,8 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types: readonly string[];
       readonly pending_invites: readonly PendingInvite[];
+      /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      readonly requires_credential_review: boolean;
     }
 
     export interface PaginatedUserList {
@@ -25652,6 +25674,9 @@ export namespace Schemas {
       zendesk_id?: string | null;
     } | null;
 
+    /**
+     * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+     */
     export interface PatchedAccount {
       readonly id?: string;
       /**
@@ -25670,6 +25695,8 @@ export namespace Schemas {
          * @nullable
          */
       properties?: PatchedAccountProperties;
+      /** Tag names attached to the account. Pass a list to replace existing tags. */
+      tags?: string[];
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -26960,6 +26987,17 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedErrorTrackingSuppressionRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+      /**
+         * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
+         * @minimum 0
+         * @maximum 1
+         */
+      sampling_rate?: number;
+    }
+
     /**
      * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
      */
@@ -28120,7 +28158,7 @@ export namespace Schemas {
       scope_path_pattern?: string | null;
       /** Optional list of predicates over string attributes, e.g. [{"key":"http.route","op":"eq","value":"/api"}]. */
       scope_attribute_filters?: PatchedLogsSamplingRuleScopeAttributeFiltersItem[];
-      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer KB/s, 1–1000000 = 1 GB/s) and optional `burst_logs` (integer KB ≥ logs_per_second, max 10000000) and optional `filter_group` to narrow which logs the cap applies to. */
+      /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
       config?: unknown;
       /** Incremented on each update for worker cache coherency. */
       readonly version?: number;
@@ -31198,6 +31236,8 @@ export namespace Schemas {
       /** Real-time notification types that currently have a live dispatch site. Drives the in-app notifications settings UI. Read-only. */
       readonly active_realtime_notification_types?: readonly string[];
       readonly pending_invites?: readonly PendingInvite[];
+      /** True if the user has at least one Personal API Key and has not yet acknowledged their existing credentials. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only. */
+      readonly requires_credential_review?: boolean;
     }
 
     export interface PatchedUserInterview {
@@ -33197,6 +33237,7 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -33571,6 +33612,7 @@ export namespace Schemas {
       samplingRate?: SamplingRate | null;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -39864,6 +39906,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
+     */
+    tags?: string;
     };
 
     export type ApprovalPoliciesListParams = {
