@@ -2,36 +2,26 @@ import { chunk } from 'lodash'
 import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { parseJSON } from '~/utils/json-parse'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
+import { CyclotronV2DequeuedJob, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
+import { CyclotronJobSerializer, extractActionId, extractDistinctId, extractPersonId } from './cyclotron-job-serializer'
 import { JobQueue } from './job-queue.interface'
-import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
+import { observeConsumedBatch } from './shared'
 
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
     help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/reschedule',
 })
 
-/**
- * State blob stored in the single `state` BYTEA column.
- * Mirrors the Kafka serialization: everything in one JSON object.
- */
-type SerializedJobState = {
-    state: CyclotronJobInvocation['state']
-    queueParameters?: CyclotronJobInvocation['queueParameters']
-    queueMetadata?: CyclotronJobInvocation['queueMetadata']
-}
-
 export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
-    private sanitizer: ReturnType<typeof createInvocationSanitizer>
+    private serializer = new CyclotronJobSerializer()
 
     constructor(
         private consumerBatchSize: number,
@@ -42,11 +32,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             | 'CDP_CYCLOTRON_BATCH_DELAY_MS'
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
-            | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
         >
-    ) {
-        this.sanitizer = createInvocationSanitizer(config)
-    }
+    ) {}
 
     public async startAsProducer(): Promise<void> {
         if (this.manager) {
@@ -86,7 +73,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
             for (const job of jobs) {
                 this.pendingJobs.set(job.id, job)
-                invocations.push(v2JobToInvocation(job))
+                invocations.push(this.serializer.deserializeFromPostgresV2(job))
             }
 
             pendingJobsGauge.set(this.pendingJobs.size)
@@ -136,10 +123,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             throw new Error('CyclotronV2Manager not initialized')
         }
 
-        invocations = this.sanitizer.sanitizeInvocations(invocations)
-
         const jobs = invocations.map((inv) => ({
-            ...invocationToV2JobInit(inv),
+            ...this.serializer.serializeForPostgresV2(inv),
             overwriteExisting: options.overwriteExisting,
         }))
 
@@ -177,10 +162,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]): Promise<void> {
-        const sanitizedResults = this.sanitizer.sanitizeResults(invocationResults)
-
         await Promise.all(
-            sanitizedResults.map(async (result) => {
+            invocationResults.map(async (result) => {
                 const job = this.pendingJobs.get(result.invocation.id)
                 if (!job) {
                     logger.warn('No pending V2 job found for result, creating new job', {
@@ -199,9 +182,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 } else if (result.finished) {
                     await job.ack()
                 } else {
-                    const stateBuffer = serializeState(result.invocation)
                     await job.reschedule({
-                        state: stateBuffer,
+                        state: this.serializer.serializeStateForPostgresV2(result.invocation),
                         scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
                         distinctId: extractDistinctId(result.invocation),
                         personId: extractPersonId(result.invocation),
@@ -247,86 +229,4 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             })
         )
     }
-}
-
-function serializeState(invocation: CyclotronJobInvocation): Buffer {
-    const blob: SerializedJobState = {
-        state: invocation.state,
-        queueParameters: invocation.queueParameters ?? undefined,
-        queueMetadata: invocation.queueMetadata ?? undefined,
-    }
-    return Buffer.from(JSON.stringify(blob))
-}
-
-function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
-    const state = serializeState(invocation)
-    cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
-    cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)
-
-    return {
-        id: invocation.id,
-        teamId: invocation.teamId,
-        functionId: invocation.functionId,
-        queueName: invocation.queue,
-        priority: invocation.queuePriority,
-        scheduled: invocation.queueScheduledAt?.toJSDate() ?? new Date(),
-        parentRunId: invocation.parentRunId ?? null,
-        state,
-        distinctId: extractDistinctId(invocation),
-        personId: extractPersonId(invocation),
-        actionId: extractActionId(invocation),
-    }
-}
-
-type LookupColumnSource = {
-    person?: { id?: string }
-    state?: {
-        event?: { distinct_id?: string }
-        personId?: string
-        currentAction?: { id?: string }
-    } | null
-}
-
-export function extractDistinctId(invocation: CyclotronJobInvocation): string | null {
-    return (invocation as LookupColumnSource).state?.event?.distinct_id || null
-}
-
-export function extractPersonId(invocation: CyclotronJobInvocation): string | null {
-    const inv = invocation as LookupColumnSource
-    return inv.person?.id || inv.state?.personId || null
-}
-
-export function extractActionId(invocation: CyclotronJobInvocation): string | null {
-    return (invocation as LookupColumnSource).state?.currentAction?.id || null
-}
-
-function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
-    let parsed: SerializedJobState = { state: null }
-
-    if (job.state) {
-        try {
-            parsed = parseJSON(job.state.toString('utf-8'))
-        } catch (e) {
-            logger.error('Error parsing V2 job state', { error: String(e), jobId: job.id })
-        }
-    }
-
-    const invocation: CyclotronJobInvocation = {
-        id: job.id,
-        teamId: job.teamId,
-        functionId: job.functionId ?? '',
-        queue: job.queueName as CyclotronJobQueueKind,
-        queuePriority: job.priority,
-        queueScheduledAt: job.scheduled ?? undefined,
-        queueMetadata: parsed.queueMetadata ?? undefined,
-        queueParameters: parsed.queueParameters ?? undefined,
-        state: parsed.state,
-        queueSource: 'postgres-v2',
-    }
-
-    if (job.parentRunId) {
-        invocation.parentRunId = job.parentRunId
-    }
-
-    return invocation
 }

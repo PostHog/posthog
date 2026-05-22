@@ -9,30 +9,25 @@ import { compress, uncompress } from 'snappy'
 import { KafkaConsumerInterface, createKafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
-import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { CyclotronJobSerializer, cdpJobSizeCompressedKb, cdpJobSizeKb } from './cyclotron-job-serializer'
 import { JobQueue } from './job-queue.interface'
-import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
+import { observeConsumedBatch } from './shared'
 
 export class CyclotronJobQueueKafka implements JobQueue {
     private kafkaConsumer?: KafkaConsumerInterface
     private kafkaProducer?: KafkaProducerWrapper
     private queue?: CyclotronJobQueueKind
     private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
-    private sanitizer: ReturnType<typeof createInvocationSanitizer>
+    private serializer = new CyclotronJobSerializer()
 
     constructor(
         private kafkaClientRack: string | undefined,
-        private config: Pick<
-            CdpConfig,
-            'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA' | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
-        >,
+        private config: Pick<CdpConfig, 'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA'>,
         private consumerBatchSize: number
-    ) {
-        this.sanitizer = createInvocationSanitizer(config)
-    }
+    ) {}
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
@@ -90,8 +85,8 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
         // Pre-serialize all messages eagerly so the produce closures below only
         // capture lightweight strings instead of full invocation objects (globals, vmState, etc.)
-        const messages = this.sanitizer.sanitizeInvocations(invocations).map((x) => {
-            const jsonString = JSON.stringify(serializeInvocation(x))
+        const messages = invocations.map((x) => {
+            const jsonString = this.serializer.serializeForKafka(x)
             cdpJobSizeKb.labels('kafka').observe(jsonString.length / 1024)
 
             return {
@@ -183,12 +178,7 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
             // Try to decompress, otherwise just use the value as is
             const decompressedValue = await uncompress(rawValue).catch(() => rawValue)
-            const invocation: CyclotronJobInvocation = migrateKafkaCyclotronInvocation(
-                parseJSON(decompressedValue.toString())
-            )
-
-            invocation.queueSource = 'kafka' // NOTE: We always set this here, as we know it came from kafka
-            invocations.push(invocation)
+            invocations.push(this.serializer.deserializeFromKafka(decompressedValue))
         }
 
         observeConsumedBatch({
@@ -199,51 +189,5 @@ export class CyclotronJobQueueKafka implements JobQueue {
         })
 
         return await this.consumeBatch!(invocations)
-    }
-}
-
-// NOTE: https://github.com/PostHog/posthog/pull/32588 modified the job format to move more things to the generic "state" value
-// This function migrates any legacy jobs to the new format. We can remove this shortly after full release.
-export function migrateKafkaCyclotronInvocation(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
-    // Type casting but keeping as a reference
-    const unknownInvocation = invocation as Record<string, any>
-
-    if ('hogFunctionId' in unknownInvocation) {
-        // Must be the old format
-        unknownInvocation.functionId = unknownInvocation.hogFunctionId
-        unknownInvocation.state = {}
-        delete unknownInvocation.hogFunctionId
-
-        if ('vmState' in unknownInvocation) {
-            unknownInvocation.state.vmState = unknownInvocation.vmState
-            delete unknownInvocation.vmState
-        }
-        if ('globals' in unknownInvocation) {
-            unknownInvocation.state.globals = unknownInvocation.globals
-            delete unknownInvocation.globals
-        }
-        if ('timings' in unknownInvocation) {
-            unknownInvocation.state.timings = unknownInvocation.timings
-            delete unknownInvocation.timings
-        }
-    }
-
-    return invocation
-}
-
-export function serializeInvocation(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
-    // NOTE: We are copying the object to ensure it is clean of any spare params
-    return {
-        id: invocation.id,
-        teamId: invocation.teamId,
-        functionId: invocation.functionId,
-        parentRunId: invocation.parentRunId,
-        state: invocation.state,
-        queue: invocation.queue,
-        queueParameters: invocation.queueParameters,
-        queuePriority: invocation.queuePriority,
-        queueScheduledAt: invocation.queueScheduledAt,
-        queueMetadata: invocation.queueMetadata,
-        queueSource: invocation.queueSource,
     }
 }

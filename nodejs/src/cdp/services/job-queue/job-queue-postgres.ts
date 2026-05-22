@@ -22,8 +22,9 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { CyclotronJobSerializer } from './cyclotron-job-serializer'
 import { JobQueue } from './job-queue.interface'
-import { createInvocationSanitizer, observeConsumedBatch } from './shared'
+import { observeConsumedBatch } from './shared'
 
 /**
  * Legacy postgres v1 queue via @posthog/cyclotron.
@@ -35,7 +36,7 @@ export class CyclotronJobQueuePostgres implements JobQueue {
     private cyclotronManager?: CyclotronManager
     private queue?: CyclotronJobQueueKind
     private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
-    private sanitizer: ReturnType<typeof createInvocationSanitizer>
+    private serializer = new CyclotronJobSerializer()
 
     constructor(
         private consumerBatchSize: number,
@@ -48,11 +49,8 @@ export class CyclotronJobQueuePostgres implements JobQueue {
             | 'CDP_CYCLOTRON_BATCH_DELAY_MS'
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
-            | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
         >
-    ) {
-        this.sanitizer = createInvocationSanitizer(config)
-    }
+    ) {}
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
@@ -136,7 +134,7 @@ export class CyclotronJobQueuePostgres implements JobQueue {
             return
         }
 
-        invocations = this.sanitizer.sanitizeInvocations(invocations)
+        invocations = invocations.map((inv) => this.serializer.stripForPersistence(inv))
 
         const cyclotronManager = this.getCyclotronManager()
 
@@ -185,7 +183,7 @@ export class CyclotronJobQueuePostgres implements JobQueue {
     }
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
-        invocationResults = this.sanitizer.sanitizeResults(invocationResults)
+        invocationResults = this.serializer.stripResultsForPersistence(invocationResults)
         const worker = this.getCyclotronWorker()
         await Promise.all(
             invocationResults.map((item) => {
