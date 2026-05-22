@@ -1,10 +1,10 @@
 use axum::body::Body;
 use axum::extract::{MatchedPath, Query as AxumQuery, State};
 use axum::http::{header, HeaderMap, Method};
+use axum::response::IntoResponse;
 use axum_client_ip::InsecureClientIp;
 
 use super::query::Query;
-use super::response::Response;
 use super::types::Batch;
 use tracing::Level;
 
@@ -20,7 +20,7 @@ pub async fn handle_request(
     method: Method,
     path: MatchedPath,
     body: Body,
-) -> Result<Response, v1::Error> {
+) -> Result<axum::response::Response, v1::Error> {
     let mut context = Context::new(&headers, &ip, &query, method.clone(), path.as_str())
         .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query, &method, &path))?;
 
@@ -59,7 +59,7 @@ pub async fn handle_request(
     })?;
 
     match super::process::process_batch(&state, &mut context, batch).await {
-        Ok(resp) => Ok(resp),
+        Ok(resp) => Ok(resp.into_response()),
         Err(err) => {
             log_stat_error!(err, &context);
             Err(err)
