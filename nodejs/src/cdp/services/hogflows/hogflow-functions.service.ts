@@ -74,15 +74,24 @@ export class HogFlowFunctionsService {
             },
         }
 
+        // Globals (event, person, inputs) are always derived here — the queue
+        // only persists the raw event. On resume we keep the persisted
+        // vmState/timings/attempts but re-derive globals, so a mid-async
+        // function still sees current person/inputs.
+        const globalsWithInputs = await this.hogFunctionExecutor.buildInputsWithGlobals(hogFunction, globalsWithSource)
+        const persistedState = invocation.state.currentAction?.hogFunctionState
+
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
             hogFunction,
-            state: invocation.state.currentAction?.hogFunctionState ?? {
-                globals: await this.hogFunctionExecutor.buildInputsWithGlobals(hogFunction, globalsWithSource),
-                timings: [],
-                attempts: 0,
-                actionId: invocation.state.currentAction?.id,
-            },
+            state: persistedState
+                ? { ...persistedState, globals: globalsWithInputs }
+                : {
+                      globals: globalsWithInputs,
+                      timings: [],
+                      attempts: 0,
+                      actionId: invocation.state.currentAction?.id,
+                  },
         }
 
         return hogFunctionInvocation
