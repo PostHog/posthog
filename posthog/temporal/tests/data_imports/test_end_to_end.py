@@ -681,7 +681,6 @@ _STRIPE_JOB_INPUTS: dict[str, str | dict[str, str]] = {
             "stripe_customer_payment_method",
         ),
     ],
-    ids=lambda v: v if isinstance(v, str) and v.startswith("stripe_") else None,
 )
 async def test_stripe_source(team, mock_stripe_client, request, schema_name, table_name, fixture_name):
     fixture_data = request.getfixturevalue(fixture_name)
@@ -741,7 +740,6 @@ _ZENDESK_JOB_INPUTS: dict[str, str | dict[str, str]] = {
             "ticket_metric_events",
         ),
     ],
-    ids=lambda v: v if isinstance(v, str) and v.startswith("zendesk_") else None,
 )
 async def test_zendesk_source(team, request, schema_name, table_name, fixture_name, fixture_data_key):
     fixture_data = request.getfixturevalue(fixture_name)
@@ -766,7 +764,6 @@ _PADDLE_JOB_INPUTS: dict[str, str | dict[str, str]] = {"paddle_api_key": "test_a
         ("customers", "paddle_customers", "paddle_customers"),
         ("subscriptions", "paddle_subscriptions", "paddle_subscriptions"),
     ],
-    ids=lambda v: v if isinstance(v, str) and v.startswith("paddle_") else None,
 )
 async def test_paddle_source(team, mock_paddle_client, request, schema_name, table_name, fixture_name):
     fixture_data = request.getfixturevalue(fixture_name)
@@ -809,7 +806,6 @@ async def _run_customer_io(team, schema_name, table_name, mock_data, mock_custom
         ("subscription_topics", "customerio_subscription_topics", "customer_io_subscription_topics", "topics"),
         ("transactional", "customerio_transactional", "customer_io_transactional", "messages"),
     ],
-    ids=lambda v: v if isinstance(v, str) and v.startswith("customerio_") else None,
 )
 async def test_customer_io_source(
     team, mock_customer_io_client, request, schema_name, table_name, fixture_name, fixture_data_key

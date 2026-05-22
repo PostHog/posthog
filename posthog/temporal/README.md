@@ -490,7 +490,7 @@ Temporal tests are expensive — they boot Temporal test servers, register activ
 | Harness                                                   | When to use                                                                  | Cost                       |
 | --------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------- |
 | Pure pytest (no Worker, no `ActivityEnvironment`)         | Unit-testing pure functions — prompt builders, parsers, decision trees       | ~ms/test                   |
-| `ActivityEnvironment`                                     | Testing a single activity's body in isolation; no workflow orchestration     | ~10s of ms/test            |
+| `ActivityEnvironment`                                     | Testing a single activity's body in isolation; no workflow orchestration     | ~tens of ms/test           |
 | Real Worker + `WorkflowEnvironment.start_time_skipping()` | Integration tests that exercise workflow ↔ activity orchestration end-to-end | seconds/test + Worker boot |
 
 Per Temporal's own guidance: write the **majority** of tests as the cheapest harness that still proves the contract you care about. Spinning up a Worker is a deliberate choice for integration tests, not the default.
