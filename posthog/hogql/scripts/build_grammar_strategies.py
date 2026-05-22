@@ -47,6 +47,7 @@ from __future__ import annotations
 import re
 import sys
 import argparse
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -889,10 +890,19 @@ def _classify_alts(alts: list[Alternative]) -> tuple[list[int], list[int], list[
     return common, soft, leaf
 
 
+def _quote(s: str) -> str:
+    # Emit a double-quoted Python string literal so the codegen output matches `ruff format`'s preference;
+    # otherwise lint-staged keeps reverting the regen on commit. Fall back to `repr` for content that needs
+    # escaping (none of the grammar's keyword literals do today, but it costs nothing to be safe).
+    if any(c in s for c in '"\\') or any(ord(c) < 32 or ord(c) > 126 for c in s):
+        return repr(s)
+    return f'"{s}"'
+
+
 def _emit_literal_list(literals: list[str]) -> str:
     if len(literals) == 1:
-        return repr(literals[0])
-    return "draw(st.sampled_from([" + ", ".join(repr(s) for s in literals) + "]))"
+        return _quote(literals[0])
+    return "draw(st.sampled_from([" + ", ".join(_quote(s) for s in literals) + "]))"
 
 
 _EMITTED_FILE_HEADER = f'''\
@@ -1314,6 +1324,20 @@ LEXER_GRAMMAR = REPO_ROOT / "posthog" / "hogql" / "grammar" / "HogQLLexer.common
 OUTPUT_PATH = REPO_ROOT / "posthog" / "hogql" / "test" / "_generated_grammar_strategies.py"
 
 
+def _ruff_format(source: str) -> str:
+    # Pipe `source` through `ruff format -` so the codegen output exactly matches what `bin/hogli format:python`
+    # produces. Without this, lint-staged keeps reverting the regen on commit (it formats then sees no diff).
+    # Runs ruff via the same venv that's already importing this module, so no PATH gymnastics needed.
+    result = subprocess.run(
+        ["ruff", "format", "-"],
+        input=source,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1323,7 +1347,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    source = generate(str(PARSER_GRAMMAR), str(LEXER_GRAMMAR))
+    source = _ruff_format(generate(str(PARSER_GRAMMAR), str(LEXER_GRAMMAR)))
 
     if args.check:
         if not OUTPUT_PATH.exists():

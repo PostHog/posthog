@@ -854,7 +854,7 @@ export type EndpointsListParams = {
     offset?: number
 }
 
-export type EndpointsOpenapiJsonRetrieveParams = {
+export type EndpointsOpenapiSpecRetrieveParams = {
     /**
      * Specific endpoint version to generate the spec for. Defaults to latest.
      */

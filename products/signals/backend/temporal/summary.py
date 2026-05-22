@@ -327,6 +327,24 @@ class SignalReportSummaryWorkflow:
                     workflow.logger.exception(
                         f"Failed to publish report_completed notification for {inputs.report_id}",
                     )
+                # Slack notifications to suggested reviewers — separate from the Kafka
+                # publish above so a Slack outage doesn't suppress the inbox event,
+                # and a Kafka outage doesn't suppress Slack delivery.
+                try:
+                    await workflow.execute_activity(
+                        dispatch_inbox_slack_notifications_activity,
+                        DispatchInboxSlackNotificationsInput(
+                            team_id=inputs.team_id,
+                            report_id=inputs.report_id,
+                            source_products=source_products,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception:
+                    workflow.logger.exception(
+                        f"Failed to dispatch inbox Slack notifications for {inputs.report_id}",
+                    )
             return has_new_signals
         except Exception as e:
             await workflow.execute_activity(
@@ -600,6 +618,33 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
         f"Reset report {input.report_id} to potential",
         report_id=input.report_id,
         reason=input.reason,
+    )
+
+
+@dataclass
+class DispatchInboxSlackNotificationsInput:
+    team_id: int
+    report_id: str
+    source_products: list[str] = field(default_factory=list)
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def dispatch_inbox_slack_notifications_activity(
+    input: DispatchInboxSlackNotificationsInput,
+) -> int:
+    """Send Slack notifications for a newly-READY report to suggested reviewers
+    who have configured Slack notifications in their signal autonomy config.
+
+    Returns the number of messages dispatched (informational; failures are
+    swallowed inside the dispatcher and logged).
+    """
+    from products.signals.backend.slack_inbox_notifications import dispatch_inbox_item_notifications
+
+    return await database_sync_to_async(dispatch_inbox_item_notifications, thread_sensitive=False)(
+        report_id=input.report_id,
+        team_id=input.team_id,
+        source_products=input.source_products,
     )
 
 

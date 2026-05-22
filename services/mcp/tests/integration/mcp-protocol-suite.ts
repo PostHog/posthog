@@ -22,6 +22,9 @@ export type ProtocolTestHarness = {
     /** Whether the runtime is stateless (no session store). Stateless runtimes
      * ignore unknown Mcp-Session-Id headers instead of rejecting them. */
     stateless?: boolean | undefined
+    /** Whether the runtime returns empty results for unknown resources/prompts
+     * instead of throwing errors. The Hono dispatcher does this; the CF SDK doesn't. */
+    gracefulUnknown?: boolean | undefined
 }
 
 function buildStreamableClient(
@@ -56,10 +59,11 @@ export function defineMcpProtocolTests(
 ): void {
     describe(`MCP protocol (${label})`, () => {
         let client: Client
+        let currentHarness: ProtocolTestHarness
 
         beforeEach(async () => {
-            const harness = await getHarness()
-            const built = buildStreamableClient(harness)
+            currentHarness = await getHarness()
+            const built = buildStreamableClient(currentHarness)
             client = built.client
             await client.connect(built.transport as ConnectableTransport)
         })
@@ -72,6 +76,13 @@ export function defineMcpProtocolTests(
             const info = client.getServerVersion()
             expect(info?.name).toBe('PostHog')
             expect(info?.version).toBeTruthy()
+        })
+
+        it('returns instructions in the initialize response', () => {
+            const instructions = client.getInstructions()
+            expect(instructions).toBeTruthy()
+            expect(typeof instructions).toBe('string')
+            expect(instructions!.length).toBeGreaterThan(0)
         })
 
         it('lists available tools with non-empty schemas', async () => {
@@ -93,58 +104,62 @@ export function defineMcpProtocolTests(
             expect(names).toContain('organization-get')
         })
 
-        // Prompts and resources are populated at runtime from context-mill's
-        // GitHub release. When the fetch fails (offline, sandbox, blocked TLS)
-        // the McpServer doesn't claim those capabilities and the SDK surfaces
-        // -32601. We accept either outcome here so the suite is robust to a
-        // missing context-mill build artifact.
-        it('lists prompts (empty or unsupported)', async () => {
-            try {
-                const { prompts } = await client.listPrompts()
-                expect(Array.isArray(prompts)).toBe(true)
-            } catch (err) {
-                expect(String(err)).toMatch(/Method not found|-32601/)
-            }
-        })
-
-        it('lists resources (empty or unsupported)', async () => {
-            try {
-                const { resources } = await client.listResources()
-                expect(Array.isArray(resources)).toBe(true)
-            } catch (err) {
-                expect(String(err)).toMatch(/Method not found|-32601/)
-            }
-        })
-
-        it('reads a registered resource end-to-end', async ({ skip }) => {
-            // Resources come from two sources at runtime: context-mill (a GitHub
-            // release fetched at init) and `registerUiAppResources`. If neither
-            // produced any registrations the protocol method is "not found" and
-            // there's nothing to read — skip rather than fail.
-            let resources: Awaited<ReturnType<Client['listResources']>>['resources']
-            try {
-                resources = (await client.listResources()).resources
-            } catch {
-                skip('No resources registered (resources/list returned -32601).')
+        it('lists prompts', async () => {
+            if (!currentHarness.gracefulUnknown) {
                 return
             }
-            if (resources.length === 0) {
-                skip('No resources registered.')
-                return
-            }
-            // Pick the first resource; assert listing shape, then exercise the
-            // resources/read JSON-RPC call which hits a different code path.
-            const first = resources[0]
-            if (!first) {
-                throw new Error('expected at least one resource')
-            }
-            expect(first.uri).toBeTruthy()
-            expect(first.mimeType).toBeTruthy()
+            const { prompts } = await client.listPrompts()
+            expect(Array.isArray(prompts)).toBe(true)
+        })
 
-            const result = await client.readResource({ uri: first.uri })
-            expect(Array.isArray(result.contents)).toBe(true)
+        it('lists resources including UI apps', async () => {
+            const { resources } = await client.listResources()
+            expect(resources.length).toBeGreaterThan(0)
+            const uris = resources.map((r) => r.uri)
+            expect(uris.some((u) => u.startsWith('ui://'))).toBe(true)
+        })
+
+        it('reads a UI app resource end-to-end', async () => {
+            const { resources } = await client.listResources()
+            const uiApp = resources.find((r) => r.uri.startsWith('ui://'))
+            if (!uiApp) {
+                throw new Error('expected at least one ui:// resource')
+            }
+            expect(uiApp.mimeType).toBeTruthy()
+
+            const result = await client.readResource({ uri: uiApp.uri })
             expect(result.contents.length).toBeGreaterThan(0)
-            expect(result.contents[0]?.uri).toBe(first.uri)
+            expect(result.contents[0]?.uri).toBe(uiApp.uri)
+        })
+
+        it('reads a context-mill resource by URI', async () => {
+            const { resources } = await client.listResources()
+            const cmResource = resources.find((r) => r.uri.startsWith('posthog://'))
+            if (!cmResource) {
+                throw new Error('expected at least one posthog:// resource from context-mill')
+            }
+
+            const result = await client.readResource({ uri: cmResource.uri })
+            expect(result.contents.length).toBeGreaterThan(0)
+            expect(result.contents[0]?.uri).toBe(cmResource.uri)
+            const text = 'text' in result.contents[0]! ? result.contents[0].text : ''
+            expect(text).toBeTruthy()
+        })
+
+        it('returns empty contents for an unknown resource URI', async () => {
+            if (!currentHarness.gracefulUnknown) {
+                return
+            }
+            const result = await client.readResource({ uri: 'posthog://does-not-exist' })
+            expect(result.contents).toEqual([])
+        })
+
+        it('returns empty messages for an unknown prompt name', async () => {
+            if (!currentHarness.gracefulUnknown) {
+                return
+            }
+            const result = await client.getPrompt({ name: 'nonexistent-prompt' })
+            expect(result.messages).toEqual([])
         })
 
         it('calls a tool and returns content blocks', async () => {

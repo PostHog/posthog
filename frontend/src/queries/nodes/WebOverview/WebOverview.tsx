@@ -3,7 +3,6 @@ import { useState } from 'react'
 
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -46,12 +45,9 @@ export function WebOverview(props: {
 
     const numSkeletons = props.query.conversionGoal ? 4 : 5
 
-    const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const usedWebAnalyticsPreAggregatedTables =
-        canUseWebAnalyticsPreAggregatedTables &&
-        response &&
-        'usedPreAggregatedTables' in response &&
-        response.usedPreAggregatedTables
+        response && 'usedPreAggregatedTables' in response && response.usedPreAggregatedTables
+    const usedWebAnalyticsLazyPrecompute = response && 'usedLazyPrecompute' in response && response.usedLazyPrecompute
 
     const showWarning = hasReverseProxy === false && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]
 
@@ -79,6 +75,7 @@ export function WebOverview(props: {
             numSkeletons={numSkeletons}
             samplingRate={samplingRate}
             usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
+            usedLazyPrecompute={usedWebAnalyticsLazyPrecompute}
             labelFromKey={labelFromKey}
         />
     )
