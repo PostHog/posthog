@@ -49,6 +49,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_sslmode,
     _get_table,
     _has_duplicate_primary_keys,
+    _is_connection_dropped_error,
     _is_partitioned_table,
     _is_read_replica,
     _normalize_function_names,
@@ -149,6 +150,36 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+
+
+class TestIsConnectionDroppedError:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.ProtocolViolation("server conn crashed?"),
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.OperationalError('connection to server at "10.0.0.1" failed'),
+            psycopg.OperationalError("consuming input failed: EOF detected"),
+            psycopg.OperationalError("terminating connection due to administrator command"),
+            psycopg.errors.ProtocolViolation("SERVER CONN CRASHED?"),
+        ],
+    )
+    def test_connection_dropped_errors_are_detected(self, error):
+        assert _is_connection_dropped_error(error) is True
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.SerializationFailure("could not serialize access due to conflict with recovery"),
+            psycopg.errors.QueryCanceled("statement timeout"),
+            psycopg.OperationalError("password authentication failed for user"),
+            psycopg.errors.UniqueViolation("duplicate key value violates unique constraint"),
+            ValueError("server conn crashed?"),
+            Exception("server conn crashed?"),
+        ],
+    )
+    def test_unrelated_errors_are_not_detected(self, error):
+        assert _is_connection_dropped_error(error) is False
 
 
 class TestPostgresSourceForPipelineSchemaResolution:
