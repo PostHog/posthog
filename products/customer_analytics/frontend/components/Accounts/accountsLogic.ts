@@ -10,7 +10,7 @@ import type { AccountApi } from 'products/customer_analytics/frontend/generated/
 
 import type { accountsLogicType } from './accountsLogicType'
 
-export const ACCOUNTS_PAGE_SIZE = 50
+export const ACCOUNTS_PAGE_SIZE = 20
 
 export type RoleFilterValue = number | null
 
