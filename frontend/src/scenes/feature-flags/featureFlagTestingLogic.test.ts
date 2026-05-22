@@ -258,78 +258,32 @@ describe('featureFlagTestingLogic', () => {
         })
     })
 
-    describe('validateAndParseGroups', () => {
-        // We need to access the private function for testing
-        const validateAndParseGroups = (groups: string): Record<string, any> => {
-            try {
-                const trimmed = groups.trim()
-                if (!trimmed) {
-                    return {}
-                }
-                const parsed = JSON.parse(trimmed)
-                if (typeof parsed !== 'object' || Array.isArray(parsed)) {
-                    throw new Error('groups must be a JSON object')
-                }
-                return parsed
-            } catch (e) {
-                throw new Error(`Invalid groups JSON: ${e instanceof Error ? e.message : String(e)}`)
-            }
-        }
+    describe('groups validation through testFlagEvaluation', () => {
+        it.each([
+            { description: 'valid object succeeds', groups: '{"team": "backend"}', expectedError: null },
+            { description: 'empty string succeeds', groups: '', expectedError: null },
+            { description: 'whitespace succeeds', groups: '   \n\t   ', expectedError: null },
+            { description: 'array fails', groups: '["team","backend"]', expectedError: 'groups must be a JSON object' },
+            {
+                description: 'invalid JSON fails',
+                groups: '{invalid: json}',
+                expectedError: 'Invalid JSON format for groups',
+            },
+            {
+                description: 'json string fails',
+                groups: '"just a string"',
+                expectedError: 'groups must be a JSON object',
+            },
+            { description: 'json number fails', groups: '42', expectedError: 'groups must be a JSON object' },
+        ])('$description', async ({ groups, expectedError }) => {
+            await expectLogic(logic, () => {
+                logic.actions.testFlagEvaluation({
+                    flagId: 1,
+                    formData: { person_id: 'p1', timestamp: '', groups },
+                })
+            }).toFinishAllListeners()
 
-        const validateGroupsTestCases = [
-            {
-                description: 'empty string returns empty object',
-                input: '',
-                expected: {},
-            },
-            {
-                description: 'whitespace string returns empty object',
-                input: '   \n\t   ',
-                expected: {},
-            },
-            {
-                description: 'valid JSON object is parsed correctly',
-                input: '{"team": "backend", "env": "prod"}',
-                expected: { team: 'backend', env: 'prod' },
-            },
-            {
-                description: 'valid nested JSON object is parsed correctly',
-                input: '{"organization": {"id": 123, "name": "Acme Corp"}}',
-                expected: { organization: { id: 123, name: 'Acme Corp' } },
-            },
-            {
-                description: 'JSON array throws error',
-                input: '["team", "backend"]',
-                shouldThrow: true,
-                expectedError: 'Invalid groups JSON: groups must be a JSON object',
-            },
-            {
-                description: 'invalid JSON throws error',
-                input: '{invalid: json}',
-                shouldThrow: true,
-                expectedError:
-                    "Invalid groups JSON: Expected property name or '}' in JSON at position 1 (line 1 column 2)",
-            },
-            {
-                description: 'non-object JSON (string) throws error',
-                input: '"just a string"',
-                shouldThrow: true,
-                expectedError: 'Invalid groups JSON: groups must be a JSON object',
-            },
-            {
-                description: 'non-object JSON (number) throws error',
-                input: '42',
-                shouldThrow: true,
-                expectedError: 'Invalid groups JSON: groups must be a JSON object',
-            },
-        ]
-
-        it.each(validateGroupsTestCases)('$description', ({ input, expected, shouldThrow, expectedError }) => {
-            if (shouldThrow) {
-                expect(() => validateAndParseGroups(input)).toThrow(expectedError)
-            } else {
-                expect(validateAndParseGroups(input)).toEqual(expected)
-            }
+            expect(logic.values.testError).toBe(expectedError)
         })
     })
 })
