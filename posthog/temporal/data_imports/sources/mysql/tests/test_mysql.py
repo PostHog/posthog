@@ -9,6 +9,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (
+    SCHEMA_DISCOVERY_READ_TIMEOUT_SECONDS,
     STATEMENT_TIMEOUT_SECONDS,
     MySQLColumn,
     MySQLImplementation,
@@ -288,6 +289,18 @@ class TestGetRowsToSync:
         # Swallows the error rather than propagating — matches pre-refactor behavior.
         assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
 
+    def test_does_not_publish_to_error_tracking_on_exception(self, impl, cursor, logger, mocker):
+        # The MAX_EXECUTION_TIME(60000) hint intentionally bounds this probe
+        # at 60s — a swallowed timeout here must not generate a new error
+        # tracking fingerprint, otherwise every long-tail row-count probe
+        # opens its own issue.
+        captured = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+        cursor.execute.side_effect = pymysql.err.OperationalError(
+            3024, "Query execution was interrupted, maximum statement execution time exceeded"
+        )
+        assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
+        captured.assert_not_called()
+
     def test_wraps_inner_query_as_subselect(self, impl, cursor, logger):
         cursor.fetchone.return_value = (5,)
         impl.get_rows_to_sync(cursor, "SELECT x FROM y WHERE a = %(a)s", {"a": 1}, logger)
@@ -478,6 +491,16 @@ class TestExplainQuery:
         # Must not raise — diagnostic-only.
         impl.explain_query(cursor, "SELECT 1", {}, logger)
 
+    def test_does_not_publish_to_error_tracking_on_exception(self, impl, cursor, logger, mocker):
+        # EXPLAIN is diagnostic-only; a failure here must not open its
+        # own error tracking fingerprint (the original streaming failure
+        # is what we want to see in error tracking, not EXPLAIN's own
+        # timeout running on a stressed cursor).
+        captured = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+        cursor.execute.side_effect = pymysql.err.OperationalError(2013, "Lost connection during EXPLAIN")
+        impl.explain_query(cursor, "SELECT 1", {}, logger)
+        captured.assert_not_called()
+
 
 class TestSafetyContract:
     """Verifies that driver-specific metadata queries never splice untrusted identifiers into SQL."""
@@ -566,6 +589,16 @@ class TestStreamingConnectionTimeouts:
         streaming_kwargs = mock_connect.call_args_list[1].kwargs
         assert streaming_kwargs["read_timeout"] == STATEMENT_TIMEOUT_SECONDS
 
+    def test_schema_discovery_connection_uses_default_read_timeout(self, build_pipeline_mocks):
+        # The metadata pass (call_args_list[0]) is short-lived schema
+        # discovery — it must still pass a finite read_timeout so a
+        # stalled TLS read during the post-auth handshake can't hang
+        # the activity into a Temporal CancelledError.
+        mock_connect, _, _ = build_pipeline_mocks
+        _drain_source()
+        metadata_kwargs = mock_connect.call_args_list[0].kwargs
+        assert metadata_kwargs["read_timeout"] == SCHEMA_DISCOVERY_READ_TIMEOUT_SECONDS
+
     def test_set_session_timeouts_are_executed(self, build_pipeline_mocks):
         _, setup_cursor, _ = build_pipeline_mocks
         _drain_source()
@@ -582,6 +615,41 @@ class TestStreamingConnectionTimeouts:
         _drain_source()
 
         assert ss_cursor.execute.called
+
+
+class TestSSCursorCleanup:
+    """The pymysql defect: after a lost-connection (2013) during streaming,
+    `SSCursor.__exit__` runs `_finish_unbuffered_query`, which calls
+    `socket.settimeout` on a now-None socket and raises AttributeError.
+    That AttributeError used to shadow the original OperationalError(2013)
+    — and the bad-plan FORCE INDEX retry keys on OperationalError(2013),
+    so the retry silently never engaged.
+    """
+
+    def test_attribute_error_during_close_is_swallowed(self, build_pipeline_mocks):
+        # SSCursor close raising AttributeError should not surface.
+        _, _, ss_cursor = build_pipeline_mocks
+        ss_cursor.close.side_effect = AttributeError("'NoneType' object has no attribute 'settimeout'")
+
+        # No exception expected.
+        _drain_source()
+
+    def test_original_streaming_error_propagates_through_cleanup(self, build_pipeline_mocks):
+        # When fetchmany raises OperationalError(2013) AND close() then
+        # raises AttributeError, the OperationalError must be what
+        # bubbles up — the FORCE INDEX retry logic depends on that.
+        _, _, ss_cursor = build_pipeline_mocks
+        ss_cursor.fetchmany.side_effect = pymysql.err.OperationalError(
+            2013, "Lost connection to MySQL server during query"
+        )
+        ss_cursor.close.side_effect = AttributeError("'NoneType' object has no attribute 'settimeout'")
+
+        # full-refresh path (no incremental_field set in _make_inputs)
+        # so the retry can't kick in — we expect the OperationalError to
+        # propagate, NOT the AttributeError.
+        with pytest.raises(pymysql.err.OperationalError) as exc_info:
+            _drain_source()
+        assert exc_info.value.args[0] == 2013
 
 
 class TestIsBadPlanTimeout:
@@ -684,3 +752,25 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Host 'ec2-1-2-3-4.compute-1.amazonaws.com' is not allowed to connect to this MySQL server",
+            "OperationalError: (1130, \"Host '203.0.113.5' is not allowed to connect to this MySQL server\")",
+        ],
+    )
+    def test_host_not_allowed_errors_are_non_retryable(self, source, error_msg):
+        # MySQL error 1130 — the customer's MySQL `bind-address` or user
+        # grants reject PostHog's outbound IP. Retrying never helps; the
+        # classifier must short-circuit so we don't burn retries (and
+        # error-tracking budget) on a fixed user-config issue.
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Host-not-allowed error should be non-retryable: {error_msg}"
+        # Must surface an actionable, user-facing message (not None / generic).
+        matched_message = next(
+            (msg for pattern, msg in non_retryable.items() if pattern in error_msg and msg is not None), None
+        )
+        assert matched_message is not None
+        assert "whitelist" in matched_message.lower()

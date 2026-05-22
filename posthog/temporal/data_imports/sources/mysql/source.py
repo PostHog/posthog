@@ -119,6 +119,10 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             "ProgrammingError: (1146": None,  # Table not found error
             "OperationalError: (1356": None,  # View not found error
             "Bad handshake": None,
+            # MySQL error 1130: the customer's MySQL server rejects PostHog's
+            # outbound IP at the grant / `bind-address` layer. Retrying never
+            # helps — the customer must whitelist our source IPs.
+            "is not allowed to connect to this MySQL server": "Your MySQL server is rejecting connections from PostHog's IP. Please whitelist PostHog's source IPs in your MySQL `bind-address` and user grants (see https://posthog.com/docs/cdp/sources/mysql for the current IP list).",
             # Raised from the shared `_decimal_array_from_values` fallback in
             # `pipelines/pipeline/utils.py` when a numeric/decimal value exceeds Delta Lake's
             # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying

@@ -58,6 +58,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 __all__ = [
     "MySQLColumn",
     "MySQLImplementation",
+    "SCHEMA_DISCOVERY_READ_TIMEOUT_SECONDS",
     "STATEMENT_TIMEOUT_SECONDS",
     "filter_mysql_incremental_fields",
 ]
@@ -71,6 +72,15 @@ _QUERY_BUILDER = SelectQueryBuilder(quoter=_IDENTIFIER_QUOTER)
 # client-side PyMySQL read_timeout and the server-side SET SESSION
 # net_write_timeout / net_read_timeout — PyMySQL and MySQL both take seconds.
 STATEMENT_TIMEOUT_SECONDS = 600  # 10 mins
+
+# Default client-side read_timeout for short-lived schema-discovery
+# connections (information_schema lookups, primary-key probes,
+# credentials validation). Without it, pymysql leaves the socket
+# blocking after the TCP handshake — a stalled TLS read inside
+# `set_character_set` (or any post-auth init exchange) then hangs
+# forever, eventually surfacing as a Temporal CancelledError instead
+# of a clean error. Schema queries are short, so 30s is plenty.
+SCHEMA_DISCOVERY_READ_TIMEOUT_SECONDS = 30
 
 # pymysql error code for "Lost connection to MySQL server during query" — the
 # symptom we see when the optimizer picks a bad plan (full scan + filesort) and
@@ -307,14 +317,18 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         Opens the SSH tunnel (if configured), then connects with the
         MySQL-wide conventions: safe date/datetime converters, and a
         PlanetScale workload hint injected automatically when the host
-        resolves to a `*.psdb.cloud` address. Callers only vary one
-        thing — the streaming path sets `read_timeout=STATEMENT_TIMEOUT_SECONDS`
-        so multi-GB filesorts don't drop on middlebox timeouts before the
-        first rows are ready.
+        resolves to a `*.psdb.cloud` address. Callers vary one thing —
+        the streaming path sets `read_timeout=STATEMENT_TIMEOUT_SECONDS`
+        so multi-GB filesorts don't drop on middlebox timeouts before
+        the first rows are ready; everyone else gets
+        `SCHEMA_DISCOVERY_READ_TIMEOUT_SECONDS` so a stalled TLS read
+        during the post-auth handshake can't hang the activity.
         """
         ssl_ca: str | None = None
         if config.using_ssl:
             ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+
+        effective_read_timeout = read_timeout if read_timeout is not None else SCHEMA_DISCOVERY_READ_TIMEOUT_SECONDS
 
         with open_ssh_tunnel(config) as (host, port):
             kwargs: dict[str, Any] = {
@@ -324,12 +338,11 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 "user": config.user,
                 "password": config.password,
                 "connect_timeout": 10,
+                "read_timeout": effective_read_timeout,
                 "ssl_ca": ssl_ca,
                 "conv": _MYSQL_SAFE_CONVERSIONS,
                 "init_command": "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None,
             }
-            if read_timeout is not None:
-                kwargs["read_timeout"] = read_timeout
             with pymysql.connect(**kwargs) as conn:
                 yield conn
 
@@ -546,8 +559,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             logger.debug(f"get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
             return rows_to_sync_int
         except Exception as e:
+            # Deliberately not capture_exception'd: the MAX_EXECUTION_TIME(60000)
+            # hint above intentionally caps this probe at 60s — a timeout here
+            # is an expected, swallowed signal, not an alertable defect.
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-            capture_exception(e)
             return 0
 
     def fetch_table_stats(
@@ -704,8 +719,11 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             explain_lines = [str(dict(zip(column_names, row))) for row in rows]
             logger.debug(f"EXPLAIN result: {' | '.join(explain_lines) if explain_lines else '(empty)'}")
         except Exception as e:
+            # Diagnostic-only helper: a failure here is by design swallowed
+            # so it can't break the streaming sync. Not capture_exception'd
+            # — we don't want EXPLAIN's failure modes (timeouts, parser
+            # quirks) opening their own error-tracking fingerprints.
             logger.debug(f"EXPLAIN raised an exception: {e}", exc_info=e)
-            capture_exception(e)
 
     # ------------------------------------------------------------------
     # Pipeline build — the dlt `SourceResponse` for a single table
@@ -771,7 +789,16 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         )
                 except Exception as e:
                     logger.warning(f"Failed to set session timeouts on MySQL sync connection: {e}")
-                with streaming_connection.cursor(SSCursor) as ss_cursor:
+                # Manual try/finally (rather than `with`) so that a pymysql
+                # bug — SSCursor.__exit__ → _finish_unbuffered_query →
+                # `self._sock.settimeout(...)` raising AttributeError on a
+                # `None` socket after `OperationalError(2013)` — can't
+                # shadow the original streaming exception. The bad-plan
+                # FORCE INDEX retry above keys on OperationalError(2013);
+                # if the cleanup path replaces it with AttributeError we'd
+                # silently lose the retry.
+                ss_cursor = streaming_connection.cursor(SSCursor)
+                try:
                     query, args = _build_query(
                         schema,
                         table_name,
@@ -802,6 +829,13 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                             break
 
                         yield table_from_iterator((dict(zip(column_names, row)) for row in batch), arrow_schema)
+                finally:
+                    try:
+                        ss_cursor.close()
+                    except AttributeError as cleanup_err:
+                        logger.debug(
+                            f"Ignoring AttributeError during SSCursor close (socket already torn down): {cleanup_err}"
+                        )
 
         def get_rows() -> Iterator[Any]:
             # Track whether any batch reached the pipeline. If one did,
