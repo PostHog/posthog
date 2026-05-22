@@ -16,6 +16,11 @@ import os
 import sys
 import random
 import argparse
+from pathlib import Path
+
+# Allow `python scripts/inject_mcp_intents.py` from the repo root without
+# requiring PYTHONPATH — django.setup() needs the posthog package on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import django
 
