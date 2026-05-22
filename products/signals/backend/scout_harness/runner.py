@@ -101,8 +101,9 @@ async def arun_signals_scout(
         team, skill_name, version=skill_version
     )
 
-    # Skip-if-running guard. Best-effort — there is a TOCTOU window between this check
-    # and the row insert below; we accept that until a claim/lease primitive lands.
+    # Skip-if-running guard. Best-effort — there is a race window between this check
+    # and the row insert below (a second trigger could land in between), which we
+    # accept until a claim/lease primitive lands.
     if await database_sync_to_async(_has_running_run, thread_sensitive=False)(
         team_id=team_id, config_id=str(config.id), skill_name=skill.name
     ):
