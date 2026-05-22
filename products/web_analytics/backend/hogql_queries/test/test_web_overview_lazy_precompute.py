@@ -114,17 +114,32 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         try:
             events_count = sync_execute(
-                "SELECT count() FROM events WHERE team_id = %(team_id)s",
+                "SELECT count(), min(timestamp), max(timestamp) FROM events WHERE team_id = %(team_id)s",
                 {"team_id": team_id},
-            )[0][0]
+            )
+            events_summary = f"count={events_count[0][0]} timestamp_range=[{events_count[0][1]}, {events_count[0][2]}]"
         except Exception as exc:
-            events_count = f"ERROR: {type(exc).__name__}: {exc}"
+            events_summary = f"ERROR: {type(exc).__name__}: {exc}"
+
+        # raw_sessions is populated by an MV from sharded_events. If empty, the
+        # MV didn't fire (or didn't fire in time) — that explains why the lazy
+        # INSERT's `session.$start_timestamp` join returns NULL and the HAVING
+        # clause filters everything out.
+        try:
+            rs = sync_execute(
+                "SELECT count(), countDistinct(session_id_v7) FROM raw_sessions WHERE team_id = %(team_id)s",
+                {"team_id": team_id},
+            )
+            raw_sessions_summary = f"rows={rs[0][0]} distinct_session_ids={rs[0][1]}"
+        except Exception as exc:
+            raw_sessions_summary = f"ERROR: {type(exc).__name__}: {exc}"
 
         jobs = list(PreaggregationJob.objects.filter(team_id=team_id).values_list("status", "id", "query_hash"))
         jobs_summary = ", ".join(f"{s}:{str(jid)[:8]}:{qh[:8]}" for s, jid, qh in jobs) or "none"
 
         return (
-            f"\n[CH state for team_id={team_id}] events={events_count} | preagg: {preagg_summary} | "
+            f"\n[CH state for team_id={team_id}] events: {events_summary} | "
+            f"raw_sessions: {raw_sessions_summary} | preagg: {preagg_summary} | "
             f"pg_jobs=[{jobs_summary}]"
         )
 
