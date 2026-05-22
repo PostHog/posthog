@@ -1536,7 +1536,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # Return early for non-actions (e.g. OPTIONS)
         if self.action:
             if self.action == "create":
-                if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
+                request_fields = set(self.request.data.keys())
+                if request_fields.intersection(ORG_ADMIN_ONLY_TEAM_CONFIG_FIELDS):
+                    permissions.append(OrganizationAdminWritePermissions)
+                elif "is_demo" not in self.request.data or not self.request.data["is_demo"]:
                     permissions.append(OrganizationAdminWritePermissions)
                 else:
                     permissions.append(OrganizationMemberPermissions)

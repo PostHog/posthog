@@ -223,6 +223,53 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.team.refresh_from_db()
         self.assertTrue(self.team.can_query_across_organization_projects)
 
+    def test_member_cannot_create_demo_project_with_cross_project_querying(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/projects/",
+            {
+                "name": "Unsafe demo project",
+                "is_demo": True,
+                "can_query_across_organization_projects": True,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(
+            self.organization.teams.filter(
+                name="Unsafe demo project", can_query_across_organization_projects=True
+            ).exists()
+        )
+
+    def test_org_admin_can_create_demo_project_with_cross_project_querying(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/projects/",
+            {
+                "name": "Admin demo project",
+                "is_demo": True,
+                "can_query_across_organization_projects": True,
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_project = Project.objects.get(id=response.json()["id"])
+        self.assertTrue(created_project.passthrough_team.can_query_across_organization_projects)
+
     @patch("posthog.api.project.delete_project_data_and_notify_task")
     def test_project_deletion_queues_async_task(self, mock_delete_task):
         """Verify that project deletion queues async task for full deletion."""

@@ -22,6 +22,7 @@ from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    TeamViewSet,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
@@ -42,6 +43,7 @@ from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -2994,6 +2996,22 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertTrue(response.json()["can_query_across_organization_projects"])
         self.team.refresh_from_db()
         self.assertTrue(self.team.can_query_across_organization_projects)
+
+    def test_create_with_cross_project_querying_uses_org_admin_permissions(self):
+        viewset = TeamViewSet()
+        viewset.action = "create"
+        viewset.request = MagicMock(
+            data={
+                "name": "Unsafe demo environment",
+                "is_demo": True,
+                "can_query_across_organization_projects": True,
+            }
+        )
+
+        permission_types = {type(permission) for permission in viewset.dangerously_get_permissions()}
+
+        self.assertIn(OrganizationAdminWritePermissions, permission_types)
+        self.assertNotIn(OrganizationMemberPermissions, permission_types)
 
     @override_settings(SITE_URL="https://eu.posthog.com", CLOUD_DEPLOYMENT="EU")
     def test_new_eu_organization_defaults_to_anonymize_ips_true(self):
