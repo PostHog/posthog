@@ -69,6 +69,37 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             timestamp="2024-01-03T11:00:00Z",
             properties={"$session_id": s2, "$host": "other.com", "$current_url": "https://other.com/x"},
         )
+        self._wait_for_raw_sessions(expected=2)
+
+    def _wait_for_raw_sessions(self, expected: int, timeout_s: float = 5.0) -> None:
+        # In CI, `bulk_create_events` writes directly to `sharded_events`, which
+        # triggers the `raw_sessions_mv` materialized view. Locally that
+        # propagates fast enough that the lazy INSERT's `session.*` join sees
+        # the rows; in CI the lazy INSERT runs before the MV-produced
+        # `raw_sessions` rows are visible to the SELECT, and the HAVING
+        # clause filters everything out — producing zero preagg rows despite
+        # the events being present (verified via `_dump_lazy_state` in CI).
+        # Mirrors the post-INSERT polling pattern from #59551.
+        import time
+
+        from posthog.clickhouse.client import sync_execute
+
+        deadline = time.monotonic() + timeout_s
+        last_count = -1
+        while time.monotonic() < deadline:
+            row = sync_execute(
+                "SELECT countDistinct(session_id_v7) FROM raw_sessions WHERE team_id = %(tid)s",
+                {"tid": self.team.pk},
+            )
+            last_count = int(row[0][0]) if row else 0
+            if last_count >= expected:
+                return
+            time.sleep(0.05)
+        raise AssertionError(
+            f"raw_sessions did not reach expected count for team_id={self.team.pk} "
+            f"within {timeout_s}s — got {last_count}, expected >= {expected}. "
+            "Sessions MV may not be firing on test inserts."
+        )
 
     def _build_query(
         self,
@@ -358,6 +389,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 "$current_url": "https://example.com/old",
             },
         )
+        self._wait_for_raw_sessions(expected=3)  # 2 from _seed + 1 prev_p1
 
         # Path A: raw events scan, compare=True. Ground truth for previous values.
         raw_response = self._run(self._build_query(compare=True))
@@ -502,6 +534,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                     "$current_url": f"https://example.com/p{offset_min}",
                 },
             )
+        self._wait_for_raw_sessions(expected=1)
 
         raw_response = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
         raw_values = [(r.key, r.value) for r in raw_response.results]
@@ -567,6 +600,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 "$current_url": "https://example.com/first",
             },
         )
+        self._wait_for_raw_sessions(expected=1)
 
         with self._enable_lazy():
             first_resp = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
@@ -591,6 +625,10 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                     "$current_url": "https://example.com/second",
                 },
             )
+            # Same session_id as before, so the distinct count stays at 1 — the
+            # MV updates the existing row. We don't need a sessions count
+            # change to verify event visibility; the next `_run` flushes
+            # persons_and_events anyway. Skip the wait here.
 
             # Invalidate the cache by deleting the READY job rows. This
             # simulates TTL expiry; the next ensure_precomputed cycle will
