@@ -8,6 +8,9 @@
         "kea-forms": "catalog:",
         "kea-router": "catalog:"
     },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",

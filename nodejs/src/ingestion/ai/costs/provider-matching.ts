@@ -53,8 +53,8 @@ export const PROVIDER_ALIASES: Record<string, CanonicalProvider> = {
     // xAI / Grok
     grok: 'xai',
     'x-ai': 'xai',
-    'grok-fast': 'xai-fast',
-    'xai-turbo': 'xai-fast',
+    'grok-fast': 'xai',
+    'xai-turbo': 'xai',
 
     // DeepSeek
     'deep-seek': 'deepseek',

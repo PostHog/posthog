@@ -122,9 +122,16 @@ services:
             - app
 
     app:
+        # Base build. When the user has tools.yaml entries, bin/sandbox
+        # generates a Dockerfile.user that layers tool installs on top and
+        # writes an override (docker-compose.tool-auth.yml) that swaps
+        # build.dockerfile to point at it.
         build:
             context: .
             dockerfile: Dockerfile.sandbox
+            args:
+                SANDBOX_UID: '${SANDBOX_UID:-1000}'
+                SANDBOX_GID: '${SANDBOX_GID:-1000}'
         restart: on-failure
         init: true
         # mprocs (used by bin/start) requires a TTY

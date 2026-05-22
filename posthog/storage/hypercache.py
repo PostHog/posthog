@@ -380,6 +380,24 @@ class HyperCache:
             self._track_expiry(key, data, ttl=ttl)
         return size
 
+    def set_cache_value_redis_only(
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+    ) -> int | None:
+        """
+        Write only to the configured cache backend (self.cache_client), skipping S3
+        and expiry tracking.
+
+        Use this for backfills where S3 is known to already hold fresh data
+        (e.g. populated by the normal sync() path) and the only cold tier is the
+        cache backend. In prod with cache_alias=FLAGS_DEDICATED_CACHE_ALIAS this is
+        the dedicated flags Redis; in dev/test it's whatever the alias resolves to.
+        Returns the serialized size in bytes, or None for None/missing values.
+        """
+        return self._set_cache_value_redis(key, data, ttl=ttl)
+
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """
         Only meant for use in tests

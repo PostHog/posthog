@@ -252,8 +252,7 @@ function getRawName(item: TaxonomicDefinitionTypes, group: TaxonomicFilterGroup)
         group.getName?.(item) ??
         ('name' in (item as unknown as Record<string, unknown>)
             ? ((item as unknown as { name?: string }).name ?? '')
-            : '') ??
-        ''
+            : '')
     )
 }
 

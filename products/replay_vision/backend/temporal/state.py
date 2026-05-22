@@ -1,20 +1,20 @@
 """Redis-backed payload passing between Replay Vision workflow activities."""
 
 import gzip
-import json
 from enum import Enum
 from typing import TypeVar
 
 from django.conf import settings
 
 import structlog
+from pydantic import BaseModel
 from redis import asyncio as aioredis
 
 from posthog.redis import get_async_client
 
 logger = structlog.get_logger(__name__)
 
-T = TypeVar("T")
+TModel = TypeVar("TModel", bound=BaseModel)
 
 # Workflow runs should complete within an hour; 24h is generous headroom for retries.
 REPLAY_VISION_STATE_REDIS_TTL_SECONDS = 60 * 60 * 24
@@ -71,13 +71,13 @@ async def get_data_str_from_redis(redis_client: aioredis.Redis, redis_key: str) 
 async def get_data_class_from_redis(
     redis_client: aioredis.Redis,
     redis_key: str,
-    target_class: type[T],
-) -> T | None:
+    target_class: type[TModel],
+) -> TModel | None:
     data_str = await get_data_str_from_redis(redis_client, redis_key)
     if data_str is None:
         return None
     try:
-        return target_class(**json.loads(data_str))
+        return target_class.model_validate_json(data_str)
     except Exception as err:
         msg = f"Failed to parse Redis payload at {redis_key} into {target_class.__name__}: {err}"
         logger.exception(msg, redis_key=redis_key)

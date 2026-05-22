@@ -1,10 +1,12 @@
 """Base class for all Replay Vision lens types."""
 
 import json
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from products.replay_vision.backend.temporal.types import EventTable
+if TYPE_CHECKING:
+    from products.replay_vision.backend.temporal.types import EventTable
 
 _PROMPT_TEMPLATE = """\
 You are applying a configured lens to a recorded user session of {team_name}.
@@ -26,13 +28,20 @@ The video is the rasterized recording: 8x playback speed with inactive periods s
 
 
 class BaseLensOutput(BaseModel, frozen=True):
-    """Final output shape persisted in `ReplayObservation.model_output` and emitted as `$replay_lens`."""
+    """Final output shape emitted as `$recording_observed` event properties (flattened with `lens_output_*` keys)."""
 
     confidence: float = Field(
         ge=0,
         le=1,
         description="Your confidence in this answer, 0 to 1. 0.5 means uncertain; 1.0 means absolutely sure.",
     )
+
+    def to_event_properties(self) -> dict[str, Any]:
+        """Flatten with `lens_output_*` keys for the `$recording_observed` event.
+
+        `lens_type` is excluded because it's already a top-level event property via the snapshot.
+        """
+        return {f"lens_output_{k}": v for k, v in self.model_dump(mode="json", exclude={"lens_type"}).items()}
 
 
 class BaseLens(BaseModel, frozen=True):
@@ -60,7 +69,7 @@ class BaseLens(BaseModel, frozen=True):
         """Lens-specific checks beyond Pydantic schema validation; return `None` when valid, otherwise an error string suitable to feed back into a re-prompt."""
         return None
 
-    def build_prompt(self, *, team_name: str, events: EventTable) -> str:
+    def build_prompt(self, *, team_name: str, events: "EventTable") -> str:
         return _PROMPT_TEMPLATE.format(
             team_name=team_name,
             user_prompt=self.prompt,
@@ -69,7 +78,7 @@ class BaseLens(BaseModel, frozen=True):
         )
 
 
-def _render_events(events: EventTable) -> str:
+def _render_events(events: "EventTable") -> str:
     if not events.rows:
         return "(no events captured during the session)"
     # Compact separators: Gemini parses fine without whitespace, and indent=2 burns thousands of prompt tokens.

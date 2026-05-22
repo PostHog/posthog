@@ -14,6 +14,8 @@ __pycache__/
 .hypothesis
 .mypy_cache
 .parcel-cache
+pbt-divergences.jsonl
+posthog/hogql/test/fixtures/real_queries/
 .posthog/
 .postgres-backups/
 .python-version

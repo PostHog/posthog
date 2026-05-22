@@ -1400,15 +1400,20 @@ class ExperimentService:
         experiment: Experiment,
         variant_key: str,
         *,
+        release_to_everyone: bool = False,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         request: Any,
     ) -> Experiment:
-        """Ship a variant to 100% of users, optionally ending the experiment.
+        """Ship a variant and (optionally) end the experiment.
 
-        Rewrites the feature flag so the selected variant is served to everyone.
-        Existing release conditions (flag groups) are preserved so the change can
-        be rolled back by deleting the auto-added release condition in the flag UI.
+        Updates the feature flag so the selected variant gets 100% of the variant
+        distribution. By default (``release_to_everyone=False``) existing release
+        conditions on the flag are preserved untouched — the variant is served
+        only to users who already match them, and any per-user variant overrides
+        continue to apply. Pass ``release_to_everyone=True`` to also prepend a
+        catch-all release condition that rolls the variant out to 100% of users
+        (overrides any existing release conditions and per-user overrides).
 
         Can be called on both running and stopped experiments — supports the
         workflow where a user ends an experiment first, then ships the winner
@@ -1435,7 +1440,9 @@ class ExperimentService:
         if not any(v["key"] == variant_key for v in variants):
             raise ValidationError(f"Variant '{variant_key}' not found on feature flag.")
 
-        new_filters = self._transform_filters_for_winning_variant(flag.filters, variant_key)
+        new_filters = self._transform_filters_for_winning_variant(
+            flag.filters, variant_key, release_to_everyone=release_to_everyone
+        )
 
         # Update the flag through the serializer to preserve the approval
         # workflow. If change-request approval is required, this raises
@@ -1469,7 +1476,9 @@ class ExperimentService:
             experiment.conclusion_comment = conclusion_comment
         experiment.save()
 
-        self._report_experiment_variant_shipped(experiment, variant_key=variant_key, request=request)
+        self._report_experiment_variant_shipped(
+            experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
+        )
         if was_running:
             self._report_experiment_ended(experiment, request=request)
 
@@ -1479,13 +1488,31 @@ class ExperimentService:
     def _transform_filters_for_winning_variant(
         current_filters: dict,
         variant_key: str,
+        *,
+        release_to_everyone: bool = False,
     ) -> dict:
-        """Port of frontend transformFiltersForWinningVariant().
+        """Rewrite flag filters so the selected variant gets 100% of the variant distribution.
 
-        Rewrites flag filters so that the selected variant gets 100% rollout
-        and all others get 0%. Prepends a catch-all release condition and
-        preserves existing release conditions (flag groups) for rollback.
+        When ``release_to_everyone`` is False (default), existing release conditions on
+        the flag are preserved untouched: the variant is served only to users who
+        already match them, and any per-user variant overrides keep applying.
+
+        When ``release_to_everyone`` is True, a catch-all release condition is prepended
+        that rolls the variant out to 100% of users — note that under top-down
+        first-match evaluation this overrides any existing release conditions and
+        per-user variant overrides below it.
         """
+        groups = list(current_filters.get("groups", []))
+        if release_to_everyone:
+            groups = [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100,
+                    "description": "Added automatically when the experiment was ended to keep only one variant.",
+                },
+                *groups,
+            ]
+
         return {
             "aggregation_group_type_index": current_filters.get("aggregation_group_type_index"),
             "payloads": current_filters.get("payloads", {}),
@@ -1499,14 +1526,7 @@ class ExperimentService:
                     for v in current_filters.get("multivariate", {}).get("variants", [])
                 ],
             },
-            "groups": [
-                {
-                    "properties": [],
-                    "rollout_percentage": 100,
-                    "description": "Added automatically when the experiment was ended to keep only one variant.",
-                },
-                *(current_filters.get("groups", [])),
-            ],
+            "groups": groups,
         }
 
     def _report_experiment_variant_shipped(
@@ -1514,6 +1534,7 @@ class ExperimentService:
         experiment: Experiment,
         *,
         variant_key: str,
+        release_to_everyone: bool = False,
         request: Any | None = None,
     ) -> None:
         if request is None:
@@ -1521,6 +1542,7 @@ class ExperimentService:
 
         metadata = experiment.get_analytics_metadata()
         metadata["variant_key"] = variant_key
+        metadata["release_to_everyone"] = release_to_everyone
         metadata["parameters"] = experiment.parameters
 
         report_user_action(

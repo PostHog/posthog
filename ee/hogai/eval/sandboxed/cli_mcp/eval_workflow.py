@@ -43,7 +43,6 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
-@pytest.mark.django_db
 async def eval_typo_recovery(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     """Prompted with a deprecated or typo'd tool name, the agent must recover."""
     if mcp_mode == "tools":
@@ -82,7 +81,6 @@ async def eval_typo_recovery(sandboxed_demo_data, pytestconfig, posthog_client, 
     )
 
 
-@pytest.mark.django_db
 async def eval_schema_drilldown(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     """Trends question with breakdown — the agent must drill into nested schema fields."""
     if mcp_mode == "tools":
@@ -115,7 +113,6 @@ async def eval_schema_drilldown(sandboxed_demo_data, pytestconfig, posthog_clien
     )
 
 
-@pytest.mark.django_db
 async def eval_search_first(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     """Open-ended discovery — the agent must prefer ``search`` over bare ``tools``."""
     if mcp_mode == "tools":
@@ -142,7 +139,6 @@ async def eval_search_first(sandboxed_demo_data, pytestconfig, posthog_client, m
     )
 
 
-@pytest.mark.django_db
 async def eval_info_before_call(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     """Every successful ``call <tool>`` must be preceded by ``info <tool>``."""
     if mcp_mode == "tools":
@@ -177,7 +173,6 @@ async def eval_info_before_call(sandboxed_demo_data, pytestconfig, posthog_clien
     )
 
 
-@pytest.mark.django_db
 async def eval_json_for_post_processing(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     """Post-processing scenario — agent must request raw JSON and run Python on it.
 
@@ -223,7 +218,6 @@ async def eval_json_for_post_processing(sandboxed_demo_data, pytestconfig, posth
     )
 
 
-@pytest.mark.django_db
 async def eval_verify_event_before_query(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     """``query-*`` calls must be preceded by a successful ``read-data-schema`` call."""
     if mcp_mode == "tools":

@@ -287,11 +287,14 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["POST"], detail=True, url_path="ship_variant", required_scopes=["experiment:write"])
     def ship_variant(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
-        Ship a variant to 100% of users and (optionally) end the experiment.
+        Ship a variant and (optionally) end the experiment.
 
-        Rewrites the feature flag so that the selected variant is served to everyone.
-        Existing release conditions (flag groups) are preserved so the change can be
-        rolled back by deleting the auto-added release condition in the feature flag UI.
+        Updates the feature flag so the selected variant gets 100% of the variant
+        distribution. By default, existing release conditions on the flag are preserved
+        untouched — the variant is served only to users who already match them. Pass
+        ``release_to_everyone: true`` to also prepend a catch-all release condition
+        that rolls the variant out to 100% of users (overrides any existing release
+        conditions on the flag).
 
         Can be called on both running and stopped experiments. If the experiment is
         still running, it will also be ended (end_date set and status marked as stopped).
@@ -312,6 +315,7 @@ class EnterpriseExperimentsViewSet(
         shipped_experiment = service.ship_variant(
             experiment,
             variant_key=request_serializer.validated_data["variant_key"],
+            release_to_everyone=request_serializer.validated_data["release_to_everyone"],
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
             request=request,

@@ -24,6 +24,9 @@ class TestIsEnableAnalyzerTeam:
             ("none_team", [2, 5, 10], None, False),
             ("empty_setting", [], 2, False),
             ("single_team", [7], 7, True),
+            # pre-existing bad DB values (string or None) must not crash and must return False
+            ("string_setting", "2,5,10", 2, False),
+            ("none_setting", None, 2, False),
         ]
     )
     def test_returns_expected(self, _name: str, setting_value: list[int], team_id: int | None, expected: bool):

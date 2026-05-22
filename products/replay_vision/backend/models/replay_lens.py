@@ -90,13 +90,13 @@ class ReplayLens(UUIDModel):
     )
 
     def save(self, *args, **kwargs) -> None:
-        # SELECT FOR UPDATE so concurrent saves can't both bump lens_version from the same baseline.
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             relevant = [f for f in self._VERSION_TRACKED_FIELDS if f in update_fields]
         else:
             relevant = list(self._VERSION_TRACKED_FIELDS)
         if self.pk and relevant:
+            # SELECT FOR UPDATE so concurrent saves can't both bump lens_version from the same baseline.
             with transaction.atomic():
                 old = type(self).objects.select_for_update().filter(pk=self.pk).only("lens_version", *relevant).first()
                 if old is not None and any(getattr(old, f) != getattr(self, f) for f in relevant):

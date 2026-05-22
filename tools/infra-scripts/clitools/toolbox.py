@@ -18,10 +18,20 @@ from toolbox.kubernetes import select_context, validate_context
 from toolbox.pod import ClaimRaceError, claim_pod, connect_to_pod, delete_pod, get_toolbox_pod
 from toolbox.user import get_current_user
 
+# Extra label selectors ANDed onto the base `app.kubernetes.io/name=<app_label>`
+# selector. Keyed by namespace because the legacy and golden-chart deployments
+# share the same `app_label` but live in different namespaces with different
+# co-tenants (pgbouncer pods in the golden chart's per-app namespace also carry
+# `app.kubernetes.io/name=posthog-toolbox-django`, so we need `component=app` to
+# pick out only the main pool). The legacy `posthog` namespace doesn't need a
+# discriminator because its pgbouncers have a different `name` label.
 POOLS = {
     "toolbox-django": {
         "app_label": "posthog-toolbox-django",
         "claimed_label_key": "toolbox-claimed",
+        "extra_selectors_by_namespace": {
+            "posthog-toolbox-django": "app.kubernetes.io/component=app",
+        },
     },
     "flags-cache-jumphost": {
         "app_label": "flags-cache-jumphost",
@@ -83,6 +93,12 @@ def main():
         app_label = pool["app_label"]
         claimed_label_key = pool["claimed_label_key"]
         namespace = os.environ.get("KUBE_NAMESPACE", "posthog")
+        # The base selector is `app.kubernetes.io/name=<app_label>`. Some
+        # namespaces also host other workloads that share that label (e.g. the
+        # golden chart deploys a per-app pgbouncer under the same name in the
+        # `posthog-toolbox-django` namespace), so we may need a further
+        # discriminator to pick only the main pool pods.
+        extra_selector = pool.get("extra_selectors_by_namespace", {}).get(namespace)
 
         print(f"🛠️  Connecting to {args.pool} pool in namespace {namespace}...")  # noqa: T201
 
@@ -110,6 +126,7 @@ def main():
             claimed_label_key=claimed_label_key,
             namespace=namespace,
             context=selected_context,
+            extra_selector=extra_selector,
         )
         print(f"🎯 Found pod: {pod_name}")  # noqa: T201
 
@@ -177,6 +194,7 @@ def main():
                         claimed_label_key=claimed_label_key,
                         namespace=namespace,
                         context=selected_context,
+                        extra_selector=extra_selector,
                     )
                     if is_already_claimed:
                         # Either we won an earlier race attempt (whose ack we missed) or

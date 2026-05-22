@@ -1045,7 +1045,8 @@
                       "issue_status",
                       "assigned_user_id",
                       "assigned_role_id",
-                      "first_seen"
+                      "first_seen",
+                      "fp_hash"
                   ],
                   "hogql_value": "fingerprint_issue_state",
                   "id": "fingerprint_issue_state",
@@ -8621,7 +8622,8 @@
                       "issue_status",
                       "assigned_user_id",
                       "assigned_role_id",
-                      "first_seen"
+                      "first_seen",
+                      "fp_hash"
                   ],
                   "hogql_value": "fingerprint_issue_state",
                   "id": "fingerprint_issue_state",

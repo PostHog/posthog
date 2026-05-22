@@ -615,8 +615,10 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** The key of the variant to ship to 100% of users. */
+    /** The key of the variant to ship. */
     variant_key: string
+    /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
+    release_to_everyone?: boolean
 }
 
 export type ExperimentHoldoutsListParams = {

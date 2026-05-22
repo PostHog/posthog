@@ -32,10 +32,10 @@ def pytest_addoption(parser):
     parser.addoption(
         "--agent-model",
         action="store",
-        default="claude-opus-4-7",
+        default="anthropic/claude-opus-4-7",
         help=(
             "Model the sandboxed agent runs against. Pinned for stable cross-run "
-            "comparisons. Defaults to claude-opus-4-7."
+            "comparisons. Defaults to anthropic/claude-opus-4-7."
         ),
     )
 

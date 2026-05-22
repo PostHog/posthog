@@ -532,9 +532,23 @@ tools:
             user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.
 
 
-            REQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This permanently rewrites the feature flag for 100% of
-            users and cannot be undone via the API. Even when the user has asked you to ship a specific variant, ask
-            them to confirm with the variant key and target experiment before invoking this tool.
+            REQUIRES EXPLICIT USER CONFIRMATION BEFORE CALLING. This permanently rewrites the linked feature flag and
+            cannot be undone via the API. Two release modes — confirm which one the user wants before invoking:
+
+
+            - Default (release_to_everyone=false): updates only the variant distribution so the selected variant gets
+            100%. Existing release conditions and per-user variant overrides on the flag are preserved untouched — the
+            variant is served only to users who already match them.
+
+
+            - release_to_everyone=true: in addition to flipping the variant distribution, prepends a catch-all release
+            condition that rolls the variant out to 100% of users. This OVERRIDES any existing release conditions and
+            per-user variant overrides on the flag. Only use this when the user explicitly wants to release beyond the
+            experiment's existing population.
+
+
+            Even when the user has asked you to ship a specific variant, ask them to confirm with the variant key,
+            target experiment, and release mode before invoking this tool.
 
 
             Ship a variant to 100% of users by rewriting the feature flag. Requires variant_key — the key of the variant

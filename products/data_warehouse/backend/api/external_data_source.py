@@ -402,9 +402,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     # in the viewset to preserve backward compatibility with direct API callers that
     # predate this field; the in-app UI and MCP tool always send it explicitly.
     # `update` strips it to make the field write-once.
+    # `allow_null=True` because historical rows (created before migration 0049) have
+    # `created_via=NULL`, and the settings page spreads the GET payload back into PATCH.
     created_via = serializers.ChoiceField(
         choices=ExternalDataSource.CreatedVia.choices,
         required=False,
+        allow_null=True,
         help_text=(
             "How this source was created. Defaults to `api` on create when omitted. "
             "`web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. "

@@ -854,6 +854,7 @@ function PersonsTableByFilter({ recordingsFilters, properties }: PersonsTableByF
                                     person={{ id: person.id }}
                                     displayName={person.display_name}
                                     noPopover
+                                    withComposeTicketButton
                                 />
                             </CopyToClipboardInline>
                         )

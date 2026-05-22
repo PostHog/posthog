@@ -19,8 +19,6 @@ To run:
 
 from __future__ import annotations
 
-import pytest
-
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.retrieval.scorers import LookupIdInOutput, SkillLoaded
@@ -30,7 +28,6 @@ from ee.hogai.eval.sandboxed.seeders.insight import seed_insight_noise
 SKILL_NAME = "querying-posthog-data"
 
 
-@pytest.mark.django_db
 async def eval_insight_retrieval(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases: list[SandboxedEvalCase] = [
         SandboxedEvalCase(

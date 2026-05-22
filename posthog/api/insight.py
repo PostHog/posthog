@@ -81,7 +81,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
-from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method, hogql_insights_replace_filters
+from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.query_runner import (
     BLOCKING_EXECUTION_MODES,
@@ -369,9 +369,9 @@ class InsightBasicSerializer(
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        if hogql_insights_replace_filters(instance.team) and (
-            instance.query is not None or instance.query_from_filters is not None
-        ):
+        representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
+
+        if instance.query is not None or instance.query_from_filters is not None:
             representation["filters"] = {}
             representation["query"] = instance.query or instance.query_from_filters
         else:
@@ -951,9 +951,7 @@ class InsightSerializer(InsightBasicSerializer):
             request, dashboard, list(self.context["insight_variables"])
         )
 
-        if hogql_insights_replace_filters(instance.team) and (
-            instance.query is not None or instance.query_from_filters is not None
-        ):
+        if instance.query is not None or instance.query_from_filters is not None:
             query = instance.query or instance.query_from_filters
             if (
                 dashboard is not None

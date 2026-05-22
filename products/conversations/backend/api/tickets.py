@@ -70,6 +70,13 @@ from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
 
+# Case-insensitive batch email lookup. Exposed so tests can EXPLAIN the exact query that runs.
+PERSON_EMAIL_LOOKUP_QUERY = """
+SELECT id, properties.email
+FROM persons
+WHERE lower(properties.email) IN {emails}
+"""
+
 
 def _get_persons_by_email(
     team: Team,
@@ -89,11 +96,7 @@ def _get_persons_by_email(
     emails_lower = [e.lower() for e in emails]
     with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
         response = execute_hogql_query(
-            """
-            SELECT id, properties.email
-            FROM persons
-            WHERE lower(properties.email) IN {emails}
-            """,
+            PERSON_EMAIL_LOOKUP_QUERY,
             placeholders={"emails": ast.Constant(value=emails_lower)},
             team=team,
             query_type="conversations_person_email_lookup",
@@ -930,8 +933,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         recipient_email = data["recipient_email"]
         distinct_id = data.get("recipient_distinct_id", "") or recipient_email
 
-        person = get_person_by_distinct_id(team.id, distinct_id)
-        if person is None and distinct_id == recipient_email:
+        person: Person | None = None
+        if distinct_id != recipient_email:
+            person = get_person_by_distinct_id(team.id, distinct_id)
+
+        if person is None:
             person = _get_persons_by_email(team, [recipient_email]).get(recipient_email.lower())
             if person is not None and person.distinct_ids:
                 distinct_id = person.distinct_ids[0]

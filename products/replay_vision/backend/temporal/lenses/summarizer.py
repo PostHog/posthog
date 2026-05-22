@@ -17,6 +17,7 @@ _LENGTH_GUIDANCE: dict[SummaryLength, str] = {
 
 
 class SummarizerOutput(BaseLensOutput, frozen=True):
+    lens_type: Literal[LensType.SUMMARIZER] = LensType.SUMMARIZER
     title: str = Field(max_length=120, description="Short title for the session (~80 chars). Plain text, no quotes.")
     summary: str = Field(description="Body text whose length follows the lens's configured length.")
 

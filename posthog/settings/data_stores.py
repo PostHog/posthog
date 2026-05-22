@@ -291,6 +291,10 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
+# respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
+# so a per-cluster topology can actually exercise routing.
+MULTINODE_CLICKHOUSE: bool = get_from_env("MULTINODE_CLICKHOUSE", False, type_cast=str_to_bool)
 CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER = get_from_env(
     "CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER", default=False, type_cast=str_to_bool
 )
@@ -377,7 +381,11 @@ def is_enable_analyzer_team(team_id: int | None) -> bool:
 def _get_enable_analyzer_teams(_ttl: int) -> list[int]:
     from posthog.models.instance_setting import get_instance_setting
 
-    return get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
+    try:
+        value = get_instance_setting("CLICKHOUSE_ENABLE_ANALYZER_TEAMS")
+        return value if isinstance(value, list) else []
+    except Exception:
+        return []
 
 
 def is_web_analytics_events_prefilter_team(team_id: int | None) -> bool:
@@ -391,7 +399,8 @@ def _get_web_analytics_events_prefilter_teams(_ttl: int) -> list[int]:
     from posthog.models.instance_setting import get_instance_setting
 
     try:
-        return get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+        value = get_instance_setting("WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS")
+        return value if isinstance(value, list) else []
     except Exception:
         return []
 

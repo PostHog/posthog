@@ -348,6 +348,23 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.created_via == ExternalDataSource.CreatedVia.WEB
 
+    def test_patch_external_data_source_accepts_null_created_via(self):
+        # Historical rows created before migration 0049 have created_via=NULL. The
+        # settings page spreads the GET payload back into PATCH, so null round-trips
+        # through the serializer. allow_null=True keeps that path working.
+        source = self._create_external_data_source()
+        ExternalDataSource.objects.filter(pk=source.pk).update(created_via=None)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"created_via": None, "description": "edited"},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.created_via is None
+        assert source.description == "edited"
+
     @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,
