@@ -57,14 +57,6 @@ export function AccountsTabFilters(): JSX.Element {
                 />
             )}
 
-            <LemonCheckbox
-                checked={allRolesUnassigned}
-                onChange={setAllRolesUnassigned}
-                label="Unassigned"
-                disabledReason={accountsLoading ? 'Loading…' : undefined}
-                data-attr="accounts-unassigned-filter"
-            />
-
             <RolePicker label="CSM" value={csmFilter} onChange={setCsmFilter} dataAttr="accounts-csm-filter" />
             <RolePicker
                 label="AE"
@@ -77,6 +69,13 @@ export function AccountsTabFilters(): JSX.Element {
                 value={accountOwnerFilter}
                 onChange={setAccountOwnerFilter}
                 dataAttr="accounts-owner-filter"
+            />
+            <LemonCheckbox
+                checked={allRolesUnassigned}
+                onChange={setAllRolesUnassigned}
+                label="Unassigned only"
+                disabledReason={accountsLoading ? 'Loading…' : undefined}
+                data-attr="accounts-unassigned-filter"
             />
 
             <div className="ml-auto">
