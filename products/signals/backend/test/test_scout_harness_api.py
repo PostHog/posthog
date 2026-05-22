@@ -101,6 +101,15 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         response = self.client.get(self._detail_url(str(run.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_retrieve_malformed_run_id_returns_404(self) -> None:
+        # Anything URL-safe that isn't a UUID must 404 cleanly — not 500 from
+        # Django's UUIDField conversion blowing up on `.filter(id=...)`.
+        for bad in ("not-a-uuid", "abc-def-ghi", "123", "deadbeef"):
+            response = self.client.get(self._detail_url(bad))
+            assert response.status_code == status.HTTP_404_NOT_FOUND, (
+                f"expected 404 for {bad!r}, got {response.status_code}"
+            )
+
 
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def setUp(self) -> None:
@@ -174,6 +183,15 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
         run = _make_run(other)
         response = self.client.post(self._findings_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_emit_finding_malformed_run_id_returns_404(self) -> None:
+        # Same guard as `retrieve`: a URL-safe non-UUID must 404 before any DB
+        # call, not 500 from `.filter(id=...)` on a non-UUID string.
+        for bad in ("not-a-uuid", "abc-def-ghi", "123", "deadbeef"):
+            response = self.client.post(self._findings_url(bad), data=self._payload(), format="json")
+            assert response.status_code == status.HTTP_404_NOT_FOUND, (
+                f"expected 404 for {bad!r}, got {response.status_code}"
+            )
 
 
 class TestScoutHarnessScratchpadAPI(APIBaseTest):

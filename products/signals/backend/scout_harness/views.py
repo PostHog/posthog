@@ -18,6 +18,8 @@ token is already pinned to the team.
 
 from __future__ import annotations
 
+import uuid
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -55,6 +57,23 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
 )
 
 
+def _parse_run_id_or_404(kwargs: dict) -> uuid.UUID:
+    """Parse the `id` URL kwarg as a UUID; raise 404 on missing or malformed.
+
+    DRF routes any string the default `lookup_value_regex` accepts (anything
+    except `/` and `.`) into the action, so the action is responsible for
+    rejecting non-UUID inputs cleanly rather than letting them surface as
+    500s from `UUIDField.to_python()` on the underlying ORM query.
+    """
+    raw = kwargs.get("id")
+    if raw is None:
+        raise exceptions.NotFound()
+    try:
+        return uuid.UUID(str(raw))
+    except (ValueError, TypeError):
+        raise exceptions.NotFound()
+
+
 class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Run history + finding emission for the headless agent."""
 
@@ -68,8 +87,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # this unscoped is safe. Same shape `customer_analytics.AccountViewSet` uses.
     queryset = SignalScoutRun.objects.unscoped()
     # Lookup is the run's UUID PK; DRF parses with the default `pk` URL kwarg.
+    # No `lookup_value_regex` — use DRF's default and let the view actions parse
+    # the raw segment with `uuid.UUID()` (via `_parse_run_id_or_404`) so malformed
+    # IDs return a clean 404 rather than hitting `.filter(id=…)` with a non-UUID
+    # and blowing up on Django's UUIDField conversion.
     lookup_field = "id"
-    lookup_value_regex = "[0-9a-f-]+"
     # `list` returns a raw newest-first array (capped at limit=100 by the query serializer),
     # not a paginated wrapper. Generated TS clients infer pagination from the global default
     # otherwise, and the runtime shape diverges from the OpenAPI schema. Per-action overrides
@@ -120,9 +142,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
     )
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
-        run_id = kwargs.get("id")
-        if run_id is None:
-            raise exceptions.NotFound()
+        run_id = _parse_run_id_or_404(kwargs)
         detail = get_run(team_id=self.team_id, run_id=str(run_id))
         if detail is None:
             raise exceptions.NotFound()
@@ -152,9 +172,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def findings(self, request: Request, **kwargs) -> Response:
-        run_id = kwargs.get("id")
-        if run_id is None:
-            raise exceptions.NotFound()
+        run_id = _parse_run_id_or_404(kwargs)
         from products.tasks.backend.models import TaskRun
 
         run = (
