@@ -22,7 +22,7 @@ logger = structlog.get_logger(__name__)
 _PRIORITY_TEAM_ID = 2
 
 # Per-team cap for non-priority teams in a single batch. Stops one team from
-# monopolising the global LLM budget by emitting many unique conversation ids.
+# monopolising the global LLM budget by emitting many unique session ids.
 _PER_TEAM_CAP = 10
 
 SYSTEM_PROMPT = (
@@ -40,7 +40,7 @@ SELECT JSONExtractString(properties, '$mcp_intent') AS intent
 FROM events
 WHERE team_id = %(team_id)s
     AND event = 'mcp_tool_call'
-    AND JSONExtractString(properties, '$mcp_conversation_id') = %(session_id)s
+    AND JSONExtractString(properties, '$mcp_session_id') = %(session_id)s
     AND JSONExtractString(properties, '$mcp_intent') != ''
 ORDER BY timestamp ASC
 LIMIT 200
