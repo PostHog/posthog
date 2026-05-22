@@ -129,6 +129,21 @@ Parse `$ARGUMENTS` into:
 Do not print, log, or include `LOGIN_PASSWORD` in evidence or comments.
 Reject unknown options only if they prevent identifying `PR_REF`.
 
+### Run identity
+
+Create the run directory once, before capturing logs or evidence:
+
+```bash
+RUN_ID="local-$(date +%Y%m%d-%H%M%S)"          # local mode
+RUN_ID="pr${PR_NUMBER}-$(date +%Y%m%d-%H%M%S)" # PR mode, after resolving PR number
+RUN_DIR=".qa-frontend/runs/$RUN_ID"
+mkdir -p "$RUN_DIR"
+```
+
+If `$RUN_DIR` already exists, append a short suffix like `-2` or the short head
+SHA. Use `RUN_DIR` for every screenshot, GIF, log, `findings.json`, run notes,
+and report path. Never use legacy `qa-runtime` names in new artifacts.
+
 ### PR mode preconditions
 
 Before touching the PR branch:

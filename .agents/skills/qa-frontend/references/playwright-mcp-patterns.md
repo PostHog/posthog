@@ -234,6 +234,23 @@ existing local GIF tool is available. This follows the same evidence pattern as
 the demo-reel browser tier: screenshots stitched into a slow GIF. Use slow
 frames, about 1.5-2 seconds each, and preserve the original PNGs.
 
+When using `ffmpeg` from zsh, quote every filtergraph argument so brackets are
+not treated as shell globs. A safe two-pass pattern is:
+
+```bash
+tmp_dir="$RUN_DIR/gif-frames"
+mkdir -p "$tmp_dir"
+# Copy or symlink screenshots as frame-001.png, frame-002.png, ...
+
+ffmpeg -y -framerate 0.5 -i "$tmp_dir/frame-%03d.png" \
+  -vf "scale=900:-1:flags=lanczos,palettegen=max_colors=128" \
+  "$tmp_dir/palette.png"
+
+ffmpeg -y -framerate 0.5 -i "$tmp_dir/frame-%03d.png" -i "$tmp_dir/palette.png" \
+  -lavfi "scale=900:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer" \
+  "$RUN_DIR/frontend-qa.gif"
+```
+
 Prefer the PostHog workspace's existing browser tooling for screenshots: capture
 frames through Playwright MCP or the repo's existing `@playwright/test`
 dependency. Do not add screenshot or GIF packages to `package.json`.
