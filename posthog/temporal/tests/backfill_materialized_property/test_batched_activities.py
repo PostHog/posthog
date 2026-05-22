@@ -449,12 +449,12 @@ class TestPopulateSlotAssignments:
     workflow calls it after `assign_pending_columns`."""
 
     def _fake_cluster_with_hosts(self, host_count: int = 3, fail_on_host: int | None = None) -> MagicMock:
-        """Build a MagicMock ClickhouseCluster whose `map_all_hosts(fn)` invokes `fn` once per
-        synthetic host. If `fail_on_host` is set, that host's call raises, and the FuturesMap's
-        .result() raises ExceptionGroup like the real cluster does."""
+        """Build a MagicMock ClickhouseCluster whose `map_hosts_by_roles(fn, node_roles)` invokes
+        `fn` once per synthetic host. If `fail_on_host` is set, that host's call raises, and the
+        FuturesMap's .result() raises ExceptionGroup like the real cluster does."""
         cluster = MagicMock()
 
-        def map_all_hosts(fn):
+        def map_hosts_by_roles(fn, node_roles):
             results: dict[str, object] = {}
             errors: dict[str, Exception] = {}
             for host_idx in range(host_count):
@@ -477,7 +477,7 @@ class TestPopulateSlotAssignments:
             futures_map.values = lambda: results.values()
             return futures_map
 
-        cluster.map_all_hosts = MagicMock(side_effect=map_all_hosts)
+        cluster.map_hosts_by_roles = MagicMock(side_effect=map_hosts_by_roles)
         return cluster
 
     @patch("posthog.temporal.backfill_materialized_property.activities.get_cluster")
@@ -500,7 +500,7 @@ class TestPopulateSlotAssignments:
         # Capture every SQL string each "host" sees so we can assert the order: TRUNCATE, INSERT, RELOAD.
         all_executed: list[list] = []
 
-        def map_all_hosts(fn):
+        def map_hosts_by_roles(fn, node_roles):
             futures_map = MagicMock()
 
             def run_per_host():
@@ -519,7 +519,7 @@ class TestPopulateSlotAssignments:
             return futures_map
 
         cluster = MagicMock()
-        cluster.map_all_hosts = MagicMock(side_effect=map_all_hosts)
+        cluster.map_hosts_by_roles = MagicMock(side_effect=map_hosts_by_roles)
         mock_get_cluster.return_value = cluster
 
         result = activity_environment.run(populate_slot_assignments, PopulateSlotAssignmentsInputs())
@@ -554,13 +554,13 @@ class TestPopulateSlotAssignments:
             state=MaterializedColumnSlotState.READY,
         )
 
-        # First map_all_hosts call (populate) fails on host 1; second call (reload) must never happen.
-        call_count = {"map_all_hosts": 0}
+        # First map_hosts_by_roles call (populate) fails on host 1; second call (reload) must never happen.
+        call_count = {"calls": 0}
 
-        def map_all_hosts(fn):
-            call_count["map_all_hosts"] += 1
+        def map_hosts_by_roles(fn, node_roles):
+            call_count["calls"] += 1
             futures_map = MagicMock()
-            if call_count["map_all_hosts"] == 1:
+            if call_count["calls"] == 1:
                 # Populate raises on the second host.
                 def result():
                     raise ExceptionGroup("populate failed", [RuntimeError("host 1 down")])
@@ -572,16 +572,16 @@ class TestPopulateSlotAssignments:
             return futures_map
 
         cluster = MagicMock()
-        cluster.map_all_hosts = MagicMock(side_effect=map_all_hosts)
+        cluster.map_hosts_by_roles = MagicMock(side_effect=map_hosts_by_roles)
         mock_get_cluster.return_value = cluster
 
         with pytest.raises(BaseException) as excinfo:
             activity_environment.run(populate_slot_assignments, PopulateSlotAssignmentsInputs())
 
         # Either the ExceptionGroup itself or the activity's wrapping raises — what matters
-        # is that the second map_all_hosts call (reload) never happened.
+        # is that the second map_hosts_by_roles call (reload) never happened.
         assert "populate failed" in str(excinfo.value) or "host 1 down" in str(excinfo.value)
-        assert call_count["map_all_hosts"] == 1, "reload must not be issued when populate fails on any host"
+        assert call_count["calls"] == 1, "reload must not be issued when populate fails on any host"
 
     @patch("posthog.temporal.backfill_materialized_property.activities.get_cluster")
     def test_idempotent_under_retry(self, mock_get_cluster, team, activity_environment):

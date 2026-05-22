@@ -54,6 +54,13 @@ def create_clickhouse_tables():
         if kafka_table_queries:
             run_clickhouse_statement_in_parallel(kafka_table_queries)
 
+    # Dictionaries are created before the MVs: the events MV computes its dmat_string columns via
+    # dictGet on dmat_slot_assignments_dict, so that dictionary must already exist when the MV is
+    # created. Every dictionary source is a MergeTree table created above, so this is safe.
+    dictionary_queries = list(map(build_query, missing(CREATE_DICTIONARY_QUERIES)))
+    if dictionary_queries:
+        run_clickhouse_statement_in_parallel(dictionary_queries)
+
     mv_queries = list(map(build_query, missing(CREATE_MV_TABLE_QUERIES)))
     if mv_queries:
         run_clickhouse_statement_in_parallel(mv_queries)
@@ -61,10 +68,6 @@ def create_clickhouse_tables():
     view_queries = list(map(build_query, missing(CREATE_VIEW_QUERIES)))
     if view_queries:
         run_clickhouse_statement_in_parallel(view_queries)
-
-    dictionary_queries = list(map(build_query, missing(CREATE_DICTIONARY_QUERIES)))
-    if dictionary_queries:
-        run_clickhouse_statement_in_parallel(dictionary_queries)
 
     data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
     run_clickhouse_statement_in_parallel(data_queries)

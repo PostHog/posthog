@@ -19,33 +19,34 @@ from posthog.models.event.sql import (
 )
 
 # Wire up the existing `dmat_string_0..9` columns (added to sharded_events + events by
-# migration 0179) through the rest of the events pipeline so the weekly batched dynamic
-# property materialization workflow can actually use them.
+# migration 0179) so the events MV populates them from `properties` at insert time, and the
+# weekly batched dynamic property materialization workflow can backfill historical rows.
+#
+# Unlike the original wiring (#58080), ingestion does NOT write dmat columns: the events MV
+# computes each `dmat_string_<i>` itself via `dictGet` on the slot dictionary, using the exact
+# same coercion as the backfill mutation. This removes the plugin-server write path entirely —
+# ClickHouse fills the columns on both the live (MV) and historical (mutation) paths.
 #
 # 0179 added 40 columns (10 each of string/numeric/bool/datetime) to sharded_events and
-# events but never updated `writable_events`, `kafka_events_json[_ws]`, or
-# `events_json[_ws]_mv` to project them — so plugin-server writes to dmat columns would
-# be silently dropped at the Distributed boundary. This migration finishes the wiring:
+# events but never updated `writable_events` or `events_json[_ws]_mv` to project them. This
+# migration finishes the wiring:
 #
 # 1) ADD `dmat_string_0..9` to `writable_events` on every node role that hosts it
 #    (DATA always, INGESTION_EVENTS on cloud — sharded_events and events already have
-#    them from 0179).
+#    them from 0179) so the MV can write the computed values through it.
 # 2) DROP the legacy typed columns (`dmat_numeric_*`, `dmat_bool_*`, `dmat_datetime_*`)
 #    from `sharded_events` / `events`. They were never wired into the kafka pipeline so
 #    they have never received data; ALTER DROP is metadata-only on empty columns. Per
 #    the dynamic property materialization design the dmat pool is string-only — HogQL
 #    casts to the logical type at read time.
-# 3) Recreate the kafka table and MV that feed `writable_events` so their schemas
-#    project the new `dmat_string_0..9` columns. Cloud touches the WarpStream pair on
-#    INGESTION_EVENTS (the only active events pipeline post-0248); non-cloud touches
-#    the MSK pair on DATA. The kafka table schema is fixed at CREATE time and ignores
-#    JSON keys for unknown columns, so it MUST be recreated for the MV to receive dmat
-#    columns from plugin-server.
-# 4) Create the `dmat_slot_assignments` table + dictionary on every host. The weekly
-#    workflow writes `(team_id, slot_index) → property_name` into this table and reloads
-#    the dictionary on every host before submitting the backfill mutation. The mutation
-#    reads the mapping via `dictGet` / `dictHas`, which keeps the SQL constant-size
-#    regardless of how many teams have adopted dmat.
+# 3) Create the `dmat_slot_assignments` table + dictionary, BEFORE the MV recreate, because
+#    the recreated MV's `dictGet` depends on the dictionary existing. Scoped to DATA (where
+#    sharded_events + the backfill mutation live) plus INGESTION_EVENTS on cloud (where the
+#    WarpStream MV evaluates `dictGet`).
+# 4) Recreate the kafka table and MV. The MV is created with compute_dmat=True so it fills
+#    `dmat_string_0..9` from the dictionary at insert time. Cloud touches the WarpStream pair
+#    on INGESTION_EVENTS (the only active events pipeline post-0248); non-cloud touches the
+#    MSK pair on DATA.
 #
 # Layout follows the same drop-MV → drop-kafka → ALTER → recreate pattern as
 # 0030_created_at_persons_and_groups_on_events, with the cloud/non-cloud split
@@ -142,14 +143,38 @@ operations += [
     ),
 ]
 
-# Step 3: recreate the kafka table and MV so their schemas include dmat_string_0..9.
-# `KAFKA_EVENTS_TABLE_JSON_*` and friends call EVENTS_TABLE_BASE_SQL which embeds
-# `EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS()` — now string-only — so the recreated
-# tables include the 10-column dmat_string range and nothing else.
+# Step 3: create the dmat slot-assignments backing table and dictionary BEFORE recreating the
+# MV. The recreated MV computes dmat_string columns itself via `dictGet` on this dictionary
+# (so ingestion no longer writes them), which means the dictionary must already exist when the
+# MV is created — hence this runs before Step 4.
 #
-# Mirrors Step 1's split: WarpStream on INGESTION_EVENTS for cloud, MSK on DATA
-# elsewhere. on_cluster=False because the migration framework fans the query out via
-# map_hosts_by_roles, per the no-ON-CLUSTER convention.
+# The weekly batched workflow writes the current `(team_id, slot_index) → property_name`
+# mapping into this table and reloads the dictionary; the live MV and the backfill mutation both
+# read it via `dictGet` / `dictHas`. Until the first workflow run populates the table the dict is
+# empty and `dictHas` returns 0 for every (team_id, slot_index) pair, so the column is left NULL.
+#
+# node_roles spans DATA (where `sharded_events` + the backfill mutation live and the MSK MV runs)
+# and, on cloud, INGESTION_EVENTS (where the WarpStream events MV runs and now evaluates
+# `dictGet`). It is NOT NodeRole.ALL — that would fan the CREATE out to satellite clusters
+# (ops/aux/sessions) that never run the events MV, which was the trigger for the previous
+# revert. `populate_slot_assignments` writes + reloads on these same two roles so every host that
+# has the dict gets a populated source table. Order matters: the dictionary's SOURCE references
+# the table, so the table is created first.
+_dmat_dict_roles = [NodeRole.DATA] + ([NodeRole.INGESTION_EVENTS] if _is_cloud else [])
+operations += [
+    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster=False), node_roles=_dmat_dict_roles),
+    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster=False), node_roles=_dmat_dict_roles),
+]
+
+# Step 4: recreate the kafka table and MV. The MV is created with compute_dmat=True so it fills
+# dmat_string_0..9 itself from `properties` + `team_id` via the dictionary created in Step 3,
+# rather than passing through values written by ingestion. The kafka table schema is unchanged
+# (it keeps the dmat_string columns from EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS but the MV
+# no longer reads them).
+#
+# Mirrors Step 1's split: WarpStream on INGESTION_EVENTS for cloud, MSK on DATA elsewhere.
+# on_cluster=False because the migration framework fans the query out via map_hosts_by_roles,
+# per the no-ON-CLUSTER convention.
 if _is_cloud:
     operations += [
         run_sql_with_exceptions(
@@ -157,7 +182,7 @@ if _is_cloud:
             node_roles=[NodeRole.INGESTION_EVENTS],
         ),
         run_sql_with_exceptions(
-            EVENTS_TABLE_JSON_WS_MV_SQL(),
+            EVENTS_TABLE_JSON_WS_MV_SQL(compute_dmat=True),
             node_roles=[NodeRole.INGESTION_EVENTS],
         ),
     ]
@@ -168,27 +193,7 @@ else:
             node_roles=[NodeRole.DATA],
         ),
         run_sql_with_exceptions(
-            EVENTS_TABLE_JSON_MV_SQL(on_cluster=False),
+            EVENTS_TABLE_JSON_MV_SQL(on_cluster=False, compute_dmat=True),
             node_roles=[NodeRole.DATA],
         ),
     ]
-
-# Step 4: create the dmat slot-assignments backing table and dictionary on the data nodes.
-# The weekly batched workflow writes the current `(team_id, slot_index) → property_name`
-# mapping into this table and reloads the dictionary before submitting the backfill
-# mutation. The mutation reads the mapping via `dictGet` / `dictHas`, which keeps the SQL
-# constant-size regardless of how many teams have adopted dmat. Until the first workflow
-# run populates the table, the dict is empty and `dictHas` returns 0 for every
-# (team_id, slot_index) pair, so the SET expression in the mutation falls through to keep
-# the existing column value — i.e. a no-op.
-# node_roles is DATA, not ALL: the table and dictionary only need to exist where
-# `sharded_events` lives, because the backfill mutation runs on the data nodes and reads
-# the mapping there. NodeRole.ALL additionally fans the CREATE out to the satellite
-# clusters (ops/aux/sessions) via the migrations cluster, which is unnecessary here and
-# was the trigger for the previous failure when a satellite was unreachable.
-# Order matters: the dictionary's SOURCE references the table, so the table must be
-# created first.
-operations += [
-    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
-]

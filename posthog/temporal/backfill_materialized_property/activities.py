@@ -11,6 +11,7 @@ import structlog
 import posthoganalytics
 from temporalio import activity
 
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import AlterTableMutationRunner, get_cluster
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.models import MaterializedColumnSlot
@@ -275,12 +276,15 @@ class PopulateSlotAssignmentsResult:
 @activity.defn
 @close_db_connections
 def populate_slot_assignments(inputs: PopulateSlotAssignmentsInputs) -> PopulateSlotAssignmentsResult:
-    """Sync slot assignments from Postgres to `dmat_slot_assignments` on every host, then
-    reload `dmat_slot_assignments_dict` everywhere.
+    """Sync slot assignments from Postgres to `dmat_slot_assignments`, then reload
+    `dmat_slot_assignments_dict`, on every host that has the dictionary.
 
-    Two-phase: TRUNCATE+INSERT on every host, then RELOAD on every host. If any host
-    fails the populate, the reload never runs — the next mutation won't see a partially-
-    populated cluster.
+    Two-phase: TRUNCATE+INSERT then RELOAD. If any host fails the populate, the reload never
+    runs — the next mutation won't see a partially-populated cluster.
+
+    Scoped to the same roles migration 0259 creates the dict on (DATA, plus INGESTION_EVENTS on
+    cloud where the WarpStream events MV evaluates dictGet), rather than every host — the
+    satellite clusters (ops/aux/sessions) never have the dmat_slot_assignments table.
     """
     rows: list[tuple[int, int, str]] = []
     for slot in (
@@ -304,9 +308,12 @@ def populate_slot_assignments(inputs: PopulateSlotAssignmentsInputs) -> Populate
     def reload(client) -> None:
         client.execute(reload_sql)
 
+    dict_roles = [NodeRole.DATA] + (
+        [NodeRole.INGESTION_EVENTS] if settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV") else []
+    )
     cluster = get_cluster()
-    populate_results = cluster.map_all_hosts(populate).result()
-    cluster.map_all_hosts(reload).result()
+    populate_results = cluster.map_hosts_by_roles(populate, dict_roles).result()
+    cluster.map_hosts_by_roles(reload, dict_roles).result()
 
     rows_written = next(iter(populate_results.values()), 0)
     logger.info(

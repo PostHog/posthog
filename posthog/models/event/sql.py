@@ -8,12 +8,14 @@ from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_EVENTS_JSON_WS,
     KAFKA_COLUMNS,
     STORAGE_POLICY,
+    json_extract_trim_quotes,
     kafka_engine,
     trim_quotes_expr,
 )
 from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
+from posthog.models.dmat_slot_assignments.sql import DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME
 
 
 def EVENTS_DATA_TABLE():
@@ -95,6 +97,26 @@ def ALTER_TABLE_ADD_DMAT_STRING_COLUMNS(table: str, start: int, end_exclusive: i
 
 def MV_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
     return ",\n".join(f"dmat_string_{i}" for i in range(DMAT_STRING_COLUMN_COUNT))
+
+
+def MV_DMAT_COMPUTED_COLUMNS() -> str:
+    """MV SELECT expressions that compute `dmat_string_<i>` from `properties` + `team_id` via the
+    dmat slot dictionary, instead of passing through a value provided by ingestion. This is what
+    lets ingestion stop writing dmat columns entirely — ClickHouse fills them at insert time.
+
+    The `(team_id, i)` key and the `json_extract_trim_quotes` coercion match
+    `_build_dict_backed_update_command` in the backfill activity byte-for-byte, so a row written
+    live by this MV is identical to the same row written by the historical backfill mutation.
+    `dictHas` guards the lookup: until a slot is assigned (or for slot-less teams) it returns 0 and
+    the column is left NULL, exactly as before."""
+    dict_name = f"{settings.CLICKHOUSE_DATABASE}.{DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME}"
+    pieces = []
+    for i in range(DMAT_STRING_COLUMN_COUNT):
+        key = f"(team_id, {i})"
+        property_name_expr = f"dictGetString('{dict_name}', 'property_name', {key})"
+        extract = json_extract_trim_quotes("properties", property_name_expr)
+        pieces.append(f"if(dictHas('{dict_name}', {key}), {extract}, NULL) AS `dmat_string_{i}`")
+    return ",\n".join(pieces)
 
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
@@ -222,9 +244,16 @@ def EVENTS_TABLE_JSON_MV_SQL(
     kafka_table="kafka_events_json",
     target_table=None,
     on_cluster=True,
+    compute_dmat=False,
 ):
     if target_table is None:
         target_table = WRITABLE_EVENTS_DATA_TABLE()
+
+    # When compute_dmat is set, the MV fills dmat_string_<i> itself (via the slot dictionary)
+    # rather than passing through a value written by ingestion. Defaults to off so the many
+    # frozen migrations that call this function keep producing the original pass-through MV
+    # and don't gain a dependency on the dmat dictionary existing at their point in history.
+    dmat_columns_select = MV_DMAT_COMPUTED_COLUMNS() if compute_dmat else MV_DYNAMICALLY_MATERIALIZED_COLUMNS()
 
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} {on_cluster_clause}
@@ -268,7 +297,7 @@ FROM {database}.{kafka_table}
         mv_name=mv_name,
         kafka_table=kafka_table,
         target_table=target_table,
-        dynamically_materialized_columns=MV_DYNAMICALLY_MATERIALIZED_COLUMNS(),
+        dynamically_materialized_columns=dmat_columns_select,
         on_cluster_clause=f"ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'" if on_cluster else "",
         database=settings.CLICKHOUSE_DATABASE,
     )
@@ -304,12 +333,20 @@ def KAFKA_EVENTS_TABLE_JSON_WS_SQL():
     )
 
 
-def EVENTS_TABLE_JSON_WS_MV_SQL():
+def EVENTS_TABLE_JSON_WS_MV_SQL(compute_dmat=False):
     return EVENTS_TABLE_JSON_MV_SQL(
         mv_name=EVENTS_JSON_WS_MV,
         kafka_table=KAFKA_EVENTS_JSON_WS_TABLE,
         on_cluster=False,
+        compute_dmat=compute_dmat,
     )
+
+
+def EVENTS_TABLE_JSON_MV_DMAT_SQL():
+    """Fresh-install / schema.py variant of the events MV: computes dmat_string columns from the
+    slot dictionary at insert time. Requires the dmat_slot_assignments dictionary to already
+    exist, so it must be ordered after the dictionary in schema setup (see posthog/conftest.py)."""
+    return EVENTS_TABLE_JSON_MV_SQL(compute_dmat=True)
 
 
 # Events recent tables
