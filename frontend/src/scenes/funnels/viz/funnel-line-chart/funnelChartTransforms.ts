@@ -3,7 +3,7 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import {
     buildTrendsLineTimeSeriesConfig,
     buildTrendsSeries,
-} from 'products/product_analytics/frontend/charts/trends-line-chart/trendsChartTransforms'
+} from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
 import type { GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithNestedBreakdown, IntervalType } from '~/types'

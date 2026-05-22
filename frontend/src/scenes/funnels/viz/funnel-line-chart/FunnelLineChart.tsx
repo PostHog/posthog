@@ -18,7 +18,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { isFunnelsQuery } from '~/queries/utils'
 import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
 
-import { AnnotationsLayer } from 'products/product_analytics/frontend/charts/shared/AnnotationsLayer'
+import { AnnotationsLayer } from 'products/product_analytics/frontend/insights/trends/shared/AnnotationsLayer'
 
 import { funnelDataLogic } from '../../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../../funnelPersonsModalLogic'
