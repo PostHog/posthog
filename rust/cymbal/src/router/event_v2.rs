@@ -32,11 +32,11 @@ use tracing::{debug, error, warn};
 use crate::{
     app_context::AppContext,
     metric_consts::{
-        DISPOSITIONS_EMITTED_TOTAL, ERRORS, PROCESS_BATCH_EVENTS, PROCESS_REQUESTS_TOTAL,
+        DISPOSITIONS_EMITTED_TOTAL, PROCESS_BATCH_EVENTS, PROCESS_REQUESTS_TOTAL,
         PROCESS_REQUEST_DURATION_SECONDS,
     },
     router::{
-        event::{get_request_id, ProcessEventsError, ProcessInFlightGuard},
+        event::{get_request_id, ProcessEndpoint, ProcessEventCapacityGuard, ProcessEventsError},
         event_disposition_processor::PerEventDispositionProcessor,
     },
     stages::{
@@ -54,7 +54,6 @@ pub async fn resolve_events_v2(
     headers: HeaderMap,
     Json(events): Json<Vec<AnyEvent>>,
 ) -> Result<Json<Vec<EventDisposition>>, ProcessEventsError> {
-    let _in_flight = ProcessInFlightGuard::start();
     let request_id = get_request_id(&headers);
     let started_at = Instant::now();
 
@@ -74,35 +73,13 @@ pub async fn resolve_events_v2(
         "Started /v2/resolve request"
     );
 
-    // Same backpressure semaphore as /process — when the in-flight limit is
-    // hit, this request is rejected with 429. This is the path cymbal uses
-    // to tell the client to back off; the inner CB on the client side will
-    // pick it up the same way it does for the legacy endpoint.
-    let _permit = ctx
-        .process_request_limiter
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| {
-            // Mirror legacy `/process` so existing alerts on
-            // `cymbal_errors{cause="process_backpressure"}` and
-            // `cymbal_process_requests_total{outcome="error", status_class="4xx"}`
-            // pick up v2 backpressure too.
-            metrics::counter!(ERRORS, "cause" => "process_backpressure").increment(1);
-            metrics::counter!(
-                PROCESS_REQUESTS_TOTAL,
-                "outcome" => "error",
-                "status_class" => "4xx",
-                "endpoint" => "v2"
-            )
-            .increment(1);
-            warn!(
-                request_id = %request_id,
-                batch_event_count,
-                team_count,
-                "Rejected /v2/resolve request due to backpressure"
-            );
-            ProcessEventsError::Backpressure
-        })?;
+    let _capacity = ProcessEventCapacityGuard::try_start(
+        &ctx,
+        ProcessEndpoint::ResolveV2,
+        &request_id,
+        batch_event_count,
+        team_count,
+    )?;
 
     // Deadlines: per-event budget caps how long any single event can take,
     // and the request deadline bounds the whole call. Per-event deadlines

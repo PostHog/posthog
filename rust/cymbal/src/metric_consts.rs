@@ -86,6 +86,7 @@ pub const JAVA_EXCEPTION_REMAP_FAILED: &str = "cymbal_java_exception_remap_faile
 pub const PROCESS_REQUESTS_TOTAL: &str = "cymbal_process_requests_total";
 pub const PROCESS_REQUEST_DURATION_SECONDS: &str = "cymbal_process_request_duration_seconds";
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
+// Gauge of events currently admitted by the HTTP processing backpressure limiter.
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
 
 // Disposition-based /v2/resolve observability. These count individual event

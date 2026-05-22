@@ -39,7 +39,7 @@ pub struct AppContext {
     pub catalog: Arc<Catalog>,
     pub symbol_resolver: Arc<dyn SymbolResolver>,
     pub symbol_resolution_limiter: Arc<Semaphore>,
-    pub process_request_limiter: Arc<Semaphore>,
+    pub process_event_limiter: Arc<Semaphore>,
     pub config: Config,
 
     pub team_manager: TeamManager,
@@ -203,8 +203,8 @@ impl AppContext {
         ));
         let symbol_resolution_limiter =
             Arc::new(Semaphore::new(config.symbol_resolution_concurrency.max(1)));
-        let process_request_limiter =
-            Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
+        let process_event_limiter =
+            Arc::new(Semaphore::new(config.process_max_in_flight_events.max(1)));
 
         let issue_cache = CacheBuilder::new(1000)
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
@@ -218,7 +218,7 @@ impl AppContext {
             catalog,
             config: config.clone(),
             symbol_resolution_limiter,
-            process_request_limiter,
+            process_event_limiter,
             team_manager,
             issue_buckets_redis_client,
             signal_client,

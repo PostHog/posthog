@@ -10,6 +10,7 @@ use reqwest::StatusCode;
 use uuid::Uuid;
 
 use serde_json::json;
+use tokio::sync::OwnedSemaphorePermit;
 use tracing::{debug, error, warn};
 
 use crate::{
@@ -23,18 +24,103 @@ use crate::{
     types::{batch::Batch, event::AnyEvent, stage::Stage},
 };
 
-pub(super) struct ProcessInFlightGuard;
+struct ProcessInFlightGuard {
+    event_count: usize,
+}
 
 impl ProcessInFlightGuard {
-    pub(super) fn start() -> Self {
-        metrics::gauge!(PROCESS_IN_FLIGHT).increment(1.0);
-        Self
+    pub(super) fn start(event_count: usize) -> Self {
+        metrics::gauge!(PROCESS_IN_FLIGHT).increment(event_count as f64);
+        Self { event_count }
     }
 }
 
 impl Drop for ProcessInFlightGuard {
     fn drop(&mut self) {
-        metrics::gauge!(PROCESS_IN_FLIGHT).decrement(1.0);
+        metrics::gauge!(PROCESS_IN_FLIGHT).decrement(self.event_count as f64);
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum ProcessEndpoint {
+    LegacyProcess,
+    ResolveV2,
+}
+
+impl ProcessEndpoint {
+    fn path(self) -> &'static str {
+        match self {
+            Self::LegacyProcess => "/process",
+            Self::ResolveV2 => "/v2/resolve",
+        }
+    }
+
+    fn metric_endpoint(self) -> Option<&'static str> {
+        match self {
+            Self::LegacyProcess => None,
+            Self::ResolveV2 => Some("v2"),
+        }
+    }
+}
+
+pub(super) struct ProcessEventCapacityGuard {
+    _in_flight: ProcessInFlightGuard,
+    _permit: Option<OwnedSemaphorePermit>,
+}
+
+impl ProcessEventCapacityGuard {
+    pub(super) fn try_start(
+        ctx: &Arc<AppContext>,
+        endpoint: ProcessEndpoint,
+        request_id: &str,
+        batch_event_count: usize,
+        team_count: usize,
+    ) -> Result<Self, ProcessEventsError> {
+        let permit_count = u32::try_from(batch_event_count).unwrap_or(u32::MAX);
+        let permit = if permit_count == 0 {
+            None
+        } else {
+            Some(
+                ctx.process_event_limiter
+                    .clone()
+                    .try_acquire_many_owned(permit_count)
+                    .map_err(|_| {
+                        metrics::counter!(ERRORS, "cause" => "process_backpressure").increment(1);
+                        match endpoint.metric_endpoint() {
+                            Some(endpoint_label) => {
+                                metrics::counter!(
+                                    PROCESS_REQUESTS_TOTAL,
+                                    "outcome" => "error",
+                                    "status_class" => "4xx",
+                                    "endpoint" => endpoint_label
+                                )
+                                .increment(1);
+                            }
+                            None => {
+                                metrics::counter!(
+                                    PROCESS_REQUESTS_TOTAL,
+                                    "outcome" => "error",
+                                    "status_class" => "4xx"
+                                )
+                                .increment(1);
+                            }
+                        }
+                        warn!(
+                            request_id,
+                            batch_event_count,
+                            team_count,
+                            endpoint = endpoint.path(),
+                            "Rejected HTTP processing request due to event backpressure"
+                        );
+                        ProcessEventsError::Backpressure
+                    })?,
+            )
+        };
+
+        Ok(Self {
+            _in_flight: ProcessInFlightGuard::start(batch_event_count),
+            _permit: permit,
+        })
     }
 }
 
@@ -72,8 +158,8 @@ impl IntoResponse for ProcessEventsError {
             ProcessEventsError::Backpressure => (
                 StatusCode::TOO_MANY_REQUESTS,
                 Json(json!({
-                    "error": "Too many in-flight /process requests",
-                    "details": "Backpressure limit reached, retry later",
+                    "error": "Too many in-flight /process events",
+                    "details": "Event backpressure limit reached, retry later",
                 })),
             )
                 .into_response(),
@@ -106,7 +192,6 @@ pub async fn process_events(
     headers: HeaderMap,
     Json(events): Json<Vec<AnyEvent>>,
 ) -> Result<Batch<Option<AnyEvent>>, ProcessEventsError> {
-    let _in_flight = ProcessInFlightGuard::start();
     let request_id = get_request_id(&headers);
     let started_at = Instant::now();
 
@@ -126,26 +211,13 @@ pub async fn process_events(
         "Started /process request"
     );
 
-    let _permit = ctx
-        .process_request_limiter
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| {
-            metrics::counter!(ERRORS, "cause" => "process_backpressure").increment(1);
-            metrics::counter!(
-                PROCESS_REQUESTS_TOTAL,
-                "outcome" => "error",
-                "status_class" => "4xx"
-            )
-            .increment(1);
-            warn!(
-                request_id = %request_id,
-                batch_event_count,
-                team_count,
-                "Rejected /process request due to backpressure"
-            );
-            ProcessEventsError::Backpressure
-        })?;
+    let _capacity = ProcessEventCapacityGuard::try_start(
+        &ctx,
+        ProcessEndpoint::LegacyProcess,
+        &request_id,
+        batch_event_count,
+        team_count,
+    )?;
 
     let slow_log_threshold_ms = ctx.config.process_slow_log_threshold_ms;
     // Legacy /process flow: no shared batch cache (each call gets its own

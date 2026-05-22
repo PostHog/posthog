@@ -123,10 +123,11 @@ pub struct Config {
     #[envconfig(default = "64")]
     pub symbol_resolution_concurrency: usize,
 
-    // Maximum number of in-flight /process requests accepted by the API.
-    // Requests above this limit are rejected with 429 to apply backpressure.
-    #[envconfig(default = "128")]
-    pub process_max_in_flight_requests: usize,
+    // Maximum number of in-flight events accepted by the HTTP processing API.
+    // Requests whose full batch cannot fit under this limit are rejected with
+    // 429 to apply backpressure.
+    #[envconfig(default = "1000")]
+    pub process_max_in_flight_events: usize,
 
     #[envconfig(default = "60000")]
     pub process_slow_log_threshold_ms: u64,

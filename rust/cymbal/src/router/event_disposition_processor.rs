@@ -1,6 +1,6 @@
 use std::{panic::AssertUnwindSafe, sync::Arc, time::Duration};
 
-use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
+use futures::{stream, FutureExt, StreamExt};
 use moka::future::Cache;
 use tokio::time::Instant;
 use tracing::warn;
@@ -53,8 +53,10 @@ impl PerEventDispositionProcessor {
     }
 
     /// Drive every event through its own isolated pipeline invocation and
-    /// collect the dispositions. Each event gets the same deadline budget but
-    /// runs concurrently with the others.
+    /// collect the dispositions. Each event gets the same deadline budget.
+    /// Concurrency is capped by `batch_apply_concurrency`, matching the
+    /// existing batch-stage fan-out limit so a single request cannot spawn
+    /// unbounded DB/S3/Redis-capable work.
     ///
     /// If the request deadline elapses first, completed event dispositions are
     /// preserved and only unfinished positions get a `retry/deadline_exceeded`
@@ -70,12 +72,14 @@ impl PerEventDispositionProcessor {
         }
 
         let now = Instant::now();
-        let mut futures = FuturesUnordered::new();
-        for (index, event) in events.into_iter().enumerate() {
+        let concurrency_limit = self.ctx.config.batch_apply_concurrency.max(1);
+        let futures = stream::iter(events.into_iter().enumerate().map(|(index, event)| {
             let deadline = (now + self.per_event_budget).min(request_deadline);
             let processor = self.clone();
-            futures.push(async move { (index, processor.process_one(event, deadline).await) });
-        }
+            async move { (index, processor.process_one(event, deadline).await) }
+        }))
+        .buffered(concurrency_limit);
+        tokio::pin!(futures);
 
         let mut dispositions: Vec<Option<EventDisposition>> = vec![None; event_count];
         let mut remaining = event_count;

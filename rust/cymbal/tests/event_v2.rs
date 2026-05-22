@@ -18,9 +18,9 @@
 //!   batch: needs the ability to make `S3::get` fail for a specific
 //!   sourcemap key only. Achievable but requires extending `MockS3Client`
 //!   with per-key behaviour. Tracked as follow-up.
-//! - Backpressure → 429: `Semaphore::new(config.process_max_in_flight_requests.max(1))`
+//! - Backpressure → 429: `Semaphore::new(config.process_max_in_flight_events.max(1))`
 //!   in `AppContext::new` floors the semaphore at 1 permit, so a single
-//!   request never hits backpressure. Driving the path needs the test to
+//!   event request never hits backpressure. Driving the path needs the test to
 //!   pre-acquire the permit before posting, which requires reaching into
 //!   the constructed `AppContext` — not exposed by the current test
 //!   harness. Code path is identical to the legacy `/process` flow, which
