@@ -258,7 +258,9 @@ class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
         db_table = "posthog_experimentsavedmetric"
 
 
-class ExperimentToSavedMetric(models.Model):
+class ExperimentToSavedMetric(ModelActivityMixin, models.Model):
+    activity_logging_on_delete = True
+
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     saved_metric = models.ForeignKey("ExperimentSavedMetric", on_delete=models.CASCADE)
 

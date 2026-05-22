@@ -601,7 +601,8 @@ def send_batch_export_run_failure(
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-    from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
@@ -669,7 +670,8 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
-    from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if not is_email_available(with_absolute_urls=True):
         return

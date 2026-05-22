@@ -139,7 +139,7 @@ async function buildEventTags(identity: IdentityProvider): Promise<Record<string
     }
 }
 
-async function buildEventProperties(identity: IdentityProvider): Promise<Record<string, unknown>> {
+export async function buildEventProperties(identity: IdentityProvider): Promise<Record<string, unknown>> {
     const [
         mcpVersion,
         clientUserAgent,
@@ -200,7 +200,7 @@ async function buildEventProperties(identity: IdentityProvider): Promise<Record<
     }
 }
 
-function redactSensitiveInformation(text: string): string {
+export function redactSensitiveInformation(text: string): string {
     return text.replace(/Bearer\s?[\w\-.]+/g, '<redacted>')
 }
 

@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
@@ -125,6 +125,8 @@ interface DataTableProps {
     dataAttr?: string
     /** Attach ourselves to another logic, such as the scene logic */
     attachTo?: BuiltLogic | LogicWrapper
+    /** Owning internal tab; used to scope per-tab UI state across tab unmounts */
+    tabId?: string
 }
 
 const eventGroupTypes = [
@@ -146,6 +148,7 @@ export function DataTable({
     readOnly,
     dataAttr,
     attachTo,
+    tabId,
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -193,14 +196,22 @@ export function DataTable({
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
-        vizKey,
+        vizKey: uniqueKey ? String(uniqueKey) : vizKey,
         dataKey,
         dataNodeLogicKey: dataNodeLogicProps.key,
         context,
+        tabId,
     }
-    const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
-        dataTableLogic(dataTableLogicProps)
-    )
+    const {
+        dataTableRows,
+        columnsInQuery,
+        columnsInResponse,
+        queryWithDefaults,
+        canSort,
+        sourceFeatures,
+        expandedRows,
+    } = useValues(dataTableLogic(dataTableLogicProps))
+    const { toggleRowExpanded } = useActions(dataTableLogic(dataTableLogicProps))
 
     useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
     useAttachedLogic(dataTableLogic(dataTableLogicProps), attachTo)
@@ -928,6 +939,14 @@ export function DataTable({
                                         ? context.expandable
                                         : expandable && columnsInResponse?.includes('*')
                                           ? {
+                                                ...(tabId !== undefined
+                                                    ? {
+                                                          isRowExpanded: (_, rowIndex) =>
+                                                              expandedRows.includes(rowIndex),
+                                                          onRowExpand: (_, rowIndex) => toggleRowExpanded(rowIndex),
+                                                          onRowCollapse: (_, rowIndex) => toggleRowExpanded(rowIndex),
+                                                      }
+                                                    : {}),
                                                 expandedRowRender: function renderExpand({ result }) {
                                                     if (
                                                         (isEventsQuery(query.source) ||

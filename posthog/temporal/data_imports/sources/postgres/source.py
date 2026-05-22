@@ -6,7 +6,7 @@ from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -481,7 +481,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 

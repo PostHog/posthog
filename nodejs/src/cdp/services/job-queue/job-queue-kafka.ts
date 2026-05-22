@@ -14,7 +14,7 @@ import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { JobQueue } from './job-queue.interface'
-import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer } from './shared'
+import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 export class CyclotronJobQueueKafka implements JobQueue {
     private kafkaConsumer?: KafkaConsumerInterface
@@ -28,7 +28,8 @@ export class CyclotronJobQueueKafka implements JobQueue {
         private config: Pick<
             CdpConfig,
             'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA' | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
-        >
+        >,
+        private consumerBatchSize: number
     ) {
         this.sanitizer = createInvocationSanitizer(config)
     }
@@ -163,6 +164,12 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
     private async consumeKafkaBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
         if (messages.length === 0) {
+            observeConsumedBatch({
+                queue: this.queue!,
+                source: 'kafka',
+                batchSize: 0,
+                maxBatchSize: this.consumerBatchSize,
+            })
             return await this.consumeBatch!([])
         }
 
@@ -183,6 +190,13 @@ export class CyclotronJobQueueKafka implements JobQueue {
             invocation.queueSource = 'kafka' // NOTE: We always set this here, as we know it came from kafka
             invocations.push(invocation)
         }
+
+        observeConsumedBatch({
+            queue: this.queue!,
+            source: 'kafka',
+            batchSize: invocations.length,
+            maxBatchSize: this.consumerBatchSize,
+        })
 
         return await this.consumeBatch!(invocations)
     }

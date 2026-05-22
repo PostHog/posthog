@@ -95,10 +95,6 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             this.clickhouseClient,
             this.hogFunctionManager,
             this.hogFlowManager,
-            // Used at rerun time to rebuild `inputs` (the templated/resolved
-            // input bundle including secrets) from the current hog function
-            // config, since we strip `inputs` from the persisted globals.
-            this.hogInputsService,
             this.invocationResultsService.invocationResultsRowsService,
             this.jobQueues,
             this.invocationResultsService.monitoringService,
