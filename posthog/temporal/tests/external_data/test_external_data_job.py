@@ -361,14 +361,14 @@ def test_sync_new_schemas_activity_classifies_source_errors(
         side_effect=Exception(error_msg),
     ):
         if expect_non_retryable:
-            with pytest.raises(NonRetryableException) as exc_info:
+            with pytest.raises(NonRetryableException) as non_retryable_exc:
                 activity_environment.run(sync_new_schemas_activity, inputs)
-            assert isinstance(exc_info.value.__cause__, Exception)
-            assert error_msg in str(exc_info.value.__cause__)
+            assert isinstance(non_retryable_exc.value.__cause__, Exception)
+            assert error_msg in str(non_retryable_exc.value.__cause__)
         else:
-            with pytest.raises(Exception, match=error_msg) as exc_info:
+            with pytest.raises(Exception, match=error_msg) as retryable_exc:
                 activity_environment.run(sync_new_schemas_activity, inputs)
-            assert not isinstance(exc_info.value, NonRetryableException)
+            assert not isinstance(retryable_exc.value, NonRetryableException)
 
 
 @pytest.mark.django_db(transaction=True)
