@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_oauth_access_token
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS
 from posthog.utils import get_instance_region
 
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
@@ -14,80 +15,34 @@ ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
 McpScopePreset = Literal["read_only", "full", "signals_scout"]
 
 
-# Scopes matching the MCP server's OAUTH_SCOPES_SUPPORTED (services/mcp/src/lib/constants.ts),
-# excluding OAuth auth scopes (openid, profile, email, introspection).
-MCP_READ_SCOPES: list[str] = [
-    "action:read",
-    "activity_log:read",
-    "alert:read",
-    "annotation:read",
-    "approvals:read",
-    "cohort:read",
-    "comment:read",
-    "dashboard:read",
-    "early_access_feature:read",
-    "endpoint:read",
-    "error_tracking:read",
-    "evaluation:read",
-    "event_definition:read",
-    "experiment:read",
-    "external_data_source:read",
-    "feature_flag:read",
-    "group:read",
-    "hog_flow:read",
-    "hog_function:read",
-    "insight:read",
-    "insight_variable:read",
-    "integration:read",
-    "llm_analytics:read",
-    "llm_prompt:read",
-    "llm_skill:read",
-    "logs:read",
-    "notebook:read",
-    "organization:read",
-    "organization_member:read",
-    "person:read",
-    "project:read",
-    "property_definition:read",
-    "query:read",
-    "session_recording:read",
-    "session_recording_playlist:read",
-    "signal_scout:read",
-    "subscription:read",
-    "survey:read",
-    "task:read",
-    "ticket:read",
-    "tracing:read",
-    "usage_metric:read",
-    "user:read",
-    "warehouse_table:read",
-    "warehouse_view:read",
-    "web_analytics:read",
-]
-
-MCP_WRITE_SCOPES: list[str] = [
-    "action:write",
-    "cohort:write",
-    "dashboard:write",
-    "error_tracking:write",
-    "event_definition:write",
-    "experiment:write",
-    "feature_flag:write",
-    "insight:write",
-    "insight_variable:write",
-    "llm_prompt:write",
-    "notebook:write",
-    "survey:write",
-]
-
 INTERNAL_SCOPES: list[str] = [
     "task:write",
     "llm_gateway:read",
-    # Writes for the Signals agent harness — sandbox-only because the scope object
+    # Writes for the Signals scout harness — sandbox-only because the scope object
     # is in `INTERNAL_API_SCOPE_OBJECTS` and so cannot be minted via the personal
     # API key UI. Reads use the public `signal_scout:read` scope.
     "signal_scout_internal:write",
 ]
+
+
+# Derived from posthog.scopes so the token issued to a sandboxed agent cannot
+# drift out of subset of what the MCP server advertises in
+# `services/mcp/src/lib/oauth-scopes.generated.ts` (itself generated from
+# `get_oauth_scopes_supported()` via `bin/build-mcp-oauth-scopes.py`). Scopes
+# already covered by INTERNAL_SCOPES are excluded so resolve_scopes() doesn't
+# emit duplicates.
+def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
+    excluded_objects = INTERNAL_API_SCOPE_OBJECTS | OAUTH_HIDDEN_SCOPE_OBJECTS
+    internal_set = set(INTERNAL_SCOPES)
+    return [
+        f"{obj}:{action}"
+        for obj in API_SCOPE_OBJECTS
+        if obj not in excluded_objects and f"{obj}:{action}" not in internal_set
+    ]
+
+
+MCP_READ_SCOPES: list[str] = _build_mcp_scopes("read")
+MCP_WRITE_SCOPES: list[str] = _build_mcp_scopes("write")
 
 TOKEN_EXPIRATION_SECONDS = 60 * 60 * 6  # 6 hours
 
@@ -100,23 +55,26 @@ def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_s
     internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
         if scopes == "full":
-            return [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
-        # "read_only" and "signals_scout" share the same scope content (reads + internal).
-        # The difference is in `has_write_scopes`: "signals_scout" reports True so the MCP
-        # server doesn't enable read-only mode, which would otherwise filter out the
-        # agent's own internal-write tools (`signal_scout_internal:write` is annotated as
-        # not-read-only and would be stripped by the read-only filter regardless of scope).
-        return [*MCP_READ_SCOPES, *internal]
-    return [*scopes, *internal]
+            resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
+        else:
+            # "read_only" and "signals_scout" share the same scope content (reads + internal).
+            # The difference is in `has_write_scopes`: "signals_scout" reports True so the MCP
+            # server doesn't enable read-only mode, which would otherwise filter out the
+            # agent's own internal-write tools (`signal_scout_internal:write` is annotated as
+            # not-read-only and would be stripped by the read-only filter regardless of scope).
+            resolved = [*MCP_READ_SCOPES, *internal]
+    else:
+        resolved = [*scopes, *internal]
+    return list(dict.fromkeys(resolved))
 
 
 def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
     if isinstance(scopes, str):
         # `signals_scout` reports True so the MCP server doesn't enable read-only mode for
         # the harness sandbox — the agent IS allowed to call its own internal-write tools
-        # (memory create/delete, runs findings create) even though it has no user-facing
-        # write scopes. Read-only mode is a tool-annotation filter, not a scope filter,
-        # and would strip those tools categorically without this opt-out.
+        # (remember, forget, emit_finding) even though it has no user-facing write scopes.
+        # Read-only mode is a tool-annotation filter, not a scope filter, and would strip
+        # those tools categorically without this opt-out.
         return scopes in ("full", "signals_scout")
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 
