@@ -8,7 +8,12 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 
 
 class ExecuteSQLMCPToolArgs(BaseModel):
-    query: str = Field(description="The final SQL query to be executed.")
+    query: str = Field(
+        description=(
+            "The final SQL query to be executed. Queries are scoped to the current project by default; "
+            "use `team_id` only for explicit per-project filtering or breakdowns."
+        )
+    )
     truncate: bool = Field(
         default=True,
         description="Whether to truncate large blob/JSON values in results. Set to false for full untruncated results.",
