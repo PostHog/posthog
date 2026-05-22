@@ -166,7 +166,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     const parsedHref = typeof href === 'function' ? href(attributes) : href
 
-    // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
+    // Element is resizable if resizable is set to true. If expandable is set to true then it is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
     const isDraggable = !!(isEditable && getPos)
     const isPythonNode = nodeType === NotebookNodeType.Python

@@ -471,7 +471,7 @@ export function LemonInputSelect<T = string>({
             let indexOfValue = values.indexOf(typedValue)
             if (indexOfValue > -1) {
                 if (itemBeingEditedIndex !== null && itemBeingEditedIndex < indexOfValue) {
-                    // If already editing an item that's earlier in the list the the one we're about to edit,
+                    // If already editing an item that's earlier in the list than the one we're about to edit,
                     // we need to adjust the index by 1
                     indexOfValue += 1
                 }

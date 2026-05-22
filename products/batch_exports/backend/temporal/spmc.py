@@ -159,7 +159,7 @@ async def wait_for_schema_or_producer(queue: RecordBatchQueue, producer_task: as
 
     if get_schema_task.done():
         # The schema is available, and the queue is not empty, so we can continue
-        # with the rest of the the batch export.
+        # with the rest of the batch export.
         record_batch_schema = get_schema_task.result()
     else:
         # We finished producing without putting anything in the queue and there is

@@ -100,7 +100,7 @@ export function asDisplay(
 
     // Force return of the UUID truncated to 22 characters (unless maxLength is specified)
     // 0199ed4a-5c03-0000-3220-df21df612e95 => 0199ed4a-5c…21df612e95
-    // Which keeps the the timestamp at the beginning of the UUID and a unique identifier at the end.
+    // Which keeps the timestamp at the beginning of the UUID and a unique identifier at the end.
     if (truncateIdUUID && display && isUUIDLike(display)) {
         return midEllipsis(display, maxLength || 22)
     }

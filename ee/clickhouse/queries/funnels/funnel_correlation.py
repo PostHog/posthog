@@ -119,7 +119,7 @@ class FunnelCorrelation:
             if not key.startswith("funnel_correlation_")
         }
         # NOTE: we always use the final matching event for the recording because this
-        # is the the right event for both drop off and successful funnels
+        # is the right event for both drop off and successful funnels
         filter_data.update({"include_final_matching_events": self._filter.include_recordings})
         filter = Filter(data=filter_data, hogql_context=self._filter.hogql_context)
 

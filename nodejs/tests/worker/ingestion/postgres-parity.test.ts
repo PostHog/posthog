@@ -497,7 +497,7 @@ describe('postgres parity', () => {
 
         await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(postgresPerson), 1)
 
-        // move distinct ids from person to to anotherPerson
+        // move distinct ids from person to anotherPerson
         const moveDistinctIdsResult = await personRepository.moveDistinctIds(person, anotherPerson, undefined)
         expect(moveDistinctIdsResult.success).toEqual(true)
 

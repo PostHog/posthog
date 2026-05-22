@@ -74,7 +74,7 @@ export function SceneTabs(): JSX.Element {
                 </ButtonPrimitive>
             )}
 
-            {/* Line below tabs to to complete border on <main> element */}
+            {/* Line below tabs to complete border on <main> element */}
             <div className="absolute bottom-0 w-full px-[5px] lg:pr-2">
                 <div className="w-full bottom-0 h-px border-b border-primary z-10" />
             </div>

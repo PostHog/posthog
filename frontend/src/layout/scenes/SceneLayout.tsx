@@ -22,7 +22,7 @@ type SceneLayoutProps = {
 export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Element {
     const { scenePanelElement } = useValues(sceneLayoutLogic)
     const { setScenePanelIsPresent } = useActions(sceneLayoutLogic)
-    // HACKY: Show the panel only if this element in in the DOM
+    // HACKY: Show the panel only if this element is in the DOM
     useEffect(() => {
         setScenePanelIsPresent(true)
         return () => {

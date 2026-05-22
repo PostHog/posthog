@@ -338,7 +338,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
     def _calculate(self) -> TraceSpansQueryResponse:
         limit_by_n = self.query.prefetchSpans or 1
         query = self.to_query()
-        # original pagination settings are locked in in the trace id subquery already
+        # original pagination settings are locked in the trace id subquery already
         # override limit to allow for N * limit for the trace spans
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
