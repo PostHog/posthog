@@ -1913,7 +1913,7 @@ def snapshot_hogql_queries(fn_or_class):
 
         # Add patches for modules that import execute_hogql_query directly
         try:
-            from posthog.hogql_queries.web_analytics import web_overview
+            from products.web_analytics.backend.hogql_queries import web_overview
 
             if hasattr(web_overview, "execute_hogql_query"):
                 patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
@@ -1921,7 +1921,7 @@ def snapshot_hogql_queries(fn_or_class):
             pass
 
         try:
-            from posthog.hogql_queries.web_analytics import stats_table
+            from products.web_analytics.backend.hogql_queries import stats_table
 
             if hasattr(stats_table, "execute_hogql_query"):
                 patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))

@@ -6,7 +6,8 @@ import { type BarRect, drawBarHighlight, drawBars, drawGrid, type DrawContext } 
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
-    buildStackedResolveValue,
+    buildSegmentResolveValue,
+    buildStackedPositionValue,
     computePercentStackData,
     computeStackData,
     createBarScales,
@@ -300,7 +301,10 @@ function BarChartInner<Meta = unknown>({
         [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, barCornerRadius]
     )
 
-    const resolveValue = useMemo(() => buildStackedResolveValue(stackedData), [stackedData])
+    // Show each series's own segment value (resolveValue) but anchor the tooltip/value labels
+    // at the stacked top (resolvePositionValue) so a stacked bar doesn't read as a running total.
+    const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
+    const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
 
     return (
         <Chart
@@ -325,6 +329,7 @@ function BarChartInner<Meta = unknown>({
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
+            resolvePositionValue={resolvePositionValue}
         >
             {children}
         </Chart>

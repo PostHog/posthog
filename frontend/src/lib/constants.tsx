@@ -439,6 +439,7 @@ export const FEATURE_FLAGS = {
     PROVISION_MANAGED_WAREHOUSE_BETA: 'provision-managed-warehouse-beta', // owner: @EDsCODE #team-managed-warehouse
     QUICK_START_PULSE_INDICATOR: 'quick-start-pulse-indicator', // owner: @fercgomes #team-growth multivariate=control,test
     RBAC_UI_REDESIGN: 'rbac-ui-redesign', // owner: @reece #team-platform-features
+    READ_ONLY_MODE: 'read-only-mode', // owner: @pauldambra, experiment: force users into read-only and steer mutations through Max/MCP
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
     REALTIME_COHORT_FLAG_TARGETING: 'realtime-cohort-flag-targeting', // owner: @dmarticus #team-feature-flags
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
@@ -523,7 +524,15 @@ export const FEATURE_FLAGS = {
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
-export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS)
+// Flags that affect globally-mounted UI (e.g. floating widgets in
+// AuthenticatedShell). Scene stories that opt into STORYBOOK_FEATURE_FLAGS
+// shouldn't accidentally enable these, because the resulting widgets render
+// in every snapshot and pollute visual regression.
+const STORYBOOK_OPT_OUT_FLAGS: FeatureFlagKey[] = [FEATURE_FLAGS.READ_ONLY_MODE]
+
+export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
+    (flag) => !STORYBOOK_OPT_OUT_FLAGS.includes(flag)
+)
 
 export const INSIGHT_VISUAL_ORDER = {
     trends: 10,
