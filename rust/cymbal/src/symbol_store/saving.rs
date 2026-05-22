@@ -203,13 +203,19 @@ where
         // Try lookup keys in priority order — for an `OrChunkId::Both`, this means the chunk
         // id (authoritative, upload-API namespace) wins over the URL (capture-cached). A stale
         // failure under one key falls through to the next; a fresh failure or data short-circuits.
+        // `DB_HITS` is bumped at most once per fetch (on the first row found) regardless of
+        // how many lookup refs we probe — multi-ref lookups must not inflate the counter.
+        let mut hit_counted = false;
         for lookup_ref in &lookup_refs {
             info!("Fetching symbol set data for {}", lookup_ref);
             let Some(mut record) = SymbolSetRecord::load(&self.pool, team_id, lookup_ref).await?
             else {
                 continue;
             };
-            metrics::counter!(SYMBOL_SET_DB_HITS).increment(1);
+            if !hit_counted {
+                metrics::counter!(SYMBOL_SET_DB_HITS).increment(1);
+                hit_counted = true;
+            }
 
             if let Some(storage_ptr) = record.storage_ptr.clone() {
                 info!("Found s3 saved symbol set data for {}", lookup_ref);
