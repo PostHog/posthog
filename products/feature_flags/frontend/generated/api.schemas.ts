@@ -914,6 +914,149 @@ export interface FeatureFlagVersionResponseApi {
 }
 
 /**
+ * * `true` - true
+ * `false` - false
+ * `STALE` - STALE
+ */
+export type ActiveEnumApi = (typeof ActiveEnumApi)[keyof typeof ActiveEnumApi]
+
+export const ActiveEnumApi = {
+    True: 'true',
+    False: 'false',
+    Stale: 'STALE',
+} as const
+
+/**
+ * * `boolean` - boolean
+ * `multivariant` - multivariant
+ * `experiment` - experiment
+ * `remote_config` - remote_config
+ */
+export type BulkDeleteFiltersTypeEnumApi =
+    (typeof BulkDeleteFiltersTypeEnumApi)[keyof typeof BulkDeleteFiltersTypeEnumApi]
+
+export const BulkDeleteFiltersTypeEnumApi = {
+    Boolean: 'boolean',
+    Multivariant: 'multivariant',
+    Experiment: 'experiment',
+    RemoteConfig: 'remote_config',
+} as const
+
+/**
+ * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
+ */
+export interface BulkDeleteFiltersApi {
+    /** Filter by active state.
+
+  * `true` - true
+  * `false` - false
+  * `STALE` - STALE */
+    active?: ActiveEnumApi
+    /** Filter to flags created by a specific user ID. */
+    created_by_id?: number
+    /** Search by feature flag key or name (case-insensitive). */
+    search?: string
+    /** Filter by flag type.
+
+  * `boolean` - boolean
+  * `multivariant` - multivariant
+  * `experiment` - experiment
+  * `remote_config` - remote_config */
+    type?: BulkDeleteFiltersTypeEnumApi
+    /** Filter by evaluation runtime.
+
+  * `server` - Server
+  * `client` - Client
+  * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi
+    /** JSON-encoded property filter to exclude. Same shape as the list endpoint. */
+    excluded_properties?: string
+    /** Tag names to filter by. Flags carrying at least one of these tags match. */
+    tags?: string[]
+    /** When true, only matches flags with at least one evaluation context. */
+    has_evaluation_contexts?: boolean
+}
+
+export interface BulkDeleteRequestApi {
+    /** Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs. */
+    filters?: BulkDeleteFiltersApi
+    /** Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`. */
+    ids?: number[]
+}
+
+/**
+ * * `fully_rolled_out` - fully_rolled_out
+ * `not_rolled_out` - not_rolled_out
+ * `partial` - partial
+ */
+export type RolloutStateEnumApi = (typeof RolloutStateEnumApi)[keyof typeof RolloutStateEnumApi]
+
+export const RolloutStateEnumApi = {
+    FullyRolledOut: 'fully_rolled_out',
+    NotRolledOut: 'not_rolled_out',
+    Partial: 'partial',
+} as const
+
+export interface BulkDeleteDeletedItemApi {
+    /** ID of the soft-deleted flag. */
+    id: number
+    /** The flag key at the time of deletion. */
+    key: string
+    /** Rollout state captured before deletion.
+
+  * `fully_rolled_out` - fully_rolled_out
+  * `not_rolled_out` - not_rolled_out
+  * `partial` - partial */
+    rollout_state: RolloutStateEnumApi
+    /**
+     * Variant key when a multivariate flag was fully rolled out to a single variant; otherwise null.
+     * @nullable
+     */
+    active_variant: string | null
+}
+
+export interface BulkDeleteErrorItemApi {
+    /** Feature flag ID — integer for valid inputs; the original raw value for invalid inputs. */
+    id: unknown
+    /** The flag key, when known. */
+    key?: string
+    /** Human-readable reason the flag could not be deleted. */
+    reason: string
+}
+
+/**
+ * Schema-only — referenced from ``@extend_schema(responses=...)`` to describe the wire format.
+Never instantiate this for validation or call ``.is_valid()`` / ``.errors`` on it: the
+declared ``errors`` field shadows DRF's inherited ``Serializer.errors`` ReturnDict property,
+so accessing ``serializer.errors`` would return this field descriptor instead of validation
+errors. The handler builds the response dict directly; this class exists only so drf-spectacular
+can render the response in the OpenAPI spec and downstream generated clients.
+ */
+export interface BulkDeleteResponseApi {
+    /** Flags successfully soft-deleted. */
+    deleted: BulkDeleteDeletedItemApi[]
+    /** Flags that could not be deleted, with reasons. */
+    errors: BulkDeleteErrorItemApi[]
+}
+
+export interface BulkKeysRequestApi {
+    /** Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored. */
+    ids?: unknown[]
+}
+
+/**
+ * Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.
+ */
+export type BulkKeysResponseApiKeys = { [key: string]: string }
+
+export interface BulkKeysResponseApi {
+    /** Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project. */
+    keys: BulkKeysResponseApiKeys
+    /** Present when some submitted IDs were not numeric and were ignored. */
+    warning?: string
+}
+
+/**
  * * `add` - add
  * `remove` - remove
  * `set` - set
