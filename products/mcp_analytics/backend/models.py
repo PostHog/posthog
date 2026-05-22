@@ -76,7 +76,7 @@ class MCPAnalyticsSubmission(UUIDModel):
         ]
 
 
-class MCPIntentEmbeddingCache(TeamScopedRootMixin):
+class MCPIntentEmbeddingCache(UUIDModel, TeamScopedRootMixin):
     """Content-addressable embedding cache for intent clustering.
 
     Keyed on ``(team, content_hash, model)``: same text re-embedded with the
