@@ -325,6 +325,50 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert mock_session.call_args.kwargs["team_id"] == 999
 
 
+class TestManifestRejectsSmuggledCredentials(SimpleTestCase):
+    """A credential must not be embeddable in the non-secret manifest_json."""
+
+    def test_rejects_credential_bearing_header(self):
+        manifest = _minimal_manifest()
+        manifest["client"]["headers"] = {"Authorization": "Bearer leaked"}
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert "headers" in str(ctx.exception)
+
+    def test_rejects_credential_query_param_in_base_url(self):
+        manifest = _minimal_manifest(base_url="https://api.example.com?api_key=leaked")
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert "base_url" in str(ctx.exception)
+
+    def test_rejects_credentials_in_base_url_userinfo(self):
+        manifest = _minimal_manifest(base_url="https://user:leaked@api.example.com")
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert "base_url" in str(ctx.exception)
+
+    def test_rejects_credential_query_param_in_absolute_resource_path(self):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = "https://api.example.com/users?access_token=leaked"
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert "path" in str(ctx.exception)
+
+    def test_rejects_unknown_auth_field(self):
+        # An unrecognized auth key (here `header` instead of `name`) must fail
+        # validation, not crash the REST engine's create_auth at sync time.
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {"type": "api_key", "header": "X-Key"}
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert "header" in str(ctx.exception)
+
+    def test_accepts_non_credential_headers(self):
+        manifest = _minimal_manifest()
+        manifest["client"]["headers"] = {"Accept": "application/json", "User-Agent": "posthog"}
+        validate_manifest(manifest)
+
+
 class TestCustomSourceSourceForPipeline(SimpleTestCase):
     def test_invalid_manifest_raises_non_retryable(self):
         # A permanent config error must fail fast, not burn the Temporal retry budget.

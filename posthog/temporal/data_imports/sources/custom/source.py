@@ -1,8 +1,8 @@
 import json
 from typing import Any, Literal, Optional, cast
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -28,6 +28,39 @@ from products.data_warehouse.backend.types import ExternalDataSourceType, Increm
 # Credential keys that must NOT appear inline in the manifest — they belong in
 # the dedicated secret `auth_*` config fields so the API layer can redact them.
 INLINE_SECRET_KEYS = ("token", "api_key", "password")
+
+# Header names and URL-parameter names that carry credentials. `manifest_json`
+# is a non-secret config field that round-trips to the client un-redacted, so a
+# secret embedded in a header or URL there would leak — credentials belong in
+# the dedicated secret `auth_*` fields instead.
+_CREDENTIAL_HEADER_NAMES = frozenset({"authorization", "proxy-authorization", "cookie"})
+_CREDENTIAL_NAME_SUBSTRINGS = (
+    "token",
+    "secret",
+    "password",
+    "apikey",
+    "api-key",
+    "api_key",
+    "access-key",
+    "access_key",
+)
+
+
+def _name_looks_like_credential(name: str) -> bool:
+    lowered = name.strip().lower()
+    return lowered in _CREDENTIAL_HEADER_NAMES or any(hint in lowered for hint in _CREDENTIAL_NAME_SUBSTRINGS)
+
+
+def _assert_url_carries_no_credentials(url: str, field: str) -> None:
+    """Reject a URL that embeds a credential in userinfo or a query parameter."""
+    parsed = urlparse(url)
+    if parsed.username or parsed.password:
+        raise ValueError(f"{field} must not embed credentials in the URL — use the dedicated auth fields")
+    for param, _value in parse_qsl(parsed.query):
+        if _name_looks_like_credential(param):
+            raise ValueError(
+                f"{field} must not embed a credential ({param!r}) in the query string — use the dedicated auth fields"
+            )
 
 
 class ManifestValidationError(ValueError):
@@ -63,6 +96,28 @@ class _ManifestAuth(BaseModel):
 class _ManifestClient(BaseModel):
     base_url: str = Field(min_length=1)
     auth: _ManifestAuth | None = None
+    # `headers` is modelled (rather than passed through as an extra) only so a
+    # credential smuggled into a header name can be rejected; the raw value
+    # still reaches the REST engine untouched.
+    headers: dict[str, str] | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def _base_url_carries_no_credentials(cls, value: str) -> str:
+        _assert_url_carries_no_credentials(value, "client.base_url")
+        return value
+
+    @field_validator("headers")
+    @classmethod
+    def _reject_credential_headers(cls, headers: dict[str, str] | None) -> dict[str, str] | None:
+        if headers:
+            offending = sorted(name for name in headers if _name_looks_like_credential(name))
+            if offending:
+                raise ValueError(
+                    f"client.headers must not carry credentials ({', '.join(offending)}) — "
+                    "use the dedicated auth fields"
+                )
+        return headers
 
 
 class _ManifestEndpoint(BaseModel):
@@ -72,6 +127,13 @@ class _ManifestEndpoint(BaseModel):
     # PUT/PATCH/DELETE are excluded so a misconfigured manifest can't mutate or
     # delete upstream data.
     method: Literal["GET", "POST", "get", "post"] | None = None
+
+    @field_validator("path")
+    @classmethod
+    def _path_carries_no_credentials(cls, value: str) -> str:
+        if value.startswith(("http://", "https://")):
+            _assert_url_carries_no_credentials(value, "endpoint.path")
+        return value
 
 
 class _ManifestResource(BaseModel):
