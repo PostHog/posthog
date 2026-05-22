@@ -938,6 +938,33 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._last_active_time = workflow.now()
 
     @temporalio.workflow.signal
+    async def set_pr_loop(self, enabled: bool) -> None:
+        """Flip PR babysitting on/off for this run.
+
+        Turning ON always resets `_ci_repetitions` to 0 and clears the cached
+        `_pr_fingerprint` (so the next CI follow-up tick FIREs rather than
+        SKIPs), even if babysitting was already on — the user explicitly asked
+        for another full cap of CI re-runs. Turning OFF just stops the timer
+        from re-arming.
+
+        Callers (REST endpoint, Slack handler) are responsible for persisting
+        the new value to `TaskRun.state` *before* signaling; this handler only
+        mutates in-memory workflow state.
+        """
+        context = self._context
+        workflow.logger.info(
+            "set_pr_loop_signal_received",
+            run_id=context.run_id if context is not None else None,
+            enabled=enabled,
+            previous_repetitions=self._ci_repetitions,
+        )
+        if context is not None:
+            context.pr_loop_enabled = enabled
+        if enabled:
+            self._ci_repetitions = 0
+            self._pr_fingerprint = None
+
+    @temporalio.workflow.signal
     async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
         # Log signal arrival so we can correlate it with the adapter's "begin dispatch"
         # log below — gaps between the two point at workflow-loop backpressure.

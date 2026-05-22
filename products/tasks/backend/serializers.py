@@ -134,6 +134,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "updated_at",
             "created_by",
             "ci_prompt",
+            "pr_babysit_enabled",
         ]
         read_only_fields = [
             "id",
@@ -470,6 +471,16 @@ class TaskRunDetailSerializer(serializers.ModelSerializer):
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     output = serializers.JSONField(
         help_text="Output data from the run. Validated against the task's json_schema if one is set."
+    )
+
+
+class TaskRunSetPrLoopRequestSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        help_text=(
+            "When true, arm the CI follow-up loop (PR babysitting) and reset the per-run "
+            "CI repetition counter so up to MAX_CI_REPETITIONS more follow-ups can fire. "
+            "When false, disable further CI follow-ups on this run."
+        ),
     )
 
 

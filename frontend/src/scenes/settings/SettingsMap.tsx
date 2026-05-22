@@ -153,6 +153,7 @@ import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { PersonalIntegrations } from './user/PersonalIntegrations'
+import { PrBabysitSetting } from './user/PrBabysitSetting'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
@@ -1771,6 +1772,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <MCPHintsSetting />,
                 flag: [['MCP_HINTS', 'test']],
                 keywords: ['mcp', 'claude', 'cursor', 'codex', 'ide', 'hints', 'wizard'],
+            },
+            {
+                id: 'pr-babysit-default',
+                title: 'Babysit PRs by default',
+                description:
+                    'When on, tasks you create will watch CI on the PR they open and re-run the agent to address failed checks. You can override this per-task at creation, or per-PR using the in-app toggle or `/babysit on|off` (in PostHog Code, or `babysit on|off` in Slack).',
+                component: <PrBabysitSetting />,
+                keywords: ['tasks', 'babysit', 'pr', 'ci', 'follow-up'],
             },
             {
                 id: 'hedgehog-mode',

@@ -286,6 +286,7 @@ class UserSerializer(serializers.ModelSerializer):
             "role_at_organization",
             "passkeys_enabled_for_2fa",
             "hide_mcp_hints",
+            "pr_babysit_default",
             "onboarding_skipped_at",
             "onboarding_skipped_reason",
             "onboarding_skipped_organization_id",

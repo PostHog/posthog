@@ -262,6 +262,57 @@ class TestGetTaskProcessingContextActivity:
         sandbox_args, _sandbox_kwargs = feature_enabled_mock.call_args_list[1]
         assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
 
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "flag_on, user_default, task_override, expected_loop, expected_state",
+        [
+            # Flag off → loop always off regardless of user/task choice.
+            (False, True, None, False, False),
+            (False, True, True, False, False),
+            (False, False, True, False, False),
+            # Flag on, no task override → falls back to user default.
+            (True, True, None, True, True),
+            (True, False, None, False, False),
+            # Flag on, task override is the source of truth when set.
+            (True, False, True, True, True),
+            (True, True, False, False, False),
+        ],
+    )
+    def test_pr_loop_resolution_layers_flag_user_task(
+        self,
+        activity_environment,
+        test_task,
+        flag_on,
+        user_default,
+        task_override,
+        expected_loop,
+        expected_state,
+    ):
+        """`flag AND (task.pr_babysit_enabled ?? user.pr_babysit_default)`."""
+        creator = test_task.created_by
+        creator.pr_babysit_default = user_default
+        creator.save(update_fields=["pr_babysit_default"])
+        test_task.pr_babysit_enabled = task_override
+        test_task.save(update_fields=["pr_babysit_enabled"])
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        def feature_enabled(flag_key, **kwargs):
+            if flag_key == "tasks-pr-loop":
+                return flag_on
+            return False
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=feature_enabled,
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.pr_loop_enabled is expected_loop
+        # Resolution is also persisted to state for command surfaces to read.
+        task_run.refresh_from_db()
+        assert task_run.state.get("pr_babysit_enabled") is expected_state
+
     @pytest.mark.parametrize(
         "flag_value, expected",
         [

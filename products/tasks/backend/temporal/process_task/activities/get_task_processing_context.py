@@ -259,16 +259,34 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         sandbox_environment_id=sandbox_environment_id,
     )
-    pr_loop_enabled = (
+    pr_loop_flag_enabled = bool(
         posthoganalytics.feature_enabled(
             "tasks-pr-loop",
             distinct_id=distinct_id,
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
         )
-        or False
-    )  # Ensure we get a boolean value even if the flag is missing
-    emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    )
+    # The feature flag is the org/user kill-switch. On top of that, the user
+    # picks a default (`User.pr_babysit_default`), and the per-task field
+    # `Task.pr_babysit_enabled` overrides that default when not null. A later
+    # `set_pr_loop` signal can flip the runtime value mid-run.
+    user_choice_enabled = (
+        task.pr_babysit_enabled if task.pr_babysit_enabled is not None else task.created_by.pr_babysit_default
+    )
+    pr_loop_enabled = pr_loop_flag_enabled and user_choice_enabled
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"pr_loop_enabled: {pr_loop_enabled} (flag={pr_loop_flag_enabled}, "
+        f"task_override={task.pr_babysit_enabled}, user_default={task.created_by.pr_babysit_default})",
+    )
+    # Persist the resolved value so command surfaces (REST/Slack) can read the
+    # current effective state without re-resolving. Skip the row-locked write
+    # when nothing changed — common for runs that resume from a snapshot.
+    if state.get("pr_babysit_enabled") != pr_loop_enabled:
+        TaskRun.update_state_atomic(run_id, updates={"pr_babysit_enabled": pr_loop_enabled})
+        state["pr_babysit_enabled"] = pr_loop_enabled
     sandbox_event_ingest_enabled = _is_sandbox_event_ingest_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,

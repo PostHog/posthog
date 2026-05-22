@@ -5030,6 +5030,12 @@ const api = {
             async get(taskId: Task['id'], runId: TaskRun['id'], params: Record<string, any> = {}): Promise<TaskRun> {
                 return await new ApiRequest().taskRun(taskId, runId).withQueryString(params).get()
             },
+            async setPrLoop(taskId: Task['id'], runId: TaskRun['id'], enabled: boolean): Promise<TaskRun> {
+                return await new ApiRequest()
+                    .taskRun(taskId, runId)
+                    .withAction('set_pr_loop')
+                    .create({ data: { enabled } })
+            },
             async getLogs(taskId: Task['id'], runId: TaskRun['id']): Promise<string> {
                 const run = await new ApiRequest().taskRun(taskId, runId).get()
                 if (run.log_url) {

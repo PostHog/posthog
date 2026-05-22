@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
+from django.conf import settings
+
 import structlog
 from slack_sdk.errors import SlackApiError
 from temporalio import activity, workflow
@@ -12,6 +14,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
+from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -31,7 +34,10 @@ from products.tasks.backend.repo_selection import (
 )
 from products.tasks.backend.services.agent_command import send_user_message
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.services.pr_loop import set_pr_loop_for_run
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
 # Imports from `products.slack_app.backend.api` stay inline: that module imports
 # `PostHogCodeSlackMentionWorkflow*` from this one, so a top-level import would
@@ -58,8 +64,6 @@ def _block_if_team_over_quota(
     blocked and a denial was posted.
     """
     from products.slack_app.backend.api import post_quota_exhausted_denial
-
-    from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
     if not is_team_limited(
         integration.team.api_token,
@@ -883,8 +887,6 @@ def enforce_posthog_code_billing_quota_activity(
     Slack roundtrips, thread fetches, or billable LLM calls (the classifier,
     notably) for an over-quota team.
     """
-    from posthog.models.integration import Integration, SlackIntegration
-
     integration = Integration.objects.select_related("team").get(
         id=inputs.integration_id,
         kind="slack-posthog-code",
@@ -973,13 +975,6 @@ def block_posthog_code_task_if_no_personal_github_activity(
     PostHog app identity instead of the user's. Rather than degrading silently, hold
     the task and surface the one-click path to the personal integration setup.
     """
-    from django.conf import settings
-
-    import structlog
-
-    from posthog.models.integration import Integration, SlackIntegration
-    from posthog.models.user_integration import UserIntegration
-
     log = structlog.get_logger(__name__)
 
     has_personal_github = UserIntegration.objects.filter(
@@ -1245,10 +1240,14 @@ def forward_posthog_code_followup_activity(
     Returns True if the message was handled (forwarded or rejected), False if
     no mapping exists and the caller should continue with the normal new-task flow.
     """
-    from products.slack_app.backend.api import _parse_rules_command
+    from products.slack_app.backend.api import _parse_babysit_command, _parse_rules_command
 
     if _parse_rules_command(event_text):
         return False
+
+    log = structlog.get_logger(__name__)
+
+    babysit_decision = _parse_babysit_command(event_text)
 
     try:
         mapping = SlackThreadTaskMapping.objects.select_related("task_run", "task__created_by").get(
@@ -1257,7 +1256,16 @@ def forward_posthog_code_followup_activity(
             thread_ts=thread_ts,
         )
     except SlackThreadTaskMapping.DoesNotExist:
-        logger.info("posthog_code_followup_not_handled", channel=channel, thread_ts=thread_ts)
+        if babysit_decision is not None:
+            # Babysit only makes sense for an existing task thread; surface a hint
+            # rather than letting the caller create a fresh task from the text.
+            log.info(
+                "posthog_code_babysit_no_mapping",
+                channel=channel,
+                thread_ts=thread_ts,
+            )
+            return True
+        log.info("posthog_code_followup_not_handled", channel=channel, thread_ts=thread_ts)
         return False
 
     task_run = mapping.task_run
@@ -1284,14 +1292,24 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    if _block_if_team_over_quota(
-        integration=integration,
-        slack=slack,
-        channel=channel,
-        thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
-        context="followup",
-    ):
+    if babysit_decision is not None:
+        set_pr_loop_for_run(task_run, babysit_decision)
+        if babysit_decision:
+            confirmation = "Babysitting on — I'll watch CI on this PR and follow up on failed checks (counter reset)."
+        else:
+            confirmation = "Babysitting off — I'll stop following up on CI for this PR."
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=confirmation,
+        )
+        log.info(
+            "posthog_code_babysit_applied",
+            channel=channel,
+            thread_ts=thread_ts,
+            run_id=str(task_run.id),
+            enabled=babysit_decision,
+        )
         return True
 
     if task_run.is_terminal:

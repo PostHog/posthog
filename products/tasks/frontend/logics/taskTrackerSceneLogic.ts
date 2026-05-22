@@ -22,6 +22,8 @@ const SEARCH_DEBOUNCE_MS = 300
 export type TaskCreateForm = {
     description: string
     repositoryConfig: RepositoryConfig
+    /** Per-task override for PR babysitting. `null` means inherit the user's `pr_babysit_default`. */
+    prBabysitEnabled: boolean | null
 }
 
 export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
@@ -99,6 +101,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     integrationId: undefined,
                     repository: undefined,
                 },
+                prBabysitEnabled: null,
             } as TaskCreateForm,
             {
                 setNewTaskData: (state, { data }) => ({ ...state, ...data }),
@@ -108,6 +111,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                         integrationId: undefined,
                         repository: undefined,
                     },
+                    prBabysitEnabled: null,
                 }),
             },
         ],
@@ -177,7 +181,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             actions.loadTasks(values.listParams)
         },
         submitNewTask: async () => {
-            const { description, repositoryConfig } = values.newTaskData
+            const { description, repositoryConfig, prBabysitEnabled } = values.newTaskData
 
             if (!description.trim()) {
                 lemonToast.error('Description is required')
@@ -197,6 +201,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     origin_product: OriginProduct.USER_CREATED,
                     repository: repositoryConfig.repository,
                     github_integration: repositoryConfig.integrationId ?? null,
+                    pr_babysit_enabled: prBabysitEnabled,
                 }
 
                 const newTask = await api.tasks.create(taskData)

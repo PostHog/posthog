@@ -62,6 +62,12 @@ export interface Task {
     json_schema: Record<string, any> | null
     internal: boolean
     latest_run: TaskRun | null
+    /**
+     * Per-task override for whether the CI follow-up loop ('PR babysitting') runs after this
+     * task opens a PR. `null`/undefined means inherit the task creator's `pr_babysit_default`
+     * user preference.
+     */
+    pr_babysit_enabled?: boolean | null
     created_at: string
     updated_at: string
     created_by: {
@@ -74,8 +80,8 @@ export interface Task {
 }
 
 export type TaskUpsertProps = Optional<
-    Pick<Task, 'title' | 'description' | 'origin_product' | 'github_integration' | 'repository'>,
-    'title' | 'description' | 'origin_product' | 'github_integration' | 'repository'
+    Pick<Task, 'title' | 'description' | 'origin_product' | 'github_integration' | 'repository' | 'pr_babysit_enabled'>,
+    'title' | 'description' | 'origin_product' | 'github_integration' | 'repository' | 'pr_babysit_enabled'
 >
 
 export interface TaskListParams {

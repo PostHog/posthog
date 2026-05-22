@@ -239,6 +239,7 @@ export type SettingId =
     | 'web-analytics-pre-aggregated-tables'
     | 'web-revenue-events'
     | 'web-vitals-autocapture'
+    | 'pr-babysit-default'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

@@ -97,6 +97,7 @@ from .serializers import (
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunSetOutputRequestSerializer,
+    TaskRunSetPrLoopRequestSerializer,
     TaskRunStartRequestSerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
@@ -1724,6 +1725,33 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_run.publish_stream_state_event()
         self._post_slack_update_for_pr(task_run)
 
+        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
+
+    @validated_request(
+        request_serializer=TaskRunSetPrLoopRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated PR-loop state"),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Toggle PR babysitting",
+        description=(
+            "Enable or disable the CI follow-up loop ('PR babysitting') on this run. "
+            "Enabling always resets the per-run CI repetition counter so up to MAX_CI_REPETITIONS "
+            "more follow-ups can fire — even if babysitting was already on."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="set_pr_loop",
+        required_scopes=["task:write"],
+    )
+    def set_pr_loop(self, request, pk=None, **kwargs):
+        from products.tasks.backend.services.pr_loop import set_pr_loop_for_run
+
+        task_run = cast(TaskRun, self.get_object())
+        enabled = request.validated_data["enabled"]
+        task_run = set_pr_loop_for_run(task_run, enabled)
         return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
     @validated_request(

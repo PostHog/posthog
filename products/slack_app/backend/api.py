@@ -703,6 +703,20 @@ def _strip_bot_mentions(text: str) -> str:
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
 
+def _parse_babysit_command(text: str) -> bool | None:
+    """Return True for 'babysit on', False for 'babysit off', or None if the
+    text isn't a babysit command. Case-insensitive; bot-mention markup is
+    stripped first so `@PostHog babysit on` parses the same as `babysit on`.
+    """
+    cleaned = _strip_bot_mentions(text).strip()
+    if not cleaned:
+        return None
+    match = re.fullmatch(r"babysit\s+(on|off)", cleaned, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1).lower() == "on"
+
+
 def _parse_rules_command(text: str) -> RulesCommand | None:
     cleaned = _strip_bot_mentions(text).strip()
     if not cleaned:

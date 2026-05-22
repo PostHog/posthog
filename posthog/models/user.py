@@ -241,6 +241,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         blank=False,
         help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
+    pr_babysit_default = models.BooleanField(
+        default=True,
+        db_default=True,
+        null=False,
+        blank=False,
+        help_text="Default value of the per-task 'watch CI after PR opens' (PR babysitting) toggle. Tasks that don't explicitly set the per-task override inherit this.",
+    )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
     ONBOARDING_SKIPPED_REASONS = OnboardingSkippedReason.choices

@@ -427,6 +427,66 @@ class TestCIFollowUpLoop:
 
         assert followups_at_original_deadline, "idle heartbeat should not push the CI follow-up deadline"
 
+    @pytest.mark.timeout(60)
+    async def test_set_pr_loop_off_disarms_ci_follow_up(self):
+        """When babysit is toggled off while the workflow is idle, no CI follow-up should fire."""
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=3),
+                )
+                # Flip the loop off before the first CI follow-up timer would fire.
+                await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() / 2)
+                await handle.signal(ProcessTaskWorkflow.set_pr_loop, False)
+                await handle.result()
+
+        assert _ci_followup_calls == [], f"set_pr_loop(False) should disarm the loop; got {_ci_followup_calls}"
+        timeout_updates = [(s, e) for s, e in _status_updates if "timed out" in (e or "")]
+        assert timeout_updates, f"workflow should exit via inactivity timeout, got {_status_updates}"
+
+    @pytest.mark.timeout(60)
+    async def test_set_pr_loop_on_resets_counter_for_more_followups(self):
+        """After exhausting MAX_CI_REPETITIONS, set_pr_loop(True) resets the counter
+        so up to MAX_CI_REPETITIONS more follow-ups can fire."""
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=4),
+                )
+                # Burn through the first MAX_CI_REPETITIONS by letting time advance.
+                # Match the bound used in production: `_wait_for_event` floors the
+                # inactivity timeout at CI_FOLLOW_UP_DELAY + 1 minute when the loop
+                # is armed, so each CI follow-up fires once per cycle.
+                for _ in range(MAX_CI_REPETITIONS):
+                    await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 10)
+                assert len(_ci_followup_calls) == MAX_CI_REPETITIONS, (
+                    f"sanity: should have burned through cap before reset, got {len(_ci_followup_calls)}"
+                )
+
+                # Reset the counter; another MAX_CI_REPETITIONS follow-ups should be possible.
+                await handle.signal(ProcessTaskWorkflow.set_pr_loop, True)
+                for _ in range(MAX_CI_REPETITIONS):
+                    await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() + 10)
+
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                await handle.result()
+
+        assert len(_ci_followup_calls) == 2 * MAX_CI_REPETITIONS, (
+            f"counter reset should allow another full cap of follow-ups; got {len(_ci_followup_calls)}"
+        )
+
 
 class TestFollowupGuards:
     @pytest.fixture(autouse=True)

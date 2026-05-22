@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { taskTrackerSceneLogic } from '../logics/taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
@@ -13,6 +15,9 @@ interface TaskCreateModalProps {
 export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.Element {
     const { submitNewTask, resetNewTaskData, setNewTaskData } = useActions(taskTrackerSceneLogic)
     const { newTaskData, isSubmittingTask } = useValues(taskTrackerSceneLogic)
+    const { user } = useValues(userLogic)
+    const userDefaultBabysit = user?.pr_babysit_default ?? true
+    const effectiveBabysit = newTaskData.prBabysitEnabled ?? userDefaultBabysit
 
     const handleCancel = (): void => {
         resetNewTaskData()
@@ -53,6 +58,23 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                         value={newTaskData.repositoryConfig}
                         onChange={(config) => setNewTaskData({ repositoryConfig: config })}
                     />
+                </div>
+
+                <div>
+                    <LemonCheckbox
+                        label="Watch CI after PR opens"
+                        bordered
+                        checked={effectiveBabysit}
+                        onChange={(checked) =>
+                            setNewTaskData({
+                                prBabysitEnabled: checked === userDefaultBabysit ? null : checked,
+                            })
+                        }
+                    />
+                    <p className="text-xs text-secondary mt-1 ml-1">
+                        When on, the agent re-runs to address failed checks on the PR it opens. Default comes from your
+                        user settings (currently {userDefaultBabysit ? 'on' : 'off'}).
+                    </p>
                 </div>
             </div>
         </LemonModal>

@@ -137,6 +137,15 @@ class Task(DeletedMetaFields, models.Model):
         null=True,
         help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
     )
+    pr_babysit_enabled = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "Per-task override for whether the CI follow-up loop ('PR babysitting') runs after this "
+            "task opens a PR. NULL means inherit the task creator's `pr_babysit_default` user preference."
+        ),
+    )
 
     class Meta:
         db_table = "posthog_task"

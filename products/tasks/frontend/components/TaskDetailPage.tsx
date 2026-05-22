@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArchive, IconExternal, IconGithub, IconPlay } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -52,8 +52,9 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
         shouldPoll,
         streamEntries,
         isStreaming,
+        isSettingPrLoop,
     } = useValues(sceneLogic)
-    const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
+    const { setSelectedRunId, runTask, deleteTask, setPrLoop } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
@@ -76,6 +77,14 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const runButtonText = !hasBeenRun ? 'Run task' : isLatestRunCompleted ? 'Run again' : 'Retry task'
 
     const prUrl = selectedRun?.output?.pr_url as string | undefined
+    const prLoopEnabled = (selectedRun?.state?.pr_babysit_enabled as boolean | undefined) ?? false
+    const canTogglePrLoop = !!selectedRun && !!prUrl
+    const handleTogglePrLoop = (next: boolean): void => {
+        if (!selectedRun) {
+            return
+        }
+        setPrLoop(selectedRun.id, next)
+    }
 
     return (
         <SceneContent>
@@ -174,6 +183,16 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                             >
                                 View PR
                             </LemonButton>
+                        )}
+                        {canTogglePrLoop && (
+                            <LemonSwitch
+                                label="Babysit PR"
+                                bordered
+                                checked={prLoopEnabled}
+                                disabled={isSettingPrLoop}
+                                onChange={handleTogglePrLoop}
+                                tooltip="Watch CI on this PR and re-run the agent to address failed checks. Enabling resets the CI repetition counter."
+                            />
                         )}
                         {!isLatestRunInProgress && (
                             <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
