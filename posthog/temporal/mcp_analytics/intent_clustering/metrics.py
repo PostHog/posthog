@@ -132,11 +132,10 @@ class _MCPAClusteringActivityInterceptor(ActivityInboundInterceptor):
             description="Execution latency for MCPA clustering activities",
             histogram_attributes={"activity_type": activity_type},
         ):
-            try:
-                return await super().execute_activity(input)
-            except Exception as e:
-                increment_errors(type(e).__name__)
-                raise
+            # Don't increment_errors here — the same exception propagates to the
+            # workflow interceptor and would double-count. Matches the
+            # trace_clustering precedent (error tracking at workflow scope only).
+            return await super().execute_activity(input)
 
 
 class _MCPAClusteringWorkflowInterceptor(WorkflowInboundInterceptor):
