@@ -184,15 +184,15 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["computed_with"]["n_clusters"] == 1
 
     def test_intent_clusters_recompute_starts_workflow_and_returns_computing(self) -> None:
-        # Mock sync_connect to return a client whose start_workflow is an
-        # AsyncMock — the facade awaits it inside asyncio.run. The
+        # Mock async_connect to return a client whose start_workflow is an
+        # AsyncMock — the facade awaits both inside asyncio.run. The
         # synchronous COMPUTING write still runs against the real DB so
         # the 202 body reflects the new state, not the stale pre-trigger one.
         mock_client = MagicMock()
         mock_client.start_workflow = AsyncMock(return_value=MagicMock())
         with patch(
-            "posthog.temporal.common.client.sync_connect",
-            return_value=mock_client,
+            "posthog.temporal.common.client.async_connect",
+            new=AsyncMock(return_value=mock_client),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
