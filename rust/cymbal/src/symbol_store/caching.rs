@@ -8,7 +8,7 @@ use crate::metric_consts::{
     STORE_CACHE_MISSES,
 };
 
-use super::{Fetcher, Parser, Provider};
+use super::{chunk_id::SymbolSetCacheKey, Fetcher, Parser, Provider};
 
 // This is a type-specific symbol provider layer, designed to
 // wrap some inner provider and provide a type-safe caching layer
@@ -20,10 +20,10 @@ pub struct Caching<P> {
 impl<P> Caching<P>
 // This where clause exists exclusively to give more obvious compiler errors in cases where
 // the passed P doesn't cause Provider to be implemented for this Caching<P> - for example,
-// if the P's P::Ref doesn't implement ToString
+// if the P's P::Ref doesn't implement SymbolSetCacheKey
 where
     P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
-    P::Ref: ToString + Send,
+    P::Ref: SymbolSetCacheKey + Send,
     P::Fetched: Send,
     P::Set: Countable + Any + Send + Sync,
 {
@@ -36,7 +36,7 @@ where
 impl<P> Provider for Caching<P>
 where
     P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
-    P::Ref: ToString + Send,
+    P::Ref: SymbolSetCacheKey + Send,
     P::Fetched: Send,
     P::Set: Countable + Any + Send + Sync,
 {
@@ -46,7 +46,7 @@ where
 
     async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err> {
         let mut cache = self.cache.lock().await;
-        let cache_key = format!("{}:{}", team_id, r.to_string());
+        let cache_key = format!("{}:{}", team_id, r.symbol_set_cache_key());
         if let Some(set) = cache.get(&cache_key) {
             metrics::counter!(STORE_CACHE_HITS).increment(1);
             return Ok(set);

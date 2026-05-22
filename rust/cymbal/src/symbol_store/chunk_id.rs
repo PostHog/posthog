@@ -6,6 +6,7 @@ use std::{
 use async_trait::async_trait;
 use bytes::Bytes;
 use metrics::counter;
+use sha2::{Digest, Sha512};
 use sqlx::PgPool;
 use tracing::error;
 
@@ -89,10 +90,10 @@ pub async fn load_symbol_set_data(
 // use a 0 variant enum to indicate their data is only available in the presence of a chunk ID, and the underlying
 // fetcher simply asserts `unreachable!()`.
 //
-// Layers above this one use two different ref-derivation traits:
-//   - Caching and concurrency use `Display`, which collapses to the chunk id when one is
-//     set — that's the right per-symbol-set identity for in-memory cache reuse.
-//   - The `Saving` persistence layer uses `SymbolSetKey` (defined below), which separates
+// Layers above this one use dedicated ref-derivation traits:
+//   - Caching and concurrency use `SymbolSetCacheKey`, which keeps the `Inner`, `ChunkId`,
+//     and `Both` namespaces distinct so attacker-controlled refs cannot poison each other.
+//   - The `Saving` persistence layer uses `SymbolSetKey`, which separates
 //     the lookup keys (chunk id first, then URL) from the save key (URL when present).
 //     See the trait's docs for why those are kept distinct.
 #[async_trait]
@@ -198,12 +199,12 @@ where
     }
 }
 
-// `Display` is the "logical identity" of a ref — used by the in-memory caching and
-// concurrency layers (which want a stable per-symbol-set key) and by log lines.
-// For Both, we surface the chunk id because it's the more meaningful identifier across
-// frames carrying both a URL and a chunk id.
+// `Display` is the human-readable identity of a ref, used by log lines and resolved frame
+// metadata. For Both, we surface the chunk id because it's the more meaningful identifier
+// across frames carrying both a URL and a chunk id.
 //
-// The persistence layer (`Saving`) does NOT use this — see `SymbolSetKey` below for why.
+// The persistence and caching layers do NOT use this — see `SymbolSetKey` and
+// `SymbolSetCacheKey` below for why.
 impl<R> Display for OrChunkId<R>
 where
     R: Display,
@@ -214,6 +215,44 @@ where
             OrChunkId::ChunkId(id) => write!(f, "{id}"),
             OrChunkId::Both { inner: _, id } => write!(f, "{id}"),
         }
+    }
+}
+
+// `SymbolSetCacheKey` is the in-memory cache / concurrency identity. Unlike `Display`, it
+// must keep `Both(id, inner)` distinct from bare `ChunkId(id)`: a `Both` lookup may fall back
+// to fetching attacker-controlled URL data when the chunk id is missing, and caching that under
+// the bare chunk-id key would transiently poison future chunk-id-only lookups.
+pub trait SymbolSetCacheKey {
+    fn symbol_set_cache_key(&self) -> String;
+}
+
+fn hashed_symbol_set_cache_key(prefix: &str, parts: &[&str]) -> String {
+    let mut hasher = Sha512::new();
+    for part in parts {
+        hasher.update(part.len().to_be_bytes());
+        hasher.update(part.as_bytes());
+    }
+    format!("{}:{:x}", prefix, hasher.finalize())
+}
+
+impl<R> SymbolSetCacheKey for OrChunkId<R>
+where
+    R: Display,
+{
+    fn symbol_set_cache_key(&self) -> String {
+        match self {
+            OrChunkId::Inner(inner) => hashed_symbol_set_cache_key("inner", &[&inner.to_string()]),
+            OrChunkId::ChunkId(id) => hashed_symbol_set_cache_key("chunk-id", &[id]),
+            OrChunkId::Both { inner, id } => {
+                hashed_symbol_set_cache_key("both", &[id, &inner.to_string()])
+            }
+        }
+    }
+}
+
+impl SymbolSetCacheKey for reqwest::Url {
+    fn symbol_set_cache_key(&self) -> String {
+        hashed_symbol_set_cache_key("inner", &[self.as_str()])
     }
 }
 
@@ -310,7 +349,7 @@ mod test {
         langs::js::RawJSFrame,
         symbol_store::{
             apple::AppleProvider,
-            chunk_id::{ChunkIdFetcher, OrChunkId},
+            chunk_id::{ChunkIdFetcher, OrChunkId, SymbolSetCacheKey},
             hermesmap::HermesMapProvider,
             proguard::ProguardProvider,
             saving::SymbolSetRecord,
@@ -344,6 +383,20 @@ mod test {
             sourcemap: String::from_utf8(MAP.to_vec()).unwrap(),
         })
         .unwrap()
+    }
+
+    #[test]
+    fn symbol_set_cache_key_keeps_ref_namespaces_distinct() {
+        let chunk_id = Uuid::now_v7().to_string();
+        let url = Url::parse("https://example.com/static/chunk.js").unwrap();
+
+        let both = OrChunkId::both(url.clone(), chunk_id.clone()).symbol_set_cache_key();
+        let chunk_only = OrChunkId::<Url>::chunk_id(chunk_id).symbol_set_cache_key();
+        let inner_only = OrChunkId::inner(url).symbol_set_cache_key();
+
+        assert_ne!(both, chunk_only);
+        assert_ne!(both, inner_only);
+        assert_ne!(chunk_only, inner_only);
     }
 
     fn get_example_frame() -> RawJSFrame {
