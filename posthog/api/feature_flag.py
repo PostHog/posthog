@@ -2412,9 +2412,17 @@ class BulkDeleteErrorItemSerializer(serializers.Serializer):
 
 
 class BulkDeleteResponseSerializer(serializers.Serializer):
+    """
+    Schema-only — referenced from ``@extend_schema(responses=...)`` to describe the wire format.
+    Never instantiate this for validation or call ``.is_valid()`` / ``.errors`` on it: the
+    declared ``errors`` field shadows DRF's inherited ``Serializer.errors`` ReturnDict property,
+    so accessing ``serializer.errors`` would return this field descriptor instead of validation
+    errors. The handler builds the response dict directly; this class exists only so drf-spectacular
+    can render the response in the OpenAPI spec and downstream generated clients.
+    """
+
     deleted = BulkDeleteDeletedItemSerializer(many=True, help_text="Flags successfully soft-deleted.")
-    # Shadows the inherited Serializer.errors ReturnDict property; explicit ListSerializer
-    # avoids the many=True descriptor magic that confuses type checkers.
+    # Explicit ListSerializer avoids the many=True descriptor magic that confuses type checkers.
     errors: serializers.ListSerializer = serializers.ListSerializer(  # type: ignore[assignment]
         child=BulkDeleteErrorItemSerializer(),
         help_text="Flags that could not be deleted, with reasons.",
