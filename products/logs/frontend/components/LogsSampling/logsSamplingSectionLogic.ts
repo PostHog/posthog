@@ -67,7 +67,15 @@ export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
                         return {}
                     }
                     await breakpoint(1)
-                    return await fetchSamplingRuleDropTotalsLast24h(ids)
+                    const totals = await fetchSamplingRuleDropTotalsLast24h(ids)
+                    // The list-view cell only renders record count (column space is tight).
+                    // Byte totals are surfaced on the rule detail page; here we collapse
+                    // back to the records number this loader has always exposed.
+                    const out: Record<string, number> = {}
+                    for (const [id, { records }] of Object.entries(totals)) {
+                        out[id] = records
+                    }
+                    return out
                 },
             },
         ],
