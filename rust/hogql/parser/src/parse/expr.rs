@@ -3764,6 +3764,21 @@ impl<'a> Parser<'a> {
         // original input text is used verbatim — case is preserved
         // (`ABC` stays `ABC`) and QuotedIdents keep their quotes
         // (`"a"` stays `"a"`).
+        //
+        // ANTLR runs `getText()` only after matching the item as a `columnExpr`,
+        // so the verbatim text is a *valid* expression. Validate that first:
+        // parse the item as a columnExpr and require it to land on the param
+        // terminator. Otherwise non-columnExpr junk — `()` (empty group),
+        // `a() b` (juxtaposition), `Int NULL` — is swallowed as raw text and
+        // accepted, where cpp rejects. Both callers (param-mode loop and the
+        // `parse_type_param_item` fall-back) route through here.
+        let validate_cp = self.checkpoint();
+        self.parse_expr_bp(0)?;
+        if !matches!(self.peek(), TokenKind::Comma | TokenKind::RParen) {
+            return Err(self.err("type parameter is not a valid expression"));
+        }
+        self.restore(validate_cp)?;
+
         let mut out = String::new();
         let mut depth: i32 = 0;
         loop {

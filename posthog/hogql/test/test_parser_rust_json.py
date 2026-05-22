@@ -55,3 +55,24 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             for backend in ("cpp-json", "rust-json"):
                 with self.assertRaises(BaseHogQLError):
                     parse_expr(query, backend=backend)
+
+    def test_invalid_cast_type_param_rejected(self):
+        # A parametric type's params are `columnExpr`s. rust's raw-text Param
+        # path concatenated tokens verbatim without checking the item parsed as
+        # an expression, so `cast(1 as d(()))` (empty group), `d(a() b)`
+        # (juxtaposition), and friends were accepted where cpp rejects. Each
+        # param must now validate as a columnExpr.
+        invalid = [
+            "cast(1 as d(()))",
+            "cast(1 as d(a() b))",
+            "cast(1 as d((),1))",
+            "cast(1 as Tuple(()))",
+        ]
+        for query in invalid:
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+        # Valid parametric-type params still parse on both backends.
+        for query in ("cast(1 as d())", "cast(1 as d(#1))", "cast(1 as d([1]))", "cast(1 as Array(Int))"):
+            parse_expr(query, backend="cpp-json")
+            parse_expr(query, backend="rust-json")
