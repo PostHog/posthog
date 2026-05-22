@@ -21,15 +21,36 @@ Queries the candidate can't parse are flagged and the row is skipped.
 For comparable queries the script reports per-call microseconds and a
 `oracle/candidate` ratio.
 
+Statistical rigor: each query is timed across `--repeat` batches of
+`--n` iterations each. Min / median / max are reported so noise can
+be told apart from real changes — the default repeat count is sized
+to surface clear medians without ballooning wall-clock.
+
+For tracking optimization gains, write results to JSON via
+`--json-output PATH`, then re-run with `--compare PATH` to see the
+per-query delta. Rows are flagged with `★★★` when the difference is
+larger than the combined min/max range (i.e., the two runs' uncertainty
+bands don't overlap), so accidental noise doesn't read as a win.
+
+For deeper profiling, run the bench under `samply` or `py-spy`:
+
+    samply record -- python posthog/hogql/scripts/parser_bench.py \\
+        --candidate rust-py --n 5000 --repeat 1
+
+Then open the resulting profile.json in samply's UI (https://profiler.firefox.com).
+
 The script is intentionally dependency-free beyond what's already in
 the backend environment so it can stay around as a quick perf sanity
 check as parser implementations evolve.
 """
 
 import argparse
+import json
 import os
+import statistics
 import sys
 import timeit
+from pathlib import Path
 from typing import Any
 
 import django
@@ -40,7 +61,8 @@ django.setup()
 from posthog.hogql.parser import clear_parse_caches, parse_expr, parse_select
 from posthog.hogql.scripts._diagnostic_common import _probe_backend
 
-DEFAULT_N = 1_000  # iterations per row; override with --n
+DEFAULT_N = 1_000  # iterations per batch; override with --n
+DEFAULT_REPEAT = 5  # batches per query; override with --repeat
 
 # Per-query iteration ceilings for queries cpp parses too slowly for
 # the default N. Total wall-clock per row should stay well under a
@@ -227,7 +249,64 @@ SELECT_QUERIES: dict[str, str] = {
 }
 
 
-def run(parse_fn, n: int) -> float:
+# ============================================================================
+# Statistics
+# ============================================================================
+
+
+class RowStat:
+    """Per-(query, backend) timing summary across multiple batches."""
+
+    __slots__ = ("samples_us", "n_per_batch")
+
+    def __init__(self, samples_us: list[float], n_per_batch: int) -> None:
+        # `samples_us` is one mean-per-call value per batch (already divided
+        # by the batch's iteration count). Keep them around for downstream
+        # min / median / max / IQR / comparison.
+        self.samples_us = samples_us
+        self.n_per_batch = n_per_batch
+
+    @property
+    def median(self) -> float:
+        return statistics.median(self.samples_us)
+
+    @property
+    def min(self) -> float:
+        return min(self.samples_us)
+
+    @property
+    def max(self) -> float:
+        return max(self.samples_us)
+
+    @property
+    def mean(self) -> float:
+        return statistics.fmean(self.samples_us)
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "samples_us": self.samples_us,
+            "n_per_batch": self.n_per_batch,
+        }
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> "RowStat":
+        return cls(samples_us=list(data["samples_us"]), n_per_batch=int(data["n_per_batch"]))
+
+
+def _format_us(us: float) -> str:
+    """Per-call µs formatted for the human-readable table — wide enough
+    to keep the column aligned across the corpus' three orders of
+    magnitude (a few µs for `int_literal`, thousands for
+    `pathological_deep`)."""
+    return f"{us:>10.3f}"
+
+
+# ============================================================================
+# Bench runner
+# ============================================================================
+
+
+def time_one(parse_fn, n: int) -> float:
     """Per-call microseconds for `n` iterations of `parse_fn()`. The
     caller is expected to pre-bind the query (and backend) via a
     closure so this stays a single-arity callable. Clears the cache
@@ -238,10 +317,27 @@ def run(parse_fn, n: int) -> float:
         clear_parse_caches()
         return parse_fn()
 
-    # Warm up to surface errors before we time.
-    body()
     secs = timeit.timeit(body, number=n)
     return secs / n * 1e6
+
+
+def run_query(parse_fn, q: str, backend: str, n: int, repeat: int) -> RowStat:
+    """Run `parse_fn(q, backend=backend)` for `repeat` batches of `n`
+    iterations each. One warm-up call up front to surface errors
+    before timing.
+
+    Returns a `RowStat` with one sample per batch (each sample is a
+    per-call µs mean), so callers can inspect min/median/max and the
+    raw distribution. Re-clears the parse cache inside each batch via
+    `time_one`'s body wrapper."""
+    parse_fn(q, backend=backend)
+    samples = [time_one(lambda: parse_fn(q, backend=backend), n) for _ in range(repeat)]
+    return RowStat(samples_us=samples, n_per_batch=n)
+
+
+# ============================================================================
+# Single-run report
+# ============================================================================
 
 
 def bench(
@@ -249,9 +345,17 @@ def bench(
     parse_fn,
     queries: dict[str, str],
     n: int,
+    repeat: int,
     oracle: str,
     candidate: str,
-) -> int:
+) -> tuple[int, dict[str, dict[str, Any]]]:
+    """Run the bench for one rule across the whole corpus.
+
+    Returns `(comparable_count, results_dict)` where `results_dict` maps
+    query name → {oracle: RowStat.to_json(), candidate: RowStat.to_json(),
+    chars: int, error: optional[str]}. The caller assembles the rule-keyed
+    top-level dict for JSON serialisation.
+    """
     # Some rows have per-query iteration overrides (slow cpp queries
     # would otherwise burn minutes), so make that explicit in the
     # header — a reader correlating header `N` to a row's µs needs to
@@ -263,49 +367,158 @@ def bench(
         name: min(N_PER_QUERY[name], n) for name in queries if name in N_PER_QUERY and N_PER_QUERY[name] < n
     }
     override_note = f", overrides: {overrides_in_use}" if overrides_in_use else ""
-    print(f"\n{label}  (N={n} per row, oracle={oracle}, candidate={candidate}{override_note})")
-    print(f"{'query':<30} {'chars':>6} {'oracle(us)':>12} {'candidate(us)':>14} {'oracle/cand':>12}")
-    print("-" * 78)
+    print(f"\n{label}  (N={n} per batch × {repeat} batches, oracle={oracle}, candidate={candidate}{override_note})")
+    print(
+        f"{'query':<30} {'chars':>6} "
+        f"{'oracle median':>14} {'(min..max)':>15} "
+        f"{'cand median':>13} {'(min..max)':>15} "
+        f"{'ratio':>7}"
+    )
+    print("-" * 105)
 
+    results: dict[str, dict[str, Any]] = {}
     oracle_total, cand_total, comparable = 0.0, 0.0, 0
     for name, q in queries.items():
         nq = min(N_PER_QUERY.get(name, n), n)
-        # Annotate the row name when its N differs from the header so a
-        # reader doesn't have to cross-reference the override map to
-        # interpret the µs value.
         row_label = name if nq == n else f"{name} [N={nq}]"
+        row: dict[str, Any] = {"chars": len(q)}
         try:
-            oracle_us = run(lambda q=q: parse_fn(q, backend=oracle), nq)
+            oracle_stat = run_query(parse_fn, q, oracle, nq, repeat)
+            row["oracle"] = oracle_stat.to_json()
         except Exception as e:
-            print(f"{row_label:<30} {len(q):>6} {'ERROR':>12} {'-':>14} {'-':>12}  ({oracle}: {e})")
+            row["error"] = f"oracle ({oracle}): {e}"
+            results[name] = row
+            print(f"{row_label:<30} {len(q):>6}  ERROR ({oracle}: {e})")
             continue
         try:
-            cand_us = run(lambda q=q: parse_fn(q, backend=candidate), nq)
+            cand_stat = run_query(parse_fn, q, candidate, nq, repeat)
+            row["candidate"] = cand_stat.to_json()
         except Exception as e:
-            print(f"{row_label:<30} {len(q):>6} {oracle_us:>12.3f} {'(skip)':>14} {'-':>12}  ({candidate}: {e})")
+            row["error"] = f"candidate ({candidate}): {e}"
+            results[name] = row
+            print(f"{row_label:<30} {len(q):>6} {_format_us(oracle_stat.median)} (skip)  ({candidate}: {e})")
             continue
-        ratio = oracle_us / cand_us if cand_us > 0 else float("nan")
-        print(f"{row_label:<30} {len(q):>6} {oracle_us:>12.3f} {cand_us:>14.3f} {ratio:>11.1f}x")
-        oracle_total += oracle_us
-        cand_total += cand_us
+        ratio = oracle_stat.median / cand_stat.median if cand_stat.median > 0 else float("nan")
+        print(
+            f"{row_label:<30} {len(q):>6} "
+            f"{_format_us(oracle_stat.median)} "
+            f"({oracle_stat.min:>6.1f}..{oracle_stat.max:<6.1f}) "
+            f"{_format_us(cand_stat.median)} "
+            f"({cand_stat.min:>6.1f}..{cand_stat.max:<6.1f}) "
+            f"{ratio:>6.1f}x"
+        )
+        oracle_total += oracle_stat.median
+        cand_total += cand_stat.median
         comparable += 1
+        results[name] = row
 
-    print("-" * 78)
+    print("-" * 105)
     if comparable:
-        # The time columns ARE arithmetic means of per-row times.
-        # The ratio column is the ratio of those means
-        # (equivalently `sum(oracle) / sum(cand)`), which weights each
-        # row by absolute time spent — the right metric for an
-        # "overall speedup" reading. Note this is NOT the arithmetic
-        # mean of per-row ratios; on a corpus with vastly different
-        # absolute times, that mean would over-weight cheap rows.
+        # The mean cells use medians of each row; the overall ratio
+        # is `sum(oracle_median) / sum(cand_median)`, weighting each
+        # row by its absolute time (the right metric for "overall
+        # speedup", since cheap rows would otherwise drown out
+        # expensive ones if we averaged per-row ratios instead).
         overall = oracle_total / cand_total if cand_total > 0 else float("nan")
         print(
-            f"{'mean (per-call µs)':<30} {'':>6} {oracle_total / comparable:>12.3f} "
-            f"{cand_total / comparable:>14.3f} {overall:>11.1f}x  "
+            f"{'mean (per-call µs)':<30} {'':>6} "
+            f"{oracle_total / comparable:>14.3f} {'':>15} "
+            f"{cand_total / comparable:>13.3f} {'':>15} "
+            f"{overall:>6.1f}x  "
             f"(ratio sum-weighted; {comparable}/{len(queries)} comparable)"
         )
-    return comparable
+    return comparable, results
+
+
+# ============================================================================
+# Compare-mode report
+# ============================================================================
+
+
+def _significant(a: RowStat, b: RowStat) -> bool:
+    """Two stats are 'significantly' different when:
+      1. Their [min..max] ranges don't overlap (the change is bigger
+         than the noise observed in either run), AND
+      2. The relative delta is at least 3% (a non-overlap-by-a-hair
+         within a narrow band shouldn't read as a real win — we want
+         to surface optimizations, not jitter).
+
+    Single-sample stats can't test non-overlap, so they fall back to
+    pure relative threshold (≥5%, to compensate for the missing variance
+    signal)."""
+    if len(a.samples_us) <= 1 or len(b.samples_us) <= 1:
+        return abs(a.median - b.median) / max(a.median, b.median, 1e-9) > 0.05
+    non_overlap = a.max < b.min or b.max < a.min
+    rel_delta = abs(a.median - b.median) / max(a.median, b.median, 1e-9)
+    return non_overlap and rel_delta > 0.03
+
+
+def _delta_str(before: float, after: float) -> str:
+    """`+12.3%` / `-12.3%` for a row delta; falls back to `nan` if
+    the baseline value was zero."""
+    if before <= 0:
+        return "nan"
+    pct = (after - before) / before * 100
+    sign = "+" if pct >= 0 else ""
+    return f"{sign}{pct:.1f}%"
+
+
+def compare(baseline_path: Path, current_data: dict[str, Any], candidate: str) -> None:
+    """Diff a previous JSON result against the current run. Per-row
+    delta + significance flag; sum-weighted-mean delta for each rule.
+
+    `current_data` is the in-memory result dict the live run just built
+    (rules → query → row). `baseline_path` points at a previous
+    `--json-output` file; we compare the candidate stats only (oracle
+    stats are typically the same backend across runs, and even when
+    they're not, a "candidate before vs candidate after" diff is what
+    optimization runs want)."""
+    print(f"\n=== Compare candidate {candidate!r} vs baseline {baseline_path.as_posix()} ===\n")
+
+    baseline_raw = json.loads(baseline_path.read_text())
+    base_candidate = baseline_raw.get("meta", {}).get("candidate", "<unknown>")
+    if base_candidate != candidate:
+        print(
+            f"NOTE: baseline candidate {base_candidate!r} differs from current {candidate!r} — "
+            f"deltas compare two DIFFERENT backends, not the same backend before/after.\n"
+        )
+
+    for rule in ("parse_expr", "parse_select"):
+        baseline_rows = baseline_raw.get("rules", {}).get(rule, {})
+        current_rows = current_data.get("rules", {}).get(rule, {})
+        if not baseline_rows or not current_rows:
+            continue
+        print(f"\n{rule} (candidate diff)")
+        print(f"{'query':<30} {'before':>10} {'after':>10} {'delta':>10}  flag")
+        print("-" * 75)
+        before_total, after_total = 0.0, 0.0
+        for name in current_rows:
+            before_row = baseline_rows.get(name)
+            after_row = current_rows.get(name)
+            if before_row is None or "candidate" not in before_row or "candidate" not in after_row:
+                continue
+            before = RowStat.from_json(before_row["candidate"])
+            after = RowStat.from_json(after_row["candidate"])
+            flag = "★★★" if _significant(before, after) else ""
+            improvement = before.median > after.median
+            flag_color = flag + (" (faster)" if improvement and flag else (" (slower)" if flag else ""))
+            print(
+                f"{name:<30} {_format_us(before.median):>10} {_format_us(after.median):>10} "
+                f"{_delta_str(before.median, after.median):>10}  {flag_color}"
+            )
+            before_total += before.median
+            after_total += after.median
+        print("-" * 75)
+        if before_total > 0 and after_total > 0:
+            print(
+                f"{'sum (per-call µs)':<30} {before_total:>10.3f} {after_total:>10.3f} "
+                f"{_delta_str(before_total, after_total):>10}"
+            )
+
+
+# ============================================================================
+# CLI plumbing
+# ============================================================================
 
 
 def main() -> int:
@@ -332,14 +545,50 @@ def main() -> int:
         type=int,
         default=DEFAULT_N,
         help=(
-            f"Iterations per row (default: {DEFAULT_N}). Lower it for a quick "
+            f"Iterations per batch (default: {DEFAULT_N}). Lower it for a quick "
             f"sanity check during grinding, e.g. --n 50. Per-query ceilings in "
             f"N_PER_QUERY still apply as min(ceiling, --n)."
+        ),
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=DEFAULT_REPEAT,
+        help=(
+            f"Batches per query (default: {DEFAULT_REPEAT}). Each batch is "
+            f"`--n` iterations; we report median / min / max across the "
+            f"batches so noise can be told apart from real changes. Set to 1 "
+            f"for a quick run, 10+ for an optimization-tracking baseline."
+        ),
+    )
+    parser.add_argument(
+        "--json-output",
+        type=Path,
+        default=None,
+        help=(
+            "Write the full result corpus to PATH as JSON. The file shape is "
+            "`{meta: {…}, rules: {parse_expr: {query: {oracle, candidate, chars}}, "
+            "parse_select: {…}}}`. Use with `--compare` on a future run to "
+            "diff the two."
+        ),
+    )
+    parser.add_argument(
+        "--compare",
+        type=Path,
+        default=None,
+        help=(
+            "After running the bench, load a previous `--json-output` file at "
+            "PATH and print a per-row delta with a significance flag (★★★ when "
+            "the two runs' [min..max] ranges don't overlap, i.e., the change "
+            "is larger than the noise floor)."
         ),
     )
     args = parser.parse_args()
     if args.n < 1:
         print("ERROR: --n must be at least 1")
+        return 2
+    if args.repeat < 1:
+        print("ERROR: --repeat must be at least 1")
         return 2
     if not args.candidate:
         print(
@@ -364,8 +613,17 @@ def main() -> int:
                 return 2
 
     comparable = 0
-    comparable += bench("parse_expr", parse_expr, EXPR_QUERIES, args.n, args.oracle, args.candidate)
-    comparable += bench("parse_select", parse_select, SELECT_QUERIES, args.n, args.oracle, args.candidate)
+    rules_data: dict[str, dict[str, Any]] = {}
+    expr_comparable, expr_rows = bench(
+        "parse_expr", parse_expr, EXPR_QUERIES, args.n, args.repeat, args.oracle, args.candidate
+    )
+    select_comparable, select_rows = bench(
+        "parse_select", parse_select, SELECT_QUERIES, args.n, args.repeat, args.oracle, args.candidate
+    )
+    comparable = expr_comparable + select_comparable
+    rules_data["parse_expr"] = expr_rows
+    rules_data["parse_select"] = select_rows
+
     if comparable == 0:
         print(
             f"\nERROR: zero comparable rows — candidate {args.candidate!r} "
@@ -374,6 +632,25 @@ def main() -> int:
             f"config issue."
         )
         return 1
+
+    current_data = {
+        "meta": {
+            "oracle": args.oracle,
+            "candidate": args.candidate,
+            "n_per_batch": args.n,
+            "repeats": args.repeat,
+        },
+        "rules": rules_data,
+    }
+
+    if args.json_output:
+        args.json_output.parent.mkdir(parents=True, exist_ok=True)
+        args.json_output.write_text(json.dumps(current_data, indent=2))
+        print(f"\nWrote results to {args.json_output}")
+
+    if args.compare:
+        compare(args.compare, current_data, args.candidate)
+
     return 0
 
 
