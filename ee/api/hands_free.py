@@ -97,6 +97,11 @@ class MaxHandsFreeViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     # Hands-free actions are list-level and don't operate on any model — DRF's GenericViewSet
     # needs a queryset attribute for the routing scaffolding but it is never read.
     queryset = Conversation.objects.none()
+    # drf-spectacular requires every viewset to declare a serializer_class for OpenAPI
+    # generation. The `token` action takes no body and `synthesize` overrides this via
+    # its @extend_schema decorator, so SynthesizeSerializer is purely the schema-default
+    # — never instantiated by the viewset's own get_serializer().
+    serializer_class = SynthesizeSerializer
     # Server-side gate on the same feature flag the frontend checks — without it an
     # authenticated project member could POST directly to /token/ or /synthesize/ and
     # rack up ElevenLabs spend even when their org doesn't have hands-free enabled.
