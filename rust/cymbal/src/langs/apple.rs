@@ -135,7 +135,10 @@ impl RawAppleFrame {
                 ))])
             }
             Err(ResolveError::ResolutionError(e)) => {
-                unreachable!("Should not have received error {:?}", e)
+                tracing::warn!("Unexpected Apple symbol resolution error: {:?}", e);
+                Ok(vec![self.handle_resolution_error(AppleError::ParseError(
+                    e.to_string(),
+                ))])
             }
             Err(ResolveError::UnhandledError(e)) => {
                 tracing::error!("[apple-debug] resolve() unhandled error: {:?}", e);

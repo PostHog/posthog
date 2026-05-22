@@ -53,10 +53,7 @@ function getCheckPlotValue(check: AlertCheck, isAnomalyDetection: boolean): numb
         }
     }
     const v = check.calculated_value
-    if (v != null && typeof v === 'number' && !Number.isNaN(v)) {
-        return v
-    }
-    return null
+    return v != null && !Number.isNaN(v) ? v : null
 }
 
 export const alertLogic = kea<alertLogicType>([
@@ -179,10 +176,6 @@ export const alertLogic = kea<alertLogicType>([
                 return (alert?.checks?.length ?? 0) > 0
             },
         ],
-        alertHistoryHasChartableHistory: [
-            (s) => [s.alertHistoryChartSeries],
-            (series: AlertHistoryChartPoint[]) => series.length > 0,
-        ],
         alertHistoryTablePageCount: [
             (s) => [s.alert],
             (alert: AlertType | null): number => {
@@ -234,9 +227,13 @@ export const alertLogic = kea<alertLogicType>([
         },
     })),
 
-    events(({ actions }) => ({
+    events(({ actions, props }) => ({
         afterMount() {
-            actions.loadAlert()
+            if (props.alertId) {
+                actions.selectAlertHistoryView('chart')
+            } else {
+                actions.loadAlert()
+            }
         },
     })),
 ])

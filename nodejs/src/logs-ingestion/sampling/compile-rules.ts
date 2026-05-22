@@ -59,23 +59,40 @@ function parseSeverityActions(raw: unknown): [SeverityAction, SeverityAction, Se
 
 const MAX_LOGS_PER_SECOND = 1_000_000
 const MAX_BURST_LOGS = 10_000_000
+const MAX_KB_PER_SECOND = 1_000_000
+const MAX_BURST_KB = 10_000_000
+const BYTES_PER_KB = 1024
 
 function parseRateLimitFromConfig(
     config: Record<string, unknown>
-): { refillPerSecond: number; poolMax: number } | null {
+): { refillPerSecond: number; poolMax: number; costUnit: 'records' | 'bytes' } | null {
+    // KB-mode takes precedence when both fields are set. The API validator rejects that
+    // case at write time, but the ingestion path stays robust to legacy or hand-crafted rows.
+    const kbps = config.kb_per_second
+    if (typeof kbps === 'number' && Number.isFinite(kbps) && kbps >= 1 && kbps <= MAX_KB_PER_SECOND) {
+        const refillKb = Math.floor(kbps)
+        const burstRaw = config.burst_kb
+        const burstKb =
+            typeof burstRaw === 'number' && Number.isFinite(burstRaw) && burstRaw >= refillKb
+                ? Math.min(Math.floor(burstRaw), MAX_BURST_KB)
+                : Math.min(refillKb * 3, MAX_BURST_KB)
+        return {
+            refillPerSecond: refillKb * BYTES_PER_KB,
+            poolMax: burstKb * BYTES_PER_KB,
+            costUnit: 'bytes',
+        }
+    }
     const lps = config.logs_per_second
     if (typeof lps !== 'number' || !Number.isFinite(lps) || lps < 1 || lps > MAX_LOGS_PER_SECOND) {
         return null
     }
     const refill = Math.floor(lps)
     const burstRaw = config.burst_logs
-    let poolMax: number
-    if (typeof burstRaw === 'number' && Number.isFinite(burstRaw) && burstRaw >= refill) {
-        poolMax = Math.min(Math.floor(burstRaw), MAX_BURST_LOGS)
-    } else {
-        poolMax = Math.min(refill * 3, MAX_BURST_LOGS)
-    }
-    return { refillPerSecond: refill, poolMax }
+    const poolMax =
+        typeof burstRaw === 'number' && Number.isFinite(burstRaw) && burstRaw >= refill
+            ? Math.min(Math.floor(burstRaw), MAX_BURST_LOGS)
+            : Math.min(refill * 3, MAX_BURST_LOGS)
+    return { refillPerSecond: refill, poolMax, costUnit: 'records' }
 }
 
 /**
@@ -241,6 +258,11 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
             if (rateLimit) {
                 hasRateLimitRules = true
             }
+            // rate_limit rules also accept config.filter_group as a universal scope (the
+            // drop-rule UI now writes service-scoping there instead of scope_service).
+            // The path_drop branch above already parsed any filter_group on path_drop rows;
+            // do the same parse for rate_limit so the evaluator can honor it.
+            filterGroup = parseFilterGroup(row.config?.filter_group)
         }
         rules.push({
             id: row.id,

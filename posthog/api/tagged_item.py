@@ -184,6 +184,14 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         """
         Bulk update tags on multiple objects.
 
+        PAT access: this action has no ``required_scopes=`` on the decorator —
+        inheriting viewsets must add ``"bulk_update_tags"`` to their
+        ``scope_object_write_actions`` list to accept personal API keys.
+        Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+        "This action does not support personal API key access". Done per-viewset
+        so granting ``<scope>:write`` for one resource doesn't leak access to
+        sibling resources that share this mixin.
+
         Accepts:
         - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
 
@@ -378,6 +386,32 @@ def handle_tagged_item_change(
                             type="Ticket",
                             field="tag",
                             action=tag_action,
+                            after=tagged_item.tag.name if activity == "created" else None,
+                            before=tagged_item.tag.name if activity == "deleted" else None,
+                        )
+                    ],
+                ),
+            )
+
+        if related_object_type == "account" and related_object_id:
+            account_tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
+            log_activity(
+                organization_id=tagged_item.tag.team.organization_id
+                if tagged_item.tag and tagged_item.tag.team
+                else None,
+                team_id=tagged_item.tag.team_id if tagged_item.tag else None,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=related_object_id,
+                scope="Account",
+                activity="updated",
+                detail=Detail(
+                    name=related_object_name,
+                    changes=[
+                        Change(
+                            type="Account",
+                            field="tag",
+                            action=account_tag_action,
                             after=tagged_item.tag.name if activity == "created" else None,
                             before=tagged_item.tag.name if activity == "deleted" else None,
                         )

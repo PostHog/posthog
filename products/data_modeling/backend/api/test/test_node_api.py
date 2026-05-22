@@ -7,7 +7,7 @@ from rest_framework import status
 from posthog.models import Team
 
 from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
 class TestNodeViewSet(APIBaseTest):
