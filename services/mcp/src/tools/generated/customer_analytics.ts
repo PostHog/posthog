@@ -88,6 +88,7 @@ const AccountsListSchema = AccountsListQueryParams.extend({
 const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Schemas.PaginatedAccountList>> => ({
     name: 'accounts-list',
     schema: AccountsListSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AccountsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAccountList>({
@@ -162,6 +163,7 @@ const accountsNotebooksList = (): ToolBase<
 > => ({
     name: 'accounts-notebooks-list',
     schema: AccountsNotebooksListSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AccountsNotebooksListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAccountNotebookList>({
@@ -181,6 +183,7 @@ const AccountsNotebooksRetrieveSchema = AccountsNotebooksRetrieveParams.omit({ p
 const accountsNotebooksRetrieve = (): ToolBase<typeof AccountsNotebooksRetrieveSchema, Schemas.AccountNotebook> => ({
     name: 'accounts-notebooks-retrieve',
     schema: AccountsNotebooksRetrieveSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AccountsNotebooksRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AccountNotebook>({
@@ -234,6 +237,7 @@ const AccountsRetrieveSchema = AccountsRetrieveParams.omit({ project_id: true })
 const accountsRetrieve = (): ToolBase<typeof AccountsRetrieveSchema, Schemas.Account> => ({
     name: 'accounts-retrieve',
     schema: AccountsRetrieveSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AccountsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Account>({

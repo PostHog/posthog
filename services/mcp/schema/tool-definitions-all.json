@@ -38,7 +38,7 @@
         "summary": "List accounts",
         "title": "List accounts",
         "required_scopes": ["account:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -86,7 +86,7 @@
         "summary": "List account notebooks",
         "title": "List account notebooks",
         "required_scopes": ["account:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -102,7 +102,7 @@
         "summary": "Get account notebook",
         "title": "Get account notebook",
         "required_scopes": ["account:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -134,7 +134,7 @@
         "summary": "Get account",
         "title": "Get account",
         "required_scopes": ["account:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

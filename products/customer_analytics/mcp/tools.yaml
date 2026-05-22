@@ -74,6 +74,7 @@ tools:
                     JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
                     that have any of the listed tags.
         feature_flag: customer-analytics-csp
+        mcp_version: 1
     accounts-notebooks-create:
         operation: accounts_notebooks_create
         enabled: true
@@ -117,6 +118,7 @@ tools:
             List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result
             includes the notebook `short_id`, `title`, `content`, and authorship metadata.
         feature_flag: customer-analytics-csp
+        mcp_version: 1
     accounts-notebooks-retrieve:
         operation: accounts_notebooks_retrieve
         enabled: true
@@ -131,6 +133,7 @@ tools:
             Fetch a single account notebook by its `short_id`. Returns the full notebook including `content` (ProseMirror
             JSON document structure) and authorship metadata.
         feature_flag: customer-analytics-csp
+        mcp_version: 1
     accounts-partial-update:
         operation: accounts_partial_update
         enabled: true
@@ -171,6 +174,7 @@ tools:
             account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
             zendesk_id external identifiers) and `tags`.
         feature_flag: customer-analytics-csp
+        mcp_version: 1
     accounts-update:
         operation: accounts_update
         enabled: false
