@@ -7,7 +7,7 @@ from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourc
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     SourceConfig,
@@ -75,8 +75,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return {}
 
     def get_schemas(
-        self, config: ConfigType, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ConfigType,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
+        """Return the list of schemas available for this source.
+
+        ``force_refresh=True`` instructs the source to bypass any internal cache
+        of upstream schema discovery (e.g. paginated API listings). Sources
+        without caches can ignore the flag.
+        """
         raise NotImplementedError()
 
     @property

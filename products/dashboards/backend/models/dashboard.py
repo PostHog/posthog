@@ -33,7 +33,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         UNLISTED = (
             "unlisted",
             "Unlisted (product-embedded)",
-        )  # Product dashboards (e.g. LLM Analytics) - hidden from general lists, accessed via tag queries
+        )  # Product dashboards (e.g. AI observability) - hidden from general lists, accessed via tag queries
 
     class RestrictionLevel(models.IntegerChoices):
         """Collaboration restriction level (which is a dashboard setting). Sync with PrivilegeLevel."""

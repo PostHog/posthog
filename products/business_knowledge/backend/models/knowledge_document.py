@@ -19,7 +19,7 @@ class KnowledgeDocument(UUIDModel):
     # Stable identity across refreshes. For Stage 1 text it's the document's
     # own UUID. For Stage 2+ URLs it will be set to the normalized URL so a
     # re-crawl replaces rather than duplicates.
-    stable_id = models.CharField(max_length=512)
+    stable_id = models.CharField(max_length=2048)
     title = models.CharField(max_length=512, blank=True, default="")
     # The raw parsed text. Kept so we can re-chunk without re-parsing the
     # source. Bounded by MAX_TEXT_SIZE_BYTES at the API layer.
@@ -55,3 +55,6 @@ class KnowledgeDocument(UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["source", "stable_id"], name="bk_doc_unique_per_source"),
         ]
+
+    def __str__(self) -> str:
+        return self.title or self.stable_id

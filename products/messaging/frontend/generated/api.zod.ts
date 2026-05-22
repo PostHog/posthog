@@ -114,6 +114,23 @@ export const MessagingCategoriesSaveWebhookConfigCreateBody = /* @__PURE__ */ zo
     deleted: zod.boolean().optional(),
 })
 
+/**
+ * Manually add a recipient to the opt-out list for a specific category or all marketing messages.
+ * @summary Manually add a recipient to the opt-out list
+ */
+export const messagingPreferencesAddOptOutCreateBodyIdentifierMax = 512
+
+export const MessagingPreferencesAddOptOutCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingPreferencesAddOptOutCreateBodyIdentifierMax)
+        .describe('The recipient identifier to opt out (e.g. email address).'),
+    category_key: zod
+        .string()
+        .optional()
+        .describe('Optional message category key. If omitted, the recipient is opted out of all marketing messages.'),
+})
+
 export const messagingTemplatesCreateBodyNameMax = 400
 
 export const messagingTemplatesCreateBodyTypeMax = 24

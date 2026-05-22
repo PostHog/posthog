@@ -112,7 +112,6 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             settings=HogQLGlobalSettings(
                 # Make sure funnel queries never OOM
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-                enable_analyzer=True,
             ),
         )
 

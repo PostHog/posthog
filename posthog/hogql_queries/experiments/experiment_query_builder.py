@@ -246,30 +246,36 @@ class ExperimentQueryBuilder:
 
     def _get_maturity_window_seconds(self) -> int:
         """
-        Returns the total maturity window in seconds.
-        For retention metrics: conversion_window + retention_window_end.
-        For other metrics: conversion_window.
-        Returns 0 if no conversion window is configured.
+        Returns the maturity window in seconds for non-retention metrics.
+        Retention metrics use _get_retention_maturity_seconds and apply maturity
+        in the start_events CTE, anchored on start_event timestamp.
         """
-        conversion_window_seconds = self._get_conversion_window_seconds()
-        if conversion_window_seconds == 0:
-            return 0
+        return self._get_conversion_window_seconds()
 
-        if isinstance(self.metric, ExperimentRetentionMetric):
-            retention_window_end_seconds = conversion_window_to_seconds(
-                self.metric.retention_window_end,
-                self.metric.retention_window_unit,
-            )
-            return conversion_window_seconds + retention_window_end_seconds
-
-        return conversion_window_seconds
+    def _get_retention_maturity_seconds(self) -> int:
+        """
+        Returns the maturity window in seconds for retention metrics.
+        Equals retention_window_end converted to seconds; conversion_window does
+        not contribute because retention maturity is anchored on start_event.
+        """
+        assert isinstance(self.metric, ExperimentRetentionMetric)
+        return conversion_window_to_seconds(
+            self.metric.retention_window_end,
+            self.metric.retention_window_unit,
+        )
 
     def _build_maturity_having_clause(self, timestamp_expr: str = "timestamp") -> Optional[ast.Expr]:
         """
         Returns a HAVING clause expression to filter out users whose conversion window
         hasn't elapsed yet, or None if the feature is not enabled.
+
+        Retention metrics handle maturity separately in their own start_events CTE
+        via _build_retention_maturity_having_clause; this function intentionally
+        returns None for them.
         """
         if self.metric is None:
+            return None
+        if isinstance(self.metric, ExperimentRetentionMetric):
             return None
         if not self.only_count_matured_users:
             return None
@@ -282,6 +288,36 @@ class ExperimentQueryBuilder:
         return parse_expr(
             f"max({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
             placeholders={
+                "maturity_seconds": ast.Constant(value=maturity_seconds),
+                "now": ast.Constant(value=now),
+            },
+        )
+
+    def _build_retention_maturity_having_clause(self) -> Optional[ast.Expr]:
+        """
+        Returns a HAVING clause for the retention query's start_events CTE that
+        filters out users whose retention window has not yet fully elapsed since
+        their start_event.
+
+        Anchored on the user's start_event timestamp (min or max of start event
+        timestamps, depending on start_handling).
+        """
+        if not isinstance(self.metric, ExperimentRetentionMetric):
+            return None
+        if not self.only_count_matured_users:
+            return None
+
+        maturity_seconds = self._get_retention_maturity_seconds()
+        if maturity_seconds == 0:
+            return None
+
+        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+        start_timestamp_expr = self._build_start_event_timestamp_expr()
+
+        return parse_expr(
+            "{start_ts} + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
+            placeholders={
+                "start_ts": start_timestamp_expr,
                 "maturity_seconds": ast.Constant(value=maturity_seconds),
                 "now": ast.Constant(value=now),
             },
@@ -2631,6 +2667,18 @@ class ExperimentQueryBuilder:
         )
 
         assert isinstance(query, ast.SelectQuery)
+
+        # Inject maturity HAVING clause into the start_events CTE, anchored on
+        # the user's start_event timestamp so users whose retention window has
+        # not yet elapsed are excluded from the denominator.
+        retention_maturity = self._build_retention_maturity_having_clause()
+        if retention_maturity is not None and query.ctes and "start_events" in query.ctes:
+            start_events_cte = query.ctes["start_events"]
+            if isinstance(start_events_cte, ast.CTE) and isinstance(start_events_cte.expr, ast.SelectQuery):
+                if start_events_cte.expr.having is None:
+                    start_events_cte.expr.having = retention_maturity
+                else:
+                    start_events_cte.expr.having = ast.And(exprs=[start_events_cte.expr.having, retention_maturity])
 
         # Inject breakdown columns if breakdown filter is present
         if self.breakdown_injector:

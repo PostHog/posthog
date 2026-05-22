@@ -550,3 +550,106 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["actionability"] is None
+
+
+class TestSignalReportSuppressionAPI(APIBaseTest):
+    def _state_url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"
+
+    def _create_report(self, report_status=SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team,
+            status=report_status,
+            title="Test report",
+            summary="Test summary",
+        )
+
+    @parameterized.expand(
+        [
+            # name, body, expected_final_status, expected_reason, expected_note (None = no artefact)
+            (
+                "suppress_without_dismissal_creates_no_artefact",
+                {"state": "suppressed"},
+                SignalReport.Status.SUPPRESSED,
+                None,
+                None,
+            ),
+            (
+                "suppress_with_reason_and_note",
+                {
+                    "state": "suppressed",
+                    "dismissal_reason": "wontfix_intentional",
+                    "dismissal_note": "this is intentional behavior, see RFC-123",
+                },
+                SignalReport.Status.SUPPRESSED,
+                "wontfix_intentional",
+                "this is intentional behavior, see RFC-123",
+            ),
+            (
+                "suppress_with_only_note",
+                {"state": "suppressed", "dismissal_note": "free-form note"},
+                SignalReport.Status.SUPPRESSED,
+                None,
+                "free-form note",
+            ),
+            # The caller (PostHog Code) owns the set of valid reason codes; the API persists whatever it gets.
+            (
+                "suppress_accepts_arbitrary_reason",
+                {"state": "suppressed", "dismissal_reason": "some_brand_new_code"},
+                SignalReport.Status.SUPPRESSED,
+                "some_brand_new_code",
+                None,
+            ),
+            (
+                "snooze_with_reason_and_note",
+                {
+                    "state": "potential",
+                    "dismissal_reason": "wontfix_irrelevant",
+                    "dismissal_note": "snoozing for now",
+                },
+                SignalReport.Status.POTENTIAL,
+                "wontfix_irrelevant",
+                "snoozing for now",
+            ),
+        ]
+    )
+    def test_state_transition_with_dismissal(self, _name, body, expected_final_status, expected_reason, expected_note):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps(body), content_type="application/json"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == expected_final_status
+
+        artefacts = list(
+            SignalReportArtefact.objects.filter(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        )
+        if expected_reason is None and expected_note is None:
+            assert artefacts == []
+            return
+
+        assert len(artefacts) == 1
+        content = json.loads(artefacts[0].content)
+        assert content["reason"] == expected_reason
+        assert content["note"] == expected_note
+        assert content["user_id"] == self.user.id
+        assert content["user_uuid"] == str(self.user.uuid)
+
+    @parameterized.expand(
+        [
+            (
+                "oversized_dismissal_note",
+                {"state": "suppressed", "dismissal_reason": "other", "dismissal_note": "x" * 4001},
+            ),
+        ]
+    )
+    def test_state_transition_rejects_invalid_dismissal(self, _name, body):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)), data=json.dumps(body), content_type="application/json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+        ).exists()

@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-import { DEFAULT_Y_AXIS_ID } from '../core/types'
+import { resolveYScaleForSeries } from '../core/scales'
 import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
+import { getTextMeasureCtx } from '../utils/text-measure'
 
 export type ValueLabelsMode = 'per-segment' | 'stack-total'
 
@@ -22,14 +23,6 @@ const LABEL_BORDER = 2
 const LABEL_HORIZONTAL_CHROME = (LABEL_PADDING_X + LABEL_BORDER) * 2
 const STACK_TOTAL_KEY = '__stack_total__'
 
-let measureCtx: CanvasRenderingContext2D | null = null
-function getMeasureCtx(): CanvasRenderingContext2D | null {
-    if (!measureCtx) {
-        measureCtx = document.createElement('canvas').getContext('2d')
-    }
-    return measureCtx
-}
-
 interface Candidate {
     key: string
     seriesIndex: number
@@ -41,11 +34,6 @@ interface Candidate {
     above: boolean
 }
 
-function resolveYScale(s: { yAxisId?: string }, scales: ChartScales): (value: number) => number {
-    const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-    return scales.yAxes?.[axisId]?.scale ?? scales.y
-}
-
 function defaultLocaleFormatter(v: number): string {
     return v.toLocaleString()
 }
@@ -54,7 +42,7 @@ interface BuildCandidatesArgs {
     series: ResolvedSeries[]
     labels: string[]
     scales: ChartScales
-    resolveValue: ResolveValueFn
+    resolvePositionValue: ResolveValueFn
     valueFormatter: NonNullable<ValueLabelsProps['valueFormatter']>
     isHorizontal: boolean
     mode: ValueLabelsMode
@@ -88,7 +76,7 @@ function pushCandidate(
 }
 
 function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
-    const ctx = getMeasureCtx()
+    const ctx = getTextMeasureCtx()
     if (ctx) {
         ctx.font = LABEL_FONT
     }
@@ -129,7 +117,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
         return out
     }
     const topSeries = visible[visible.length - 1]
-    const yScale = resolveYScale(topSeries, scales)
+    const yScale = resolveYScaleForSeries(scales, topSeries)
     const topColor = topSeries.color
 
     for (let dIdx = 0; dIdx < labels.length; dIdx++) {
@@ -159,7 +147,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolveValue, valueFormatter, isHorizontal } = args
+    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal } = args
     const out: Candidate[] = []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
@@ -167,17 +155,20 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
         if (s.visibility?.excluded || s.visibility?.valueLabel === false) {
             continue
         }
-        const yScale = resolveYScale(s, scales)
+        const yScale = resolveYScaleForSeries(scales, s)
         for (let dIdx = 0; dIdx < s.data.length && dIdx < labels.length; dIdx++) {
             const rawValue = s.data[dIdx]
             if (typeof rawValue !== 'number' || !isFinite(rawValue) || rawValue === 0) {
                 continue
             }
-            const yValue = resolveValue(s, dIdx)
+            const yValue = resolvePositionValue(s, dIdx)
             if (typeof yValue !== 'number' || !isFinite(yValue)) {
                 continue
             }
-            const categoricalCoord = scales.x(labels[dIdx])
+            // Pass `s.key` so grouped bar charts (compare-against-previous) anchor each
+            // label on its own bar rather than the band center between bars. Other chart
+            // types ignore the second arg and fall back to the band/point center.
+            const categoricalCoord = scales.x(labels[dIdx], s.key)
             const valueCoord = yScale(yValue)
             if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
@@ -298,7 +289,7 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolveValue, axis } = useChartLayout()
+    const { series, scales, labels, theme, resolvePositionValue, axis } = useChartLayout()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
 
@@ -311,7 +302,7 @@ export function ValueLabels({
                     series,
                     labels,
                     scales,
-                    resolveValue,
+                    resolvePositionValue,
                     valueFormatter: formatter,
                     isHorizontal,
                     mode,
@@ -320,7 +311,7 @@ export function ValueLabels({
                 minGap,
                 isHorizontal
             ),
-        [series, labels, scales, resolveValue, formatter, minGap, isHorizontal, mode, isPercent]
+        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent]
     )
 
     if (visible.length === 0) {

@@ -35,8 +35,9 @@ from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -165,6 +166,7 @@ async def _handle_partial_data_loading(
         row_count=export_signal.cumulative_row_count,
         queryable_folder=queryable_folder,
         table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        primary_keys=export_signal.primary_keys,
     )
 
     logger.debug("partial_data_loading_complete", queryable_folder=queryable_folder)

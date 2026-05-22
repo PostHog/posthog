@@ -19,6 +19,7 @@ Intended usage patterns:
         tag_current_slo(cache_hit=True)
 """
 
+import random
 import traceback
 import dataclasses
 from collections.abc import Callable, Iterator, Mapping
@@ -47,6 +48,11 @@ class SloSpec:
     operation: SloOperation
     team_id: int
     resource_id: str | None = None
+    # 1.0 = emit every operation. <1.0 = randomly drop both started+completed in
+    # tandem (the coin flip happens once per operation so the event pair is preserved).
+    # The chosen rate is stamped on the events as `properties.sample_rate` so dashboards
+    # can weight each event by 1/sample_rate to reconstruct the true rate.
+    sample_rate: float = 1.0
 
 
 @dataclasses.dataclass
@@ -117,46 +123,60 @@ def slo_operation(
     handle = SloHandle()
     base_properties = dict(properties or {})
     base_properties["correlation_id"] = str(uuid4())
+    # One coin flip per operation: started+completed share fate, so a sampled
+    # operation never emits a half-pair.
+    should_emit = spec.sample_rate >= 1.0 or random.random() < spec.sample_rate
     started_at = monotonic()
     token = _current_slo.set(handle)
 
     try:
-        emit_slo_started(
-            distinct_id=spec.distinct_id,
-            properties=SloStartedProperties(
-                area=spec.area,
-                operation=spec.operation,
-                team_id=spec.team_id,
-                resource_id=spec.resource_id,
-            ),
-            extra_properties=base_properties or None,
-            capture=capture,
-        )
+        if should_emit:
+            emit_slo_started(
+                distinct_id=spec.distinct_id,
+                properties=SloStartedProperties(
+                    area=spec.area,
+                    operation=spec.operation,
+                    team_id=spec.team_id,
+                    resource_id=spec.resource_id,
+                ),
+                extra_properties=base_properties or None,
+                capture=capture,
+                sample_rate=spec.sample_rate,
+            )
 
         outcome = SloOutcome.SUCCESS
         try:
             yield handle
+            # outcome_override wins both ways: succeed-then-no-raise stays SUCCESS,
+            # fail-then-no-raise reports FAILURE, succeed-then-raise reports SUCCESS,
+            # fail-then-raise reports FAILURE. Lets callers express "this was actually a
+            # success, we just need to propagate the exception" or vice versa.
             outcome = handle.outcome_override or SloOutcome.SUCCESS
         except Exception as exc:
-            handle.completion_properties.setdefault("error_type", type(exc).__name__)
-            handle.completion_properties.setdefault("error_message", str(exc))
-            handle.completion_properties.setdefault("error_origin", _build_error_origin(exc))
-            outcome = SloOutcome.FAILURE
+            # Skip the dict mutations + traceback walk on the sampled-out path —
+            # nothing downstream consumes completion_properties when we don't emit.
+            if should_emit:
+                handle.completion_properties.setdefault("error_type", type(exc).__name__)
+                handle.completion_properties.setdefault("error_message", str(exc))
+                handle.completion_properties.setdefault("error_origin", _build_error_origin(exc))
+            outcome = handle.outcome_override or SloOutcome.FAILURE
             raise
         finally:
-            completion_properties = {**base_properties, **handle.completion_properties} or None
-            emit_slo_completed(
-                distinct_id=spec.distinct_id,
-                properties=SloCompletedProperties(
-                    area=spec.area,
-                    operation=spec.operation,
-                    team_id=spec.team_id,
-                    outcome=outcome,
-                    resource_id=spec.resource_id,
-                    duration_ms=(monotonic() - started_at) * 1000,
-                ),
-                extra_properties=completion_properties,
-                capture=capture,
-            )
+            if should_emit:
+                completion_properties = {**base_properties, **handle.completion_properties} or None
+                emit_slo_completed(
+                    distinct_id=spec.distinct_id,
+                    properties=SloCompletedProperties(
+                        area=spec.area,
+                        operation=spec.operation,
+                        team_id=spec.team_id,
+                        outcome=outcome,
+                        resource_id=spec.resource_id,
+                        duration_ms=(monotonic() - started_at) * 1000,
+                    ),
+                    extra_properties=completion_properties,
+                    capture=capture,
+                    sample_rate=spec.sample_rate,
+                )
     finally:
         _current_slo.reset(token)

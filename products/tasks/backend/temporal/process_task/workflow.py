@@ -131,6 +131,15 @@ After fixing, commit and push so CI can re-run.
 #   2. Second cleanup PR (after another full drain): delete this helper and
 #      `_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT`.
 _PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT = "tasks-ci-follow-up-pr-context"
+
+# The follow-up queue patch swapped the single-slot `_pending_followup` for a
+# `_pending_followups` list inside the `send_followup_message` signal handler.
+# Calling `workflow.patched(...)` from a signal handler is unsafe: signals can
+# land in different workflow-task boundaries across replays (rolling deploys,
+# sticky-cache eviction, worker restarts), which leaves the patch marker in
+# history with no matching command on replay (TMPRL1100). Switch to
+# `deprecate_patch(...)` so the marker is treated as compatible regardless of
+# which workflow task records it. Same two-step lifecycle as above.
 _PATCH_ID_FOLLOWUP_QUEUE = "tasks-follow-up-message-queue"
 
 
@@ -403,7 +412,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
-            relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id))
+            relay_task: asyncio.Task[None] | None = None
+            if not self.context.sandbox_event_ingest_enabled:
+                relay_task = asyncio.ensure_future(
+                    self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id)
+                )
 
             if self._should_forward_pending_user_message():
                 await self._forward_pending_user_message()
@@ -477,8 +490,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     case _:
                         raise ValueError(f"Unknown event type: {event}")
 
-            # Stop the relay now that the main loop is done
-            await self._cancel_relay(relay_task)
+            if relay_task is not None:
+                await self._cancel_relay(relay_task)
 
             if self._task_completed:
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
@@ -686,7 +699,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
 
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
-        cleanup_input = CleanupSandboxInput(sandbox_id=sandbox_id)
+        context = self._context
+        cleanup_input = CleanupSandboxInput(
+            sandbox_id=sandbox_id,
+            run_id=context.run_id if context else None,
+            complete_stream_on_cleanup=bool(context and context.sandbox_event_ingest_enabled),
+        )
         await workflow.execute_activity(
             cleanup_sandbox,
             cleanup_input,
@@ -914,9 +932,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.signal
     async def heartbeat(self, agent_active: bool = False) -> None:
+        if not agent_active:
+            return
         self._heartbeat_received = True
-        if agent_active:
-            self._last_active_time = workflow.now()
+        self._last_active_time = workflow.now()
 
     @temporalio.workflow.signal
     async def send_followup_message(self, message: str | None = None, artifact_ids: Optional[list[str]] = None) -> None:
@@ -930,10 +949,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             artifact_count=len(artifact_ids or []),
         )
         pending_followup = PendingFollowup(message=message, artifact_ids=artifact_ids or [])
-        if workflow.patched(_PATCH_ID_FOLLOWUP_QUEUE):
-            self._pending_followups.append(pending_followup)
-        else:
-            self._pending_followup = pending_followup
+        # Always queue. `deprecate_patch` accepts existing non-deprecated
+        # markers from workflows that ran the prior `workflow.patched(...)`
+        # gate, so this is safe to deploy alongside in-flight workflows. The
+        # consumption loop in `run()` still drains a stray `_pending_followup`
+        # for defense in depth, but new code never sets it.
+        workflow.deprecate_patch(_PATCH_ID_FOLLOWUP_QUEUE)
+        self._pending_followups.append(pending_followup)
 
     async def _send_followup_to_sandbox(self, message: str | None, artifact_ids: list[str]) -> None:
         workflow.logger.info(

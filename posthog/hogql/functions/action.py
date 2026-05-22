@@ -13,7 +13,7 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext, 
 
     from posthog.hogql.property import action_to_expr
 
-    from posthog.models import Action
+    from products.actions.backend.models.action import Action
 
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
         actions = Action.objects.filter(id=int(arg.value), team_id__in=context.query_team_ids).all()

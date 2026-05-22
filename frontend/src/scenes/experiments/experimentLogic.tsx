@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -25,6 +26,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -135,8 +137,6 @@ export const NEW_EXPERIMENT: Experiment = {
     },
     user_access_level: AccessControlLevel.Editor,
 }
-
-export const DEFAULT_MDE = 30
 
 export const FORM_MODES = {
     create: 'create',
@@ -586,6 +586,8 @@ export const experimentLogic = kea<experimentLogicType>([
             ['insightDataLoading as funnelMetricInsightLoading'],
             sharedMetricsLogic,
             ['sharedMetrics'],
+            experimentsConfigLogic,
+            ['experimentsConfig', 'defaultMinimumDetectableEffect'],
         ],
         actions: [
             experimentsLogic,
@@ -657,7 +659,13 @@ export const experimentLogic = kea<experimentLogicType>([
         launchExperiment: true,
         endExperiment: true,
         endExperimentWithoutShipping: true,
-        finishExperiment: ({ selectedVariantKey }: { selectedVariantKey: string }) => ({ selectedVariantKey }),
+        finishExperiment: ({
+            selectedVariantKey,
+            releaseToEveryone,
+        }: {
+            selectedVariantKey: string
+            releaseToEveryone: boolean
+        }) => ({ selectedVariantKey, releaseToEveryone }),
         pauseExperiment: true,
         resumeExperiment: true,
         archiveExperiment: true,
@@ -1412,6 +1420,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.refreshExperimentResults(false, 'manual')
                 actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
+                tryShowMCPHint('experiments.launch')
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to launch experiment')
             } finally {
@@ -1684,12 +1693,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        finishExperiment: async ({ selectedVariantKey }) => {
+        finishExperiment: async ({ selectedVariantKey, releaseToEveryone }) => {
             try {
                 const response: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/ship_variant`,
                     {
                         variant_key: selectedVariantKey,
+                        release_to_everyone: releaseToEveryone,
                         conclusion: values.experiment.conclusion,
                         conclusion_comment: values.experiment.conclusion_comment,
                     }
@@ -1697,7 +1707,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
                 actions.closeFinishExperimentModal()
-                lemonToast.success('Experiment ended. The selected variant has been rolled out to all users.')
+                lemonToast.success(
+                    releaseToEveryone
+                        ? 'Experiment ended. The selected variant has been rolled out to all users.'
+                        : 'Experiment ended. The selected variant has been rolled out to the experiment population.'
+                )
 
                 // Trigger Hogfetti celebration with cascading delays
                 if (values.experiment.conclusion === ExperimentConclusion.Won) {
@@ -2425,9 +2439,9 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s.experiment],
-            (newExperiment): number => {
-                return newExperiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
+            (s) => [s.experiment, s.defaultMinimumDetectableEffect],
+            (newExperiment, defaultMinimumDetectableEffect): number => {
+                return newExperiment?.parameters?.minimum_detectable_effect ?? defaultMinimumDetectableEffect
             },
         ],
         recommendedSampleSize: [

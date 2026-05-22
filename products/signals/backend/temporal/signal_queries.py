@@ -6,7 +6,6 @@ from typing import Union
 
 import structlog
 import temporalio
-import posthoganalytics
 
 from posthog.schema import EmbeddingModelName
 
@@ -16,6 +15,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
+from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.types import SignalCandidate, SignalData, SignalTypeExample
@@ -174,7 +174,7 @@ class FetchSignalTypeExamplesOutput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInput) -> FetchSignalTypeExamplesOutput:
     """Fetch one example signal per unique (source_product, source_type) pair from ClickHouse."""
     try:
@@ -257,7 +257,7 @@ class RunSignalSemanticSearchOutput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInput) -> RunSignalSemanticSearchOutput:
     """Run a nearest neighbor query against the signal embeddings in ClickHouse."""
     try:
@@ -337,7 +337,7 @@ class WaitForClickHouseInput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) -> None:
     """Poll ClickHouse until all emitted signals appear, or give up after max_wait_time_seconds.
 
@@ -440,7 +440,7 @@ class FetchSignalsForReportOutput:
 
 
 @temporalio.activity.defn
-@posthoganalytics.scoped()
+@scoped_temporal()
 async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
     try:
         team = await Team.objects.aget(pk=input.team_id)

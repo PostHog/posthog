@@ -15,6 +15,7 @@ class MaterializedColumn(Protocol):
     has_minmax_index: bool
     has_bloom_filter_index: bool
     has_ngram_lower_index: bool
+    has_bloom_filter_lower_index: bool
 
 
 if EE_AVAILABLE:

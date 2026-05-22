@@ -152,13 +152,40 @@ export interface AzureBlobDestinationConfigApi {
     type: AzureBlobDestinationConfigApiType
 }
 
-export type BatchExportDestinationConfigApi = DatabricksDestinationConfigApi | AzureBlobDestinationConfigApi
+export type BigQueryDestinationConfigApiType =
+    (typeof BigQueryDestinationConfigApiType)[keyof typeof BigQueryDestinationConfigApiType]
+
+export const BigQueryDestinationConfigApiType = {
+    BigQuery: 'BigQuery',
+} as const
+
+/**
+ * Typed configuration for a BigQuery batch-export destination.
+
+Credentials live in the linked Integration, not in this config. Mirrors the
+non-credential fields of `BigQueryBatchExportInputs` in
+`products/batch_exports/backend/service.py`.
+ */
+export interface BigQueryDestinationConfigApi {
+    /** BigQuery dataset ID to write to. */
+    dataset_id: string
+    /** BigQuery table ID inside the dataset. */
+    table_id?: string
+    /** Whether to export 'properties', 'set', and 'set_once' fields as the BigQuery JSON type rather than STRING. Cannot be changed after the export is created. */
+    use_json_type?: boolean
+    type: BigQueryDestinationConfigApiType
+}
+
+export type BatchExportDestinationConfigApi =
+    | DatabricksDestinationConfigApi
+    | AzureBlobDestinationConfigApi
+    | BigQueryDestinationConfigApi
 
 /**
  * Serializer for an BatchExportDestination model.
 
 The `config` field is polymorphic and typed only for destinations that keep
-credentials in the linked Integration (currently Databricks and AzureBlob).
+credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
 Other destination types accept the same JSON shape but without a typed
 OpenAPI schema. Secret fields are stripped from `config` on read.
  */
@@ -177,7 +204,7 @@ export interface BatchExportDestinationApi {
   * `NoOp` - Noop
   * `FileDownload` - File Download */
     type: BatchExportDestinationTypeEnumApi
-    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
      * The integration for this destination.
@@ -185,7 +212,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required for Databricks and AzureBlob destinations; optional for BigQuery; unused for other types.
+     * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.
      * @nullable
      */
     integration_id?: number | null
@@ -307,8 +334,16 @@ export interface BatchExportRunApi {
      * @nullable
      */
     bytes_exported?: number | null
-    /** The BatchExport this run belongs to. */
-    readonly batch_export: string
+    /**
+     * The `BatchExport` this run belongs to.
+     * @nullable
+     */
+    readonly batch_export: string | null
+    /**
+     * The `BatchExportOnDemand` this run belongs to.
+     * @nullable
+     */
+    batch_export_on_demand?: string | null
     /**
      * The backfill this run belongs to.
      * @nullable
@@ -1027,7 +1062,27 @@ export interface AzureBlobDestinationRequestApi {
     config: AzureBlobDestinationConfigApi
 }
 
-export type BatchExportDestinationRequestApi = DatabricksDestinationRequestApi | AzureBlobDestinationRequestApi
+export type BigQueryDestinationRequestApiType =
+    (typeof BigQueryDestinationRequestApiType)[keyof typeof BigQueryDestinationRequestApiType]
+
+export const BigQueryDestinationRequestApiType = {
+    BigQuery: 'BigQuery',
+} as const
+
+/**
+ * Request shape for creating or updating a BigQuery batch-export destination.
+ */
+export interface BigQueryDestinationRequestApi {
+    type: BigQueryDestinationRequestApiType
+    /** ID of a google-cloud-service-account-kind Integration. Use the integrations-list MCP tool to find one. */
+    integration_id: number
+    config: BigQueryDestinationConfigApi
+}
+
+export type BatchExportDestinationRequestApi =
+    | DatabricksDestinationRequestApi
+    | AzureBlobDestinationRequestApi
+    | BigQueryDestinationRequestApi
 
 /**
  * Request body for create/partial_update on BatchExportViewSet.
@@ -1241,6 +1296,223 @@ export interface PatchedBatchExportRequestApi {
 }
 
 /**
+ * Typed configuration for a FileDownload batch-export destination.
+ */
+export interface FileDownloadDestinationFileConfigApi {
+    /** File format
+
+  * `Parquet` - Parquet
+  * `JSONLines` - JSONLines */
+    format?: FileFormatEnumApi
+    /** Compress the file with a supported compression format
+
+  * `zstd` - zstd
+  * `gzip` - gzip
+  * `brotli` - brotli
+  * `lz4` - lz4
+  * `snappy` - snappy */
+    compression?: CompressionEnumApi | null
+    /**
+     * Split download into multiple files of at most this size in MB
+     * @minimum 0
+     * @nullable
+     */
+    max_size_mb?: number | null
+}
+
+export type FileDownloadEventsRequestApiModel =
+    (typeof FileDownloadEventsRequestApiModel)[keyof typeof FileDownloadEventsRequestApiModel]
+
+export const FileDownloadEventsRequestApiModel = {
+    Events: 'events',
+} as const
+
+/**
+ * Typed configuration for the events model.
+ */
+export interface FileDownloadEventsRequestApi {
+    file: FileDownloadDestinationFileConfigApi
+    model: FileDownloadEventsRequestApiModel
+    include?: string[]
+    exclude?: string[]
+    data_interval_start: string
+    data_interval_end: string
+}
+
+export type FileDownloadPersonsRequestApiModel =
+    (typeof FileDownloadPersonsRequestApiModel)[keyof typeof FileDownloadPersonsRequestApiModel]
+
+export const FileDownloadPersonsRequestApiModel = {
+    Persons: 'persons',
+} as const
+
+/**
+ * Typed configuration for the persons model.
+ */
+export interface FileDownloadPersonsRequestApi {
+    file: FileDownloadDestinationFileConfigApi
+    model: FileDownloadPersonsRequestApiModel
+    data_interval_start: string
+    data_interval_end: string
+}
+
+export type FileDownloadSessionsRequestApiModel =
+    (typeof FileDownloadSessionsRequestApiModel)[keyof typeof FileDownloadSessionsRequestApiModel]
+
+export const FileDownloadSessionsRequestApiModel = {
+    Sessions: 'sessions',
+} as const
+
+/**
+ * Typed configuration for the sessions model.
+ */
+export interface FileDownloadSessionsRequestApi {
+    file: FileDownloadDestinationFileConfigApi
+    model: FileDownloadSessionsRequestApiModel
+    data_interval_start: string
+    data_interval_end: string
+}
+
+export type CreateFileDownloadRequestApi =
+    | FileDownloadEventsRequestApi
+    | FileDownloadPersonsRequestApi
+    | FileDownloadSessionsRequestApi
+
+/**
+ * Typed output for view set `create`.
+ */
+export interface CreateOutputApi {
+    id: string
+}
+
+export type RetrieveBasicOutputApiStatus =
+    (typeof RetrieveBasicOutputApiStatus)[keyof typeof RetrieveBasicOutputApiStatus]
+
+export const RetrieveBasicOutputApiStatus = {
+    Starting: 'Starting',
+    Running: 'Running',
+    Cancelled: 'Cancelled',
+} as const
+
+/**
+ * Typed output for view set `retrieve` with any of the statuses without extra output.
+ */
+export interface RetrieveBasicOutputApi {
+    status: RetrieveBasicOutputApiStatus
+}
+
+export type RetrieveCompletedOutputApiStatus =
+    (typeof RetrieveCompletedOutputApiStatus)[keyof typeof RetrieveCompletedOutputApiStatus]
+
+export const RetrieveCompletedOutputApiStatus = {
+    Completed: 'Completed',
+} as const
+
+/**
+ * Typed output for view set `retrieve` with completed status.
+ */
+export interface RetrieveCompletedOutputApi {
+    status: RetrieveCompletedOutputApiStatus
+    files: string[]
+}
+
+export type RetrieveFailedOutputApiStatus =
+    (typeof RetrieveFailedOutputApiStatus)[keyof typeof RetrieveFailedOutputApiStatus]
+
+export const RetrieveFailedOutputApiStatus = {
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    FailedBilling: 'FailedBilling',
+    TimedOut: 'TimedOut',
+    Terminated: 'Terminated',
+} as const
+
+/**
+ * Typed output for view set `retrieve` with any of the failed statuses.
+ */
+export interface RetrieveFailedOutputApi {
+    status: RetrieveFailedOutputApiStatus
+    error: string
+}
+
+export type RetrieveFileDownloadResponseApi =
+    | RetrieveBasicOutputApi
+    | RetrieveCompletedOutputApi
+    | RetrieveFailedOutputApi
+
+/**
+ * * `events` - events
+ */
+export type FileDownloadEventsRequestModelEnumApi =
+    (typeof FileDownloadEventsRequestModelEnumApi)[keyof typeof FileDownloadEventsRequestModelEnumApi]
+
+export const FileDownloadEventsRequestModelEnumApi = {
+    Events: 'events',
+} as const
+
+/**
+ * * `persons` - persons
+ */
+export type FileDownloadPersonsRequestModelEnumApi =
+    (typeof FileDownloadPersonsRequestModelEnumApi)[keyof typeof FileDownloadPersonsRequestModelEnumApi]
+
+export const FileDownloadPersonsRequestModelEnumApi = {
+    Persons: 'persons',
+} as const
+
+/**
+ * * `sessions` - sessions
+ */
+export type FileDownloadSessionsRequestModelEnumApi =
+    (typeof FileDownloadSessionsRequestModelEnumApi)[keyof typeof FileDownloadSessionsRequestModelEnumApi]
+
+export const FileDownloadSessionsRequestModelEnumApi = {
+    Sessions: 'sessions',
+} as const
+
+/**
+ * * `Starting` - Starting
+ * `Running` - Running
+ * `Cancelled` - Cancelled
+ */
+export type RetrieveBasicOutputStatusEnumApi =
+    (typeof RetrieveBasicOutputStatusEnumApi)[keyof typeof RetrieveBasicOutputStatusEnumApi]
+
+export const RetrieveBasicOutputStatusEnumApi = {
+    Starting: 'Starting',
+    Running: 'Running',
+    Cancelled: 'Cancelled',
+} as const
+
+/**
+ * * `Completed` - Completed
+ */
+export type RetrieveCompletedOutputStatusEnumApi =
+    (typeof RetrieveCompletedOutputStatusEnumApi)[keyof typeof RetrieveCompletedOutputStatusEnumApi]
+
+export const RetrieveCompletedOutputStatusEnumApi = {
+    Completed: 'Completed',
+} as const
+
+/**
+ * * `Failed` - Failed
+ * `FailedRetryable` - FailedRetryable
+ * `FailedBilling` - FailedBilling
+ * `Terminated` - Terminated
+ * `TimedOut` - TimedOut
+ */
+export type RetrieveFailedOutputStatusEnumApi =
+    (typeof RetrieveFailedOutputStatusEnumApi)[keyof typeof RetrieveFailedOutputStatusEnumApi]
+
+export const RetrieveFailedOutputStatusEnumApi = {
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    FailedBilling: 'FailedBilling',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+} as const
+
+/**
  * * `Databricks` - Databricks
  */
 export type DatabricksDestinationRequestTypeEnumApi =
@@ -1258,6 +1530,16 @@ export type AzureBlobDestinationRequestTypeEnumApi =
 
 export const AzureBlobDestinationRequestTypeEnumApi = {
     AzureBlob: 'AzureBlob',
+} as const
+
+/**
+ * * `BigQuery` - BigQuery
+ */
+export type BigQueryDestinationRequestTypeEnumApi =
+    (typeof BigQueryDestinationRequestTypeEnumApi)[keyof typeof BigQueryDestinationRequestTypeEnumApi]
+
+export const BigQueryDestinationRequestTypeEnumApi = {
+    BigQuery: 'BigQuery',
 } as const
 
 export type BatchExportsListParams = {
@@ -1326,6 +1608,38 @@ export type BatchExportsRunsLogsRetrieveParams = {
 }
 
 export type BatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type FileDownloadBatchExportsLogsRetrieveParams = {
     /**
      * Only return entries after this ISO 8601 timestamp.
      */

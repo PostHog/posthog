@@ -261,7 +261,7 @@ export const CommandPalette: Story = {
                                                     <span className="font-mono ml-auto text-xs text-muted-foreground/80">
                                                         2 days ago
                                                     </span>
-                                               
+
                                                 </AutocompleteItem>
                                             )}
                                         </AutocompleteCollection>
@@ -351,7 +351,7 @@ export const CommandPaletteCustomEmpty: Story = {
                                                     <span className="font-mono ml-auto text-xs text-muted-foreground/80">
                                                         2 days ago
                                                     </span>
-                                               
+
                                                 </AutocompleteItem>
                                             )}
                                         </AutocompleteCollection>

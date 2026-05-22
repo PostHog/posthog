@@ -30,9 +30,8 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db 
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.models import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
-from products.data_warehouse.backend.models.external_table_definitions import external_tables
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -168,6 +167,7 @@ async def run_external_data_job_workflow(
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,
+                debug_mode=True,  # turn off sandbox/deadlock detector
             ):
                 await activity_environment.client.execute_workflow(
                     ExternalDataJobWorkflow.run,

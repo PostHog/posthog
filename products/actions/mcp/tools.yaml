@@ -69,6 +69,9 @@ tools:
         description: >
             Get a specific action by ID. Returns the action configuration including all steps and their trigger
             conditions.
+        param_overrides:
+            id:
+                cast: string-int
         ui_app: action
     action-update:
         operation: actions_partial_update

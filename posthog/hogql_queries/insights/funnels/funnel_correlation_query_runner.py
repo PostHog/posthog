@@ -36,11 +36,12 @@ from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
-from posthog.models.action.action import Action
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import get_property_string_expr
 from posthog.queries.util import correct_result_for_sampling
+
+from products.actions.backend.models.action import Action
 
 
 class EventOddsRatio(TypedDict):

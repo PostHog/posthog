@@ -449,6 +449,7 @@ tools:
         param_overrides:
             id:
                 description: Project ID, or `@current` to fetch the caller's active project.
+                cast: string-int
         response:
             exclude:
                 - secret_api_token
@@ -510,6 +511,7 @@ tools:
         param_overrides:
             id:
                 description: Project ID, or `@current` to target the caller's active project.
+                cast: string-int
     projects-create:
         operation: organizations_projects_create
         enabled: false
@@ -783,6 +785,9 @@ tools:
     users-cancel-email-change-request-partial-update:
         operation: users_cancel_email_change_request_partial_update
         enabled: false
+    users-credentials-review-complete-create:
+        operation: users_credentials_review_complete_create
+        enabled: false
     users-destroy:
         operation: users_destroy
         enabled: false
@@ -818,6 +823,12 @@ tools:
         enabled: false
     users-onboarding-skip-create:
         operation: users_onboarding_skip_create
+        enabled: false
+    users-push-tokens-create:
+        operation: users_push_tokens_create
+        enabled: false
+    users-push-tokens-unregister-create:
+        operation: users_push_tokens_unregister_create
         enabled: false
     users-request-email-verification-create:
         operation: users_request_email_verification_create

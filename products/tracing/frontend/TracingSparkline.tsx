@@ -10,13 +10,23 @@ import { cn } from 'lib/utils/css-classes'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
+import { SparklineCompareOverlay } from './SparklineCompareOverlay'
 import type { TracingSparklineData } from './tracingDataLogic'
+
+interface CompareConfig {
+    fullStartMs: number
+    fullEndMs: number
+    currentWindow: { startMs: number; endMs: number }
+    previousWindow: { startMs: number; endMs: number }
+    onChange: (current: { startMs: number; endMs: number }, previous: { startMs: number; endMs: number }) => void
+}
 
 interface TracingSparklineProps {
     sparklineData: TracingSparklineData
     sparklineLoading: boolean
     onDateRangeChange: (dateRange: DateRange) => void
     displayTimezone: string
+    compare?: CompareConfig
 }
 
 export function TracingSparkline({
@@ -24,6 +34,7 @@ export function TracingSparkline({
     sparklineLoading,
     onDateRangeChange,
     displayTimezone,
+    compare,
 }: TracingSparklineProps): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
 
@@ -123,7 +134,7 @@ export function TracingSparkline({
                             labels={sparklineLabels}
                             data={sparklineData.data}
                             className="w-full h-full"
-                            onSelectionChange={onSelectionChange}
+                            onSelectionChange={compare ? undefined : onSelectionChange}
                             withXScale={withXScale}
                             renderLabel={renderLabel}
                             tooltipRowCutoff={100}
@@ -135,6 +146,15 @@ export function TracingSparkline({
                             No results matching filters
                         </div>
                     ) : null}
+                    {compare && sparklineData.data.length > 0 && (
+                        <SparklineCompareOverlay
+                            fullStartMs={compare.fullStartMs}
+                            fullEndMs={compare.fullEndMs}
+                            currentWindow={compare.currentWindow}
+                            previousWindow={compare.previousWindow}
+                            onChange={compare.onChange}
+                        />
+                    )}
                     {sparklineLoading && <SpinnerOverlay />}
                 </div>
             )}
