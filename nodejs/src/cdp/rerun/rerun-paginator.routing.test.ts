@@ -5,6 +5,7 @@ import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
@@ -50,6 +51,7 @@ describe('RerunPaginatorService queue routing', () => {
             {} as unknown as HogFunctionManagerService,
             {} as unknown as HogFlowManagerService,
             {} as unknown as HogInputsService,
+            {} as unknown as GroupsManagerService,
             invocationResultsRowsService,
             { hog_function: hogQueue, hog_flow: hogflowQueue },
             monitoringService,

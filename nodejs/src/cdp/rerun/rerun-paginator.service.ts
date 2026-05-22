@@ -9,6 +9,7 @@ import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.s
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import {
@@ -108,6 +109,9 @@ export class RerunPaginatorService {
         private hogFunctionManager: HogFunctionManagerService,
         private hogFlowManager: HogFlowManagerService,
         private hogInputsService: HogInputsService,
+        // Rebuilds `groups` (stripped from the persisted globals) before inputs
+        // are re-resolved on rehydration.
+        private groupsManager: GroupsManagerService,
         private invocationResultsRowsService: HogInvocationResultsService,
         // Re-enqueue targets keyed by function kind — see RerunJobQueues.
         private jobQueues: RerunJobQueues,
@@ -500,6 +504,10 @@ export class RerunPaginatorService {
             // config + integration store, which also gives the rerun run any
             // input changes the user made since the original invocation.
             const persistedGlobals = parsedGlobals as HogFunctionInvocationGlobals
+            // `groups` is stripped from the persisted globals — rebuild it from
+            // the event before resolving inputs, since input templates can
+            // reference it and the cyclotron worker only reloads it later.
+            await this.groupsManager.addGroupsToGlobals(persistedGlobals)
             const globalsWithInputs = await this.hogInputsService.buildInputsWithGlobals(hogFunction, persistedGlobals)
             const invocation: CyclotronJobInvocationHogFunction = {
                 // Preserve invocation_id so lifecycle rows collapse under the

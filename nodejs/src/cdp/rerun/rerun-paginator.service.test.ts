@@ -20,6 +20,7 @@ import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
@@ -61,6 +62,7 @@ describe('RerunPaginatorService integration', () => {
     let hogFunctionManager: HogFunctionManagerService
     let hogFlowManager: jest.Mocked<HogFlowManagerService>
     let hogInputsService: jest.Mocked<HogInputsService>
+    let paginatorGroupsManager: jest.Mocked<GroupsManagerService>
 
     beforeAll(() => {
         clickhouse = Clickhouse.create()
@@ -202,11 +204,16 @@ describe('RerunPaginatorService integration', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<HogFunctionMonitoringService>
 
+        paginatorGroupsManager = {
+            addGroupsToGlobals: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<GroupsManagerService>
+
         paginator = new RerunPaginatorService(
             chClient,
             hogFunctionManager,
             hogFlowManager,
             hogInputsService,
+            paginatorGroupsManager,
             paginatorLifecycleService,
             { hog_function: hogQueue, hog_flow: hogflowQueue },
             paginatorMonitoringService,
@@ -481,6 +488,7 @@ describe('RerunPaginatorService integration', () => {
                 hogFunctionManager,
                 hogFlowManager,
                 hogInputsService,
+                paginatorGroupsManager,
                 paginatorLifecycleService,
                 { hog_function: hogQueue, hog_flow: hogflowQueue },
                 paginatorMonitoringService,

@@ -107,6 +107,29 @@ describe('HogInvocationResultsService', () => {
             expect(decoded).not.toContain('abc123')
         })
 
+        it('strips groups from invocation_globals — large, rebuilt from the event on rerun', async () => {
+            const invocation = createExampleInvocation({}, {
+                groups: {
+                    organization: {
+                        id: 'org-1',
+                        type: 'organization',
+                        index: 0,
+                        url: 'http://localhost',
+                        properties: { plan: 'enterprise', seats: 500 },
+                    },
+                },
+            } as any)
+            service.queueLifecycleRow(invocation, 'running')
+            await service.flush()
+
+            const rows = parseProducedRows(outputs)
+            const globals = (await decodeInvocationGlobals(rows[0].invocation_globals)) as Record<string, any>
+            expect(globals).not.toHaveProperty('groups')
+            // event and person are kept — only groups is dropped.
+            expect(globals.event?.uuid).toBeDefined()
+            expect(globals.person?.id).toBeDefined()
+        })
+
         it('marks is_retry=1 and attempts=N when state.rerunAttempts is set', async () => {
             const invocation = createExampleInvocation()
             invocation.state.rerunAttempts = 1

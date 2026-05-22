@@ -99,6 +99,7 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             // input bundle including secrets) from the current hog function
             // config, since we strip `inputs` from the persisted globals.
             this.hogInputsService,
+            this.groupsManager,
             this.invocationResultsService.invocationResultsRowsService,
             this.jobQueues,
             this.invocationResultsService.monitoringService,
