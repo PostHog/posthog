@@ -81,9 +81,12 @@ class GroupTypeMappingAdmin(admin.ModelAdmin):
         return queryset, may_have_duplicates
 
     def _cached_team(self, team_id: int) -> Team | None:
-        team = getattr(self._request_local, "team_cache", {}).get(team_id)
+        cache = getattr(self._request_local, "team_cache", {})
+        team = cache.get(team_id)
         if team is None:
             team = Team.objects.filter(pk=team_id).select_related("organization").first()
+            if team is not None:
+                cache[team_id] = team
         return team
 
     @admin.display(description="Team")
