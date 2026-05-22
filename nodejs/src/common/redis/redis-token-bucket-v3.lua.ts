@@ -50,8 +50,8 @@ else
   tokensBefore = currentTokens + (timeDiffSeconds * fillRate)
 end
 
--- On denial we still return tokensAfter = -1 (preserves the caller-side
--- tokensAfter < 0 contract) but persist the un-deducted balance so partial
+-- Wire contract: tokensAfter == -1 means denied, non-negative means served.
+-- On denial we still return -1 but persist the un-deducted balance so partial
 -- refills accumulate across calls. Without this, sub-2 fractional fillRates
 -- wedge at -1 forever under sustained 1 req/s traffic (e.g. per-issue limits
 -- like 100 per 15 min) because each denied call would overwrite any accrued

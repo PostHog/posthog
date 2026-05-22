@@ -18,9 +18,10 @@ if before == false then
     tokensAfter = poolMax - cost
     poolToStore = tokensAfter
   else
-    -- Don't deduct cost we couldn't afford. Public return stays -1 so
-    -- callers' tokensAfter <= 0 denial check is unchanged, but we store the
-    -- full bucket so an impossible-cost first call doesn't burn the credit.
+    -- Don't deduct cost we couldn't afford. Public return stays -1 (wire
+    -- contract: tokensAfter == -1 means denied, non-negative means served).
+    -- We store the full bucket so an impossible-cost first call doesn't burn
+    -- the credit.
     tokensAfter = -1
     poolToStore = poolMax
   end
@@ -54,9 +55,10 @@ local tokensBefore = currentTokens
 
 -- Remove the cost and calculate tokens after; cap stored pool at poolMax so silent
 -- periods do not let saved credit grow unbounded across many calls. On denial we
--- still return -1 (preserves caller-side tokensAfter <= 0 contract) but persist the
--- un-deducted balance so partial refills accumulate across calls — without this,
--- sub-2 fractional fillRates wedge at -1 forever under sustained 1 req/s traffic.
+-- still return -1 (wire contract: tokensAfter == -1 means denied, non-negative means
+-- served) but persist the un-deducted balance so partial refills accumulate across
+-- calls — without this, sub-2 fractional fillRates wedge at -1 forever under
+-- sustained 1 req/s traffic.
 local tokensAfter
 local poolToStore
 if currentTokens - cost >= 0 then
