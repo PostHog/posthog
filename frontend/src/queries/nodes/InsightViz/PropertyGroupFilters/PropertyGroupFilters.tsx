@@ -71,13 +71,11 @@ export function PropertyGroupFilters({
                             </LemonButton>
                         </div>
                         <div className="order-1 @lg:order-none">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <InsightTestAccountFilter
-                                    disabledReason={disabledReason}
-                                    query={query}
-                                    setQuery={setQuery as (node: InsightQueryNode) => void}
-                                />
-                            </div>
+                            <InsightTestAccountFilter
+                                disabledReason={disabledReason}
+                                query={query}
+                                setQuery={setQuery as (node: InsightQueryNode) => void}
+                            />
                         </div>
                     </div>
 
