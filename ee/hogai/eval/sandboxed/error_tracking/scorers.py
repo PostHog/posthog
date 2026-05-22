@@ -672,18 +672,22 @@ class IssueIdMatchesTarget(Scorer):
 
 
 class IssueDrilldownOrder(Scorer):
-    """Binary deterministic: did the agent walk list → issue → (events → recordings)?
+    """Binary deterministic: did the agent walk list → optional issue → events → recordings?
 
     Verifies the canonical drill-down flow:
 
     1. ``query-error-tracking-issues-list`` was called successfully.
-    2. ``query-error-tracking-issue`` was called successfully *after*
-       step 1, and with the target issue's per-case UUID (when a target
-       is configured).
+    2. **Default-required** when ``expected.drilldown.requires_issue`` is
+       omitted or true: ``query-error-tracking-issue`` was called successfully
+       after step 1, and with the target issue's per-case UUID (when a target
+       is configured). Cases can set ``requires_issue=False`` when list →
+       events is a valid cheaper route.
     3. **Optional** when ``expected.drilldown.requires_events`` is true:
-       ``query-error-tracking-issue-events`` was called *after* step 2.
+       ``query-error-tracking-issue-events`` was called after the latest
+       required predecessor (the issue call when required/present, otherwise
+       the list call).
     4. **Optional** when ``expected.drilldown.requires_recordings`` is
-       true: ``query-session-recordings-list`` was called *after* step 3
+       true: ``query-session-recordings-list`` was called after step 3
        (the events response is what surfaces the ``$session_id`` values
        to feed it).
 
@@ -722,6 +726,7 @@ class IssueDrilldownOrder(Scorer):
                 score=None,
                 metadata={"reason": "No expected.drilldown spec provided"},
             )
+        requires_issue = bool(spec.get("requires_issue", True))
         requires_events = bool(spec.get("requires_events", False))
         requires_recordings = bool(spec.get("requires_recordings", False))
         forbids_events = bool(spec.get("forbids_events", False)) and not requires_events
@@ -737,6 +742,7 @@ class IssueDrilldownOrder(Scorer):
             "issue_pos": issue_pos,
             "events_pos": events_pos,
             "recordings_pos": recordings_pos,
+            "requires_issue": requires_issue,
             "requires_events": requires_events,
             "requires_recordings": requires_recordings,
             "forbids_events": forbids_events,
@@ -746,10 +752,10 @@ class IssueDrilldownOrder(Scorer):
         if list_pos is None:
             metadata["reason"] = f"{QUERY_ISSUES_LIST_TOOL} was never called successfully"
             return Score(name=self._name(), score=0.0, metadata=metadata)
-        if issue_pos is None:
+        if requires_issue and issue_pos is None:
             metadata["reason"] = f"{QUERY_ISSUE_TOOL} was never called successfully"
             return Score(name=self._name(), score=0.0, metadata=metadata)
-        if issue_pos <= list_pos:
+        if issue_pos is not None and issue_pos <= list_pos:
             metadata["reason"] = f"{QUERY_ISSUE_TOOL} did not run after {QUERY_ISSUES_LIST_TOOL}"
             return Score(name=self._name(), score=0.0, metadata=metadata)
 
@@ -757,8 +763,10 @@ class IssueDrilldownOrder(Scorer):
             if events_pos is None:
                 metadata["reason"] = f"{QUERY_ISSUE_EVENTS_TOOL} was never called successfully"
                 return Score(name=self._name(), score=0.0, metadata=metadata)
-            if events_pos <= issue_pos:
-                metadata["reason"] = f"{QUERY_ISSUE_EVENTS_TOOL} did not run after {QUERY_ISSUE_TOOL}"
+            events_prerequisite_pos = issue_pos if issue_pos is not None else list_pos
+            events_prerequisite_tool = QUERY_ISSUE_TOOL if issue_pos is not None else QUERY_ISSUES_LIST_TOOL
+            if events_pos <= events_prerequisite_pos:
+                metadata["reason"] = f"{QUERY_ISSUE_EVENTS_TOOL} did not run after {events_prerequisite_tool}"
                 return Score(name=self._name(), score=0.0, metadata=metadata)
         elif forbids_events and events_pos is not None:
             metadata["reason"] = (
@@ -775,7 +783,13 @@ class IssueDrilldownOrder(Scorer):
             # strict events→recordings ordering when only recordings is
             # requested without events — the agent might pull the session id
             # from a different surface.
-            min_pred = events_pos if requires_events and events_pos is not None else issue_pos
+            min_pred = (
+                events_pos
+                if requires_events and events_pos is not None
+                else issue_pos
+                if issue_pos is not None
+                else list_pos
+            )
             if recordings_pos <= min_pred:
                 metadata["reason"] = f"{SESSION_RECORDINGS_LIST_TOOL} did not run after its prerequisite drill-down"
                 return Score(name=self._name(), score=0.0, metadata=metadata)

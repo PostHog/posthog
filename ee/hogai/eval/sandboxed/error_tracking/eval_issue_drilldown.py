@@ -48,6 +48,7 @@ def _drilldown_case(
     name: str,
     prompt: str,
     target_issue_name: str,
+    requires_issue: bool = True,
     requires_events: bool = False,
     requires_recordings: bool = False,
     forbids_events: bool = False,
@@ -57,6 +58,7 @@ def _drilldown_case(
     expected: dict[str, Any] = {
         "target_issue": {"name": target_issue_name},
         "drilldown": {
+            "requires_issue": requires_issue,
             "requires_events": requires_events,
             "requires_recordings": requires_recordings,
             "forbids_events": forbids_events,
@@ -97,6 +99,7 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
             name="drilldown_pdf_preview_show_examples",
             prompt="Show me an example exception event with stack trace for the PDF preview RenderError.",
             target_issue_name="File preview render failure",
+            requires_issue=False,
             requires_events=True,
             forbids_recordings=True,
         ),
@@ -112,6 +115,7 @@ async def eval_issue_drilldown(sandboxed_demo_data, pytestconfig, posthog_client
                 "it happened."
             ),
             target_issue_name="Team invite rejected",
+            requires_issue=False,
             requires_events=True,
             requires_recordings=True,
         ),
