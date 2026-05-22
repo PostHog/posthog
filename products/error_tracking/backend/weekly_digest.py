@@ -81,7 +81,10 @@ def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[
     if setting_key in current_settings:
         return False
 
-    role = user.role_at_organization
+    if not team_exception_counts:
+        return False
+
+    role = (user.role_at_organization or "").lower()
     if role not in ELIGIBLE_ROLES_FOR_AUTO_DIGEST:
         current_settings[setting_key] = {}
         User.objects.filter(pk=user.pk).update(partial_notification_settings=current_settings)

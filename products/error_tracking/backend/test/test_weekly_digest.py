@@ -307,7 +307,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
 
         assert result == {} or result["exception_count"] == 0
 
-    @parameterized.expand(["engineering", "data", "founder"])
+    @parameterized.expand(["engineering", "data", "founder", "Engineering", "DATA", "Founder"])
     def test_auto_select_project_enrolls_eligible_roles(self, role):
         self.user.role_at_organization = role
         self.user.save()

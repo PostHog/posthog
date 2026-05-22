@@ -20,6 +20,7 @@ Usage:
 from typing import Any
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -68,20 +69,28 @@ class Command(BaseCommand):
         skipped_count = 0
 
         for user in users:
-            current_settings = user.partial_notification_settings or {}
-            if current_settings.get("error_tracking_weekly_digest") is False:
-                self.stdout.write(f"  Skipping {user.email} — already disabled.")
-                skipped_count += 1
-                continue
-
             if dry_run:
-                self.stdout.write(f"  Would disable for {user.email}")
+                current_settings = user.partial_notification_settings or {}
+                if current_settings.get("error_tracking_weekly_digest") is False:
+                    self.stdout.write(f"  Skipping {user.email} — already disabled.")
+                    skipped_count += 1
+                else:
+                    self.stdout.write(f"  Would disable for {user.email}")
+                    updated_count += 1
             else:
-                current_settings["error_tracking_weekly_digest"] = False
-                User.objects.filter(pk=user.pk).update(partial_notification_settings=current_settings)
-                self.stdout.write(f"  Disabled for {user.email}")
+                with transaction.atomic():
+                    user_obj = User.objects.select_for_update().get(pk=user.pk)
+                    current_settings = user_obj.partial_notification_settings or {}
+                    if current_settings.get("error_tracking_weekly_digest") is False:
+                        self.stdout.write(f"  Skipping {user.email} — already disabled.")
+                        skipped_count += 1
+                        continue
 
-            updated_count += 1
+                    current_settings["error_tracking_weekly_digest"] = False
+                    user_obj.partial_notification_settings = current_settings
+                    user_obj.save(update_fields=["partial_notification_settings"])
+                    self.stdout.write(f"  Disabled for {user.email}")
+                    updated_count += 1
 
         if dry_run:
             self.stdout.write(
