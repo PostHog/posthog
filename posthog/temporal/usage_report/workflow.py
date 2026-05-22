@@ -102,8 +102,10 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 AggregateInputs(ctx=ctx, query_results=query_results),
                 start_to_close_timeout=timedelta(minutes=60),
                 retry_policy=common.RetryPolicy(
-                    maximum_attempts=2,
+                    maximum_attempts=5,
                     initial_interval=timedelta(seconds=30),
+                    backoff_coefficient=2.0,
+                    maximum_interval=timedelta(minutes=5),
                 ),
                 heartbeat_timeout=timedelta(minutes=5),
             )
@@ -160,8 +162,10 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             RunQueryToS3Inputs(ctx=ctx, query_name=spec.name),
             start_to_close_timeout=timedelta(minutes=spec.timeout_minutes),
             retry_policy=common.RetryPolicy(
-                maximum_attempts=3,
+                maximum_attempts=5,
                 initial_interval=timedelta(seconds=30),
+                backoff_coefficient=2.0,
+                maximum_interval=timedelta(minutes=5),
             ),
             heartbeat_timeout=timedelta(minutes=2),
             summary=spec.name,
