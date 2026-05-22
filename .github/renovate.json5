@@ -30,7 +30,9 @@
     {
       customType: 'regex',
       description: 'Update pinned chrome-headless-shell version in recording-rasterizer Dockerfile',
-      fileMatch: ['Dockerfile\\.recording-rasterizer$'],
+      managerFilePatterns: [
+        '/Dockerfile\\.recording-rasterizer$/',
+      ],
       matchStrings: [
         'chrome-headless-shell@(?<currentValue>\\d+\\.\\d+\\.\\d+\\.\\d+)',
       ],
@@ -49,17 +51,27 @@
   },
   packageRules: [
     {
-      matchDepNames: ['chrome-headless-shell'],
+      matchDepNames: [
+        'chrome-headless-shell',
+      ],
       automerge: true,
-      matchUpdateTypes: ['minor', 'patch'],
-      schedule: ['every 2 weeks on Monday'],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      schedule: [
+        'every 2 weeks on Monday',
+      ],
       commitMessageExtra: '(chrome-headless-shell)',
-      labels: ['dependencies', 'recording-rasterizer'],
+      labels: [
+        'dependencies',
+        'recording-rasterizer',
+      ],
     },
-    // Split github-actions updates out of the default `renovate/pin-dependencies`
-    // bundle so they can be approved on the dashboard independently
     {
-      matchManagers: ['github-actions'],
+      matchManagers: [
+        'github-actions',
+      ],
       groupName: 'github-actions',
     },
   ],
