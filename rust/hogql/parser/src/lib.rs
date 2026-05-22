@@ -13,6 +13,9 @@
 //! envelope expected by [`posthog/hogql/json_ast.py`] so the Python side
 //! can raise `ExposedHogQLError` / `SyntaxError` from it.
 
+// `#[pyfunction]`'s expansion does an `.into()` on the `PyResult<PyObject>` return value, which is an identity conversion when the function already returns the target type — clippy's `useless_conversion` doesn't see through the macro and would flag every `parse_*_py` entry point. The lint isn't actionable from our side without leaving pyo3's `#[pyfunction]` abstraction.
+#![allow(clippy::useless_conversion)]
+
 use pyo3::prelude::*;
 
 mod emit;

@@ -31,7 +31,8 @@ pub struct PyAst {
     pub obj: Py<PyAny>,
     pub positions_locked: bool,
     /// Side-channel for parser-internal `__rust_*` sentinel keys — the JSON path stores these on the underlying `Value::Object` Map, but slots=True dataclasses reject setattr for unknown attrs, so PyEmitter routes them here.
-    /// `Option<Box<HashMap>>` over inline HashMap (8 vs 48 bytes) — >99% of nodes never carry a sentinel, so this skips the allocation entirely. Lazy-init via `sentinels_mut()`.
+    /// `Option<Box<HashMap>>` over inline HashMap keeps PyAst at 24 bytes instead of ~64 (HashMap is ~48 bytes inline) — >99% of nodes never carry a sentinel, so the Box is null. Clippy's `box_collection` lint flags this as wasteful (HashMap is already heap-allocated) but it doesn't account for the niche-optimized `Option<Box>` size advantage at the PyAst struct level, where we allocate millions per parse. Lazy-init via `sentinels_mut()`.
+    #[allow(clippy::box_collection)]
     pub rust_sentinels: Option<Box<HashMap<String, Py<PyAny>>>>,
 }
 
