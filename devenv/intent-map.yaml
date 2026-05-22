@@ -28,6 +28,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    property_values:
+        description: 'Aggregate distinct property values for autocomplete'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     replay_storage:
         description: 'Session replay blob storage and capture'
         requires: [event_ingestion]
@@ -209,7 +214,7 @@ capabilities:
 intents:
     product_analytics:
         description: 'Core product analytics (insights, funnels, trends)'
-        capabilities: [event_ingestion, property_definitions, celery_workers, nodejs_cdp]
+        capabilities: [event_ingestion, property_definitions, property_values, celery_workers, nodejs_cdp]
 
     error_tracking:
         description: 'Track and analyze application errors'
@@ -219,6 +224,7 @@ intents:
                 error_symbolication,
                 embedding_service,
                 property_definitions,
+                property_values,
                 nodejs_cdp,
                 nodejs_error_tracking,
             ]
@@ -230,6 +236,7 @@ intents:
                 event_ingestion,
                 replay_storage,
                 property_definitions,
+                property_values,
                 celery_workers,
                 temporal_workflows,
                 nodejs_session_replay,
@@ -247,6 +254,7 @@ intents:
                 event_ingestion,
                 flag_evaluation,
                 property_definitions,
+                property_values,
                 celery_workers,
                 nodejs_feature_flags,
                 nodejs_cdp,
@@ -261,32 +269,63 @@ intents:
                 event_ingestion,
                 ai_capture,
                 llm_gateway,
+                embedding_service,
                 property_definitions,
+                property_values,
                 temporal_workflows,
                 llm_analytics_sentiment,
             ]
 
+    mcp_analytics:
+        description: 'MCP analytics intent clustering and session summarisation'
+        capabilities:
+            [event_ingestion, llm_gateway, embedding_service, property_definitions, property_values, temporal_workflows]
+
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
-        capabilities: [event_ingestion, replay_storage, property_definitions, livestream]
+        capabilities: [event_ingestion, replay_storage, property_definitions, property_values, livestream]
 
     surveys:
         description: 'User surveys and feedback collection'
-        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler, nodejs_cdp]
+        capabilities:
+            [event_ingestion, property_definitions, property_values, celery_workers, celery_scheduler, nodejs_cdp]
 
     data_warehouse:
         description: 'Data warehouse queries and saved queries'
         capabilities:
-            [event_ingestion, property_definitions, celery_workers, temporal_workflows, warehouse_webhook_sink]
+            [
+                event_ingestion,
+                property_definitions,
+                property_values,
+                celery_workers,
+                temporal_workflows,
+                warehouse_webhook_sink,
+            ]
 
     cohorts:
         description: 'User cohort management'
-        capabilities: [event_ingestion, property_definitions, celery_workers, celery_scheduler, nodejs_realtime_cohorts]
+        capabilities:
+            [
+                event_ingestion,
+                property_definitions,
+                property_values,
+                celery_workers,
+                celery_scheduler,
+                nodejs_realtime_cohorts,
+            ]
 
     pipelines:
         description: 'Data pipeline transformations and destinations'
         capabilities:
-            [event_ingestion, property_definitions, celery_workers, temporal_workflows, nodejs_cdp_workflows, cyclotron]
+            [
+                event_ingestion,
+                property_definitions,
+                property_values,
+                celery_workers,
+                temporal_workflows,
+                nodejs_cdp_workflows,
+                cyclotron,
+            ]
 
     ai_features:
         description: 'AI features'
@@ -297,20 +336,30 @@ intents:
                 embedding_service,
                 opensearch_search,
                 property_definitions,
+                property_values,
                 temporal_workflows,
             ]
 
     logs:
         description: 'Log aggregation and viewing'
-        capabilities: [event_ingestion, property_definitions, logs_ingestion, nodejs_logs, nodejs_traces]
+        capabilities:
+            [event_ingestion, property_definitions, property_values, logs_ingestion, nodejs_logs, nodejs_traces]
 
     metrics:
         description: 'Metric ingestion and viewing'
-        capabilities: [event_ingestion, property_definitions, logs_ingestion, nodejs_metrics]
+        capabilities: [event_ingestion, property_definitions, property_values, logs_ingestion, nodejs_metrics]
 
     workflows:
         description: 'Workflow automation and orchestration'
-        capabilities: [event_ingestion, property_definitions, temporal_workflows, nodejs_cdp_workflows, cyclotron]
+        capabilities:
+            [
+                event_ingestion,
+                property_definitions,
+                property_values,
+                temporal_workflows,
+                nodejs_cdp_workflows,
+                cyclotron,
+            ]
 
     tracing:
         description: 'OpenTelemetry tracing with Jaeger UI'
@@ -334,11 +383,13 @@ intents:
 
     endpoints:
         description: 'Endpoints (the product)'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, duckgres]
+        capabilities:
+            [event_ingestion, property_definitions, property_values, celery_workers, temporal_workflows, duckgres]
 
     revenue_analytics:
         description: 'Mock Stripe API with seed billing data for revenue analytics testing'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, stripe_mock]
+        capabilities:
+            [event_ingestion, property_definitions, property_values, celery_workers, temporal_workflows, stripe_mock]
 
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'

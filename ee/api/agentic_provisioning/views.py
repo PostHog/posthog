@@ -710,7 +710,15 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
     if request.user.email != pending["email"]:
         _capture_provisioning_event("authorize", "email_mismatch")
-        return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
+        mismatch_params = urlencode(
+            {
+                "expected_email": pending["email"],
+                "current_email": request.user.email,
+                "partner_name": pending.get("partner_name", ""),
+                "state": state,
+            }
+        )
+        return HttpResponseRedirect(f"{settings.SITE_URL.rstrip('/')}/agentic/account-mismatch?{mismatch_params}")
 
     user = request.user
     memberships = list(user.organization_memberships.select_related("organization").all())

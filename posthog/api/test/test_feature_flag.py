@@ -28,7 +28,7 @@ from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
 from posthog.constants import AvailableFeature
 from posthog.helpers.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
-from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
+from posthog.models import FeatureFlag, GroupTypeMapping, Insight, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
@@ -7519,6 +7519,84 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert "keys" in data
         assert data["keys"] == {str(flag1.id): "test-flag-1"}
 
+    def test_bulk_keys_works_with_personal_api_key(self):
+        """Once enabled as MCP tool with feature_flag:read scope, PAT requests must succeed."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="pat-scope-test",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["feature_flag:read"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"keys": {str(flag.id): "pat-scope-test"}}
+
+    def test_bulk_update_tags_works_with_personal_api_key(self):
+        """Same scope-config bug on bulk_update_tags; same fix in tagged_item.py."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="pat-tag-test",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["feature_flag:write"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_tags/",
+            {"ids": [flag.id], "action": "add", "tags": ["foo"]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # Pin the body so a regression that grants the PAT scope but loses the
+        # mutation (broken preload_object_access_controls, wrong scope_object,
+        # etc.) can't stay green: the endpoint returns 200 with the flag in
+        # `skipped` rather than a non-2xx status when ACLs drop it.
+        body = response.json()
+        assert body["updated"] == [{"id": flag.id, "tags": ["foo"]}]
+        assert body["skipped"] == []
+
+    # Lives in the feature-flag test file (instead of test_insight.py) so the
+    # full bulk-ops PAT regression story — positive feature-flag cases and the
+    # negative cross-resource block — stays adjacent for reviewers of #57885.
+    def test_feature_flag_write_pat_cannot_mutate_insight_tags(self):
+        """A feature_flag:write PAT must not reach Insight.bulk_update_tags via the shared mixin."""
+        insight = Insight.objects.create(team=self.team, name="x", created_by=self.user)
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["feature_flag:write"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/bulk_update_tags/",
+            {"ids": [insight.id], "action": "add", "tags": ["foo"]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
     def test_local_evaluation_caching_basic(self):
         """Test basic caching functionality for local_evaluation endpoint."""
         # Clear any existing flags for this team to avoid interference
@@ -8659,6 +8737,182 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         keys = [f["key"] for f in list_response.json()["results"]]
         self.assertNotIn("blocked-flag", keys)
+
+    def test_member_still_blocked_from_bulk_keys_default_none_flag(self) -> None:
+        # bulk_keys must not leak keys for flags the user has been explicitly
+        # denied, even when the caller submits the ID directly.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        other = self._create_user("other-bulk-keys@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        visible_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="visible flag",
+            key="visible-flag",
+        )
+        blocked_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="blocked flag",
+            key="blocked-flag",
+        )
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=blocked_flag.id, team=self.team, access_level="none"
+        )
+
+        self.client.force_login(other)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [visible_flag.id, blocked_flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = response.json()["keys"]
+        self.assertEqual(keys.get(str(visible_flag.id)), "visible-flag")
+        self.assertNotIn(str(blocked_flag.id), keys)
+
+    def test_member_with_explicit_viewer_grant_can_bulk_keys_default_none_flag(self) -> None:
+        # Inverse of the test above — exercises the allowed_resource_ids branch
+        # of filter_queryset_by_access_level: a flag with a team-wide "none"
+        # default plus an explicit viewer grant for this member must round-trip.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        grantee = self._create_user("grantee-bulk-keys@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        grantee_membership = grantee.organization_memberships.get(organization=self.organization)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="granted flag",
+            key="granted-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+        AccessControl.objects.create(
+            resource="feature_flag",
+            resource_id=flag.id,
+            team=self.team,
+            organization_member=grantee_membership,
+            access_level="viewer",
+        )
+
+        self.client.force_login(grantee)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["keys"].get(str(flag.id)), "granted-flag")
+
+    def test_org_admin_can_bulk_keys_default_none_flag(self) -> None:
+        # Exercises the include_all_if_admin=True short-circuit: org admins must
+        # be able to resolve keys for flags with a team-wide "none" default,
+        # matching the list endpoint's behavior for feature_flag.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator-bulk-keys@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=creator,
+            name="default-none flag",
+            key="default-none-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["keys"].get(str(flag.id)), "default-none-flag")
+
+    def test_member_blocked_from_bulk_keys_via_explicit_deny_on_individual_flag(self) -> None:
+        # Exercises the exclude() branch of filter_queryset_by_access_level
+        # (user_access_control.py line 937): the team-wide default is permissive
+        # (no resource-level "none" row), but this flag carries an explicit
+        # "none" ACL for the caller's membership. bulk_keys must still drop it.
+        # The existing IDOR tests all hit the filter() branch (line 931) via a
+        # team-wide deny; without this case, a regression that only handled
+        # team-wide denies would ship clean.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        other = self._create_user("other-explicit-deny@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        other_membership = other.organization_memberships.get(organization=self.organization)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="explicit deny flag",
+            key="explicit-deny-flag",
+        )
+        AccessControl.objects.create(
+            resource="feature_flag",
+            resource_id=flag.id,
+            team=self.team,
+            organization_member=other_membership,
+            access_level="none",
+        )
+
+        self.client.force_login(other)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn(str(flag.id), response.json()["keys"])
+
+    def test_creator_still_sees_denied_flag_in_bulk_keys(self) -> None:
+        # filter_queryset_by_access_level deliberately preserves
+        # Q(created_by=self._user) in both branches (user_access_control.py
+        # lines 931 and 937), so creators retain visibility of their own flags
+        # even with a deny ACL. This mirrors the list endpoint's contract.
+        # Pinning it so a future "harden the IDOR fix" patch can't silently
+        # strip the creator clause and diverge bulk_keys from list.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator-self@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=creator,
+            name="self-created flag",
+            key="self-created-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+
+        self.client.force_login(creator)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["keys"].get(str(flag.id)), "self-created-flag")
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):

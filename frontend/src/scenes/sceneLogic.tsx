@@ -11,6 +11,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
@@ -310,8 +311,8 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/oauth',
     // /connect/vercel/link (urls.vercelConnect) and other connect round-trips.
     '/connect',
-    // /agentic/authorize.
-    '/agentic/authorize',
+    // /agentic/authorize, /agentic/account-mismatch.
+    '/agentic',
     // /cli/authorize, /cli/live (CLI auth round-trip).
     '/cli',
     '/startups',
@@ -1019,6 +1020,7 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         removeTab: ({ tab, options }) => {
+            tabUiStateLogic.findMounted()?.actions.clearTabUiState(tab.id)
             const closeSource = options?.source ?? 'unknown'
             posthog.capture('tab closed', {
                 tab_id: tab.id,
