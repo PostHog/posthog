@@ -123,17 +123,64 @@ class TestIntentClusteringCoordinator:
 
 
 class TestCoordinatorParseInputs:
-    def test_empty_args_uses_defaults(self) -> None:
-        inputs = IntentClusteringCoordinatorWorkflow.parse_inputs([])
-        assert inputs.lookback_days == 7
-        assert inputs.top_n == 500
-        assert inputs.max_concurrent_teams == 4
+    @pytest.mark.parametrize(
+        "args, expected_lookback, expected_top_n, expected_max_concurrent",
+        [
+            ([], 7, 500, 4),
+            (["14", "200", "2"], 14, 200, 2),
+        ],
+    )
+    def test_parse_inputs(
+        self,
+        args: list[str],
+        expected_lookback: int,
+        expected_top_n: int,
+        expected_max_concurrent: int,
+    ) -> None:
+        inputs = IntentClusteringCoordinatorWorkflow.parse_inputs(args)
+        assert inputs.lookback_days == expected_lookback
+        assert inputs.top_n == expected_top_n
+        assert inputs.max_concurrent_teams == expected_max_concurrent
 
-    def test_parses_positional_args(self) -> None:
-        inputs = IntentClusteringCoordinatorWorkflow.parse_inputs(["14", "200", "2"])
-        assert inputs.lookback_days == 14
-        assert inputs.top_n == 200
-        assert inputs.max_concurrent_teams == 2
+
+class TestCoordinatorContinuation:
+    """Covers the continue-as-new state-carry branch.
+
+    ``is_continue_as_new_suggested()`` doesn't fire in the time-skipping
+    environment for small team sets, so we simulate the continuation leg by
+    passing pre-loaded ``remaining_team_ids`` + ``results_so_far`` directly
+    into ``IntentClusteringCoordinatorInputs``. That hits the ``if
+    inputs.remaining_team_ids is not None`` branch in ``run()`` and proves the
+    carry-over logic is correct end-to-end.
+    """
+
+    @pytest.mark.asyncio
+    async def test_continuation_skips_discovery_and_merges_prior_results(self) -> None:
+        prior_results = {
+            "teams_processed": 1,
+            "teams_succeeded": 1,
+            "teams_failed": 0,
+            "failed_team_ids": [],
+            "total_intents": 999,
+            "total_clusters": 5,
+        }
+        # team_ids passed via mock_discovery would only be used on the fresh
+        # path; continuation reads from remaining_team_ids instead.
+        result = await _run_coordinator(
+            team_ids=[],  # should be ignored on the continuation leg
+            coordinator_inputs=IntentClusteringCoordinatorInputs(
+                remaining_team_ids=[2, 7],
+                results_so_far=prior_results,
+            ),
+        )
+
+        # Prior teams_processed (1) + current batch (2) = 3.
+        assert result["teams_processed"] == 3
+        assert result["teams_succeeded"] == 3
+        assert result["teams_failed"] == 0
+        # Prior total_intents (999) preserved; new intents add on top.
+        assert result["total_intents"] == 999 + 20 + 70
+        assert result["total_clusters"] == 5 + 2 + 7
 
 
 class TestGuaranteedTeamIds:
