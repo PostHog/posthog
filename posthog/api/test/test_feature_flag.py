@@ -1,4 +1,3 @@
-import os
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -17,6 +16,7 @@ from posthog.test.base import (
 from unittest.mock import ANY, patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -8564,7 +8564,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_feature_flag_detail_actions_respect_access_control(self) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
@@ -8589,6 +8589,76 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         status_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/status/")
         self.assertEqual(status_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_org_admin_can_list_flag_with_default_none_after_grantee_removed(self) -> None:
+        # Regression: a flag with a team-wide "none" default plus a single explicit
+        # editor grant becomes invisible to everyone once the grantee is removed
+        # from the org (their AccessControl row cascade-deletes). Org admins should
+        # still be able to find such orphaned flags in the list endpoint.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        grantee = self._create_user("grantee@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        grantee_membership = grantee.organization_memberships.get(organization=self.organization)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=creator,
+            name="orphaned flag",
+            key="orphaned-flag",
+        )
+        # Team-wide "no access" default for this flag
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+        # Single explicit editor grant for the grantee
+        AccessControl.objects.create(
+            resource="feature_flag",
+            resource_id=flag.id,
+            team=self.team,
+            organization_member=grantee_membership,
+            access_level="editor",
+        )
+
+        # self.user is the org admin via APIBaseTest setup
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Remove the grantee from the org -> cascade deletes their explicit grant
+        grantee_membership.delete()
+
+        # Org admin must still see the flag in the list (it's an orphaned flag now)
+        list_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        keys = [f["key"] for f in list_response.json()["results"]]
+        self.assertIn("orphaned-flag", keys)
+
+    def test_member_still_blocked_from_listing_default_none_flag(self) -> None:
+        # Counterpart to the test above: non-admin members without an explicit
+        # grant must still be filtered out by the per-object "none" default.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        other = self._create_user("other@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="blocked flag",
+            key="blocked-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+
+        self.client.force_login(other)
+        list_response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        keys = [f["key"] for f in list_response.json()["results"]]
+        self.assertNotIn("blocked-flag", keys)
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
@@ -12865,7 +12935,7 @@ class TestFeatureFlagVersions(APIBaseTest):
 class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.api.feature_flag.get_flags_from_service")
     @patch("posthog.api.feature_flag.get_person_and_distinct_ids_for_identifier")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_happy_path(self, mock_get_person, mock_get_flags):
         """Test successful evaluation of a feature flag."""
         flag = FeatureFlag.objects.create(
@@ -12922,7 +12992,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
     @patch("posthog.api.feature_flag.get_person_and_distinct_ids_for_identifier")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_with_person_id_uses_smallest_distinct_id(self, mock_get_person, mock_get_flags):
         """When the caller passes person_id (no distinct_id), bucketing must
         pick the lexicographically smallest distinct_id so two calls with the
@@ -12962,7 +13032,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertIsNone(response.json()["evaluation_distinct_id"])
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_with_timestamp(self, mock_get_flags):
         """Historical evaluation must drive the Rust call with reconstructed
         person properties + override definitions, not the live flag's data."""
@@ -13062,23 +13132,23 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="")
     def test_test_evaluation_missing_internal_token_error(self, mock_get_flags):
         """Test 500 when INTERNAL_REQUEST_TOKEN is not set."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
 
-        with patch("posthog.api.feature_flag.os.getenv", return_value=None):
-            response = self.client.post(
-                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-                {"distinct_id": "test-user"},
-                format="json",
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.json()["error"], "Internal request token not configured")
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_historical_missing_conditions_502(self, mock_get_flags):
         """Test 502 when historical evaluation returns no conditions (misconfigured token)."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
@@ -13113,7 +13183,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["error"], "Historical evaluation unavailable. Check service configuration.")
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_current_missing_conditions_200(self, mock_get_flags):
         """Test 200 when current evaluation returns no conditions (no 502 for current evaluation)."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
@@ -13163,7 +13233,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["error"], "Failed to build person properties at specified timestamp.")
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_filters_person_properties(self, mock_get_flags):
         """Test that person_properties are filtered to only flag-referenced keys."""
         flag = FeatureFlag.objects.create(
@@ -13211,7 +13281,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(data["person_properties"], {"email": "test@example.com"})
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_unexpected_response_type(self, mock_get_flags):
         """Test 502 when flag service returns unexpected response format."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
@@ -13264,7 +13334,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, 400)
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_build_properties_value_error_no_leak(self, mock_get_flags):
         """Test that ValueError from build_person_properties_at_time doesn't leak sensitive information."""
         mock_get_flags.return_value = {
@@ -13318,7 +13388,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         mock_build_props.assert_called_once()
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_reconstruct_flag_value_error_no_leak(self, mock_get_flags):
         """Test that ValueError from reconstruct_flag_at_timestamp doesn't leak sensitive information."""
         flag = FeatureFlag.objects.create(
@@ -13367,3 +13437,76 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         # Verify the mock was called
         mock_reconstruct.assert_called_once()
+
+
+class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_passes_runtime_all(self, mock_get_flags):
+        """The Person → Feature flags tab must bypass Rust's header-based
+        runtime detection — otherwise flags whose evaluation_runtime is
+        "client" or "server" disappear from the tab."""
+        mock_get_flags.return_value = {"flags": {}}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["evaluation_runtime"], "all")
+
+    @parameterized.expand(
+        [
+            ("evaluation_reasons", "evaluation_reasons/", {"distinct_id": "user-1"}, False),
+            ("my_flags", "my_flags/", {}, True),
+        ]
+    )
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_internal_handler_forwards_internal_request_token(
+        self, _name, endpoint, params, needs_flag, mock_get_flags
+    ):
+        """The in-app Django handlers (my_flags, evaluation_reasons) are not
+        customer SDK traffic — they must forward INTERNAL_REQUEST_TOKEN so the
+        Rust service skips the per-team billing limiter."""
+        if needs_flag:
+            FeatureFlag.objects.create(team=self.team, key="my-flag", created_by=self.user)
+        mock_get_flags.return_value = {"flags": {}}
+
+        with self.settings(INTERNAL_REQUEST_TOKEN="test-internal-token"):
+            response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{endpoint}", params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["internal_request_token"], "test-internal-token")
+
+    @parameterized.expand(
+        [
+            ("all",),
+            ("client",),
+            ("server",),
+        ]
+    )
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_surfaces_flag_for_runtime(self, runtime, mock_get_flags):
+        """Each stored runtime must round-trip through evaluation_reasons with
+        its evaluation.reason intact — this is the shape
+        relatedFeatureFlagsLogic.ts depends on."""
+        flag = FeatureFlag.objects.create(team=self.team, key=f"flag-{runtime}", evaluation_runtime=runtime)
+        mock_get_flags.return_value = {
+            "flags": {
+                flag.key: {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                },
+            }
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn(flag.key, data)
+        self.assertEqual(data[flag.key]["evaluation"]["reason"], "condition_match")

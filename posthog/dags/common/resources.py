@@ -18,6 +18,7 @@ from posthog import settings
 from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, ExponentialBackoff, RetryPolicy, get_cluster
 from posthog.kafka_client.client import _KafkaProducer
+from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.routing import get_producer
 from posthog.redis import get_client, redis
 from posthog.utils import initialize_self_capture_api_token
@@ -242,13 +243,19 @@ class PostgresURLResource(dagster.ConfigurableResource):
 
 @dagster.resource
 def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer, None, None]:
-    """Yield the routing-managed default Kafka producer; flush on teardown.
+    """Yield a singleton Kafka producer bound to the INGESTION (WarpStream) profile; flush on teardown.
 
-    Ops that produce to topics routed elsewhere should call
-    `posthog.kafka_client.routing.get_producer(topic=...)` directly instead of
-    using this resource.
+    Every existing consumer of this resource (`detach_distinct_id_op`,
+    `person_property_reconciliation`, `person_property_reconciliation_restore`)
+    produces to `clickhouse_person` / `clickhouse_person_distinct_id`, which the
+    routing map sends to the INGESTION profile. Binding the resource here keeps
+    that explicit so a chart misconfiguration (missing `KAFKA_INGESTION_HOSTS`)
+    fails loud rather than silently dropping writes via the DEFAULT fallback.
+
+    Ops producing to topics on a different profile must call
+    `posthog.kafka_client.routing.get_producer(topic=...)` directly.
     """
-    producer = get_producer()
+    producer = get_producer(profile=KafkaClusterProfile.INGESTION)
     try:
         yield producer
     finally:

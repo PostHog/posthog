@@ -1,11 +1,12 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
@@ -53,6 +54,10 @@ export type CohortLogicProps = {
 }
 
 export type StaticCohortMode = 'criteria' | 'people'
+
+export type CohortEditTab = 'overview' | 'history'
+
+const isCohortEditTab = (value: unknown): value is CohortEditTab => value === 'overview' || value === 'history'
 
 const checkIsPendingCalculation = (cohort: CohortType): boolean =>
     cohort.pending_version != null && (cohort.version == null || cohort.pending_version !== cohort.version)
@@ -118,6 +123,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         resetPersonsToCreateStaticCohort: true,
         refreshPersonsData: true,
         setStaticCohortMode: (mode: StaticCohortMode) => ({ mode }),
+        setActiveTab: (tab: CohortEditTab) => ({ tab }),
     }),
 
     reducers(({ props }) => ({
@@ -284,6 +290,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             {
                 setCohort: (_, { cohort }) => inferStaticCohortMode(cohort),
                 setStaticCohortMode: (_, { mode }) => mode,
+            },
+        ],
+        activeTab: [
+            'overview' as CohortEditTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
     })),
@@ -463,6 +475,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
+                    if (existingCohort.id === 'new') {
+                        tryShowMCPHint('cohorts.create')
+                    }
                     if (cohort.id !== 'new') {
                         actions.refreshPersonsData()
                     }
@@ -653,9 +668,36 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         },
     })),
 
-    afterMount(({ actions, props }) => {
+    actionToUrl(({ values }) => ({
+        setActiveTab: () => {
+            const { tab: _, ...restHash } = router.values.hashParams
+            const nextHash = values.activeTab === 'overview' ? restHash : { ...restHash, tab: values.activeTab }
+            return [router.values.location.pathname, router.values.searchParams, nextHash, { replace: true }]
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        '/cohorts/:id': (_, __, { tab }) => {
+            const next = isCohortEditTab(tab) ? tab : 'overview'
+            if (values.activeTab !== next) {
+                actions.setActiveTab(next)
+            }
+        },
+    })),
+
+    afterMount(({ actions, props, values }) => {
         if (!props.id || props.id === 'new') {
             actions.setCohort(NEW_COHORT)
+            // Tabs aren't shown for new cohorts; clear any stale `#tab=…` hash so the URL reflects reality
+            // and reset the in-memory tab so the Overview content (the only thing rendered for new cohorts)
+            // is actually visible — otherwise the user lands on a blank page.
+            if (router.values.hashParams.tab) {
+                const { tab: _, ...restHash } = router.values.hashParams
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, restHash)
+            }
+            if (values.activeTab !== 'overview') {
+                actions.setActiveTab('overview')
+            }
         } else {
             actions.fetchCohort(props.id)
         }

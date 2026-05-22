@@ -21,6 +21,7 @@ import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBread
 import { LLMTrace } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { AIObservabilityRenameBanner } from './AIObservabilityRenameBanner'
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { SentimentBar } from './components/SentimentTag'
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
@@ -128,6 +129,7 @@ function SessionSceneWrapper(): JSX.Element {
     return (
         <div className="relative flex flex-col gap-4">
             <SceneBreadcrumbBackButton />
+            <AIObservabilityRenameBanner />
             <header className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex gap-1.5 flex-wrap">
                     <LemonTag size="medium" className="bg-surface-primary">

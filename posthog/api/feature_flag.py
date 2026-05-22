@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import copy
 import json
@@ -15,6 +14,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
+import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
@@ -106,6 +106,11 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 logger = logging.getLogger(__name__)
+# Dedicated logger name (not `__name__`) so the underlying stdlib logger is created
+# *after* Django applies `disable_existing_loggers: True`. Using `__name__` here
+# results in a disabled logger because `posthog.api.feature_flag` is loaded during
+# Django startup. Remove this logger together with the helper once the scope is enforced.
+scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -124,6 +129,51 @@ RUST_FLAG_FIELDS = (
     "ensure_experience_continuity",
     "evaluation_tags",
 )
+
+
+def warn_if_missing_feature_flag_write_scope(
+    request,
+    *,
+    action: str,
+    team_id: int | None = None,
+    feature_flag_id: int | None = None,
+) -> None:
+    # Temporary observability for a cross-resource scope bypass: SurveyViewSet and
+    # EarlyAccessFeatureViewSet mutate FeatureFlag rows under their own scope
+    # (`survey:write` / `early_access_feature:write`). Before enforcing
+    # `feature_flag:write` on these paths we want to know which customers rely on
+    # the transitive access so we can notify them. Remove this helper and its
+    # call sites once the scope is enforced.
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        scopes = list(authenticator.personal_api_key.scopes or [])
+        auth_kind = "personal_api_key"
+        auth_id: str | None = authenticator.personal_api_key.id
+        auth_label: str | None = authenticator.personal_api_key.label
+    elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+        scope_string = authenticator.access_token.scope or ""
+        scopes = scope_string.split()
+        auth_kind = "oauth_access_token"
+        raw_id = getattr(authenticator.access_token, "id", None)
+        auth_id = str(raw_id) if raw_id is not None else None
+        auth_label = None
+    else:
+        return
+
+    if "*" in scopes or "feature_flag:write" in scopes:
+        return
+
+    scope_audit_logger.warning(
+        "feature_flag_write_via_other_scope",
+        action=action,
+        team_id=team_id,
+        feature_flag_id=feature_flag_id,
+        scopes=scopes,
+        auth_kind=auth_kind,
+        auth_id=auth_id,
+        auth_label=auth_label,
+        user_id=getattr(getattr(request, "user", None), "id", None),
+    )
 
 
 def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
@@ -2709,10 +2759,13 @@ class FeatureFlagViewSet(
         if not distinct_id:
             raise exceptions.ValidationError("User distinct_id is required")
 
+        # Authenticated Django UI handler (the flags list in the app), not customer SDK
+        # traffic. Pass the internal token so the call bypasses per-team billing.
         result = get_flags_from_service(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
 
         # Result from Rust service is always a dictionary. Parse it to get the flags data.
@@ -3453,10 +3506,14 @@ class FeatureFlagViewSet(
         if isinstance(groups, str):
             groups = json.loads(groups) if groups else {}
 
+        # PostHog UI debug endpoint, not customer SDK traffic. Pass the internal
+        # token so the call bypasses per-team billing.
         result = get_flags_from_service(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
+            evaluation_runtime="all",
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
 
         # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.
@@ -3737,7 +3794,7 @@ class FeatureFlagViewSet(
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
 
-            internal_token = os.getenv("INTERNAL_REQUEST_TOKEN")
+            internal_token = settings.INTERNAL_REQUEST_TOKEN
             if not internal_token:
                 return Response(
                     {"error": "Internal request token not configured"},

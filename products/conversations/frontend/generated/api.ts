@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    ComposeTicketApi,
+    ComposeTicketResponseApi,
     ConversationApi,
     ConversationsListParams,
     ConversationsTicketsListParams,
@@ -469,6 +471,26 @@ export const conversationsTicketsBulkUpdateTagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkUpdateTagsRequestApi),
+    })
+}
+
+export const getConversationsTicketsComposeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/compose/`
+}
+
+/**
+ * Create a new outbound ticket and send the first message to the customer.
+ */
+export const conversationsTicketsComposeCreate = async (
+    projectId: string,
+    composeTicketApi: ComposeTicketApi,
+    options?: RequestInit
+): Promise<ComposeTicketResponseApi> => {
+    return apiMutator<ComposeTicketResponseApi>(getConversationsTicketsComposeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(composeTicketApi),
     })
 }
 

@@ -26,9 +26,10 @@ from posthog.temporal.data_modeling.activities import (
 from posthog.temporal.data_modeling.activities.materialize_view import InvalidNodeTypeException
 
 from products.data_modeling.backend.models import DAG, Node, NodeType
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.data_load.create_table import CreateTableResult
-from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery, DataWarehouseTable
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 

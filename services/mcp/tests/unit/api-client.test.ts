@@ -128,6 +128,43 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
+    it.each([
+        [
+            'both ids set',
+            { mcpSessionId: 'abc123session', mcpConversationId: '01984ad9-bda4-7000-8000-abcdef012345' },
+            {
+                'x-posthog-mcp-session-id': 'abc123session',
+                'x-posthog-mcp-conversation-id': '01984ad9-bda4-7000-8000-abcdef012345',
+            },
+        ],
+        ['only session id set', { mcpSessionId: 'only-session' }, { 'x-posthog-mcp-session-id': 'only-session' }],
+        ['neither id set', {}, {}],
+    ] as const)('forwards mcp id headers — %s', async (_label, extraConfig, expectedHeaders) => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            ...extraConfig,
+        })
+
+        await (client as any).fetch('https://example.com/api/test', { method: 'GET' })
+
+        const [, options] = mockFetch.mock.calls[0]!
+        for (const [header, value] of Object.entries(expectedHeaders)) {
+            expect(options.headers[header]).toBe(value)
+        }
+        const absent = ['x-posthog-mcp-session-id', 'x-posthog-mcp-conversation-id'].filter(
+            (h) => !(h in expectedHeaders)
+        )
+        for (const header of absent) {
+            expect(options.headers).not.toHaveProperty(header)
+        }
+
+        vi.unstubAllGlobals()
+    })
+
     describe('insights().get() — overrides forwarding', () => {
         const variablesOverride =
             '{"019d4838-1da4-0000-33c7-2561bf01f1c9":{"code_name":"eventname","variableId":"019d4838-1da4-0000-33c7-2561bf01f1c9","value":"signed_up"}}'

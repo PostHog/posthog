@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -241,7 +243,7 @@ describe('surveyWizardLogic', () => {
                 surveyChanged: true,
             })
 
-            router.actions.push('/surveys/guided/new#preserveLocalChanges=true')
+            router.actions.push('/surveys/guided/new')
 
             const logic = surveyWizardLogic({ id: 'new' })
             logic.mount()
@@ -265,14 +267,14 @@ describe('surveyWizardLogic', () => {
                 surveyChanged: true,
             })
 
-            router.actions.push('/surveys/new#preserveLocalChanges=true')
+            router.actions.push('/surveys/new')
             unmountWizard()
 
             expect(surveyFormLogic.values.survey.description).toBe('Edited in the guided editor')
             expect(surveyFormLogic.values.surveyChanged).toBe(true)
         })
 
-        it('resets new survey state when leaving the guided editor without preserveLocalChanges', async () => {
+        it('resets new survey state when navigating away from the survey editor', async () => {
             const surveyFormLogic = surveyLogic({ id: 'new' })
             surveyFormLogic.mount()
 
@@ -289,6 +291,28 @@ describe('surveyWizardLogic', () => {
             unmountWizard()
 
             expect(surveyFormLogic.values.survey.description).toBe('')
+        })
+
+        it('preserves the in-memory draft when switching to the full editor without any URL flag', async () => {
+            // Regression test: previously the wizard had to push `#preserveLocalChanges=true`
+            // to keep state across editor swaps. Verify the flag-free path works.
+            const surveyFormLogic = surveyLogic({ id: 'new' })
+            surveyFormLogic.mount()
+
+            const wizardLogic = surveyWizardLogic({ id: 'new' })
+            const unmountWizard = wizardLogic.mount()
+
+            await expectLogic(wizardLogic, () => {
+                wizardLogic.actions.setSurveyValue('name', 'Drafted in the wizard')
+            }).toMatchValues({
+                surveyChanged: true,
+            })
+
+            router.actions.push(urls.survey('new'))
+            unmountWizard()
+
+            expect(surveyFormLogic.values.survey.name).toBe('Drafted in the wizard')
+            expect(surveyFormLogic.values.surveyChanged).toBe(true)
         })
     })
 
@@ -337,6 +361,46 @@ describe('surveyWizardLogic', () => {
                     reason: 'Relationship metrics work best quarterly',
                 }),
             })
+        })
+
+        it.each([
+            {
+                mode: 'in_app' as const,
+                expectedCore: [
+                    SurveyTemplateType.NPS,
+                    SurveyTemplateType.CSAT,
+                    SurveyTemplateType.PMF,
+                    SurveyTemplateType.OpenFeedback,
+                ],
+                otherContains: [SurveyTemplateType.Announcement, SurveyTemplateType.ErrorTracking],
+                otherExcludes: [SurveyTemplateType.UserResearchIntake, SurveyTemplateType.ProductResearch],
+            },
+            {
+                mode: 'hosted' as const,
+                expectedCore: [
+                    SurveyTemplateType.UserResearchIntake,
+                    SurveyTemplateType.ProductResearch,
+                    SurveyTemplateType.NPS,
+                    SurveyTemplateType.CCR,
+                ],
+                otherContains: [SurveyTemplateType.FeatureRequest],
+                otherExcludes: [
+                    SurveyTemplateType.Announcement,
+                    SurveyTemplateType.ErrorTracking,
+                    SurveyTemplateType.OnboardingFeedback,
+                ],
+            },
+        ])('exposes mode-specific templates for $mode mode', ({ mode, expectedCore, otherContains, otherExcludes }) => {
+            const logic = surveyWizardLogic({ id: 'new' })
+            logic.mount()
+            logic.actions.setTemplateMode(mode)
+
+            const coreTypes = logic.values.coreTemplates.map((t) => t.templateType)
+            expect(coreTypes).toEqual(expectedCore)
+
+            const otherTypes = logic.values.otherTemplates.map((t) => t.templateType)
+            otherContains.forEach((type) => expect(otherTypes).toContain(type))
+            otherExcludes.forEach((type) => expect(otherTypes).not.toContain(type))
         })
     })
 })

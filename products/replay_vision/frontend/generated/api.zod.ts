@@ -31,7 +31,7 @@ export const VisionLensesCreateBody = /* @__PURE__ */ zod.object({
     lens_config: zod
         .unknown()
         .describe(
-            'Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc.'
+            'Type-specific configuration. Monitor\/classifier\/scorer\/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`.'
         ),
     query: zod
         .unknown()
@@ -51,10 +51,12 @@ export const VisionLensesCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
     model: zod
-        .enum(['gemini-3-flash', 'gemini-3-flash-lite'])
-        .describe('\* `gemini-3-flash` - Gemini 3 Flash\n\* `gemini-3-flash-lite` - Gemini 3 Flash Lite')
+        .enum(['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview'])
         .describe(
-            'Concrete model to use for this lens.\n\n\* `gemini-3-flash` - Gemini 3 Flash\n\* `gemini-3-flash-lite` - Gemini 3 Flash Lite'
+            '\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+        )
+        .describe(
+            'Concrete model to use for this lens.\n\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
         ),
     enabled: zod
         .boolean()
@@ -96,7 +98,7 @@ export const VisionLensesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc.'
+            'Type-specific configuration. Monitor\/classifier\/scorer\/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`.'
         ),
     query: zod
         .unknown()
@@ -116,11 +118,13 @@ export const VisionLensesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('LLM provider. v1 is Google-only.\n\n\* `google` - Google'),
     model: zod
-        .enum(['gemini-3-flash', 'gemini-3-flash-lite'])
-        .describe('\* `gemini-3-flash` - Gemini 3 Flash\n\* `gemini-3-flash-lite` - Gemini 3 Flash Lite')
+        .enum(['gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview'])
+        .describe(
+            '\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
+        )
         .optional()
         .describe(
-            'Concrete model to use for this lens.\n\n\* `gemini-3-flash` - Gemini 3 Flash\n\* `gemini-3-flash-lite` - Gemini 3 Flash Lite'
+            'Concrete model to use for this lens.\n\n\* `gemini-3-flash-preview` - Gemini 3 Flash\n\* `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite'
         ),
     enabled: zod
         .boolean()
@@ -133,3 +137,17 @@ export const VisionLensesPartialUpdateBody = /* @__PURE__ */ zod.object({
             'When true, the prompt is augmented with the Signal side mission and the lens emits PostHog Signals.'
         ),
 })
+
+/**
+ * Apply this lens to one specific session, on demand. Returns 202 with the workflow handle.
+ */
+export const visionLensesObserveCreateBodySessionIdMax = 128
+
+export const VisionLensesObserveCreateBody = /* @__PURE__ */ zod
+    .object({
+        session_id: zod
+            .string()
+            .max(visionLensesObserveCreateBodySessionIdMax)
+            .describe('ID of the session recording to apply the lens to.'),
+    })
+    .describe('Body of POST \/vision\/lenses\/{id}\/observe\/.')

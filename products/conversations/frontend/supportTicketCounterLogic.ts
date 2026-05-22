@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -22,12 +22,12 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
         actions: [browserNotificationLogic, ['showNotification']],
     })),
     actions({
-        togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         incrementErrorCount: true,
         clearErrorCount: true,
         resetCount: true, // Reset count when team changes or user logs out
         refreshCount: true, // Public action for other logics to trigger immediate refresh
         loadUnreadCount: true, // Explicit parameterless action (loader will use this)
+        schedulePoll: true, // Re-schedule the next poll via disposables
     }),
     reducers({
         errorCounter: [
@@ -35,25 +35,20 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
             {
                 incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
                 clearErrorCount: () => 0,
-                resetCount: () => 0, // Reset error counter on team change
+                resetCount: () => 0,
             },
         ],
     }),
-    loaders(({ actions, values, cache }) => ({
+    loaders(({ actions, values }) => ({
         unreadCount: [
             0,
             {
                 loadUnreadCount: async (_, breakpoint) => {
-                    // Don't poll if support is not enabled
                     if (!values.isSupportEnabled) {
                         return 0
                     }
 
                     await breakpoint(1)
-
-                    // Track error state locally to avoid race condition with async action dispatch
-                    let hadError = false
-                    const currentErrorCount = values.errorCounter
 
                     try {
                         const response = await api.conversationsTickets.unreadCount()
@@ -61,23 +56,8 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
                         return response.count
                     } catch {
                         // Swallow errors - increment counter for backoff
-                        hadError = true
                         actions.incrementErrorCount()
                         return values.unreadCount // Keep previous value on error
-                    } finally {
-                        // Schedule next poll
-                        if (values.isSupportEnabled) {
-                            // Calculate backoff using local state to avoid race condition
-                            const effectiveErrorCount = hadError ? Math.min(currentErrorCount + 1, 5) : 0
-                            const pollInterval = effectiveErrorCount
-                                ? POLL_INTERVAL * (effectiveErrorCount + 1) // Backoff on errors
-                                : POLL_INTERVAL
-
-                            cache.disposables.add(() => {
-                                const timerId = window.setTimeout(actions.loadUnreadCount, pollInterval)
-                                return () => clearTimeout(timerId)
-                            }, 'pollTimeout')
-                        }
                     }
                 },
                 resetCount: () => 0, // Immediately set count to 0 on team change/logout
@@ -88,15 +68,29 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
         isSupportEnabled: [(s) => [s.currentTeam], (currentTeam): boolean => !!currentTeam?.conversations_enabled],
     }),
     listeners(({ actions, values, cache }) => ({
-        togglePolling: ({ pageIsVisible }) => {
-            if (pageIsVisible && values.isSupportEnabled) {
-                actions.loadUnreadCount()
-            } else {
-                cache.disposables.dispose('pollTimeout')
+        // Re-schedule after each load completes. The loader catches API errors
+        // and returns a value, so the failure action never actually dispatches —
+        // a single success listener covers both the happy path and the swallowed
+        // error path. The disposables plugin auto-pauses the scheduled timer
+        // when the tab is hidden and resumes it when visible.
+        loadUnreadCountSuccess: () => actions.schedulePoll(),
+        schedulePoll: () => {
+            if (!values.isSupportEnabled) {
+                return
             }
+            const interval = values.errorCounter
+                ? POLL_INTERVAL * (values.errorCounter + 1) // Backoff on errors
+                : POLL_INTERVAL
+            cache.disposables.add(() => {
+                const id = window.setTimeout(actions.loadUnreadCount, interval)
+                return () => clearTimeout(id)
+            }, 'pollTimeout')
         },
         refreshCount: () => {
-            // Public action for other logics to trigger immediate refresh (e.g., after viewing a ticket)
+            // Intentionally visibility-agnostic: callers (e.g. ticket-viewed events)
+            // want an immediate count refresh regardless of tab focus. The follow-up
+            // polling resumes through schedulePoll, which IS gated by visibility
+            // via the disposables plugin's pause/resume.
             cache.disposables.dispose('pollTimeout')
             actions.loadUnreadCount()
         },
@@ -109,48 +103,29 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
                 return
             }
 
-            // Team changed or user logged out
             cache.disposables.dispose('pollTimeout')
             actions.resetCount()
 
-            // If new team has support enabled, start polling
             if (currentTeam?.conversations_enabled) {
                 actions.loadUnreadCount()
             }
         },
         // Notify tickets scene when unread count changes
         unreadCount: (unreadCount, oldUnreadCount) => {
-            // Skip initial subscription
             if (oldUnreadCount === undefined) {
                 return
             }
-            // Refresh tickets list if scene is mounted
             if (unreadCount !== oldUnreadCount) {
                 supportTicketsSceneLogic.findMounted()?.actions.loadTickets()
             }
-            // Show browser notification when count increases
             if (unreadCount > oldUnreadCount && values.canShowNotifications) {
                 actions.showNotification(unreadCount)
             }
         },
     })),
-    afterMount(({ actions, values, cache }) => {
-        // Set up visibility change listener
-        cache.disposables.add(() => {
-            const onVisibilityChange = (): void => {
-                actions.togglePolling(document.visibilityState === 'visible')
-            }
-            document.addEventListener('visibilitychange', onVisibilityChange)
-            return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-        }, 'visibilityListener')
-
-        // Start polling if support is enabled
+    afterMount(({ actions, values }) => {
         if (values.isSupportEnabled) {
             actions.loadUnreadCount()
         }
-    }),
-    beforeUnmount(({ cache }) => {
-        // Clean up all disposables (timers, event listeners)
-        cache.disposables.disposeAll()
     }),
 ])
