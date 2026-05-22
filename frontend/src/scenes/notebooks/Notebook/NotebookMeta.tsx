@@ -102,9 +102,7 @@ export const NotebookCollabStatus = (props: NotebookLogicProps): JSX.Element | n
         return null
     }
 
-    const tooltip = streamError
-        ? `Live updates paused — reconnecting. Last error: ${streamError}`
-        : 'Live updates paused — reconnecting…'
+    const tooltip = streamError ? `Live updates paused. Last error: ${streamError}` : 'Live updates paused.'
 
     return (
         <Tooltip title={tooltip} placement="left">
