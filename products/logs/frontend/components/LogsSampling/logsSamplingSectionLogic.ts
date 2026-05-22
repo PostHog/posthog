@@ -13,7 +13,7 @@ import {
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsSamplingSectionLogicType } from './logsSamplingSectionLogicType'
-import { fetchSamplingRuleDropTotalsLast24h } from './samplingRuleDropImpact'
+import { type SamplingRuleDropTotals, fetchSamplingRuleDropTotalsLast24h } from './samplingRuleDropImpact'
 
 // Background refresh cadence for the per-rule 24h drop counts. The underlying
 // `app_metrics2` table flushes every ~1 min, so a 30s tick is fast enough that
@@ -64,7 +64,7 @@ export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
             },
         ],
         ruleDropImpact: [
-            {} as Record<string, number>,
+            {} as Record<string, SamplingRuleDropTotals>,
             {
                 loadRuleDropImpact: async (_, breakpoint) => {
                     const rules = values.rules
@@ -73,15 +73,7 @@ export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
                         return {}
                     }
                     await breakpoint(1)
-                    const totals = await fetchSamplingRuleDropTotalsLast24h(ids)
-                    // The list-view cell only renders record count (column space is tight).
-                    // Byte totals are surfaced on the rule detail page; here we collapse
-                    // back to the records number this loader has always exposed.
-                    const out: Record<string, number> = {}
-                    for (const [id, { records }] of Object.entries(totals)) {
-                        out[id] = records
-                    }
-                    return out
+                    return await fetchSamplingRuleDropTotalsLast24h(ids)
                 },
             },
         ],
