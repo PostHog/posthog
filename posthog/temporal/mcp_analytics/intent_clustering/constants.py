@@ -45,7 +45,7 @@ PERSIST_HEARTBEAT_TIMEOUT = timedelta(seconds=30)
 # Schedule-to-close caps total time across retries + backoff + queue wait.
 # Each is sized as (max_attempts × start_to_close) + a backoff allowance.
 COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=400)
-JOURNEYS_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=180)
+JOURNEYS_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=200)  # 3 × 60s + ~6s backoff allowance + buffer
 SNAPSHOT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=90)
 PERSIST_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=90)
 

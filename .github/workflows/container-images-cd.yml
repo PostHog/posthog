@@ -419,7 +419,10 @@ jobs:
             - name: Check for changes that affect MCP analytics temporal worker
               id: check_changes_mcp_analytics_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/mcp_analytics|^products/mcp_analytics/backend|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  # Narrowed to intent_clustering only — backfill_sessions and
+                  # summarize_session_intents run on GENERAL_PURPOSE_TASK_QUEUE, not
+                  # MCPA_TASK_QUEUE, so changes there don't need to redeploy this worker.
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/mcp_analytics/intent_clustering|^products/mcp_analytics/backend|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
