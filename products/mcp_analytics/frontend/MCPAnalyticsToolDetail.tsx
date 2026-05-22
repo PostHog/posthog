@@ -164,10 +164,10 @@ function StatStrip({ summary, loading }: { summary: ToolSummary | null; loading:
             <Stat label="p95 latency" loading={loading} value={formatDurationMs(summary?.p95_ms ?? null)} />
             <Stat label="Users" loading={loading} value={humanFriendlyNumber(summary?.users ?? 0)} />
             <Stat
-                label="Conversations"
+                label="Sessions"
                 loading={loading}
                 value={humanFriendlyNumber(summary?.conversations ?? 0)}
-                tooltip="Unique $mcp_conversation_id values, falling back to $session_id where missing."
+                tooltip="Unique $mcp_session_id values, falling back to $session_id where missing."
             />
         </div>
     )

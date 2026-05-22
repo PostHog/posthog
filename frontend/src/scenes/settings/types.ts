@@ -26,7 +26,7 @@ export type SettingSectionId =
     | 'environment-product-analytics'
     | 'environment-privacy'
     | 'environment-revenue-analytics'
-    | 'environment-llm-analytics'
+    | 'environment-ai-observability'
     | 'environment-marketing-analytics'
     | 'environment-web-analytics'
     | 'environment-replay'
@@ -53,6 +53,7 @@ export type SettingSectionId =
     | 'project-surveys' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-integrations' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'project-access-control' // TODO: This section is for backward compat – remove when Environments are rolled out
+    | 'project-ai-observability' // TODO: This section is for backward compat – remove when Environments are rolled out
     | 'organization-details'
     | 'organization-integrations'
     | 'organization-oauth-apps'
@@ -196,7 +197,7 @@ export type SettingId =
     | 'revenue-analytics-goals'
     | 'revenue-analytics-events'
     | 'revenue-analytics-external-data-sources'
-    | 'llm-analytics-byok'
+    | 'ai-observability-byok'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'

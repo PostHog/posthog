@@ -9287,6 +9287,7 @@ class WebOverviewQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -12701,6 +12702,7 @@ class CachedWebOverviewQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -13316,6 +13318,7 @@ class Response4(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -16205,6 +16208,7 @@ class QueryResponseAlternative23(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -16738,6 +16742,7 @@ class QueryResponseAlternative43(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -18693,6 +18698,14 @@ class WebOverviewQuery(BaseModel):
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web_overview_query precompute path."
+            " Requires the `web-analytics-precompute-toggle` PostHog feature flag to be"
+            " on for the team's organization for the gate to pass. *"
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
