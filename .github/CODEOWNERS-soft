@@ -157,6 +157,7 @@ posthog/tasks/test/test_ai_observability_usage_report.py @PostHog/team-ai-observ
 posthog/templates/email/ai_observability_*.html @PostHog/team-ai-observability
 posthog/temporal/ai_observability/ @PostHog/team-ai-observability
 products/ai_observability/** @PostHog/team-ai-observability
+products/llm_analytics/backend/migrations/** @PostHog/team-ai-observability
 services/mcp/src/generated/llm_analytics/ @PostHog/team-ai-observability
 services/mcp/src/tools/generated/llm_analytics.ts @PostHog/team-ai-observability
 services/mcp/src/tools/aiObservability/ @PostHog/team-ai-observability

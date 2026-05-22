@@ -118,6 +118,11 @@ INSTALLED_APPS = [
     "django_admin_inline_paginator",
 ]
 
+MIGRATION_MODULES = {
+    # Keep the historical migration module stable while the app code moves to AI observability.
+    "llm_analytics": "products.llm_analytics.backend.migrations",
+}
+
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
