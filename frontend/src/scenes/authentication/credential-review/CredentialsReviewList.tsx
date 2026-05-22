@@ -115,7 +115,6 @@ export function CredentialsReviewList(): JSX.Element {
                                 ),
                             },
                         ]}
-                        emptyState="No API keys found."
                     />
                 </section>
             )}
@@ -167,7 +166,6 @@ export function CredentialsReviewList(): JSX.Element {
                                 ),
                             },
                         ]}
-                        emptyState="No passkeys found."
                     />
                 </section>
             )}
