@@ -12,7 +12,6 @@ from ..batch_exports.models import (
 from ..session_recordings.models.session_recording import SessionRecording
 from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
-from products.data_warehouse.backend.models import DataWarehouseTable
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
@@ -240,7 +239,6 @@ __all__ = [
     "UserGroupMembership",
     "UserIntegration",
     "UserPushToken",
-    "DataWarehouseTable",
     "ScheduledChange",
     "WebAnalyticsFilterPreset",
     "Comment",

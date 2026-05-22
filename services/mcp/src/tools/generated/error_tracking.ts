@@ -19,6 +19,8 @@ import {
     ErrorTrackingQueryIssuesListCreateBody,
     ErrorTrackingSuppressionRulesCreateBody,
     ErrorTrackingSuppressionRulesListQueryParams,
+    ErrorTrackingSuppressionRulesUpdateBody,
+    ErrorTrackingSuppressionRulesUpdateParams,
     ErrorTrackingSymbolSetsDownloadRetrieveParams,
     ErrorTrackingSymbolSetsListQueryParams,
     ErrorTrackingSymbolSetsRetrieveParams,
@@ -279,6 +281,34 @@ const errorTrackingSuppressionRulesList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const ErrorTrackingSuppressionRulesUpdateSchema = ErrorTrackingSuppressionRulesUpdateParams.omit({
+    project_id: true,
+}).extend(ErrorTrackingSuppressionRulesUpdateBody.shape)
+
+const errorTrackingSuppressionRulesUpdate = (): ToolBase<
+    typeof ErrorTrackingSuppressionRulesUpdateSchema,
+    unknown
+> => ({
+    name: 'error-tracking-suppression-rules-update',
+    schema: ErrorTrackingSuppressionRulesUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ErrorTrackingSuppressionRulesUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.sampling_rate !== undefined) {
+            body['sampling_rate'] = params.sampling_rate
+        }
+        const result = await context.api.request<unknown>({
+            method: 'PUT',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/error_tracking/suppression_rules/${encodeURIComponent(String(params.id))}/`,
+            body,
         })
         return result
     },
@@ -571,6 +601,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
     'error-tracking-suppression-rules-create': errorTrackingSuppressionRulesCreate,
     'error-tracking-suppression-rules-list': errorTrackingSuppressionRulesList,
+    'error-tracking-suppression-rules-update': errorTrackingSuppressionRulesUpdate,
     'error-tracking-symbol-sets-download-retrieve': errorTrackingSymbolSetsDownloadRetrieve,
     'error-tracking-symbol-sets-list': errorTrackingSymbolSetsList,
     'error-tracking-symbol-sets-retrieve': errorTrackingSymbolSetsRetrieve,

@@ -369,8 +369,8 @@ or wiring evaluations into a larger agent loop.
 
 ## Constructing UI links
 
-- **Evaluations list**: `https://app.posthog.com/llm-analytics/evaluations`
-- **Single evaluation**: `https://app.posthog.com/llm-analytics/evaluations/<evaluation_id>`
+- **Evaluations list**: `https://app.posthog.com/ai-evals/evaluations`
+- **Single evaluation**: `https://app.posthog.com/ai-evals/evaluations/<evaluation_id>`
 - **Underlying generation/trace**: see the `exploring-llm-traces` skill's URL conventions
 
 Always surface the relevant link so the user can verify in the UI.

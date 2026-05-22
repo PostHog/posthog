@@ -154,9 +154,15 @@ class ClickHousePrinter(BasePrinter):
 
         relevant_clickhouse_name = func_meta.clickhouse_name
         if func_meta.overloads:
+            # Look through aliases: an alias's declared type can be stale after a
+            # transform (e.g. the property-type swapper) rewrites its inner
+            # expression, so resolve the overload against the real expression.
+            first_arg = node.args[0] if len(node.args) > 0 else None
+            while isinstance(first_arg, ast.Alias):
+                first_arg = first_arg.expr
             first_arg_constant_type = (
-                node.args[0].type.resolve_constant_type(self.context)
-                if len(node.args) > 0 and node.args[0].type is not None
+                first_arg.type.resolve_constant_type(self.context)
+                if first_arg is not None and first_arg.type is not None
                 else None
             )
 
