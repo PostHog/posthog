@@ -24,30 +24,31 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { LensObservationsTable } from './components/LensObservationsTable'
-import { LensTriggers } from './components/LensTriggers'
-import { LensTypeConfigEditor } from './components/LensTypeConfigEditor'
-import { replayLensLogic } from './replayLensLogic'
-import { ReplayLensSceneLogicProps, replayLensSceneLogic } from './replayLensSceneLogic'
-import { EditorTab, LENS_TYPE_OPTIONS, MODEL_OPTIONS } from './types'
+import { ScannerObservationsTable } from './components/ScannerObservationsTable'
+import { ScannerTriggers } from './components/ScannerTriggers'
+import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
+import { replayScannerLogic } from './replayScannerLogic'
+import { ReplayScannerSceneLogicProps, replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { EditorTab, SCANNER_TYPE_OPTIONS, MODEL_OPTIONS } from './types'
 
-export const scene: SceneExport<ReplayLensSceneLogicProps> = {
-    component: ReplayLensSceneComponent,
-    logic: replayLensSceneLogic,
+export const scene: SceneExport<ReplayScannerSceneLogicProps> = {
+    component: ReplayScannerSceneComponent,
+    logic: replayScannerSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
 }
 
-export function ReplayLensSceneComponent({ tabId }: { tabId: string }): JSX.Element {
-    const { lensId, activeTab } = useValues(replayLensSceneLogic)
-    const { setActiveTab } = useActions(replayLensSceneLogic)
+export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.Element {
+    const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
+    const { setActiveTab } = useActions(replayScannerSceneLogic)
 
-    const lensLogic = replayLensLogic({ id: lensId, tabId })
-    useAttachedLogic(lensLogic, replayLensSceneLogic)
+    const scannerLogic = replayScannerLogic({ id: scannerId, tabId })
+    useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
-    const { lens, originalLens, lensLoading, isLensSubmitting, hasUnsavedChanges, isNew } = useValues(lensLogic)
-    const { setLensType, submitLens, resetLens, deleteLens } = useActions(lensLogic)
+    const { scanner, originalScanner, scannerLoading, isScannerSubmitting, hasUnsavedChanges, isNew } =
+        useValues(scannerLogic)
+    const { setScannerType, submitScanner, resetScanner, deleteScanner } = useActions(scannerLogic)
 
-    if (lensLoading || !lens) {
+    if (scannerLoading || !scanner) {
         return (
             <SceneContent>
                 <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />
@@ -66,15 +67,15 @@ export function ReplayLensSceneComponent({ tabId }: { tabId: string }): JSX.Elem
                     </Field>
 
                     <Field name="description" label="Description (optional)">
-                        <LemonTextArea placeholder="What this lens looks for and why." minRows={2} />
+                        <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
                     </Field>
 
                     {isNew ? (
-                        <Field name="lens_type" label="Lens type">
+                        <Field name="scanner_type" label="Scanner type">
                             <LemonSelect
-                                value={lens.lens_type}
-                                onChange={(v) => setLensType(v)}
-                                options={LENS_TYPE_OPTIONS.map((opt) => ({
+                                value={scanner.scanner_type}
+                                onChange={(v) => setScannerType(v)}
+                                options={SCANNER_TYPE_OPTIONS.map((opt) => ({
                                     value: opt.value,
                                     label: opt.label,
                                     labelInMenu: (
@@ -88,18 +89,19 @@ export function ReplayLensSceneComponent({ tabId }: { tabId: string }): JSX.Elem
                         </Field>
                     ) : (
                         <div className="space-y-1">
-                            <label className="block text-sm font-medium">Lens type</label>
+                            <label className="block text-sm font-medium">Scanner type</label>
                             <LemonTag type="option">
-                                {LENS_TYPE_OPTIONS.find((o) => o.value === lens.lens_type)?.label ?? lens.lens_type}
+                                {SCANNER_TYPE_OPTIONS.find((o) => o.value === scanner.scanner_type)?.label ??
+                                    scanner.scanner_type}
                             </LemonTag>
-                            <div className="text-xs text-muted">Lens type is fixed after creation.</div>
+                            <div className="text-xs text-muted">Scanner type is fixed after creation.</div>
                         </div>
                     )}
 
-                    <LensTypeConfigEditor lensId={lensId} tabId={tabId} />
+                    <ScannerTypeConfigEditor scannerId={scannerId} tabId={tabId} />
 
                     <Field name="model" label="Model">
-                        <LemonSelect value={lens.model} options={MODEL_OPTIONS} />
+                        <LemonSelect value={scanner.model} options={MODEL_OPTIONS} />
                     </Field>
 
                     <Field name="emits_signals">
@@ -122,20 +124,20 @@ export function ReplayLensSceneComponent({ tabId }: { tabId: string }): JSX.Elem
         {
             key: 'triggers',
             label: 'Triggers',
-            content: <LensTriggers lensId={lensId} tabId={tabId} />,
+            content: <ScannerTriggers scannerId={scannerId} tabId={tabId} />,
         },
         !isNew && {
             key: 'observations' as EditorTab,
             label: 'Observations',
-            content: <LensObservationsTable lensId={lensId} tabId={tabId} />,
+            content: <ScannerObservationsTable scannerId={scannerId} tabId={tabId} />,
         },
     ]
 
     return (
         <SceneContent>
             <SceneTitleSection
-                name={lens.name || (isNew ? 'New lens' : 'Lens')}
-                description={lens.description}
+                name={scanner.name || (isNew ? 'New scanner' : 'Scanner')}
+                description={scanner.description}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
@@ -148,12 +150,12 @@ export function ReplayLensSceneComponent({ tabId }: { tabId: string }): JSX.Elem
                                         fullWidth
                                         onClick={() =>
                                             LemonDialog.open({
-                                                title: `Delete "${lens.name || 'Untitled lens'}"?`,
+                                                title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
                                                 description: 'This cannot be undone.',
                                                 primaryButton: {
                                                     children: 'Delete',
                                                     status: 'danger',
-                                                    onClick: () => deleteLens(),
+                                                    onClick: () => deleteScanner(),
                                                 },
                                                 secondaryButton: { children: 'Cancel' },
                                             })
@@ -164,8 +166,8 @@ export function ReplayLensSceneComponent({ tabId }: { tabId: string }): JSX.Elem
                                 }
                             />
                         )}
-                        {hasUnsavedChanges && originalLens && (
-                            <LemonButton type="secondary" size="small" onClick={() => resetLens(originalLens)}>
+                        {hasUnsavedChanges && originalScanner && (
+                            <LemonButton type="secondary" size="small" onClick={() => resetScanner(originalScanner)}>
                                 Discard changes
                             </LemonButton>
                         )}
@@ -177,9 +179,9 @@ export function ReplayLensSceneComponent({ tabId }: { tabId: string }): JSX.Elem
                                 type="primary"
                                 size="small"
                                 disabledReason={!isNew && !hasUnsavedChanges ? 'No changes to save' : undefined}
-                                loading={isLensSubmitting}
-                                onClick={() => submitLens()}
-                                data-attr="save-replay-lens"
+                                loading={isScannerSubmitting}
+                                onClick={() => submitScanner()}
+                                data-attr="save-replay-scanner"
                             >
                                 {isNew ? 'Create' : 'Save'}
                             </LemonButton>
@@ -190,7 +192,7 @@ export function ReplayLensSceneComponent({ tabId }: { tabId: string }): JSX.Elem
 
             {hasUnsavedChanges && !isNew && <LemonBanner type="info">You have unsaved changes.</LemonBanner>}
 
-            <Form logic={replayLensLogic} props={{ id: lensId, tabId }} formKey="lens" enableFormOnSubmit>
+            <Form logic={replayScannerLogic} props={{ id: scannerId, tabId }} formKey="scanner" enableFormOnSubmit>
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={(key) => setActiveTab(key as EditorTab)}
@@ -201,4 +203,4 @@ export function ReplayLensSceneComponent({ tabId }: { tabId: string }): JSX.Elem
     )
 }
 
-export default ReplayLensSceneComponent
+export default ReplayScannerSceneComponent

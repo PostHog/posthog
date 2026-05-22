@@ -11,50 +11,50 @@ import { urls } from 'scenes/urls'
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import {
-    visionLensesCreate,
-    visionLensesDestroy,
-    visionLensesObservationsList,
-    visionLensesPartialUpdate,
-    visionLensesRetrieve,
+    visionScannersCreate,
+    visionScannersDestroy,
+    visionScannersObservationsList,
+    visionScannersPartialUpdate,
+    visionScannersRetrieve,
 } from '../generated/api'
-import type { replayLensLogicType } from './replayLensLogicType'
+import type { replayScannerLogicType } from './replayScannerLogicType'
 import {
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
-    LensConfig,
-    LensType,
-    ReplayLens,
+    ScannerConfig,
+    ScannerType,
+    ReplayScanner,
     ReplayObservation,
-    lensFromApi,
-    lensToApiBody,
-    lensToPatchedApiBody,
+    scannerFromApi,
+    scannerToApiBody,
+    scannerToPatchedApiBody,
     observationsFromApi,
 } from './types'
 
-export interface ReplayLensLogicProps {
+export interface ReplayScannerLogicProps {
     id: string
     tabId: string
 }
 
-function defaultConfigForType(lensType: LensType): LensConfig {
-    if (lensType === 'summarizer') {
+function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
+    if (scannerType === 'summarizer') {
         return { prompt: '', length: 'medium' }
     }
-    if (lensType === 'classifier') {
+    if (scannerType === 'classifier') {
         return { prompt: '', tags: [], multi_label: true }
     }
-    if (lensType === 'scorer') {
+    if (scannerType === 'scorer') {
         return { prompt: '', scale: { min: 0, max: 10 } }
     }
     return { prompt: '' }
 }
 
-function omitQuery(lens: ReplayLens): Omit<ReplayLens, 'query'> {
-    const { query: _query, ...rest } = lens
+function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
+    const { query: _query, ...rest } = scanner
     return rest
 }
 
-function newLens(): ReplayLens {
+function newScanner(): ReplayScanner {
     return {
         id: 'new',
         name: '',
@@ -65,72 +65,72 @@ function newLens(): ReplayLens {
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
         emits_signals: false,
-        lens_version: 1,
+        scanner_version: 1,
         last_swept_at: dayjs().toISOString(),
         created_at: dayjs().toISOString(),
         updated_at: dayjs().toISOString(),
         created_by: null,
-        lens_type: 'monitor',
-        lens_config: { prompt: '' },
+        scanner_type: 'monitor',
+        scanner_config: { prompt: '' },
     }
 }
 
-export const replayLensLogic = kea<replayLensLogicType>([
-    path(['products', 'replay_vision', 'frontend', 'replay_lenses', 'replayLensLogic']),
-    props({} as ReplayLensLogicProps),
+export const replayScannerLogic = kea<replayScannerLogicType>([
+    path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannerLogic']),
+    props({} as ReplayScannerLogicProps),
     key((props) => `${props.tabId}:${props.id}`),
 
     actions({
-        loadLens: true,
-        loadLensSuccess: (lens: ReplayLens) => ({ lens }),
-        loadLensFailure: true,
-        setLensType: (lensType: LensType) => ({ lensType }),
+        loadScanner: true,
+        loadScannerSuccess: (scanner: ReplayScanner) => ({ scanner }),
+        loadScannerFailure: true,
+        setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         loadObservations: true,
         loadObservationsSuccess: (observations: ReplayObservation[]) => ({ observations }),
         loadObservationsFailure: true,
-        deleteLens: true,
+        deleteScanner: true,
     }),
 
     forms(({ props }) => ({
-        lens: {
-            defaults: newLens(),
-            errors: (lens: ReplayLens) => {
+        scanner: {
+            defaults: newScanner(),
+            errors: (scanner: ReplayScanner) => {
                 const configErrors: Record<string, string | undefined> = {}
-                if (!lens.lens_config?.prompt?.trim()) {
+                if (!scanner.scanner_config?.prompt?.trim()) {
                     configErrors.prompt = 'Prompt is required'
                 }
-                if (lens.lens_type === 'scorer') {
-                    const { min, max } = lens.lens_config.scale
+                if (scanner.scanner_type === 'scorer') {
+                    const { min, max } = scanner.scanner_config.scale
                     if (typeof min !== 'number' || typeof max !== 'number' || min >= max) {
                         configErrors.scale = 'Scale max must be greater than min'
                     }
                 }
                 return {
-                    name: !lens.name?.trim() ? 'Name is required' : undefined,
+                    name: !scanner.name?.trim() ? 'Name is required' : undefined,
                     sampling_rate:
-                        lens.sampling_rate > 0 && lens.sampling_rate <= 1
+                        scanner.sampling_rate > 0 && scanner.sampling_rate <= 1
                             ? undefined
                             : 'Sampling rate must be between 0% and 100%',
-                    lens_config: Object.keys(configErrors).length > 0 ? configErrors : undefined,
+                    scanner_config: Object.keys(configErrors).length > 0 ? configErrors : undefined,
                 }
             },
-            submit: async (lens: ReplayLens) => {
+            submit: async (scanner: ReplayScanner) => {
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
                     return
                 }
-                const body = lens.query == null ? omitQuery(lens) : lens
+                const body = scanner.query == null ? omitQuery(scanner) : scanner
                 try {
                     if (props.id === 'new') {
-                        const response = await visionLensesCreate(String(teamId), lensToApiBody(body))
+                        const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
                         router.actions.replace(urls.replayVision(response.id))
-                        lemonToast.success('Lens created')
+                        lemonToast.success('Scanner created')
                     } else {
-                        await visionLensesPartialUpdate(String(teamId), props.id, lensToPatchedApiBody(body))
-                        lemonToast.success('Lens saved')
+                        await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
+                        lemonToast.success('Scanner saved')
                     }
                 } catch (error) {
-                    lemonToast.error(`Failed to save lens: ${String(error)}`)
+                    lemonToast.error(`Failed to save scanner: ${String(error)}`)
                     throw error
                 }
             },
@@ -138,19 +138,19 @@ export const replayLensLogic = kea<replayLensLogicType>([
     })),
 
     reducers({
-        originalLens: [
-            null as ReplayLens | null,
+        originalScanner: [
+            null as ReplayScanner | null,
             {
-                loadLensSuccess: (_, { lens }) => lens,
-                submitLensSuccess: (_, { lens }: { lens: ReplayLens }) => lens,
+                loadScannerSuccess: (_, { scanner }) => scanner,
+                submitScannerSuccess: (_, { scanner }: { scanner: ReplayScanner }) => scanner,
             },
         ],
-        lensLoading: [
+        scannerLoading: [
             false,
             {
-                loadLens: () => true,
-                loadLensSuccess: () => false,
-                loadLensFailure: () => false,
+                loadScanner: () => true,
+                loadScannerSuccess: () => false,
+                loadScannerFailure: () => false,
             },
         ],
         observations: [
@@ -172,20 +172,20 @@ export const replayLensLogic = kea<replayLensLogicType>([
     selectors({
         isNew: [(_, p) => [p.id], (id: string) => id === 'new'],
         hasUnsavedChanges: [
-            (s) => [s.lens, s.originalLens],
-            (lens: ReplayLens | null, original: ReplayLens | null): boolean => {
-                if (!lens || !original) {
+            (s) => [s.scanner, s.originalScanner],
+            (scanner: ReplayScanner | null, original: ReplayScanner | null): boolean => {
+                if (!scanner || !original) {
                     return false
                 }
-                return !objectsEqual(lens, original)
+                return !objectsEqual(scanner, original)
             },
         ],
     }),
 
     listeners(({ actions, props }) => ({
-        loadLens: async () => {
+        loadScanner: async () => {
             if (props.id === 'new') {
-                actions.loadLensSuccess(newLens())
+                actions.loadScannerSuccess(newScanner())
                 return
             }
             const teamId = teamLogic.values.currentTeamId
@@ -193,24 +193,24 @@ export const replayLensLogic = kea<replayLensLogicType>([
                 return
             }
             try {
-                const response = await visionLensesRetrieve(String(teamId), props.id)
-                actions.loadLensSuccess(lensFromApi(response))
+                const response = await visionScannersRetrieve(String(teamId), props.id)
+                actions.loadScannerSuccess(scannerFromApi(response))
             } catch (error) {
-                lemonToast.error(`Failed to load lens: ${String(error)}`)
-                actions.loadLensFailure()
+                lemonToast.error(`Failed to load scanner: ${String(error)}`)
+                actions.loadScannerFailure()
                 router.actions.replace(urls.replayVision())
             }
         },
 
-        loadLensSuccess: ({ lens }) => {
-            actions.setLensValues(lens)
+        loadScannerSuccess: ({ scanner }) => {
+            actions.setScannerValues(scanner)
         },
 
-        setLensType: ({ lensType }) => {
-            actions.setLensValues({ lens_type: lensType, lens_config: defaultConfigForType(lensType) })
+        setScannerType: ({ scannerType }) => {
+            actions.setScannerValues({ scanner_type: scannerType, scanner_config: defaultConfigForType(scannerType) })
         },
 
-        deleteLens: async () => {
+        deleteScanner: async () => {
             if (props.id === 'new') {
                 return
             }
@@ -219,11 +219,11 @@ export const replayLensLogic = kea<replayLensLogicType>([
                 return
             }
             try {
-                await visionLensesDestroy(String(teamId), props.id)
-                lemonToast.success('Lens deleted')
+                await visionScannersDestroy(String(teamId), props.id)
+                lemonToast.success('Scanner deleted')
                 router.actions.replace(urls.replayVision())
             } catch (error) {
-                lemonToast.error(`Failed to delete lens: ${String(error)}`)
+                lemonToast.error(`Failed to delete scanner: ${String(error)}`)
             }
         },
 
@@ -237,7 +237,7 @@ export const replayLensLogic = kea<replayLensLogicType>([
                 return
             }
             try {
-                const response = await visionLensesObservationsList(String(teamId), props.id)
+                const response = await visionScannersObservationsList(String(teamId), props.id)
                 actions.loadObservationsSuccess(observationsFromApi(response.results ?? []))
             } catch {
                 actions.loadObservationsFailure()
@@ -246,7 +246,7 @@ export const replayLensLogic = kea<replayLensLogicType>([
     })),
 
     afterMount(({ actions, props }) => {
-        actions.loadLens()
+        actions.loadScanner()
         if (props.id !== 'new') {
             actions.loadObservations()
         }

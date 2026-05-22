@@ -10,8 +10,8 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter } from '~/types'
 
-import { replayLensLogic } from '../replayLensLogic'
-import { LensQuotaForecast } from './LensQuotaForecast'
+import { replayScannerLogic } from '../replayScannerLogic'
+import { ScannerQuotaForecast } from './ScannerQuotaForecast'
 
 const RECORDING_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.PersonProperties,
@@ -20,18 +20,18 @@ const RECORDING_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.Events,
 ]
 
-export function LensTriggers({ lensId, tabId }: { lensId: string; tabId: string }): JSX.Element {
-    const { lens } = useValues(replayLensLogic({ id: lensId, tabId }))
+export function ScannerTriggers({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId, tabId }))
 
-    if (!lens) {
+    if (!scanner) {
         return <div className="text-muted">Loading…</div>
     }
 
     return (
         <div className="space-y-6 max-w-3xl">
             <div className="text-sm text-muted">
-                This lens runs against completed session recordings that match the filters below. Sampling controls what
-                fraction of matching sessions are observed.
+                This scanner runs against completed session recordings that match the filters below. Sampling controls
+                what fraction of matching sessions are observed.
             </div>
 
             <Field name="sampling_rate" label="Sampling">
@@ -64,7 +64,7 @@ export function LensTriggers({ lensId, tabId }: { lensId: string; tabId: string 
                                 </div>
                             </div>
                             <div className="text-xs text-muted">
-                                Each observation counts against your monthly Vision quota. A lens that matches 1,000
+                                Each observation counts against your monthly Vision quota. A scanner that matches 1,000
                                 sessions per day at 10% sampling produces ~100 observations per day.
                             </div>
                         </div>
@@ -87,12 +87,12 @@ export function LensTriggers({ lensId, tabId }: { lensId: string; tabId: string 
                         <div className="space-y-2">
                             <div className="text-sm text-muted">
                                 Filter by person, session, cohort, or event properties to target specific recordings.
-                                Leave empty to apply this lens to all completed recordings.
+                                Leave empty to apply this scanner to all completed recordings.
                             </div>
                             <PropertyFilters
                                 propertyFilters={properties}
                                 onChange={updateProperties}
-                                pageKey={`replay-lens-${lens.id}-properties`}
+                                pageKey={`replay-scanner-${scanner.id}-properties`}
                                 taxonomicGroupTypes={RECORDING_FILTER_TYPES}
                                 addText="Add filter"
                                 hasRowOperator={false}
@@ -103,7 +103,7 @@ export function LensTriggers({ lensId, tabId }: { lensId: string; tabId: string 
                 }}
             </Field>
 
-            <LensQuotaForecast lensId={lensId} tabId={tabId} />
+            <ScannerQuotaForecast scannerId={scannerId} tabId={tabId} />
         </div>
     )
 }

@@ -3,26 +3,26 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { replayLensesLogic } from './replayLensesLogic'
-import { LensConfig, LensType, ReplayLens } from './types'
+import { replayScannersLogic } from './replayScannersLogic'
+import { ScannerConfig, ScannerType, ReplayScanner } from './types'
 
-function defaultConfigForType(lensType: LensType): LensConfig {
-    if (lensType === 'summarizer') {
+function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
+    if (scannerType === 'summarizer') {
         return { prompt: 'Summarize this session.', length: 'medium' }
     }
-    if (lensType === 'classifier') {
+    if (scannerType === 'classifier') {
         return { prompt: 'Tag this session.', tags: [], multi_label: true }
     }
-    if (lensType === 'scorer') {
+    if (scannerType === 'scorer') {
         return { prompt: 'Score this session.', scale: { min: 0, max: 10 } }
     }
     return { prompt: 'Did the user struggle?' }
 }
 
-function makeLens(overrides: Partial<ReplayLens> = {}): ReplayLens {
-    const lensType: LensType = overrides.lens_type ?? 'monitor'
+function makeScanner(overrides: Partial<ReplayScanner> = {}): ReplayScanner {
+    const scannerType: ScannerType = overrides.scanner_type ?? 'monitor'
     const base = {
-        id: 'lens-1',
+        id: 'scanner-1',
         name: 'Confused checkout',
         description: '',
         enabled: true,
@@ -31,29 +31,29 @@ function makeLens(overrides: Partial<ReplayLens> = {}): ReplayLens {
         provider: 'google',
         model: 'gemini-3-flash',
         emits_signals: false,
-        lens_version: 1,
+        scanner_version: 1,
         last_swept_at: '2026-05-12T00:00:00Z',
         created_at: '2026-05-12T00:00:00Z',
         updated_at: '2026-05-12T00:00:00Z',
         created_by: null,
-        lens_type: lensType,
-        lens_config: defaultConfigForType(lensType),
+        scanner_type: scannerType,
+        scanner_config: defaultConfigForType(scannerType),
     }
-    return { ...base, ...overrides } as ReplayLens
+    return { ...base, ...overrides } as ReplayScanner
 }
 
-describe('replayLensesLogic', () => {
-    let logic: ReturnType<typeof replayLensesLogic.build>
+describe('replayScannersLogic', () => {
+    let logic: ReturnType<typeof replayScannersLogic.build>
 
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team/vision/lenses/': { results: [] },
+                '/api/environments/:team/vision/scanners/': { results: [] },
                 '/api/environments/:team/vision/quota/': () => [404, {}],
             },
         })
         initKeaTests()
-        logic = replayLensesLogic({ tabId: 'test' })
+        logic = replayScannersLogic({ tabId: 'test' })
         logic.mount()
     })
 
@@ -61,10 +61,10 @@ describe('replayLensesLogic', () => {
         logic?.unmount()
     })
 
-    const lenses: ReplayLens[] = [
-        makeLens({ id: 'a', name: 'Confused checkout', lens_type: 'monitor', enabled: true }),
-        makeLens({ id: 'b', name: 'Power user behavior', lens_type: 'classifier', enabled: false }),
-        makeLens({ id: 'c', name: 'Refund summarizer', lens_type: 'summarizer', enabled: true }),
+    const scanners: ReplayScanner[] = [
+        makeScanner({ id: 'a', name: 'Confused checkout', scanner_type: 'monitor', enabled: true }),
+        makeScanner({ id: 'b', name: 'Power user behavior', scanner_type: 'classifier', enabled: false }),
+        makeScanner({ id: 'c', name: 'Refund summarizer', scanner_type: 'summarizer', enabled: true }),
     ]
 
     it.each([
@@ -74,10 +74,10 @@ describe('replayLensesLogic', () => {
         { name: 'enabled filter', search: '', enabled: ['enabled' as const], types: [], expected: ['a', 'c'] },
         { name: 'disabled filter', search: '', enabled: ['disabled' as const], types: [], expected: ['b'] },
         {
-            name: 'lens type filter',
+            name: 'scanner type filter',
             search: '',
             enabled: [],
-            types: ['classifier' as LensType, 'summarizer' as LensType],
+            types: ['classifier' as ScannerType, 'summarizer' as ScannerType],
             expected: ['b', 'c'],
         },
         {
@@ -87,14 +87,14 @@ describe('replayLensesLogic', () => {
             types: [],
             expected: ['c'],
         },
-    ])('filteredLenses: $name', async ({ search, enabled, types, expected }) => {
+    ])('filteredScanners: $name', async ({ search, enabled, types, expected }) => {
         await expectLogic(logic, () => {
-            logic.actions.loadLensesSuccess(lenses)
+            logic.actions.loadScannersSuccess(scanners)
             logic.actions.setSearch(search)
             logic.actions.setEnabledFilter(enabled)
-            logic.actions.setLensTypeFilter(types)
+            logic.actions.setScannerTypeFilter(types)
         }).toMatchValues({
-            filteredLenses: lenses.filter((l) => expected.includes(l.id)),
+            filteredScanners: scanners.filter((l) => expected.includes(l.id)),
         })
     })
 
@@ -112,23 +112,23 @@ describe('replayLensesLogic', () => {
     it('clearFilters resets all filter state', async () => {
         logic.actions.setSearch('foo')
         logic.actions.setEnabledFilter(['enabled'])
-        logic.actions.setLensTypeFilter(['monitor'])
+        logic.actions.setScannerTypeFilter(['monitor'])
         await expectLogic(logic).toMatchValues({ hasActiveFilters: true })
 
         await expectLogic(logic, () => logic.actions.clearFilters()).toMatchValues({
             search: '',
             enabledFilter: [],
-            lensTypeFilter: [],
+            scannerTypeFilter: [],
             hasActiveFilters: false,
         })
     })
 
-    it('toggleLensEnabledSuccess flips the lens row', async () => {
+    it('toggleScannerEnabledSuccess flips the scanner row', async () => {
         await expectLogic(logic, () => {
-            logic.actions.loadLensesSuccess(lenses)
-            logic.actions.toggleLensEnabledSuccess('a')
+            logic.actions.loadScannersSuccess(scanners)
+            logic.actions.toggleScannerEnabledSuccess('a')
         }).toMatchValues({
-            lenses: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: false })]),
+            scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: false })]),
         })
     })
 })
