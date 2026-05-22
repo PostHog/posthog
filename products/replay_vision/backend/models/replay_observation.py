@@ -36,16 +36,14 @@ class ReplayObservation(UUIDModel):
         help_text="Temporal workflow id; used for progress queries and reaper reconciliation.",
     )
 
-    lens_version = models.PositiveIntegerField(
-        help_text="The `ReplayLens.lens_version` value at the time this observation ran."
-    )
-    lens_config_snapshot = models.JSONField(
+    lens_snapshot = models.JSONField(
         default=dict,
-        help_text="`lens_config` as it was at run time. Edits to the lens don't retro-mutate this observation.",
+        help_text="Frozen view of the lens at observation-create time; see `temporal.types.LensSnapshot`.",
     )
-
-    model_used = models.CharField(max_length=64, blank=True, default="")
-    provider_used = models.CharField(max_length=32, blank=True, default="")
+    lens_result = models.JSONField(
+        default=dict,
+        help_text="Result data persisted on success (model output, signals count); see `temporal.types.LensResult`.",
+    )
 
     triggered_by = models.CharField(
         max_length=16,

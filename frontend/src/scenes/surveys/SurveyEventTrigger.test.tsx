@@ -78,8 +78,7 @@ describe('Survey event trigger property filters', () => {
             </Provider>
         )
 
-        expect(await screen.findByText('Narrow this trigger to matching events only.')).toBeInTheDocument()
-        expect(screen.getByText('No filters yet')).toBeInTheDocument()
+        expect(await screen.findByText('No filters')).toBeInTheDocument()
         expect(screen.getByText('Property filters for signed_up')).toBeInTheDocument()
     })
 

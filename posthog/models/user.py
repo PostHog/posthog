@@ -200,6 +200,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
+    credentials_reviewed_at = models.DateTimeField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
     requested_2fa_reset_at = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for = models.JSONField(null=True, blank=True)
@@ -228,6 +229,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         null=True,
         blank=True,
         help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
+    )
+    hide_mcp_hints = models.BooleanField(
+        default=False,
+        db_default=False,
+        null=False,
+        blank=False,
+        help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
@@ -327,20 +335,28 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                         ).values_list("team_id", flat=True)
                     )
 
-                    # Get teams where user has role-based access
-                    try:
-                        from ee.models.rbac.role import RoleMembership
+                    # Get teams where user has role-based access. Only honored when the
+                    # org has ROLE_BASED_ACCESS — same gate as the UI's "Roles" block on
+                    # the project access settings page (and as resource-level role overrides).
+                    role_based_access_supported = (
+                        AvailableFeature.ROLE_BASED_ACCESS in org_available_product_feature_keys
+                    )
+                    if role_based_access_supported:
+                        try:
+                            from ee.models.rbac.role import RoleMembership
 
-                        user_roles = RoleMembership.objects.filter(
-                            user=self, organization_member__in=[membership.id for membership in org_memberships]
-                        ).values_list("role_id", flat=True)
+                            user_roles = RoleMembership.objects.filter(
+                                user=self, organization_member__in=[membership.id for membership in org_memberships]
+                            ).values_list("role_id", flat=True)
 
-                        role_accessible_team_ids = set(
-                            AccessControl.objects.filter(
-                                resource="project", access_level__in=["member", "admin"], role__in=user_roles
-                            ).values_list("team_id", flat=True)
-                        )
-                    except ImportError:
+                            role_accessible_team_ids = set(
+                                AccessControl.objects.filter(
+                                    resource="project", access_level__in=["member", "admin"], role__in=user_roles
+                                ).values_list("team_id", flat=True)
+                            )
+                        except ImportError:
+                            role_accessible_team_ids = set()
+                    else:
                         role_accessible_team_ids = set()
 
                     # Get organizations where user is admin or owner (have implicit access to all teams)

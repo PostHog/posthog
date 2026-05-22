@@ -99,7 +99,7 @@ describe('llmAnalyticsColumnRenderers', () => {
         it('generates URL with email filter', () => {
             const url = getTracesUrlWithPersonFilter({ type: 'email', value: 'test@example.com' })
 
-            expect(url).toContain('/llm-analytics/traces')
+            expect(url).toContain('/ai-observability/traces')
             expect(url).toContain('filters')
             expect(url).toContain('email')
             expect(url).toContain('test%40example.com')
@@ -108,7 +108,7 @@ describe('llmAnalyticsColumnRenderers', () => {
         it('generates URL with distinct_id filter', () => {
             const url = getTracesUrlWithPersonFilter({ type: 'distinct_id', value: 'user-123' })
 
-            expect(url).toContain('/llm-analytics/traces')
+            expect(url).toContain('/ai-observability/traces')
             expect(url).toContain('filters')
             expect(url).toContain("distinct_id%20%3D%3D%20'user-123'")
         })

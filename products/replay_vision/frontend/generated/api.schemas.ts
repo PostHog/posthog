@@ -34,14 +34,14 @@ export const LensProviderEnumApi = {
 } as const
 
 /**
- * * `gemini-3-flash` - Gemini 3 Flash
- * `gemini-3-flash-lite` - Gemini 3 Flash Lite
+ * * `gemini-3-flash-preview` - Gemini 3 Flash
+ * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
  */
 export type LensModelEnumApi = (typeof LensModelEnumApi)[keyof typeof LensModelEnumApi]
 
 export const LensModelEnumApi = {
-    Gemini3Flash: 'gemini-3-flash',
-    Gemini3FlashLite: 'gemini-3-flash-lite',
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
+    Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
 } as const
 
 /**
@@ -116,7 +116,7 @@ export interface ReplayLensApi {
   * `summarizer` - Summarizer
   * `indexer` - Indexer */
     lens_type: LensTypeEnumApi
-    /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+    /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
     lens_config: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -132,8 +132,8 @@ export interface ReplayLensApi {
     provider?: LensProviderEnumApi
     /** Concrete model to use for this lens.
 
-  * `gemini-3-flash` - Gemini 3 Flash
-  * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+  * `gemini-3-flash-preview` - Gemini 3 Flash
+  * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
     model: LensModelEnumApi
     /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean
@@ -174,6 +174,57 @@ export const ObservationStatusEnumApi = {
 } as const
 
 /**
+ * Mirrors `temporal.types.LensSnapshot` for OpenAPI generation.
+ */
+export interface LensSnapshotApi {
+    /** Lens name at run time. */
+    name: string
+    /** Lens type (monitor, classifier, scorer, summarizer, indexer) at run time.
+
+  * `monitor` - Monitor
+  * `classifier` - Classifier
+  * `scorer` - Scorer
+  * `summarizer` - Summarizer
+  * `indexer` - Indexer */
+    lens_type: LensTypeEnumApi
+    /** The `ReplayLens.lens_version` value at the moment the workflow ran. */
+    lens_version: number
+    /** Concrete model that ran the observation.
+
+  * `gemini-3-flash-preview` - Gemini 3 Flash
+  * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+    model: LensModelEnumApi
+    /** Concrete provider that ran the observation.
+
+  * `google` - Google */
+    provider: LensProviderEnumApi
+    /** Whether the observation was run with Signal emission enabled. */
+    emits_signals: boolean
+    /** Lens-type-specific configuration at run time (prompt, tags, scale, etc.). */
+    lens_config: unknown
+}
+
+/**
+ * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
+ */
+export type LensResultApiEventIdMapping = { [key: string]: unknown }
+
+/**
+ * Mirrors `temporal.types.LensResult` for OpenAPI generation.
+ */
+export interface LensResultApi {
+    /** Validated lens output. Shape depends on `lens_snapshot.lens_type`; always carries `confidence` and `lens_type`. */
+    model_output: unknown
+    /**
+     * Number of PostHog Signals emitted from this observation.
+     * @minimum 0
+     */
+    signals_count: number
+    /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
+    event_id_mapping: LensResultApiEventIdMapping
+}
+
+/**
  * * `schedule` - Schedule
  * `on_demand` - On demand
  */
@@ -197,24 +248,20 @@ export interface ReplayObservationApi {
   * `succeeded` - Succeeded
   * `failed` - Failed */
     readonly status: ObservationStatusEnumApi
-    /** Populated on failure. Includes the malformed model response when validation fails. */
+    /** Populated on failure; includes the malformed model response when validation fails. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
-    /** The `ReplayLens.lens_version` value at the moment the workflow ran. */
-    readonly lens_version: number
-    /** Snapshot of `ReplayLens.lens_config` at run time. Lens edits do not retroactively mutate observations. */
-    readonly lens_config_snapshot: unknown
-    /** Concrete model that ran the observation. */
-    readonly model_used: string
-    /** Concrete provider that ran the observation. */
-    readonly provider_used: string
+    /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
+    readonly lens_snapshot: LensSnapshotApi | null
+    /** Result data persisted on success; null until the observation succeeds. */
+    readonly lens_result: LensResultApi | null
     /** Whether this observation came from the schedule or an on-demand request.
 
   * `schedule` - Schedule
   * `on_demand` - On demand */
     readonly triggered_by: ObservationTriggerEnumApi
-    /** User who triggered an on-demand observation. Null for scheduled observations. */
+    /** User who triggered an on-demand observation; null for scheduled observations. */
     readonly triggered_by_user: UserBasicApi | null
     /** @nullable */
     started_at?: string | null
@@ -249,7 +296,7 @@ export interface PatchedReplayLensApi {
   * `summarizer` - Summarizer
   * `indexer` - Indexer */
     lens_type?: LensTypeEnumApi
-    /** Type-specific configuration. Always includes `prompt`; classifiers add `tags`, scorers add `scale`, etc. */
+    /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
     lens_config?: unknown
     /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
     query?: unknown
@@ -265,8 +312,8 @@ export interface PatchedReplayLensApi {
     provider?: LensProviderEnumApi
     /** Concrete model to use for this lens.
 
-  * `gemini-3-flash` - Gemini 3 Flash
-  * `gemini-3-flash-lite` - Gemini 3 Flash Lite */
+  * `gemini-3-flash-preview` - Gemini 3 Flash
+  * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
     model?: LensModelEnumApi
     /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
     enabled?: boolean

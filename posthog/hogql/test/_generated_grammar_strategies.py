@@ -159,7 +159,7 @@ def statement_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
         parts: list[str] = []
-        alt_idx = draw(st.integers(min_value=0, max_value=11))
+        alt_idx = draw(st.integers(min_value=0, max_value=10))
         if alt_idx == 0:
             parts = []
             parts.append(draw(returnStmt_strategy(_dec(depth))))
@@ -194,17 +194,13 @@ def statement_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             return " ".join(p for p in parts if p)
         if alt_idx == 8:
             parts = []
-            parts.append(draw(varAssignment_strategy(_dec(depth))))
+            parts.append(draw(block_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 9:
             parts = []
-            parts.append(draw(block_strategy(_dec(depth))))
-            return " ".join(p for p in parts if p)
-        if alt_idx == 10:
-            parts = []
             parts.append(draw(exprStmt_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
-        if alt_idx == 11:
+        if alt_idx == 10:
             parts = []
             parts.append(draw(emptyStmt_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
@@ -412,6 +408,9 @@ def exprStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     def gen(draw: Any) -> str:
         parts: list[str] = []
         parts.append(draw(expression_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append(":=")
+            parts.append(draw(expression_strategy(_dec(depth))))
         if _include_optional(draw):
             parts.append(";")
         return " ".join(p for p in parts if p)

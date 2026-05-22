@@ -2,7 +2,10 @@
 // This file contains the core parser logic that returns JSON representations of ASTs.
 // It can be compiled for Python (via parser_python.cpp), WebAssembly, or other platforms.
 
+#include <cerrno>
+#include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -347,11 +350,6 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       return visit(func_stmt_ctx);
     }
 
-    auto var_assignment_ctx = ctx->varAssignment();
-    if (var_assignment_ctx) {
-      return visit(var_assignment_ctx);
-    }
-
     auto block_ctx = ctx->block();
     if (block_ctx) {
       return visit(block_ctx);
@@ -369,16 +367,39 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     throw ParsingError(
         "Statement must be one of returnStmt, throwStmt, tryCatchStmt, ifStmt, whileStmt, forStmt, forInStmt, "
-        "funcStmt, "
-        "varAssignment, block, exprStmt, or emptyStmt"
+        "funcStmt, block, exprStmt, or emptyStmt"
     );
   }
 
   VISIT(ExprStmt) {
     Json json = Json::object();
+    if (ctx->COLONEQUALS()) {
+      json["node"] = "VariableAssignment";
+      if (!is_internal) addPositionInfo(json, ctx);
+      json["left"] = visitAsJSON(ctx->expression(0));
+      json["right"] = visitAsJSON(ctx->expression(1));
+      return json;
+    }
+    // `columnExpr` matches `name := value` as a NamedArgument; a directly named-arg-shaped
+    // statement is a variable assignment. Checked on the parse tree, so parens are not
+    // unwrapped: `(x := 1)` stays an expression statement.
+    auto* named_arg = dynamic_cast<HogQLParser::ColumnExprNamedArgContext*>(ctx->expression(0)->columnExpr());
+    if (named_arg) {
+      json["node"] = "VariableAssignment";
+      if (!is_internal) addPositionInfo(json, ctx);
+      Json left = Json::object();
+      left["node"] = "Field";
+      if (!is_internal) addPositionInfo(left, named_arg->identifier());
+      Json chain = Json::array();
+      chain.pushBack(visitAsString(named_arg->identifier()));
+      left["chain"] = std::move(chain);
+      json["left"] = std::move(left);
+      json["right"] = visitAsJSON(named_arg->columnExpr());
+      return json;
+    }
     json["node"] = "ExprStatement";
     if (!is_internal) addPositionInfo(json, ctx);
-    json["expr"] = visitAsJSON(ctx->expression());
+    json["expr"] = visitAsJSON(ctx->expression(0));
     return json;
   }
 
@@ -634,7 +655,10 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     if (subsequent_clauses.empty()) {
       Json result = visitAsJSON(ctx->selectStmtWithParens());
-      if (limit_clause) {
+      // A set-level LIMIT/OFFSET clause only attaches to SelectQuery/SelectSetQuery nodes, not a bare placeholder body, matching the Python parser.
+      const std::string& result_node = result["node"].getString();
+      bool result_takes_limit = result_node == "SelectQuery" || result_node == "SelectSetQuery";
+      if (limit_clause && result_takes_limit) {
         auto exprs = limit_clause->columnExpr();
         if (limit_clause->OFFSET()) {
           if (limit_clause->LIMIT()) {
@@ -2853,11 +2877,21 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
       }
       json["value_type"] = "number";
     } else if (!is_hex && !is_binary && (text.find(".") != string::npos || text.find("e") != string::npos)) {
-      try {
-        json["value"] = Json(stod(text));  // Float
-      } catch (const std::out_of_range&) {
+      // `stod` collapses overflow + underflow into the same `out_of_range`; use `strtod` + errno to keep them apart.
+      errno = 0;
+      const char* c_str = text.c_str();
+      char* end = nullptr;
+      double value = std::strtod(c_str, &end);
+      bool consumed_all = end == c_str + text.size();
+      if (!consumed_all) {
+        // Malformed input — defer to `stod` so callers see the historical SyntaxError shape.
+        json["value"] = Json(stod(text));
+      } else if (errno == ERANGE && (value == HUGE_VAL || value == -HUGE_VAL)) {
         json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
         json["value_type"] = "number";
+      } else {
+        // No errno (in range) or `ERANGE` underflow (subnormal / 0) — keep the value.
+        json["value"] = Json(value);
       }
       return json;
     } else if (is_binary) {
@@ -2884,18 +2918,19 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
         json["value"] = static_cast<int64_t>(magnitude);
       }
       return json;
+    } else if (is_hex && ctx->floatingLiteral() != nullptr) {
+      // Hex-float literal (e.g. `0x1p4`) — route through `stod`; the integer path's `stoll` would drop the exponent.
+      json["value"] = Json(stod(text));
+      return json;
     } else {
       try {
         // base 10 (not strtoll base 0): leading zeros are no-ops, never octal — "017" → 17, "09" → 9.
         int base = is_hex ? 16 : 10;
         json["value"] = static_cast<int64_t>(stoll(text, nullptr, base));  // Integer
       } catch (const std::out_of_range&) {
-        try {
-          json["value"] = Json(stod(text));  // Too large for int64, use float
-        } catch (const std::out_of_range&) {
-          json["value"] = (text[0] == '-') ? "-Infinity" : "Infinity";
-          json["value_type"] = "number";
-        }
+        // Beyond Int64 — keep the literal lossless via the `value_type: "number"` string envelope; the deserialiser rebuilds an arbitrary-precision Python int.
+        json["value"] = text;
+        json["value_type"] = "number";
       }
       return json;
     }

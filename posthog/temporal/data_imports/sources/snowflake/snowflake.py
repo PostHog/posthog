@@ -13,7 +13,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 
@@ -161,7 +164,8 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    return "SELECT * FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) > %s ORDER BY IDENTIFIER(%s) ASC", (
+    operator = incremental_type_to_operator(incremental_field_type)
+    return f"SELECT * FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) {operator} %s ORDER BY IDENTIFIER(%s) ASC", (
         f"{database}.{schema}.{table_name}",
         incremental_field,
         db_incremental_field_last_value,

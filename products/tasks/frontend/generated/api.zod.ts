@@ -122,6 +122,12 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe('If true, this task is for internal use and should not be exposed to end users.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
+        ),
     ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
 })
 
@@ -170,6 +176,12 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe('If true, this task is for internal use and should not be exposed to end users.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
+        ),
     ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
 })
 
@@ -218,6 +230,12 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe('If true, this task is for internal use and should not be exposed to end users.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
+        ),
     ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
 })
 

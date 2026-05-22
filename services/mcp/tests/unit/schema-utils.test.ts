@@ -55,7 +55,9 @@ describe('schema-utils', () => {
 
             const result = summarizeSchema(schema, 'my-tool')
 
-            expect(result.properties.filter!.hint).toBe('Run `schema my-tool filter` for full structure')
+            expect(result.properties.filter!.hint).toBe(
+                'DO NOT GUESS — you MUST run `schema my-tool filter` before populating this field'
+            )
             expect(result.properties.filter!.fields).toEqual(['key', 'value'])
         })
 
@@ -86,7 +88,9 @@ describe('schema-utils', () => {
 
             const result = summarizeSchema(schema, 'query-trends')
 
-            expect(result.properties.series!.hint).toBe('Run `schema query-trends series` for full structure')
+            expect(result.properties.series!.hint).toBe(
+                'DO NOT GUESS — you MUST run `schema query-trends series` before populating this field'
+            )
             expect(result.properties.series!.items).toBe('union of 2 types (EventsNode, ActionsNode)')
         })
 
@@ -137,7 +141,9 @@ describe('schema-utils', () => {
 
             const result = summarizeSchema(schema, 'my-tool', 'parent')
 
-            expect(result.properties.nested!.hint).toBe('Run `schema my-tool parent.nested` for full structure')
+            expect(result.properties.nested!.hint).toBe(
+                'DO NOT GUESS — you MUST run `schema my-tool parent.nested` before populating this field'
+            )
         })
     })
 
