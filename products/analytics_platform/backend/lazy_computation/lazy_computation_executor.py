@@ -307,17 +307,32 @@ class QueryInfo:
 
 @dataclass
 class LazyComputationResult:
-    """Result of executing lazy computation jobs."""
+    """Result of executing lazy computation jobs.
+
+    `job_ids` is the full set covering the requested range (cache hits + any
+    fresh writes), suitable for the downstream `WHERE job_id IN (…)` SELECT.
+
+    `inserted_job_ids` is the subset that **this** executor created+wrote
+    during the current call — i.e., the ones whose parts may still be
+    propagating across Replicated*MergeTree replicas. Callers that read
+    through the Distributed table immediately after this returns should wait
+    until these specific IDs are visible on the chosen read replica, since:
+
+    1. Marking the Postgres row READY happens as soon as the INSERT SQL
+       returns on the coordinator. With `insert_quorum='auto'`, only a
+       majority of replicas have the part at that point — `in_order` SELECT
+       routing can land on a peer mid-fetch.
+    2. `len(job_ids)` cannot serve as the "did we write anything?" gate
+       because `job_ids` includes pre-existing READY jobs from prior
+       requests; those replicated long ago and need no wait. Only the
+       intersection `set(inserted_job_ids) & set(job_ids)` matters for the
+       race window.
+    """
 
     ready: bool
     job_ids: list[uuid.UUID]
     errors: list[str] = field(default_factory=list)
-    # Number of jobs this executor created+inserted during the call. Callers
-    # use this to decide whether to wait for ClickHouse replication before
-    # issuing the downstream SELECT — fresh INSERTs on Replicated*MergeTree
-    # tables may not be visible on a different read replica yet, even after
-    # the local executor sees the PG row flip to READY.
-    jobs_inserted: int = 0
+    inserted_job_ids: list[uuid.UUID] = field(default_factory=list)
 
 
 def compute_query_hash(query_info: QueryInfo) -> str:
@@ -693,6 +708,11 @@ class LazyComputationExecutor:
         subscribed_ids: set[uuid.UUID] = set()
         pubsub: redis_lib.client.PubSub | None = None
         jobs_created = 0
+        # IDs of jobs this executor INSERTed successfully (status flipped READY)
+        # during this call. Surfaced to the caller via `LazyComputationResult.
+        # inserted_job_ids` so they can gate replication-visibility waits on
+        # the exact subset of writes that hasn't propagated yet.
+        inserted_job_ids: list[uuid.UUID] = []
         waited_job_ids: set[uuid.UUID] = set()
 
         had_ready_at_start: bool | None = None
@@ -764,6 +784,7 @@ class LazyComputationExecutor:
                             new_job.save()
                             publish_job_completion(new_job.id, "ready")
                             jobs_created += 1
+                            inserted_job_ids.append(new_job.id)
                             logger.info(
                                 "lazy_computation.job_completed",
                                 job_id=str(new_job.id),
@@ -867,7 +888,7 @@ class LazyComputationExecutor:
         result = LazyComputationResult(
             ready=True,
             job_ids=[j.id for j in final_ready],
-            jobs_inserted=jobs_created,
+            inserted_job_ids=inserted_job_ids,
         )
         _log_execution("success", result)
         return result

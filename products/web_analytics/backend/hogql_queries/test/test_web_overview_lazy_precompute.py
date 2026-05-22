@@ -610,19 +610,21 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_visibility_check_fires_when_jobs_were_inserted(self):
-        # When `ensure_*` reports it INSERTed something, the read must first
-        # confirm those parts are visible via `_wait_for_data_visible` —
-        # otherwise the SELECT can land on a replica mid-fetch and silently
-        # under-count, which is the bug this whole flow was added for.
+        # When `ensure_*` reports it INSERTed something (non-empty
+        # `inserted_job_ids`), the read must first confirm those specific
+        # parts are visible via `_wait_for_data_visible` — otherwise the
+        # SELECT can land on a replica mid-fetch and silently under-count,
+        # which is the bug this whole flow was added for.
         from posthog.hogql_queries.web_analytics import web_overview_lazy_precompute as mod
         from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import execute_lazy_precomputed_read
 
+        new_id = uuid.uuid4()
         with (
             self._enable_lazy(),
             patch.object(
                 mod,
                 "ensure_web_overview_precomputed",
-                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], jobs_inserted=1),
+                return_value=LazyComputationResult(ready=True, job_ids=[new_id], inserted_job_ids=[new_id]),
             ),
             patch.object(mod, "_wait_for_data_visible", return_value=True) as wait_mock,
             patch.object(mod, "execute_read_query", return_value=[[1, 1, 2, 2, 3, 3, 4, 4, 5, 5]]),
@@ -633,13 +635,20 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert wait_mock.call_count == 1, (
             f"_wait_for_data_visible should fire exactly once after fresh INSERTs, got {wait_mock.call_count}"
         )
+        # The poll must target only the freshly-inserted IDs so empty
+        # pre-existing jobs can't falsely time it out.
+        passed_ids = wait_mock.call_args.args[1]
+        assert passed_ids == [str(new_id)], (
+            f"_wait_for_data_visible must receive only the freshly inserted IDs, got {passed_ids}"
+        )
         assert result is not None, "visible-data path should not fall back"
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_visibility_check_skipped_on_warm_cache_hit(self):
-        # The warm-cache path (`ensure_*` returns ready=True, jobs_inserted=0)
-        # must skip `_wait_for_data_visible` so reads stay fast — every part is
-        # already on every replica from previous calls.
+        # The warm-cache path (`ensure_*` returns ready=True with non-empty
+        # `job_ids` but empty `inserted_job_ids`) must skip
+        # `_wait_for_data_visible` so reads stay fast — every part is already
+        # on every replica from previous calls.
         from posthog.hogql_queries.web_analytics import web_overview_lazy_precompute as mod
         from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import execute_lazy_precomputed_read
 
@@ -648,7 +657,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             patch.object(
                 mod,
                 "ensure_web_overview_precomputed",
-                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], jobs_inserted=0),
+                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], inserted_job_ids=[]),
             ),
             patch.object(mod, "_wait_for_data_visible", return_value=True) as wait_mock,
             patch.object(mod, "execute_read_query", return_value=[[1, 1, 2, 2, 3, 3, 4, 4, 5, 5]]),
@@ -682,7 +691,11 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             patch.object(
                 mod,
                 "ensure_web_overview_precomputed",
-                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()], jobs_inserted=3),
+                return_value=LazyComputationResult(
+                    ready=True,
+                    job_ids=[uuid.uuid4(), uuid.uuid4(), uuid.uuid4()],
+                    inserted_job_ids=[uuid.uuid4(), uuid.uuid4(), uuid.uuid4()],
+                ),
             ),
             patch.object(mod, "_wait_for_data_visible", return_value=False),
             patch.object(mod, "execute_read_query", side_effect=fake_read),
@@ -704,6 +717,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         from posthog.hogql_queries.web_analytics.web_overview_lazy_precompute import execute_lazy_precomputed_read
 
         call_count = {"n": 0}
+        prev_fresh_ids = [uuid.uuid4() for _ in range(5)]
 
         def fake_ensure(runner, time_range_start, time_range_end):
             call_count["n"] += 1
@@ -712,7 +726,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             return LazyComputationResult(
                 ready=True,
                 job_ids=[uuid.uuid4()],
-                jobs_inserted=0 if call_count["n"] == 1 else 5,
+                inserted_job_ids=[] if call_count["n"] == 1 else prev_fresh_ids,
             )
 
         with (
@@ -727,5 +741,11 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert call_count["n"] == 2, f"expected 2 ensure calls (current+previous), got {call_count['n']}"
         assert wait_mock.call_count == 1, (
             f"visibility check must still fire when only the previous-period call inserted, got {wait_mock.call_count}"
+        )
+        # The poll must receive only the previous-period freshly-inserted IDs,
+        # not the warm-cache current-period IDs (those are already visible).
+        passed_ids = wait_mock.call_args.args[1]
+        assert passed_ids == [str(j) for j in prev_fresh_ids], (
+            f"_wait_for_data_visible must receive only the previous-period fresh IDs, got {passed_ids}"
         )
         assert result is not None

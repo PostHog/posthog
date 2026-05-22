@@ -417,10 +417,15 @@ _READ_SETTINGS = {
 }
 
 
-def _wait_for_data_visible(team_id: int, job_ids: list[str]) -> bool:
-    """Poll the Distributed table until every job_id we're about to read shows
-    at least one bucket — i.e., the part we just INSERTed has propagated to the
-    same replica the downstream SELECT will use (`load_balancing=in_order`).
+def _wait_for_data_visible(team_id: int, inserted_job_ids: list[str]) -> bool:
+    """Poll the Distributed table until every freshly-INSERTed job_id shows at
+    least one bucket — i.e., the part we just wrote has propagated to the same
+    replica the downstream SELECT will use (`load_balancing="in_order"`).
+
+    `inserted_job_ids` MUST contain only IDs we INSERTed in this request (see
+    `LazyComputationResult.inserted_job_ids`). Passing cached job_ids here
+    would conflate "visibility wait" with "is this team's data non-empty",
+    producing spurious timeouts for teams whose period contains zero events.
 
     Returns True when all job_ids are visible. Returns False on timeout — the
     caller MUST then fall through to the live path rather than issue the read,
@@ -431,15 +436,15 @@ def _wait_for_data_visible(team_id: int, job_ids: list[str]) -> bool:
     ="in_order"` path the real read uses, so we test exactly the visibility
     the read needs — no SYSTEM commands, no cluster-name assumptions.
 
-    Caveat: a job whose INSERT legitimately produced zero rows (e.g. a team
-    with no events in the window, or a `$host` filter that matched nothing)
-    will never show up in `count(DISTINCT job_id)` and this will time out.
-    The fallback returns correct (zero) data through the live path, just
-    slower. Acceptable trade-off vs the alternative — a permission-gated
-    `SYSTEM SYNC REPLICA ON CLUSTER` call that bakes the aux cluster name
-    into the query layer.
+    Caveat: if any of the just-INSERTed jobs legitimately produced zero rows
+    (e.g. a `$host` filter that matched no events in the window), it won't
+    show up in `count(DISTINCT job_id)` and this will time out. The fallback
+    returns correct (zero) data through the live path, just slower. With the
+    `inserted_job_ids` scoping above this only affects requests that both
+    triggered a fresh INSERT AND that INSERT was empty for its range — a
+    narrow corner of the input space.
     """
-    if not job_ids:
+    if not inserted_job_ids:
         return True
     # TEST/DEBUG run against a single-node ClickHouse where the race can't
     # happen — every write is immediately visible. Skip the poll so unit tests
@@ -447,8 +452,8 @@ def _wait_for_data_visible(team_id: int, job_ids: list[str]) -> bool:
     if TEST or DEBUG:
         return True
 
-    expected = len(set(job_ids))
-    job_ids_tuple = tuple(job_ids)
+    expected = len(set(inserted_job_ids))
+    job_ids_tuple = tuple(inserted_job_ids)
     table = DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE()
     tag_queries(
         product=Product.WEB_ANALYTICS,
@@ -646,7 +651,15 @@ def execute_lazy_precomputed_read(
             return None
 
         job_ids: list[str] = [str(jid) for jid in result.job_ids]
-        jobs_inserted = result.jobs_inserted
+        # Track exactly which job_ids this request INSERTed (current + previous
+        # `ensure_*` calls). Only these are at risk of replication lag on the
+        # read replica — pre-existing READY jobs returned in `result.job_ids`
+        # were written by earlier requests and have long since propagated.
+        # `len(job_ids)` cannot serve as the gate because it includes those
+        # warm-cache entries: a warm-cache hit returns N cached jobs and no
+        # writes, but `len(job_ids) > 0` would still be True and we'd wait
+        # needlessly. See `LazyComputationResult.inserted_job_ids` docstring.
+        inserted_job_ids: list[str] = [str(jid) for jid in result.inserted_job_ids]
 
         previous_start_utc: Optional[datetime] = None
         previous_end_utc: Optional[datetime] = None
@@ -681,18 +694,21 @@ def execute_lazy_precomputed_read(
                         return None
 
                     job_ids.extend(str(jid) for jid in prev_result.job_ids)
-                    jobs_inserted += prev_result.jobs_inserted
+                    inserted_job_ids.extend(str(jid) for jid in prev_result.inserted_job_ids)
 
         # If anything was newly INSERTed during this request, poll the
-        # Distributed read path until those parts are visible on the same
-        # replica the SELECT will land on. Without this, the SELECT can hit
-        # a replica that's still fetching the just-INSERTed parts and silently
-        # under-count the period whose data is mid-propagation — observed
-        # empirically on first cold-cache load with compareFilter on, where
-        # previous-period counts collapse to ~1% of actual then settle on
-        # refresh. See `_wait_for_data_visible` for the trade-offs.
-        if jobs_inserted > 0:
-            if not _wait_for_data_visible(team_id, job_ids):
+        # Distributed read path until exactly those fresh parts are visible on
+        # the same replica the SELECT will land on. Without this, the SELECT
+        # can hit a replica that's still fetching the just-INSERTed parts and
+        # silently under-count the period whose data is mid-propagation —
+        # observed empirically on first cold-cache load with compareFilter on,
+        # where previous-period counts collapse to ~1% of actual then settle
+        # on refresh. We pass only `inserted_job_ids` (not all of `job_ids`)
+        # so the count expectation matches the parts actually at risk; pre-
+        # existing cached jobs are already visible everywhere and would
+        # otherwise falsely block this gate if they happen to have zero rows.
+        if inserted_job_ids:
+            if not _wait_for_data_visible(team_id, inserted_job_ids):
                 return None
 
         read_started = time.perf_counter()
@@ -711,7 +727,7 @@ def execute_lazy_precomputed_read(
             "web_overview_lazy_precompute_completed",
             team_id=team_id,
             job_count=len(result.job_ids),
-            jobs_inserted=jobs_inserted,
+            jobs_inserted=len(inserted_job_ids),
             rows_returned=len(rows) if rows else 0,
             ensure_duration_ms=ensure_duration_ms,
             read_duration_ms=read_duration_ms,
