@@ -3,14 +3,15 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
 import {
+    getUserInterviewTopicsLinksCsvCreateUrl,
     userInterviewTopicsGenerateLinksCreate,
-    userInterviewTopicsLinksCsvCreate,
     userInterviewTopicsIntervieweesList,
     userInterviewTopicsRetrieve,
     userInterviewsList,
@@ -109,7 +110,11 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
         exportLinksCsv: async () => {
             const projectId = String(teamLogic.values.currentTeamId)
             try {
-                const blob = (await userInterviewTopicsLinksCsvCreate(projectId, props.id)) as unknown as Blob
+                const response = await api.createResponse(getUserInterviewTopicsLinksCsvCreateUrl(projectId, props.id))
+                if (!response.ok) {
+                    throw new Error(`Export failed (${response.status})`)
+                }
+                const blob = await response.blob()
                 const filename = `${(values.topic?.topic || 'user-interview')
                     .replace(/[^\w-]+/g, '-')
                     .toLowerCase()}-links.csv`
