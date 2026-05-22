@@ -257,16 +257,17 @@ _BULK_SCHEDULE_CONCURRENCY = 100
 
 
 @async_to_sync
-async def a_bulk_create_external_data_job_schedules(
+async def bulk_create_external_data_job_schedules(
     schemas: list[tuple[ExternalDataSchema, bool]],
-) -> list[BaseException]:
+) -> list[tuple[str, BaseException]]:
     """Create sync schedules for many schemas over a single shared Temporal connection.
 
     `sync_external_data_job_workflow` opens a fresh Temporal connection on every call, so
     looping it over thousands of schemas (e.g. a Slack workspace with thousands of
     channels) spends almost all of its time reconnecting. This connects once and runs the
-    creates concurrently. Returns the exceptions for any schedules that failed — a partial
-    failure does not abort the rest, so the caller decides how to surface them.
+    creates concurrently. Returns ``(schema_id, exception)`` pairs for any schedules that
+    failed — a partial failure does not abort the rest, so the caller decides how to
+    surface them and can attribute each failure to a specific schema.
     """
     if not schemas:
         return []
@@ -284,20 +285,21 @@ async def a_bulk_create_external_data_job_schedules(
                 await a_update_schedule(temporal, id=schedule_id, schedule=schedule)
                 await a_trigger_schedule(temporal, schedule_id=schedule_id)
 
+    schema_ids = [str(schema.id) for schema, _ in schemas]
     results = await asyncio.gather(
         *(_create_one(schema, should_sync) for schema, should_sync in schemas),
         return_exceptions=True,
     )
-    return [result for result in results if isinstance(result, BaseException)]
+    return [(schema_id, result) for schema_id, result in zip(schema_ids, results) if isinstance(result, BaseException)]
 
 
 @async_to_sync
-async def a_bulk_delete_external_data_schedules(schedule_ids: list[str]) -> list[BaseException]:
+async def bulk_delete_external_data_schedules(schedule_ids: list[str]) -> list[tuple[str, BaseException]]:
     """Delete many Temporal schedules over a single shared connection.
 
     The bulk counterpart to `delete_external_data_schedule`: reuses one connection,
-    deletes concurrently, and ignores schedules that no longer exist. Returns the
-    exceptions for any deletes that failed for another reason.
+    deletes concurrently, and ignores schedules that no longer exist. Returns
+    ``(schedule_id, exception)`` pairs for any deletes that failed for another reason.
     """
     if not schedule_ids:
         return []
@@ -319,7 +321,9 @@ async def a_bulk_delete_external_data_schedules(schedule_ids: list[str]) -> list
         *(_delete_one(schedule_id) for schedule_id in schedule_ids),
         return_exceptions=True,
     )
-    return [result for result in results if isinstance(result, BaseException)]
+    return [
+        (schedule_id, result) for schedule_id, result in zip(schedule_ids, results) if isinstance(result, BaseException)
+    ]
 
 
 def cancel_external_data_workflow(workflow_id: str):

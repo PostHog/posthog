@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 import dataclasses
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from django.db import transaction
@@ -58,8 +58,8 @@ from products.data_warehouse.backend.api.external_data_schema import (
     SimpleExternalDataSchemaSerializer,
 )
 from products.data_warehouse.backend.data_load.service import (
-    a_bulk_create_external_data_job_schedules,
-    a_bulk_delete_external_data_schedules,
+    bulk_create_external_data_job_schedules,
+    bulk_delete_external_data_schedules,
     cancel_external_data_workflow,
     delete_discover_schemas_schedule,
     delete_external_data_schedule,
@@ -1264,13 +1264,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # to sources with thousands of schemas (e.g. a Slack workspace with thousands of
         # channels).
         try:
-            schedule_errors = a_bulk_create_external_data_job_schedules(
+            schedule_errors = bulk_create_external_data_job_schedules(
                 [(active_schema, active_schema.should_sync) for active_schema in active_schemas]
             )
-            for schedule_error in schedule_errors:
+            for schema_id, schedule_error in schedule_errors:
                 # The source model was already created, so a partial schedule failure
                 # shouldn't fail the request — log each failure and carry on.
-                logger.exception("Could not trigger external data job", exc_info=schedule_error)
+                logger.exception(
+                    "Could not trigger external data job",
+                    exc_info=schedule_error,
+                    schema_id=schema_id,
+                )
         except Exception as e:
             logger.exception("Could not trigger external data job", exc_info=e)
 
@@ -1455,7 +1459,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # sources with thousands of schemas (e.g. a Slack workspace with thousands of
             # channels).
             ExternalDataSchema.objects.filter(id__in=[schema.id for schema in schemas]).update(
-                deleted=True, deleted_at=datetime.now()
+                deleted=True, deleted_at=datetime.now(UTC)
             )
 
             # Clean up CDC companion tables (e.g. {name}_cdc) — these are standalone
@@ -1494,9 +1498,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         # Delete all schema sync schedules over a single shared Temporal connection — see
         # the matching comment in `create`.
-        schedule_delete_errors = a_bulk_delete_external_data_schedules([str(schema.id) for schema in schemas])
-        for schedule_delete_error in schedule_delete_errors:
-            capture_exception(schedule_delete_error)
+        schedule_delete_errors = bulk_delete_external_data_schedules([str(schema.id) for schema in schemas])
+        for schema_id, schedule_delete_error in schedule_delete_errors:
+            capture_exception(schedule_delete_error, {"schema_id": schema_id})
 
         for schema in schemas:
             try:
