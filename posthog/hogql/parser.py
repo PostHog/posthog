@@ -53,10 +53,15 @@ _RUST_PARSER_AVAILABLE = True
 try:
     from hogql_parser_rs import (
         parse_expr_json as _parse_expr_json_rs,
+        parse_expr_py as _parse_expr_py_rs,
         parse_full_template_string_json as _parse_full_template_string_json_rs,
+        parse_full_template_string_py as _parse_full_template_string_py_rs,
         parse_order_expr_json as _parse_order_expr_json_rs,
+        parse_order_expr_py as _parse_order_expr_py_rs,
         parse_program_json as _parse_program_json_rs,
+        parse_program_py as _parse_program_py_rs,
         parse_select_json as _parse_select_json_rs,
+        parse_select_py as _parse_select_py_rs,
     )
 except ImportError as _import_err:
     _RUST_PARSER_AVAILABLE = False
@@ -64,7 +69,7 @@ except ImportError as _import_err:
     # the end of the except block, so the closure below would otherwise
     # see an unbound `NameError` when called.
     _RUST_IMPORT_ERROR_REPR = repr(_import_err)
-    logger.exception("hogql_parser_rs import failed; rust-json backend disabled")
+    logger.exception("hogql_parser_rs import failed; rust-json and rust-py backends disabled")
     capture_exception(
         _import_err,
         additional_properties={"hogql_parser_rs_import_error": _RUST_IMPORT_ERROR_REPR},
@@ -80,6 +85,11 @@ except ImportError as _import_err:
     _parse_order_expr_json_rs = _rust_parser_unavailable
     _parse_program_json_rs = _rust_parser_unavailable
     _parse_select_json_rs = _rust_parser_unavailable
+    _parse_expr_py_rs = _rust_parser_unavailable
+    _parse_full_template_string_py_rs = _rust_parser_unavailable
+    _parse_order_expr_py_rs = _rust_parser_unavailable
+    _parse_program_py_rs = _rust_parser_unavailable
+    _parse_select_py_rs = _rust_parser_unavailable
 
 
 class CacheOrigin(StrEnum):
@@ -164,6 +174,18 @@ RULE_TO_PARSE_FUNCTION: dict[HogQLParserBackend, dict[ParseRule, Callable]] = {
         ParseRule.FULL_TEMPLATE_STRING: lambda string: deserialize_ast(_parse_full_template_string_json_rs(string)),
         ParseRule.PROGRAM: lambda string: deserialize_ast(_parse_program_json_rs(string)),
     },
+    # `rust-py` skips JSON serialise/deserialise on both sides: the parser
+    # builds a `serde_json::Value` (intermediate) and a Rust-side converter
+    # constructs the Python ast dataclass instances directly via PyO3. The
+    # `rust-json` path stays alongside for the future WASM build that can't
+    # link to CPython, and for tests that need to compare on the JSON shape.
+    "rust-py": {
+        ParseRule.EXPR: lambda string, start: _parse_expr_py_rs(string, is_internal=start is None),
+        ParseRule.ORDER_EXPR: _parse_order_expr_py_rs,
+        ParseRule.SELECT: _parse_select_py_rs,
+        ParseRule.FULL_TEMPLATE_STRING: _parse_full_template_string_py_rs,
+        ParseRule.PROGRAM: _parse_program_py_rs,
+    },
 }
 
 RULE_TO_HISTOGRAM: dict[ParseRule, Histogram] = {
@@ -187,6 +209,8 @@ _PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBac
     ParserMode.RUST_ONLY: ("rust-json", None),
     ParserMode.CPP_WITH_RUST_SHADOW: ("cpp-json", "rust-json"),
     ParserMode.RUST_WITH_CPP_SHADOW: ("rust-json", "cpp-json"),
+    ParserMode.RUST_PY_ONLY: ("rust-py", None),
+    ParserMode.RUST_PY_WITH_CPP_SHADOW: ("rust-py", "cpp-json"),
 }
 
 # Fraction of `*_shadow` parses that also run the secondary backend. Kept
