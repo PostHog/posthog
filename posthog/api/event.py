@@ -40,11 +40,11 @@ from posthog.clickhouse.client.limit import get_events_list_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Filter, Person, PropertyDefinition, User
+from posthog.models import Element, Filter, PropertyDefinition, User
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
-from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import (
@@ -416,13 +416,8 @@ class EventViewSet(
             raise
 
     def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
-        distinct_ids = [event["distinct_id"] for event in query_result]
-        persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-        distinct_to_person: dict[str, Person] = {}
-        for person in persons:
-            for distinct_id in person.distinct_ids:
-                distinct_to_person[distinct_id] = person
-        return distinct_to_person
+        distinct_ids = list({event["distinct_id"] for event in query_result})
+        return get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     @extend_schema(
         parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],

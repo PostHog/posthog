@@ -1887,7 +1887,7 @@ def test_get_persons_for_sessions_from_distinct_ids_handles_db_failure():
     mock_summary.distinct_id = "test-distinct-id"
     session_id_to_summaries: dict[str, SingleSessionSummary] = {"session-1": mock_summary}
     with patch(
-        "ee.hogai.session_summaries.session_group.patterns.get_persons_by_distinct_ids",
+        "ee.hogai.session_summaries.session_group.patterns.get_persons_mapped_by_distinct_id",
         side_effect=Exception('relation "posthog_person" does not exist'),
     ):
         result = get_persons_for_sessions_from_distinct_ids(
