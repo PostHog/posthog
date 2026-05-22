@@ -128,6 +128,19 @@ export const FunnelHistoricalTrendsEdit: Story = createInsightStory(
 FunnelHistoricalTrendsEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
+export const FunnelHistoricalTrendsCompare: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrendsCompare.json')
+)
+FunnelHistoricalTrendsCompare.parameters = {
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
+}
+export const FunnelHistoricalTrendsCompareEdit: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrendsCompare.json'),
+    'edit'
+)
+FunnelHistoricalTrendsCompareEdit.parameters = {
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
+}
 
 export const FunnelTimeToConvert: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json')
