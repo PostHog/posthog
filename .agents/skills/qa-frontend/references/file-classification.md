@@ -17,6 +17,7 @@ small browser smoke rather than pretending coverage is complete.
 
 ## Planning Rules
 
+- Use `test-case-design.md` to turn file categories into behavior-focused cases.
 - Mixed frontend/backend PR: focus on routes where the frontend visibly uses the changed behavior.
 - Product-scoped frontend PR: read `products/<product>/manifest.tsx` first.
 - Shared component PR: find importing scenes with `rg` and choose 1-3 high-signal routes.
@@ -25,14 +26,18 @@ small browser smoke rather than pretending coverage is complete.
 
 ## Test Plan Shape
 
-Each planned target should be concrete enough for a later agent to execute:
+Each planned case should be concrete enough for a later agent to execute:
 
 ```json
 {
   "kind": "browser",
-  "target": "/dashboard/:id",
-  "why_changed": "frontend/src/scenes/dashboard/Dashboard.tsx changed render path",
-  "what_to_verify": "dashboard loads, primary actions render, no console errors"
+  "changed_behavior": "Dashboard filters should persist after save",
+  "risk": "User saves a dashboard and loses the selected filter on reload",
+  "setup": "Use a dashboard with at least one insight",
+  "route": "/dashboard/:id",
+  "action": "Change filter, save, reload dashboard",
+  "expected": "Saved filter remains visible and no error toast appears",
+  "evidence": "Screenshot after reload plus console/network check"
 }
 ```
 

@@ -47,7 +47,8 @@ instructions, and explicit user approval in the current conversation.
    asks to keep it running.
 4. In PR mode, checkout the PR with `gh pr checkout`. In local mode, stay on
    the current branch.
-5. Plan tests from the diff and frontend route-finding heuristics.
+5. Design behavior-focused test cases from the diff, then map each case to a
+   frontend route.
 6. Run frontend browser and visual checks through Playwright MCP, capturing evidence.
 7. Confirm every candidate issue with one retry before calling it a finding.
 8. In PR mode, apply at most 3 confident fixes, only inside files already
@@ -80,6 +81,7 @@ Load these files only when the matching phase starts:
 
 - `references/safety-rules.md` - hard approval gates, fork handling, push policy.
 - `references/file-classification.md` - diff pattern to frontend test type mapping.
+- `references/test-case-design.md` - behavior/risk-first test case design examples.
 - `references/route-finding.md` - route-finding heuristics and coverage gaps.
 - `references/playwright-mcp-patterns.md` - MCP execution and evidence capture.
 - `references/evidence-and-output.md` - evidence upload, verdict artifacts, and
@@ -292,20 +294,24 @@ git status --porcelain
 ```
 
 Classify files using `references/file-classification.md`, then load
-`references/route-finding.md` for frontend route selection. Identify concrete
-routes by reading scene, manifest, caller, and import context. If a changed
-frontend surface maps to many routes, choose 1-3 high-signal routes and note the
-sampling choice in `run-notes.md`. If no route is clear after a short search,
-record a coverage gap instead of guessing.
+`references/test-case-design.md`. Start from the changed behavior and user risk,
+not the route. Load `references/route-finding.md` after cases exist so each case
+has a concrete place to run. If a behavior maps to many routes, choose 1-3
+high-signal routes and note the sampling choice in `run-notes.md`. If no route
+is clear after a short search, record a coverage gap instead of guessing.
 
-The test plan is a list of targets:
+The test plan is a list of behavior-focused cases:
 
 ```json
 {
   "kind": "browser|visual|coverage_gap",
-  "target": "/path",
-  "why_changed": "file and hunk summary",
-  "what_to_verify": "observable behavior to exercise"
+  "changed_behavior": "user-visible behavior the diff could alter",
+  "risk": "what could regress for users",
+  "setup": "data, flag, state, viewport, or theme needed",
+  "route": "/path",
+  "action": "workflow to perform",
+  "expected": "observable pass condition",
+  "evidence": "screenshot, GIF, console/network check, or gap note"
 }
 ```
 
@@ -349,7 +355,7 @@ original branch, and do not post a PR comment because QA did not run.
 
 ## Frontend QA Loop
 
-For each test-plan target:
+For each test case:
 
 - Browser target: navigate, snapshot, exercise the changed behavior, capture
   screenshot evidence, collect console errors, and inspect relevant network
