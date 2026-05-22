@@ -76,19 +76,40 @@ class TestHogFlowAPI(APIBaseTest):
             },
         }
 
-    def test_hog_flow_rejects_all_events_trigger_when_active(self):
-        hog_flow = {"name": "Test Flow", "status": "active", "actions": [self._all_events_trigger_action()]}
+    @parameterized.expand(
+        [
+            ("null_id_active", None, "active", 400),
+            ("empty_id_active", "", "active", 400),
+            # Drafts do not run, so the "All events" check is only enforced on activation.
+            ("null_id_draft", None, None, 201),
+        ]
+    )
+    def test_hog_flow_all_events_trigger_validation(self, _name, event_id, flow_status, expected_status):
+        trigger = self._all_events_trigger_action()
+        trigger["config"]["filters"]["events"][0]["id"] = event_id
+        hog_flow: dict = {"name": "Test Flow", "actions": [trigger]}
+        if flow_status is not None:
+            hog_flow["status"] = flow_status
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert "All events" in str(response.json())
+
+    def test_hog_flow_all_events_trigger_rejected_on_activation(self):
+        # A draft can hold an "All events" trigger; flipping it to active must re-validate and reject.
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [self._all_events_trigger_action()]},
+        )
+        assert create.status_code == 201, create.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{create.json()['id']}",
+            {"status": "active"},
+        )
         assert response.status_code == 400, response.json()
         assert "All events" in str(response.json())
-
-    def test_hog_flow_allows_all_events_trigger_as_draft(self):
-        # Drafts do not run, so the "All events" check is only enforced on activation.
-        hog_flow = {"name": "Test Flow", "actions": [self._all_events_trigger_action()]}
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert response.status_code == 201, response.json()
 
     def test_hog_flow_function_trigger_copied_from_action(self):
         trigger_action = {
