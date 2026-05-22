@@ -139,11 +139,14 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
             except json.JSONDecodeError:
                 pass
 
+        # An unset role is serialized as JSON null, which `_properties__role__isnull`
+        # does not match; probing the nested `id` matches every unassigned
+        # representation (missing key, null value, or empty object).
         if self.request.query_params.get("all_roles_unassigned", "").lower() == "true":
             queryset = queryset.filter(
-                _properties__csm__isnull=True,
-                _properties__account_executive__isnull=True,
-                _properties__account_owner__isnull=True,
+                _properties__csm__id__isnull=True,
+                _properties__account_executive__id__isnull=True,
+                _properties__account_owner__id__isnull=True,
             )
 
         for role_field in self.ROLE_FILTER_FIELDS:
@@ -151,7 +154,7 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
             if not value:
                 continue
             if value == "unassigned":
-                queryset = queryset.filter(**{f"_properties__{role_field}__isnull": True})
+                queryset = queryset.filter(**{f"_properties__{role_field}__id__isnull": True})
             else:
                 try:
                     user_id = int(value)

@@ -800,12 +800,19 @@ class TestAccountViewSet(APIBaseTest):
         names = [r["name"] for r in response.json()["results"]]
         assert names == ["A"]
 
-    def test_list_accounts_filter_by_csm_unassigned(self):
-        self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="B")
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=unassigned")
-        names = [r["name"] for r in response.json()["results"]]
-        assert names == ["B"]
+    @parameterized.expand(
+        [
+            # `_properties` defaults to {} — every role key is absent.
+            ("absent_keys", {"_properties": {}}),
+            # The manager fills every role key with an explicit JSON null.
+            ("null_valued_keys", {"properties": {}}),
+        ]
+    )
+    def test_list_accounts_filter_by_csm_unassigned(self, _name, unassigned_kwargs):
+        self._create_account(name="Assigned", properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="Unassigned", **unassigned_kwargs)
+        response = self.client.get(f"{self.endpoint_base}?csm=unassigned")
+        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
 
     def test_list_accounts_filter_by_account_executive_user_id(self):
         self._create_account(name="A", _properties={"account_executive": {"id": 7, "email": "a@x.com"}})
@@ -819,12 +826,20 @@ class TestAccountViewSet(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/accounts/?account_owner=7")
         assert [r["name"] for r in response.json()["results"]] == ["A"]
 
-    def test_list_accounts_filter_all_roles_unassigned(self):
-        self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self._create_account(name="B", _properties={"account_executive": {"id": 8, "email": "b@x.com"}})
-        self._create_account(name="C")
-        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?all_roles_unassigned=true")
-        assert [r["name"] for r in response.json()["results"]] == ["C"]
+    @parameterized.expand(
+        [
+            # `_properties` defaults to {} — every role key is absent.
+            ("absent_keys", {"_properties": {}}),
+            # The manager fills every role key with an explicit JSON null.
+            ("null_valued_keys", {"properties": {}}),
+        ]
+    )
+    def test_list_accounts_filter_all_roles_unassigned(self, _name, unassigned_kwargs):
+        # Created through the manager, so every role key is present and csm has a real id.
+        self._create_account(name="Has CSM", properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="Unassigned", **unassigned_kwargs)
+        response = self.client.get(f"{self.endpoint_base}?all_roles_unassigned=true")
+        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
 
     def test_list_accounts_filter_combined_role_and_tags(self):
         account_a = self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
