@@ -13,6 +13,7 @@ from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportTask,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.slack_inbox_notifications import (
@@ -23,6 +24,7 @@ from products.signals.backend.slack_inbox_notifications import (
     _summary_excerpt,
     dispatch_inbox_item_notifications,
 )
+from products.tasks.backend.models import Task, TaskRun
 
 
 @pytest.mark.parametrize(
@@ -89,6 +91,44 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
     assert button["text"]["text"] == "Open in PostHog Code"
     assert button["url"] == "posthog-code-dev://inbox/report-uuid"
     assert text == "Inbox for Marcus Twix (P1): Checkout errors spiked"
+
+
+def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -> None:
+    report = SignalReport(
+        id="report-uuid",
+        title="Checkout errors spiked",
+        summary="Error rate rose after deploy.",
+        signal_count=12,
+    )
+    recipient = _RecipientPresentation(header_label="<@U123>", plain_name="Marcus Twix")
+    pr_url = "https://github.com/org/repo/pull/42"
+    blocks, _ = _build_message_blocks(
+        report,
+        priority="P1",
+        source_products=["error_tracking"],
+        recipient=recipient,
+        implementation_pr_url=pr_url,
+    )
+
+    buttons = blocks[3]["elements"]
+    assert len(buttons) == 2
+    assert buttons[0]["text"]["text"] == "Open in PostHog Code"
+    assert buttons[1]["text"]["text"] == "Review PR in GitHub"
+    assert buttons[1]["url"] == pr_url
+
+
+def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
+    report = SignalReport(id="report-uuid", title="No PR yet")
+    recipient = _RecipientPresentation(header_label="Marcus Twix", plain_name="Marcus Twix")
+    blocks, _ = _build_message_blocks(
+        report,
+        priority=None,
+        source_products=[],
+        recipient=recipient,
+        implementation_pr_url=None,
+    )
+
+    assert len(blocks[3]["elements"]) == 1
 
 
 def test_recipient_presentation_uses_slack_mention_when_lookup_succeeds() -> None:
@@ -175,6 +215,32 @@ def _make_ready_report(
     return report
 
 
+def _create_implementation_task_with_run(
+    team: Team,
+    report: SignalReport,
+    *,
+    pr_url: str | None = None,
+) -> None:
+    task = Task.objects.create(
+        team=team,
+        title="Implementation task",
+        description="Fix the bug",
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+    )
+    SignalReportTask.objects.create(
+        team=team,
+        report=report,
+        task=task,
+        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+    )
+    TaskRun.objects.create(
+        team=team,
+        task=task,
+        status=TaskRun.Status.COMPLETED,
+        output={"pr_url": pr_url},
+    )
+
+
 @pytest.mark.django_db
 def test_dispatch_no_notification_when_user_has_no_slack_config(org_and_team):
     org, team = org_and_team
@@ -220,6 +286,37 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     blocks = call_kwargs["blocks"]
     assert blocks[0]["text"]["text"] == "Inbox for <@U_REVIEWER> · P1"
     assert blocks[3]["elements"][0]["url"] == f"posthog-code-dev://inbox/{report.id}"
+
+
+@pytest.mark.django_db
+def test_dispatch_includes_github_pr_button_when_implementation_task_has_pr(org_and_team):
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "reviewer-pr@example.com", "pr-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    report = _make_ready_report(team, suggested_logins=["pr-bot"])
+    _create_implementation_task_with_run(team, report, pr_url="https://github.com/org/repo/pull/99")
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value=None,
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    buttons = fake_client.chat_postMessage.call_args.kwargs["blocks"][3]["elements"]
+    assert len(buttons) == 2
+    assert buttons[1]["text"]["text"] == "Review PR in GitHub"
+    assert buttons[1]["url"] == "https://github.com/org/repo/pull/99"
 
 
 @pytest.mark.django_db

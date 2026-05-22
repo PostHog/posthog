@@ -28,6 +28,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 
+from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
@@ -253,6 +254,7 @@ def _build_message_blocks(
     priority: str | None,
     source_products: list[str],
     recipient: _RecipientPresentation,
+    implementation_pr_url: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
     header_text = f"Inbox for {recipient.header_label}"
@@ -286,18 +288,22 @@ def _build_message_blocks(
         }
     )
 
-    blocks.append(
+    action_elements: list[dict] = [
         {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Open in PostHog Code", "emoji": True},
-                    "url": f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report.id}",
-                }
-            ],
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Open in PostHog Code", "emoji": True},
+            "url": f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report.id}",
         }
-    )
+    ]
+    if implementation_pr_url:
+        action_elements.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Review PR in GitHub", "emoji": True},
+                "url": implementation_pr_url,
+            }
+        )
+    blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
     fallback_text = f"Inbox for {recipient.plain_name}{priority_suffix}: {title_line}"
@@ -330,6 +336,7 @@ def dispatch_inbox_item_notifications(
 
     priority = _latest_priority(report)
     sources = source_products or []
+    implementation_pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
     users_by_id = {user.id: user for user in User.objects.filter(id__in=[config.user_id for config in targets])}
 
     sent = 0
@@ -358,6 +365,7 @@ def dispatch_inbox_item_notifications(
                 priority=priority,
                 source_products=sources,
                 recipient=recipient,
+                implementation_pr_url=implementation_pr_url,
             )
             slack.client.chat_postMessage(
                 channel=_channel_id_from_target(channel),

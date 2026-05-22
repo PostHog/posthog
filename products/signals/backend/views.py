@@ -51,6 +51,7 @@ from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
 from products.signals.backend.api import emit_signal
+from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
@@ -570,30 +571,6 @@ class SignalReportViewSet(
         )
         return queryset.annotate(implementation_pr_url=latest_impl_pr_url)
 
-    def _fetch_implementation_pr_urls_for_reports(self, report_ids: list[str]) -> dict[str, str]:
-        if not report_ids:
-            return {}
-
-        # Batch this after pagination so the hot list queryset avoids a per-row correlated TaskRun subquery.
-        latest_runs = (
-            TaskRun.objects.filter(
-                task__signal_report_tasks__report_id__in=report_ids,
-                task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
-                output__pr_url__isnull=False,
-            )
-            .exclude(output__pr_url="")
-            .order_by("task__signal_report_tasks__report_id", "-created_at", "-id")
-            .annotate(output_pr_url_text=KeyTextTransform("pr_url", "output"))
-            .values("task__signal_report_tasks__report_id", "output_pr_url_text")
-            .distinct("task__signal_report_tasks__report_id")
-        )
-
-        return {
-            str(row["task__signal_report_tasks__report_id"]): row["output_pr_url_text"]
-            for row in latest_runs
-            if row["task__signal_report_tasks__report_id"] and row["output_pr_url_text"]
-        }
-
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
         return self._apply_signal_report_ordering(queryset)
@@ -697,7 +674,7 @@ class SignalReportViewSet(
 
         report_ids = [str(r.id) for r in reports]
         source_products_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
-        implementation_pr_url_map = self._fetch_implementation_pr_urls_for_reports(report_ids)
+        implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
 
         context = {
             **self.get_serializer_context(),
