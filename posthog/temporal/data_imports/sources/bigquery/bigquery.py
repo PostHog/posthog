@@ -483,11 +483,17 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             else config.key_file.project_id
         )
 
+        # Join against INFORMATION_SCHEMA.COLUMNS so a PK constraint that
+        # references a column already dropped (stale metadata between
+        # constraint and column catalogs) doesn't leak into
+        # `detected_primary_keys` and corrupt downstream dedup.
         query = f"""
         SELECT tc.table_name, kcu.column_name
         FROM `{config.dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
         JOIN `{config.dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
         ON tc.constraint_name = kcu.constraint_name
+        JOIN `{config.dataset_id}`.INFORMATION_SCHEMA.COLUMNS c
+        ON kcu.table_name = c.table_name AND kcu.column_name = c.column_name
         WHERE tc.constraint_type = 'PRIMARY KEY'
         """
 
