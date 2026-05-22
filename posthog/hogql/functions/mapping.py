@@ -156,6 +156,11 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "tupleMultiplyByNumber": HogQLFunctionMeta("tupleMultiplyByNumber", 2, 2),
     "tupleDivideByNumber": HogQLFunctionMeta("tupleDivideByNumber", 2, 2),
     "dotProduct": HogQLFunctionMeta("dotProduct", 2, 2),
+    # dictionaries
+    "dictGet": HogQLFunctionMeta("dictGet", 3, 3),
+    "dictGetOrDefault": HogQLFunctionMeta("dictGetOrDefault", 4, 4),
+    "dictGetOrNull": HogQLFunctionMeta("dictGetOrNull", 3, 3),
+    "dictHas": HogQLFunctionMeta("dictHas", 2, 2),
     # other
     "isFinite": HogQLFunctionMeta("isFinite", 1, 1),
     "isInfinite": HogQLFunctionMeta("isInfinite", 1, 1),

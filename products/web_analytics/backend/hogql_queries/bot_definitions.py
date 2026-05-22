@@ -117,8 +117,8 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "ChatGPT", "ai_assistant", "AI Agent", "OpenAI", documentation_url="https://bots.fyi/d/chatgpt-user"
     ),
     # Lowercase variant first — Meta emits this casing in the wild (matches the bingbot/Bingbot
-    # precedent). Both forms map to the same BotDefinition. Removable once we switch to
-    # multiMatchAnyIndexCaseInsensitive in the HogQL bot detection function.
+    # precedent). Both forms map to the same BotDefinition. The REGEXP_TREE dict is case-sensitive;
+    # keeping both entries is the correct approach.
     "meta-externalfetcher": BotDefinition(
         "Meta Fetcher",
         "ai_assistant",
@@ -149,7 +149,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     ),
     "Shap-User": BotDefinition("Shap", "ai_assistant", "AI Agent", "Shap"),
     # PostHog Code clients (Electron desktop, React Native mobile, agent CLI, cloud agent server).
-    # Dots are escaped because keys are evaluated as re2 regex by ClickHouse multiMatchAnyIndex.
+    # Dots are escaped because keys are evaluated as re2 regex by the REGEXP_TREE dictionary.
     r"desktop\.hog\.dev": BotDefinition(
         "PostHog Code Desktop",
         "ai_assistant",

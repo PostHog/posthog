@@ -99,5 +99,5 @@ class TestBotDefinitionsDataStructure:
             for j, p2 in enumerate(patterns):
                 if i != j and p1 in p2 and len(p1) < len(p2):
                     assert patterns.index(p2) < patterns.index(p1), (
-                        f"{p2} must come before {p1} for correct multiMatchAnyIndex matching"
+                        f"{p2} must come before {p1} to avoid ambiguity in REGEXP_TREE matching"
                     )

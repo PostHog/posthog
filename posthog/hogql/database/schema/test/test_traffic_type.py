@@ -71,134 +71,80 @@ class TestExpressionFieldFactories:
         assert default_field.expr != custom_field.expr
 
 
+def _unwrap_dictGetOrDefault(expr: ast.Expr) -> tuple[str, str, str]:
+    """Return (dict_name, attribute, default) from a dictGetOrDefault call."""
+    assert isinstance(expr, ast.Call)
+    assert expr.name == "dictGetOrDefault"
+    assert len(expr.args) == 4
+    dict_name = expr.args[0]
+    attribute = expr.args[1]
+    default = expr.args[3]
+    assert isinstance(dict_name, ast.Constant)
+    assert isinstance(attribute, ast.Constant)
+    assert isinstance(default, ast.Constant)
+    return dict_name.value, attribute.value, default.value
+
+
 class TestIsBotField:
     def test_returns_compare_operation(self):
         field = create_is_bot_field(name="$virt_is_bot")
         assert isinstance(field.expr, ast.CompareOperation)
         assert field.expr.op == ast.CompareOperationOp.NotEq
 
-    def test_uses_multiMatchAnyIndex(self):
+    def test_uses_dictGetOrDefault(self):
         field = create_is_bot_field(name="$virt_is_bot")
         assert isinstance(field.expr, ast.CompareOperation)
         assert isinstance(field.expr.left, ast.Call)
-        assert field.expr.left.name == "multiMatchAnyIndex"
+        assert field.expr.left.name == "dictGetOrDefault"
 
-    def test_compares_against_zero(self):
+    def test_compares_against_regular(self):
         field = create_is_bot_field(name="$virt_is_bot")
         assert isinstance(field.expr, ast.CompareOperation)
         assert isinstance(field.expr.right, ast.Constant)
-        assert field.expr.right.value == 0
+        assert field.expr.right.value == "Regular"
 
-    def test_wraps_user_agent_in_ifnull(self):
+    def test_dict_lookup_uses_traffic_type_attribute(self):
         field = create_is_bot_field(name="$virt_is_bot")
-        expr = field.expr
-        assert isinstance(expr, ast.CompareOperation)
-        index_call = expr.left
-        assert isinstance(index_call, ast.Call)
-        safe_ua = index_call.args[0]
-        assert isinstance(safe_ua, ast.Call)
-        assert safe_ua.name == "ifNull"
-        coalesce_call = safe_ua.args[0]
-        assert isinstance(coalesce_call, ast.Call)
-        assert coalesce_call.name == "coalesce"
-        # First coalesce arg should be nullIf for empty string handling
-        null_if = coalesce_call.args[0]
-        assert isinstance(null_if, ast.Call)
-        assert null_if.name == "nullIf"
+        assert isinstance(field.expr, ast.CompareOperation)
+        _, attribute, default = _unwrap_dictGetOrDefault(field.expr.left)
+        assert attribute == "traffic_type"
+        assert default == "Regular"
 
 
 class TestTrafficTypeField:
-    def test_returns_if_expression(self):
+    def test_returns_dictGetOrDefault(self):
         field = create_traffic_type_field(name="$virt_traffic_type")
         assert isinstance(field.expr, ast.Call)
-        assert field.expr.name == "if"
+        assert field.expr.name == "dictGetOrDefault"
 
     def test_default_value_is_regular(self):
         field = create_traffic_type_field(name="$virt_traffic_type")
-        assert isinstance(field.expr, ast.Call)
-        default = field.expr.args[1]
-        assert isinstance(default, ast.Constant)
-        assert default.value == "Regular"
-
-    def test_labels_contain_expected_values(self):
-        expr = create_traffic_type_field(name="$virt_traffic_type").expr
-        assert isinstance(expr, ast.Call)
-        array_access = expr.args[2]
-        assert isinstance(array_access, ast.ArrayAccess)
-        labels_array = array_access.array
-        assert isinstance(labels_array, ast.Array)
-        labels = [e.value for e in labels_array.exprs if isinstance(e, ast.Constant)]
-        assert "AI Agent" in labels
-        assert "Bot" in labels
-        assert "Automation" in labels
-
-    def test_uses_multiMatchAnyIndex(self):
-        field = create_traffic_type_field(name="$virt_traffic_type")
-        assert isinstance(field.expr, ast.Call)
-        comparison = field.expr.args[0]
-        assert isinstance(comparison, ast.CompareOperation)
-        assert isinstance(comparison.left, ast.Call)
-        assert comparison.left.name == "multiMatchAnyIndex"
+        _, attribute, default = _unwrap_dictGetOrDefault(field.expr)
+        assert attribute == "traffic_type"
+        assert default == "Regular"
 
 
 class TestTrafficCategoryField:
-    def test_returns_if_expression(self):
+    def test_returns_dictGetOrDefault(self):
         field = create_traffic_category_field(name="$virt_traffic_category")
         assert isinstance(field.expr, ast.Call)
-        assert field.expr.name == "if"
+        assert field.expr.name == "dictGetOrDefault"
 
     def test_default_value_is_regular(self):
         field = create_traffic_category_field(name="$virt_traffic_category")
-        assert isinstance(field.expr, ast.Call)
-        default = field.expr.args[1]
-        assert isinstance(default, ast.Constant)
-        assert default.value == "regular"
-
-    def test_labels_contain_expected_categories(self):
-        expr = create_traffic_category_field(name="$virt_traffic_category").expr
-        assert isinstance(expr, ast.Call)
-        array_access = expr.args[2]
-        assert isinstance(array_access, ast.ArrayAccess)
-        labels_array = array_access.array
-        assert isinstance(labels_array, ast.Array)
-        labels = [e.value for e in labels_array.exprs if isinstance(e, ast.Constant)]
-        assert "ai_crawler" in labels
-        assert "ai_search" in labels
-        assert "ai_assistant" in labels
-        assert "search_crawler" in labels
-        assert "seo_crawler" in labels
-        assert "social_crawler" in labels
-        assert "monitoring" in labels
-        assert "http_client" in labels
-        assert "headless_browser" in labels
-        assert "no_user_agent" in labels
+        _, attribute, default = _unwrap_dictGetOrDefault(field.expr)
+        assert attribute == "category"
+        assert default == "regular"
 
 
 class TestBotNameField:
-    def test_returns_if_expression(self):
+    def test_returns_dictGetOrDefault(self):
         field = create_bot_name_field(name="$virt_bot_name")
         assert isinstance(field.expr, ast.Call)
-        assert field.expr.name == "if"
+        assert field.expr.name == "dictGetOrDefault"
 
     def test_default_value_is_empty_string(self):
         field = create_bot_name_field(name="$virt_bot_name")
-        assert isinstance(field.expr, ast.Call)
-        default = field.expr.args[1]
-        assert isinstance(default, ast.Constant)
-        assert default.value == ""
-
-    def test_labels_contain_expected_bot_names(self):
-        expr = create_bot_name_field(name="$virt_bot_name").expr
-        assert isinstance(expr, ast.Call)
-        array_access = expr.args[2]
-        assert isinstance(array_access, ast.ArrayAccess)
-        labels_array = array_access.array
-        assert isinstance(labels_array, ast.Array)
-        labels = [e.value for e in labels_array.exprs if isinstance(e, ast.Constant)]
-        assert "Googlebot" in labels
-        assert "ChatGPT" in labels
-        assert "Claude" in labels
-        assert "GPTBot" in labels
-        assert "OpenAI Search" in labels
-        assert "curl" in labels
-        assert "" in labels
+        _, attribute, default = _unwrap_dictGetOrDefault(field.expr)
+        assert attribute == "name"
+        assert default == ""
