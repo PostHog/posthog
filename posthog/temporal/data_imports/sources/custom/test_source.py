@@ -6,6 +6,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from posthog.temporal.data_imports.sources.custom.source import (
     CustomSource,
     ManifestValidationError,
@@ -13,6 +14,9 @@ from posthog.temporal.data_imports.sources.custom.source import (
     validate_manifest_urls,
 )
 from posthog.temporal.data_imports.sources.generated_configs import CustomSourceConfig
+from posthog.temporal.data_imports.util import NonRetryableException
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 def _minimal_manifest(base_url: str = "https://api.example.com") -> dict:
@@ -204,6 +208,26 @@ class TestCustomSourceGetSchemas(SimpleTestCase):
         schemas = source.get_schemas(config, team_id=999, names=["nonexistent"])
         assert schemas == []
 
+    @parameterized.expand(
+        [
+            ("default_datetime", None, IncrementalFieldType.DateTime),
+            ("declared_integer", "integer", IncrementalFieldType.Integer),
+            ("unknown_falls_back", "bogus", IncrementalFieldType.DateTime),
+        ]
+    )
+    def test_incremental_cursor_type_from_manifest(self, _name, declared, expected):
+        manifest = _minimal_manifest()
+        incremental: dict = {"cursor_path": "cursor"}
+        if declared is not None:
+            incremental["cursor_type"] = declared
+        manifest["resources"][0]["endpoint"]["incremental"] = incremental
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        schema = source.get_schemas(config, team_id=999)[0]
+        assert schema.incremental_fields[0]["type"] == expected
+        assert schema.incremental_fields[0]["field_type"] == expected
+
 
 class TestCustomSourceValidateCredentials(SimpleTestCase):
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
@@ -217,25 +241,38 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert ok, err
         assert err is None
 
+    @parameterized.expand([401, 403])
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_returns_false_on_4xx(self, mock_session):
-        response = MagicMock(status_code=401, text="unauthorized")
+    def test_returns_false_on_auth_rejection(self, status_code, mock_session):
+        response = MagicMock(status_code=status_code, text="unauthorized")
         mock_session.return_value.request.return_value = response
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
         ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
-        assert "401" in (err or "")
+        assert str(status_code) in (err or "")
+
+    @parameterized.expand([404, 405, 429, 500])
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_non_auth_error_status_does_not_block_creation(self, status_code, mock_session):
+        # A 404/405/429/5xx is not a credential problem — it must not block
+        # source creation; the real sync surfaces it if it persists.
+        mock_session.return_value.request.return_value = MagicMock(status_code=status_code, text="nope")
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
 
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_probes_every_resource(self, mock_session):
-        # The second resource fails — validation must catch it, not stop at the first.
+        # The second resource fails auth — validation must catch it, not stop at the first.
         manifest = _minimal_manifest()
         manifest["resources"].append({"name": "orders", "endpoint": {"path": "/orders"}})
         mock_session.return_value.request.side_effect = [
             MagicMock(status_code=200, text="{}"),
-            MagicMock(status_code=404, text="not found"),
+            MagicMock(status_code=403, text="forbidden"),
         ]
 
         source = CustomSource()
@@ -243,7 +280,25 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
         assert "orders" in (err or "")
-        assert "404" in (err or "")
+        assert "403" in (err or "")
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_attaches_query_location_api_key(self, mock_session):
+        # An api_key with location 'query' must reach the probe request — the
+        # probe builds auth via create_auth, the same path the real sync uses.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {"type": "api_key", "name": "apikey", "location": "query"}
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_api_key="sk_test")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+
+        probe_auth = mock_session.return_value.request.call_args.kwargs["auth"]
+        assert isinstance(probe_auth, APIKeyAuth)
+        assert probe_auth.location == "query"
+        assert probe_auth.api_key == "sk_test"
 
     def test_returns_false_on_invalid_manifest(self):
         source = CustomSource()
@@ -251,3 +306,38 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
         assert err is not None
+
+
+class TestCustomSourceSourceForPipeline(SimpleTestCase):
+    def test_invalid_manifest_raises_non_retryable(self):
+        # A permanent config error must fail fast, not burn the Temporal retry budget.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json="{not json}")
+        with self.assertRaises(NonRetryableException):
+            source.source_for_pipeline(config, MagicMock(team_id=999))
+
+    def test_missing_resource_raises_non_retryable(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()))
+        inputs = MagicMock(team_id=999, schema_name="nonexistent")
+        with self.assertRaises(NonRetryableException):
+            source.source_for_pipeline(config, inputs)
+
+    @parameterized.expand([("default_asc", None, "asc"), ("explicit_desc", "desc", "desc")])
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resource")
+    def test_sort_mode_threaded_to_source_response(self, _name, declared, expected, _mock_resource):
+        manifest = _minimal_manifest()
+        if declared is not None:
+            manifest["resources"][0]["sort_mode"] = declared
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        response = source.source_for_pipeline(config, inputs)
+        assert response.sort_mode == expected
