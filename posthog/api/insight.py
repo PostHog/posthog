@@ -1876,6 +1876,14 @@ When set, the specified dashboard's filters and date range override will be appl
         except Exception:
             result = None
 
+        # If we have no cached data, skip the LLM call. The insight's own viz layer renders
+        # from its own cached result and can disagree with this endpoint's cache state, so
+        # asking the LLM to summarize "No results available" produces a response that
+        # contradicts the chart the user is looking at. Signal the frontend explicitly
+        # so it can prompt the user to refresh instead of showing a misleading summary.
+        if result is None:
+            return Response({"result": "", "reason": "no_cached_data"})
+
         analysis = get_insight_analysis(
             query,
             self.team,

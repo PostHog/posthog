@@ -192,13 +192,14 @@ def get_insight_analysis(
     insight_description: Optional[str] = None,
 ) -> str:
     """Generate an AI analysis of the insight, highlighting main points and actionable items."""
+    # Without data the LLM can only contradict what the chart shows, so skip the call.
+    # Callers are responsible for deciding what to render to the user in this case.
+    if not insight_result:
+        return ""
+
     try:
         # We strip out large data like persons/urls but keep the filter and results
-        result_summary = (
-            json.dumps(summarize_insight_result(insight_result), default=str)
-            if insight_result
-            else "No results available"
-        )
+        result_summary = json.dumps(summarize_insight_result(insight_result), default=str)
 
         specific_instructions = get_query_specific_instructions(query.source.kind)
 
