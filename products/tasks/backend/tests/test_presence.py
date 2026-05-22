@@ -6,6 +6,7 @@ from django.core.cache import cache
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -127,21 +128,26 @@ class PresenceAPITestCase(TestCase):
         response = self.client.delete(self._presence_url(), {"device_id": str(self.push_token.id)}, format="json")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_beacon_rejects_unknown_device_id(self) -> None:
-        bogus = "00000000-0000-0000-0000-000000000000"
-        response = self.client.post(self._presence_url(), {"device_id": bogus}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertFalse(self._all_presence().exists())
+    @parameterized.expand(
+        [
+            ("unknown_device_id", "unknown"),
+            ("device_id_belonging_to_another_user", "other_user"),
+        ]
+    )
+    def test_beacon_rejects_invalid_device_id(self, _name, kind) -> None:
+        if kind == "unknown":
+            device_id = "00000000-0000-0000-0000-000000000000"
+        else:
+            other = User.objects.create_user(email="other@example.com", first_name="O", password="x")
+            self.organization.members.add(other)
+            other_token = UserPushToken.objects.create(
+                user=other,
+                token="ExponentPushToken[other-device]",
+                platform=UserPushToken.Platform.IOS,
+            )
+            device_id = str(other_token.id)
 
-    def test_beacon_rejects_device_id_belonging_to_another_user(self) -> None:
-        other = User.objects.create_user(email="other@example.com", first_name="O", password="x")
-        self.organization.members.add(other)
-        other_token = UserPushToken.objects.create(
-            user=other,
-            token="ExponentPushToken[other-device]",
-            platform=UserPushToken.Platform.IOS,
-        )
-        response = self.client.post(self._presence_url(), {"device_id": str(other_token.id)}, format="json")
+        response = self.client.post(self._presence_url(), {"device_id": device_id}, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(self._all_presence().exists())
 
@@ -163,6 +169,10 @@ class PresenceAPITestCase(TestCase):
 class PresenceFanoutSuppressionTestCase(TransactionTestCase):
     """``send_user_push`` is dispatched via ``transaction.on_commit``; we need a
     TransactionTestCase so the callback actually fires.
+
+    The contract under test: any non-expired presence row for this user/task
+    suppresses fanout to ALL of that user's push tokens — including the
+    watching device itself, which is already rendering the task UI live.
     """
 
     def setUp(self) -> None:
@@ -186,88 +196,58 @@ class PresenceFanoutSuppressionTestCase(TransactionTestCase):
             user=self.user, token="ExponentPushToken[B]", platform=UserPushToken.Platform.ANDROID
         )
 
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_fanout_skips_devices_with_active_presence(self, mock_delay, _flag) -> None:
+    def _present(self, device: UserPushToken, *, on_task: Task | None = None, expires_in: timedelta) -> None:
         _make_presence(
             team=self.team,
-            task=self.task,
+            task=on_task or self.task,
             user=self.user,
-            push_token=self.device_a,
-            expires_in=timedelta(seconds=30),
+            push_token=device,
+            expires_in=expires_in,
         )
+
+    # Each case sets up a different presence layout and asserts which devices
+    # the dispatcher told the celery task to suppress. The "all devices" cases
+    # cover the documented contract: any active presence -> blanket suppression.
+    @parameterized.expand(
+        [
+            # (label, scenario_id, expected_suppressed_kind)
+            #   "all"  -> both device_a and device_b
+            #   "none" -> no devices
+            ("one_device_watching_suppresses_all", "one_active", "all"),
+            ("both_devices_watching_suppresses_all", "both_active", "all"),
+            ("only_expired_presence_suppresses_none", "expired_only", "none"),
+            ("presence_on_other_task_suppresses_none", "other_task_only", "none"),
+        ]
+    )
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_fanout_suppression_matrix(self, _name, scenario, expected, mock_delay, _flag) -> None:
+        if scenario == "one_active":
+            self._present(self.device_a, expires_in=timedelta(seconds=30))
+        elif scenario == "both_active":
+            self._present(self.device_a, expires_in=timedelta(seconds=30))
+            self._present(self.device_b, expires_in=timedelta(seconds=30))
+        elif scenario == "expired_only":
+            self._present(self.device_a, expires_in=-timedelta(seconds=1))
+        elif scenario == "other_task_only":
+            other_task = Task.objects.create(
+                team=self.team,
+                created_by=self.user,
+                title="Other Task",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            self._present(self.device_a, on_task=other_task, expires_in=timedelta(seconds=30))
 
         notify_task_run_completed(self.task_run)
 
         mock_delay.assert_called_once()
         suppressed = mock_delay.call_args.args[4]
-        self.assertEqual(suppressed, [str(self.device_a.id)])
 
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_fanout_ignores_expired_presence(self, mock_delay, _flag) -> None:
-        _make_presence(
-            team=self.team,
-            task=self.task,
-            user=self.user,
-            push_token=self.device_a,
-            expires_in=-timedelta(seconds=1),
-        )
-
-        notify_task_run_completed(self.task_run)
-
-        mock_delay.assert_called_once()
-        suppressed = mock_delay.call_args.args[4]
-        self.assertEqual(suppressed, [])
-
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_fanout_only_suppresses_presence_for_the_triggering_task(self, mock_delay, _flag) -> None:
-        # Presence on a different task must not bleed across.
-        other_task = Task.objects.create(
-            team=self.team,
-            created_by=self.user,
-            title="Other Task",
-            description="d",
-            origin_product=Task.OriginProduct.USER_CREATED,
-        )
-        _make_presence(
-            team=self.team,
-            task=other_task,
-            user=self.user,
-            push_token=self.device_a,
-            expires_in=timedelta(seconds=30),
-        )
-
-        notify_task_run_completed(self.task_run)
-
-        mock_delay.assert_called_once()
-        suppressed = mock_delay.call_args.args[4]
-        self.assertEqual(suppressed, [])
-
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_fanout_suppresses_every_device_when_all_are_watching(self, mock_delay, _flag) -> None:
-        _make_presence(
-            team=self.team,
-            task=self.task,
-            user=self.user,
-            push_token=self.device_a,
-            expires_in=timedelta(seconds=30),
-        )
-        _make_presence(
-            team=self.team,
-            task=self.task,
-            user=self.user,
-            push_token=self.device_b,
-            expires_in=timedelta(seconds=30),
-        )
-
-        notify_task_run_completed(self.task_run)
-
-        mock_delay.assert_called_once()
-        suppressed = mock_delay.call_args.args[4]
-        self.assertEqual(set(suppressed), {str(self.device_a.id), str(self.device_b.id)})
+        if expected == "all":
+            self.assertEqual(set(suppressed), {str(self.device_a.id), str(self.device_b.id)})
+        else:
+            self.assertEqual(suppressed, [])
 
 
 class PresencePushHelperSuppressionTestCase(TestCase):

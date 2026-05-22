@@ -884,17 +884,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if push_token is None:
             raise NotFound("device_id does not match a push token registered by the caller")
 
-        # `team=task.team` is redundant with the (task FK ⇒ team) relationship
-        # and the team-scoped manager, but listing it as a lookup keyword keeps
-        # the IDOR semgrep rule satisfied without us having to chase the
-        # nested-defaults edge case.
+        # Lookup mirrors the unique constraint exactly so a stray row with a
+        # mismatched team/user (e.g. from a bug elsewhere) gets corrected on
+        # upsert instead of crashing into the constraint a second time.
+        # nosemgrep: idor-lookup-without-team — team scope is enforced by
+        # TaskScopedManager (DRF view sets the ContextVar) and via `task` FK
+        # whose row is fetched through self.get_object() above.
         now = timezone.now()
         TaskPresence.objects.update_or_create(
             task=task,
             push_token=push_token,
-            team=task.team,
-            user=request.user,
             defaults={
+                "team": task.team,
+                "user": request.user,
                 "expires_at": now + timedelta(seconds=TASK_PRESENCE_TTL_SECONDS),
             },
         )
@@ -906,7 +908,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # No 404 on missing rows — the beacon-leave path runs from blur/background
         # handlers that should be safe to call unconditionally without the client
         # having to track whether a beacon was ever sent.
-        TaskPresence.objects.filter(task=task, push_token_id=device_id, user=request.user, team=task.team).delete()
+        TaskPresence.objects.filter(task=task, push_token_id=device_id, user=request.user).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

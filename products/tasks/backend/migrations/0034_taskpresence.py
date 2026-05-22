@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
                     "id",
                     models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
                 ),
-                ("last_seen_at", models.DateTimeField(auto_now=True, db_index=True)),
+                ("last_seen_at", models.DateTimeField(auto_now=True)),
                 ("expires_at", models.DateTimeField(db_index=True)),
                 (
                     "task",

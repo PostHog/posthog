@@ -1337,7 +1337,7 @@ class TaskPresence(TeamScopedRootMixin):
         on_delete=models.CASCADE,
         related_name="task_presences",
     )
-    last_seen_at = models.DateTimeField(auto_now=True, db_index=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
     expires_at = models.DateTimeField(db_index=True)
 
     class Meta:
