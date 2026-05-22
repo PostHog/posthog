@@ -94,7 +94,10 @@ class CostThrottle(Throttle):
         )
         if current >= limit:
             retry_after = await limiter.get_ttl(key)
-            logger.warning(
+            # Logged at error so it's visible in dashboards that filter to error-level only.
+            # Cost-bucket exhaustion silently truncates user-visible flows (Signals, posthog_code,
+            # etc.) into generic "upstream provider" errors downstream — we want to see it directly.
+            logger.error(
                 "cost_throttle_exceeded",
                 scope=self.scope,
                 key=key,
