@@ -97,9 +97,9 @@ snapshots:
     components-alerts-alert-history-chart--weekly-evaluation-time-axis--light:
         hash: v1.k794b7964.c95195c8c099622ee1c1d0525be01290609fb202f9be6ab18a1f8ca6051c80a3.WY8HvYGu-6QCFZxhH2zq5zlWNOG__WnH_88GWRVax30
     components-alerts-quiet-hours-fields--default--dark:
-        hash: v1.k794b7964.b1d9dcf611e6103856c1e579471fcc8d15e5ede8d778f58119af30defd021088.yuhFcITo9oT9yqz-ilwd1uzRK-Q9jRg3C9olYPw_hu4
+        hash: v1.k794b7964.58bdea6c05aa465d03d1c3f4cb148db45683e75fc6c68e4cb742378223d555f3.wBQ30YLJxWg4haG-HxQciM8qUYaYx5Tls_nzDZKt9AI
     components-alerts-quiet-hours-fields--default--light:
-        hash: v1.k794b7964.a2293bde4bb0b7ca27dfd7ee41226407780d9848000a22b9ccd5903674163749.AY5DM6ohNxpR3I4WEpxtTkkrtEij5AAL_VJOYjJXkko
+        hash: v1.k794b7964.cb68e6420d435c8c09102712f2acbabe529d26d432c274cc5cf4dc56156d7946.gaeEA-JTXRoLDquSzNjikcSZfDZGmvD6N_19jNkwGVg
     components-bulkupdatetagsbutton--add-mode--dark:
         hash: v1.k794b7964.ba66e3fd796ded95414954112b8e8ad07474b5be373cb4e98ecf3e56d8f61aab.jgsY9nY4c4c5rgf0ML5534zPOMlCIbIubJMaH2hRaig
     components-bulkupdatetagsbutton--add-mode--light:
@@ -888,6 +888,10 @@ snapshots:
         hash: v1.k794b7964.16497ffba42652fff4fac6a013ae2fc2a1288fa48a0fec12d320efba5cfb947b.fOszZPdI1FYuR807Uz2MhIYgyGadShFZS4zfWPtRngs
     components-pay-gate-mini--pay-gate-mini-grandfathered--light:
         hash: v1.k794b7964.257bf2813b5210f17fdd46f5b871a5c460e58eacee07fe8c33e4e1a0ae8a6679.gh6MmdaCBdVHreM0fW3iKetiV2-2VeDnDQNWslH58KA
+    components-pay-gate-mini--pay-gate-mini-high-frequency-alerts--dark:
+        hash: v1.k794b7964.94f1860843c98848eab0b8ff9eb7f4ff2134e75af952d4959928269955b31fd1.g1EIWDa_OGJGgJSYWdtwPhHp0G2OGRJcTFjIMVX0WZE
+    components-pay-gate-mini--pay-gate-mini-high-frequency-alerts--light:
+        hash: v1.k794b7964.9a91ae9560e83d468f08202ceb06b9f757484052a47880e7bfc4ca32828af746.sR0CdB_MywB3V5uYpNGg64r6pkKQ6VeB6eSmdi0ugdk
     components-pay-gate-mini--pay-gate-mini-limit-feature-other--dark:
         hash: v1.k794b7964.5114bd6770b3f496dd3fdfa1537a3d00a05703d08afc2c16259015d402762346.sddINQTbkhCG4p1sNut8KRkZy7ccwpe4S3B2XWdYNZ0
     components-pay-gate-mini--pay-gate-mini-limit-feature-other--light:

@@ -70,6 +70,7 @@
         "@posthog/icons": "^0.36.6",
         "@posthog/products-access-control": "workspace:*",
         "@posthog/products-actions": "workspace:*",
+        "@posthog/products-alerts": "workspace:*",
         "@posthog/products-business-knowledge": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
         "@posthog/products-conversations": "workspace:*",
