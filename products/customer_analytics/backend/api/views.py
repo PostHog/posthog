@@ -167,12 +167,15 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
             if not value:
                 continue
             if value == "unassigned":
+                # nosemgrep: orm-field-injection -- role_field from hardcoded ROLE_FILTER_FIELDS; _properties is a JSONField so __ is JSON key traversal
                 queryset = queryset.filter(**{f"_properties__{role_field}__id__isnull": True})
             else:
                 try:
                     user_id = int(value)
                 except ValueError:
                     continue
+                # nosemgrep: orm-field-injection -- role_field from hardcoded ROLE_FILTER_FIELDS; _properties is a JSONField so __ is JSON key traversal
+                # nosemgrep: no-request-param-orm-filter -- user_id is validated as int; role_field is from a hardcoded allowlist
                 queryset = queryset.filter(**{f"_properties__{role_field}__id": user_id})
 
         ordering = self.request.query_params.get("ordering")
