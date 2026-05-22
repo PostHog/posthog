@@ -94,6 +94,7 @@ _KILL_SWITCH_EXEMPT_USERS = frozenset(
         ClickHouseUser.BATCH_EXPORT,
         ClickHouseUser.MIGRATIONS,
         ClickHouseUser.OPS,
+        ClickHouseUser.BILLING,
     }
 )
 
@@ -367,6 +368,8 @@ def sync_execute(
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
+    elif tags.product == Product.BILLING:
+        ch_user = ClickHouseUser.BILLING
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries
