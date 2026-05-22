@@ -115,7 +115,11 @@ describe('FunnelLineChart', () => {
 
             await screen.findByRole('img', { name: /chart with/i })
             const lines = getHogChart().referenceLines()
-            expect(lines.map((l) => l.label)).toEqual(['Target'])
+            // value→pixel isn't recoverable from the DOM; assert the line is labelled,
+            // drawn horizontally (across the value axis), and actually positioned.
+            expect(lines).toEqual([
+                expect.objectContaining({ label: 'Target', orientation: 'horizontal', position: expect.any(Number) }),
+            ])
         })
     })
 
