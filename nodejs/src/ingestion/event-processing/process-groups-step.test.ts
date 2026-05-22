@@ -24,6 +24,7 @@ type TestInput = {
     preparedEvent: PreIngestionEvent
     team: Team
     processPerson: boolean
+    historicalMigration: boolean
 }
 
 describe('createProcessGroupsStep', () => {
@@ -43,6 +44,7 @@ describe('createProcessGroupsStep', () => {
         preparedEvent: createTestPreIngestionEvent(),
         team: createTestTeam(),
         processPerson: true,
+        historicalMigration: false,
         ...overrides,
     })
 
@@ -198,6 +200,46 @@ describe('createProcessGroupsStep', () => {
         const result = await step(createInput())
 
         expect(result.type).toBe(PipelineResultType.OK)
+    })
+
+    it.each([
+        { desc: 'historicalMigration=true is forwarded to fetchGroupTypeIndex', historicalMigration: true },
+        { desc: 'historicalMigration=false is forwarded to fetchGroupTypeIndex', historicalMigration: false },
+    ])('$desc', async ({ historicalMigration }) => {
+        mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(0)
+
+        const step = createStep()
+        const result = await step(
+            createInput({
+                historicalMigration,
+                preparedEvent: createTestPreIngestionEvent({
+                    event: '$groupidentify',
+                    properties: {
+                        $group_type: 'organization',
+                        $group_key: 'org::5',
+                        $group_set: { foo: 'bar' },
+                    },
+                }),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        // Called once from updateGroupsAndFirstEvent + once from upsertGroup — both should forward the flag.
+        expect(mockGroupTypeManager.fetchGroupTypeIndex).toHaveBeenCalledTimes(2)
+        expect(mockGroupTypeManager.fetchGroupTypeIndex).toHaveBeenNthCalledWith(
+            1,
+            1,
+            1,
+            'organization',
+            historicalMigration
+        )
+        expect(mockGroupTypeManager.fetchGroupTypeIndex).toHaveBeenNthCalledWith(
+            2,
+            1,
+            1,
+            'organization',
+            historicalMigration
+        )
     })
 
     it('skips updateGroupsAndFirstEvent for $$plugin_metrics events', async () => {
