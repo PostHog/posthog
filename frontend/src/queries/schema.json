@@ -20988,6 +20988,11 @@
                 "optimizeProjections": {
                     "type": "boolean"
                 },
+                "parserMode": {
+                    "description": "HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request.",
+                    "enum": ["cpp_only", "cpp_with_rust_shadow", "rust_with_cpp_shadow", "rust_only"],
+                    "type": "string"
+                },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"

@@ -1460,6 +1460,16 @@ export namespace Schemas {
       Optimized: 'optimized',
     } as const;
 
+    export type ParserMode = typeof ParserMode[keyof typeof ParserMode];
+
+
+    export const ParserMode = {
+      CppOnly: 'cpp_only',
+      CppWithRustShadow: 'cpp_with_rust_shadow',
+      RustWithCppShadow: 'rust_with_cpp_shadow',
+      RustOnly: 'rust_only',
+    } as const;
+
     export type PersonsArgMaxVersion = typeof PersonsArgMaxVersion[keyof typeof PersonsArgMaxVersion];
 
 
@@ -1530,6 +1540,8 @@ export namespace Schemas {
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
+      /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. */
+      parserMode?: ParserMode | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;

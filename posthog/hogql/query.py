@@ -294,7 +294,11 @@ class HogQLQueryExecutor:
                 self.select_query = self.query
                 self.query = None
             else:
-                self.select_query = parse_select(str(self.query), timings=self.timings)
+                self.select_query = parse_select(
+                    str(self.query),
+                    timings=self.timings,
+                    parser_mode=self.query_modifiers.parserMode,
+                )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")
     def _process_variables(self):

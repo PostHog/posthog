@@ -451,6 +451,8 @@ export interface HogQLQueryModifiers {
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
+    /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. */
+    parserMode?: 'cpp_only' | 'cpp_with_rust_shadow' | 'rust_with_cpp_shadow' | 'rust_only'
 }
 
 export interface DataWarehouseEventsModifier {

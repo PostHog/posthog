@@ -2586,6 +2586,13 @@ class MaterializedColumnsOptimizationMode(StrEnum):
     OPTIMIZED = "optimized"
 
 
+class ParserMode(StrEnum):
+    CPP_ONLY = "cpp_only"
+    CPP_WITH_RUST_SHADOW = "cpp_with_rust_shadow"
+    RUST_WITH_CPP_SHADOW = "rust_with_cpp_shadow"
+    RUST_ONLY = "rust_only"
+
+
 class PersonsArgMaxVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
@@ -7300,6 +7307,14 @@ class HogQLQueryModifiers(BaseModel):
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
+    parserMode: ParserMode | None = Field(
+        default=None,
+        description=(
+            "HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the"
+            " primary result and sample-compare against the other parser, reporting"
+            " divergences without failing the request."
+        ),
+    )
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
