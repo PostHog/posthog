@@ -309,7 +309,7 @@
       version UInt64,
       is_deleted UInt8
   )
-  ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
   
   '''
@@ -2136,7 +2136,7 @@
       version UInt64,
       is_deleted UInt8
   )
-  ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
   
   '''

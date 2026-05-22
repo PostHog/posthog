@@ -1615,7 +1615,7 @@
                 "cache_read_token": 8.7e-7
             },
             "siliconflow-fp8": {
-                "prompt_token": 0.00000165,
+                "prompt_token": 0.00000162,
                 "completion_token": 0.00000348,
                 "cache_read_token": 1.45e-7
             },
@@ -2360,7 +2360,7 @@
                 "completion_token": 1.3e-7
             },
             "sambanova": {
-                "prompt_token": 2.2e-7,
+                "prompt_token": 3.5e-7,
                 "completion_token": 5.9e-7
             }
         }
@@ -2525,8 +2525,8 @@
                 "completion_token": 4e-7
             },
             "together": {
-                "prompt_token": 2e-7,
-                "completion_token": 5e-7
+                "prompt_token": 3.9e-7,
+                "completion_token": 9.7e-7
             },
             "venice-bf16": {
                 "prompt_token": 1.75e-7,
@@ -2969,10 +2969,6 @@
                 "prompt_token": 5.9e-7,
                 "completion_token": 7.9e-7
             },
-            "inceptron-fp8": {
-                "prompt_token": 1.2e-7,
-                "completion_token": 3.8e-7
-            },
             "nebius-fp8": {
                 "prompt_token": 1.3e-7,
                 "completion_token": 4e-7
@@ -3282,16 +3278,6 @@
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000012,
                 "cache_read_token": 6e-8
-            },
-            "inceptron-fp8": {
-                "prompt_token": 2.4e-7,
-                "completion_token": 9e-7,
-                "cache_read_token": 3e-8
-            },
-            "io-net-fp8": {
-                "prompt_token": 2.7e-7,
-                "completion_token": 0.00000119,
-                "cache_read_token": 1.35e-7
             },
             "mara": {
                 "prompt_token": 3e-7,
@@ -6604,6 +6590,10 @@
                 "prompt_token": 4e-7,
                 "completion_token": 0.0000032
             },
+            "siliconflow-fp8": {
+                "prompt_token": 2.6e-7,
+                "completion_token": 0.00000208
+            },
             "venice": {
                 "prompt_token": 5e-7,
                 "completion_token": 0.000004
@@ -6637,6 +6627,10 @@
             "phala": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000024
+            },
+            "siliconflow-fp8": {
+                "prompt_token": 2.5e-7,
+                "completion_token": 0.000002
             }
         }
     },
@@ -6682,6 +6676,10 @@
                 "prompt_token": 1.5e-7,
                 "completion_token": 0.000001,
                 "cache_read_token": 5e-8
+            },
+            "siliconflow-fp8": {
+                "prompt_token": 2.4e-7,
+                "completion_token": 0.0000018
             },
             "venice": {
                 "prompt_token": 3.125e-7,
@@ -6763,6 +6761,10 @@
                 "prompt_token": 4e-8,
                 "completion_token": 1.5e-7
             },
+            "siliconflow-fp8": {
+                "prompt_token": 1e-7,
+                "completion_token": 1.5e-7
+            },
             "together": {
                 "prompt_token": 1e-7,
                 "completion_token": 1.5e-7
@@ -6820,7 +6822,7 @@
         "model": "qwen/qwen3.6-27b",
         "cost": {
             "default": {
-                "prompt_token": 3.17e-7,
+                "prompt_token": 3e-7,
                 "completion_token": 0.0000032
             },
             "alibaba": {
@@ -6848,6 +6850,10 @@
             "morph": {
                 "prompt_token": 4.98e-7,
                 "completion_token": 0.0000024
+            },
+            "siliconflow-fp8": {
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000032
             },
             "venice-fp8": {
                 "prompt_token": 3.25e-7,
@@ -6887,6 +6893,10 @@
                 "completion_token": 0.000001,
                 "cache_read_token": 5e-8
             },
+            "siliconflow-fp8": {
+                "prompt_token": 2e-7,
+                "completion_token": 0.0000016
+            },
             "wandb-fp8": {
                 "prompt_token": 2.5e-7,
                 "completion_token": 0.00000125,
@@ -6898,14 +6908,14 @@
         "model": "qwen/qwen3.6-flash",
         "cost": {
             "default": {
-                "prompt_token": 1.875e-7,
-                "completion_token": 0.000001125,
-                "cache_write_token": 2.34375e-7
+                "prompt_token": 1.2375e-7,
+                "completion_token": 7.425e-7,
+                "cache_write_token": 1.545e-7
             },
             "alibaba": {
-                "prompt_token": 1.875e-7,
-                "completion_token": 0.000001125,
-                "cache_write_token": 2.34375e-7
+                "prompt_token": 1.2375e-7,
+                "completion_token": 7.425e-7,
+                "cache_write_token": 1.545e-7
             }
         }
     },
@@ -6928,14 +6938,14 @@
         "model": "qwen/qwen3.6-plus",
         "cost": {
             "default": {
-                "prompt_token": 3.25e-7,
-                "completion_token": 0.00000195,
-                "cache_write_token": 4.0625e-7
+                "prompt_token": 1.794e-7,
+                "completion_token": 0.00000107315,
+                "cache_write_token": 2.236e-7
             },
             "alibaba": {
-                "prompt_token": 3.25e-7,
-                "completion_token": 0.00000195,
-                "cache_write_token": 4.0625e-7
+                "prompt_token": 1.794e-7,
+                "completion_token": 0.00000107315,
+                "cache_write_token": 2.236e-7
             }
         }
     },

@@ -694,31 +694,28 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         },
                     ),
                     parse_expr(
-                        "arrayMap((max_num, min_num) -> max_num - min_num, arrayZip(max_nums, min_nums)) as diff"
-                    ),
-                    ast.Alias(
-                        alias="bins",
-                        expr=ast.Array(
-                            exprs=[
-                                ast.Constant(value=alias["histogram_bin_count"])
-                                for alias in breakdown_aliases_with_histograms
-                            ]
-                        ),
-                    ),
-                    parse_expr(
                         """
                             arrayMap(
-                                i -> arrayMap(x -> [
-                                        ((diff[i] / bins[i]) * x) + min_nums[i],
-                                        ((diff[i] / bins[i]) * (x + 1)) + min_nums[i] + if(x + 1 = bins[i], 0.01, 0)
+                                (max_num, min_num, bin_count) -> arrayMap(x -> [
+                                        (((max_num - min_num) / bin_count) * x) + min_num,
+                                        (((max_num - min_num) / bin_count) * (x + 1))
+                                            + min_num
+                                            + if(x + 1 = bin_count, 0.01, 0)
                                     ],
-                                    range(bins[i])
+                                    range(bin_count)
                                 ),
-                                range(1, {breakdown_count})
+                                max_nums,
+                                min_nums,
+                                {bin_counts}
                             ) as buckets
                         """,
                         placeholders={
-                            "breakdown_count": ast.Constant(value=len(breakdown_aliases_with_histograms) + 1),
+                            "bin_counts": ast.Array(
+                                exprs=[
+                                    ast.Constant(value=alias["histogram_bin_count"])
+                                    for alias in breakdown_aliases_with_histograms
+                                ]
+                            ),
                         },
                     ),
                 ]

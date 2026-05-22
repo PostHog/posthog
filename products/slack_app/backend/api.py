@@ -18,6 +18,7 @@ from django.views.decorators.csrf import csrf_exempt
 import requests
 import structlog
 import posthoganalytics
+from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.llm.gateway_client import get_llm_client
@@ -135,6 +136,10 @@ def _slack_user_info_cache_key(integration_id: int, slack_user_id: str) -> str:
     return f"posthog_code_slack_user_info:{integration_id}:{slack_user_id}"
 
 
+def _slack_user_id_by_email_cache_key(integration_id: int, normalized_email: str) -> str:
+    return f"posthog_code_slack_user_id_by_email:{integration_id}:{normalized_email}"
+
+
 def _format_slack_user_info_payload(*, email: str | None, display_name: str, real_name: str) -> dict[str, Any]:
     return {
         "user": {
@@ -213,6 +218,78 @@ def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slac
         cache.set(cache_key, user_info, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
         return user_info
     return {}
+
+
+def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_email: str) -> str | None:
+    from products.slack_app.backend.models import SlackUserProfileCache
+
+    try:
+        profile = SlackUserProfileCache.objects.filter(
+            integration_id=integration.id,
+            email__iexact=normalized_email,
+        ).first()
+    except DatabaseError:
+        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
+        return None
+    return profile.slack_user_id if profile else None
+
+
+def lookup_slack_user_id_by_email(
+    slack: SlackIntegration,
+    integration: Integration,
+    email: str,
+) -> str | None:
+    """Resolve a Slack user ID from a PostHog user email.
+
+    Uses ``SlackUserProfileCache`` (populated by ``resolve_slack_user`` and prior lookups),
+    then ``users.lookupByEmail``. Results are cached per integration + email.
+    """
+    normalized_email = email.strip().lower()
+    if not normalized_email:
+        return None
+
+    cache_key = _slack_user_id_by_email_cache_key(integration.id, normalized_email)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached or None
+
+    slack_user_id = _get_slack_user_id_by_email_from_db(integration, normalized_email)
+    if slack_user_id:
+        cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return slack_user_id
+
+    try:
+        user_info = _normalize_slack_response(slack.client.users_lookupByEmail(email=email))
+    except SlackApiError as exc:
+        error_code = exc.response.get("error") if exc.response else None
+        if error_code != "users_not_found":
+            logger.warning(
+                "slack_user_id_by_email_lookup_failed",
+                integration_id=integration.id,
+                email=email,
+                error=error_code,
+            )
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    if not user_info.get("ok"):
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    user = user_info.get("user")
+    if not isinstance(user, dict) or not user.get("id"):
+        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+        return None
+
+    slack_user_id = str(user["id"])
+    _persist_slack_user_info(integration, slack_user_id, user_info)
+    cache.set(
+        _slack_user_info_cache_key(integration.id, slack_user_id),
+        user_info,
+        timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS,
+    )
+    cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+    return slack_user_id
 
 
 def _post_slack_user_feedback(
@@ -1158,6 +1235,12 @@ def route_posthog_code_event_to_relevant_region(
     )
 
     event_type = event.get("type")
+
+    # Coding-agent workflows only run in the secondary region (US). Force-reset local_match in
+    # the primary region for app_mention so it always proxies to the secondary, regardless of
+    # whether a slack integration row exists in the primary.
+    if event_type == "app_mention" and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
+        local_match = None
 
     if local_match and not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN):
         if event_type == "app_mention":

@@ -114,7 +114,7 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
-from products.replay_vision.backend.api import ReplayLensViewSet, ReplayObservationViewSet
+from products.replay_vision.backend.api import ReplayObservationViewSet, ReplayScannerViewSet
 from products.signals.backend.views import SignalViewSet
 from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.presentation.views import (
@@ -128,11 +128,17 @@ from products.visual_review.backend.presentation.views import (
     RunViewSet as VisualReviewRunViewSet,
     SnapshotViewSet as VisualReviewSnapshotViewSet,
 )
+from products.web_analytics.backend.api.heatmaps_api import (
+    HeatmapScreenshotViewSet,
+    HeatmapViewSet,
+    LegacyHeatmapViewSet,
+    SavedHeatmapViewSet,
+)
+from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
-from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_external_reference_api import SessionRecordingExternalReferenceViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
@@ -199,7 +205,6 @@ from .file_system import file_system, file_system_shortcut, persisted_folder, us
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
-from .web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -1606,17 +1611,17 @@ environments_router.register(
     ["team_id"],
 )
 
-environment_vision_lenses_router = environments_router.register(
-    r"vision/lenses",
-    ReplayLensViewSet,
-    "environment_vision_lenses",
+environment_vision_scanners_router = environments_router.register(
+    r"vision/scanners",
+    ReplayScannerViewSet,
+    "environment_vision_scanners",
     ["team_id"],
 )
-environment_vision_lenses_router.register(
+environment_vision_scanners_router.register(
     r"observations",
     ReplayObservationViewSet,
-    "environment_vision_lens_observations",
-    ["team_id", "lens_id"],
+    "environment_vision_scanner_observations",
+    ["team_id", "scanner_id"],
 )
 
 environments_router.register(

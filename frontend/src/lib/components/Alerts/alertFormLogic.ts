@@ -7,6 +7,7 @@ import api, { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     AlertCalculationInterval,
@@ -15,7 +16,14 @@ import {
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
-import { InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+
+import {
+    blockSubmitWithoutHighFrequencyAlertsEntitlement,
+    getDefaultSimulationRange,
+    HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE,
+    isHighFrequencyAlertInterval,
+} from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import type { alertFormLogicType } from './alertFormLogicType'
 import { alertLogic } from './alertLogic'
@@ -55,20 +63,6 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
         upper != null &&
         !isNaN(upper)
     )
-}
-
-export function getDefaultSimulationRange(interval: AlertCalculationInterval): string {
-    switch (interval) {
-        case AlertCalculationInterval.EVERY_15_MINUTES:
-        case AlertCalculationInterval.HOURLY:
-            return '-48h'
-        case AlertCalculationInterval.DAILY:
-            return '-30d'
-        case AlertCalculationInterval.WEEKLY:
-            return '-12w'
-        case AlertCalculationInterval.MONTHLY:
-            return '-12m'
-    }
 }
 
 export interface AlertFormLogicProps {
@@ -137,6 +131,13 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
     }
 }
 
+function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id']): AlertFormType {
+    return {
+        ...alert,
+        insight: insightId,
+    }
+}
+
 const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
     if (goalLines == null || goalLines.length == 0) {
         return {}
@@ -199,54 +200,64 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
     forms(({ props, values }) => ({
         alertForm: {
-            defaults:
-                props.alert ??
-                ({
-                    id: undefined,
-                    name: values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
-                    created_by: null,
-                    created_at: '',
-                    enabled: true,
-                    config: {
-                        type: 'TrendsAlertConfig',
-                        series_index: 0,
-                        check_ongoing_interval: false,
-                    },
-                    threshold: {
-                        configuration: {
-                            type: InsightThresholdType.ABSOLUTE,
-                            bounds: getThresholdBounds(values.goalLines),
-                        },
-                    },
-                    condition: {
-                        type: AlertConditionType.ABSOLUTE_VALUE,
-                    },
-                    subscribed_users: [],
-                    checks: [],
-                    calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
-                    skip_weekend: false,
-                    schedule_restriction: null,
-                    detector_config: null,
-                    investigation_agent_enabled: false,
-                    investigation_gates_notifications: false,
-                    investigation_inconclusive_action: 'notify',
-                    insight: props.insightId,
-                } as AlertFormType),
-            errors: (alert: AlertType | AlertFormType) =>
+            defaults: props.alert
+                ? alertToFormType(props.alert, props.insightId)
+                : ({
+                      id: undefined,
+                      name:
+                          values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
+                      created_by: null,
+                      created_at: '',
+                      enabled: true,
+                      config: {
+                          type: 'TrendsAlertConfig',
+                          series_index: 0,
+                          check_ongoing_interval: false,
+                      },
+                      threshold: {
+                          configuration: {
+                              type: InsightThresholdType.ABSOLUTE,
+                              bounds: getThresholdBounds(values.goalLines),
+                          },
+                      },
+                      condition: {
+                          type: AlertConditionType.ABSOLUTE_VALUE,
+                      },
+                      subscribed_users: [],
+                      checks: [],
+                      calculation_interval: insightIntervalToAlertInterval(props.insightInterval),
+                      skip_weekend: false,
+                      schedule_restriction: null,
+                      detector_config: null,
+                      investigation_agent_enabled: false,
+                      investigation_gates_notifications: false,
+                      investigation_inconclusive_action: 'notify',
+                      insight: props.insightId,
+                  } as AlertFormType),
+            errors: (alert: AlertFormType) =>
                 ({
                     name: !alert.name ? 'You need to give your alert a name' : undefined,
                     schedule_restriction: quietHoursFormError(alert.schedule_restriction),
-                }) as DeepPartialMap<AlertType | AlertFormType, ValidationErrorType>,
+                }) as DeepPartialMap<AlertFormType, ValidationErrorType>,
             submit: async (alert) => {
+                if (
+                    blockSubmitWithoutHighFrequencyAlertsEntitlement(
+                        alert.calculation_interval,
+                        userLogic.values.hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
+                    )
+                ) {
+                    lemonToast.error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
+                    throw new Error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
+                }
+
                 const payload: AlertTypeWrite = {
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
                     // can only skip weekends for sub-daily alerts
                     skip_weekend:
-                        (alert.calculation_interval === AlertCalculationInterval.EVERY_15_MINUTES ||
-                            alert.calculation_interval === AlertCalculationInterval.DAILY ||
-                            alert.calculation_interval === AlertCalculationInterval.HOURLY) &&
+                        (alert.calculation_interval === AlertCalculationInterval.DAILY ||
+                            isHighFrequencyAlertInterval(alert.calculation_interval)) &&
                         alert.skip_weekend,
                     // can only check ongoing interval for absolute value/increase alerts with upper threshold
                     config: {
@@ -325,7 +336,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     tryShowMCPHint('alerts.create')
                 }
 
-                return updatedAlert
+                return alertToFormType(updatedAlert, props.insightId)
             },
         },
     })),
