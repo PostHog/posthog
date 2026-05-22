@@ -705,7 +705,6 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             logger.debug(f"EXPLAIN result: {' | '.join(explain_lines) if explain_lines else '(empty)'}")
         except Exception as e:
             logger.debug(f"EXPLAIN raised an exception: {e}", exc_info=e)
-            capture_exception(e)
 
     # ------------------------------------------------------------------
     # Pipeline build — the dlt `SourceResponse` for a single table
