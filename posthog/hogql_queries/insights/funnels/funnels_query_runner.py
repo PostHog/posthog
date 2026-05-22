@@ -6,8 +6,8 @@ from typing import Any, Optional
 
 from django.conf import settings
 
-import posthoganalytics
 import structlog
+import posthoganalytics
 
 from posthog.schema import (
     CachedFunnelsQueryResponse,
@@ -19,8 +19,6 @@ from posthog.schema import (
     ResolvedDateRangeResponse,
 )
 
-from posthog.clickhouse import query_tagging
-from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
 from posthog.hogql.printer import to_printed_hogql
@@ -28,6 +26,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvertUDF
