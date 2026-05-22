@@ -729,7 +729,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "patch",
         "destroy",
         "generate_links",
-        "generate_links_csv",
+        "links_csv",
         "send_invites",
         "add_interviewee",
         "remove_interviewee",
@@ -799,10 +799,10 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=["post"],
-        url_path="generate_links_csv",
+        url_path="links_csv",
         renderer_classes=[csvrenderers.CSVRenderer],
     )
-    def generate_links_csv(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+    def links_csv(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         topic = self.get_object()
         results = _materialize_links_for_topic(topic=topic, team=self.team, created_by=request.user)
 

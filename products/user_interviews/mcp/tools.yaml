@@ -73,8 +73,8 @@ tools:
             alongside the URL the interviewee should open. The URL hosts the call publicly — no PostHog login required.
             Calling this multiple times is safe: existing share links are reused.
         feature_flag: user-interviews
-    user-interview-topics-generate-links-csv:
-        operation: user_interview_topics_generate_links_csv_create
+    user-interview-topics-links-csv:
+        operation: user_interview_topics_links_csv_create
         enabled: true
         scopes:
             - user_interview:write

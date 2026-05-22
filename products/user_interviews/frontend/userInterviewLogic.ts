@@ -10,7 +10,7 @@ import { Breadcrumb } from '~/types'
 
 import {
     userInterviewTopicsGenerateLinksCreate,
-    userInterviewTopicsGenerateLinksCsvCreate,
+    userInterviewTopicsLinksCsvCreate,
     userInterviewTopicsIntervieweesList,
     userInterviewTopicsRetrieve,
     userInterviewsList,
@@ -109,7 +109,7 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
         exportLinksCsv: async () => {
             const projectId = String(teamLogic.values.currentTeamId)
             try {
-                const blob = (await userInterviewTopicsGenerateLinksCsvCreate(projectId, props.id)) as unknown as Blob
+                const blob = (await userInterviewTopicsLinksCsvCreate(projectId, props.id)) as unknown as Blob
                 const filename = `${(values.topic?.topic || 'user-interview')
                     .replace(/[^\w-]+/g, '-')
                     .toLowerCase()}-links.csv`

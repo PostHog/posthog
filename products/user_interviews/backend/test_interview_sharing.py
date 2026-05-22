@@ -108,7 +108,7 @@ class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def _generate_links_csv_url(self, topic_id: str) -> str:
-        return f"/api/environments/{self.team.id}/user_interview_topics/{topic_id}/generate_links_csv/"
+        return f"/api/environments/{self.team.id}/user_interview_topics/{topic_id}/links_csv/"
 
     def test_generate_links_csv_returns_csv_with_expected_columns_and_rows(self):
         topic = self._create_topic()

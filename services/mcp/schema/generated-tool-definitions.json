@@ -5005,22 +5005,6 @@
         },
         "feature_flag": "user-interviews"
     },
-    "user-interview-topics-generate-links-csv": {
-        "description": "Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`. Use this when the human plans to mail-merge the links into their own email tooling rather than letting PostHog send the invites.",
-        "category": "User interview topics",
-        "feature": "user_interviews",
-        "summary": "Export interview links for a topic as CSV",
-        "title": "Export interview links for a topic as CSV",
-        "required_scopes": ["user_interview:write"],
-        "new_mcp": true,
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "user-interviews"
-    },
     "user-interview-topics-interviewees-bulk-create": {
         "description": "Create up to 500 per-interviewee context rows for a topic in a single request. Each item is (interviewee_identifier, agent_context). Rows whose (topic, interviewee_identifier) already exists are skipped — the response surfaces `inserted_count`, `skipped_count`, and `skipped_identifiers` so the caller can reconcile. Items must have unique `interviewee_identifier` values within the batch. Prefer this over `user-interview-topics-interviewees-create` when adding many rows.",
         "category": "User interview topics",
@@ -5091,6 +5075,22 @@
         "feature": "user_interviews",
         "summary": "Update a per-interviewee context row",
         "title": "Update a per-interviewee context row",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-links-csv": {
+        "description": "Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`. Use this when the human plans to mail-merge the links into their own email tooling rather than letting PostHog send the invites.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Export interview links for a topic as CSV",
+        "title": "Export interview links for a topic as CSV",
         "required_scopes": ["user_interview:write"],
         "new_mcp": true,
         "annotations": {

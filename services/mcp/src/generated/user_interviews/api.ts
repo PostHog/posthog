@@ -146,7 +146,7 @@ export const UserInterviewTopicsGenerateLinksCreateParams = /* @__PURE__ */ zod.
 /**
  * Same materialization as generate_links, returned as a downloadable CSV. Intended for users who want to mail-merge the per-person interview links into their own email tooling.
  */
-export const UserInterviewTopicsGenerateLinksCsvCreateParams = /* @__PURE__ */ zod.object({
+export const UserInterviewTopicsLinksCsvCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this user interview topic.'),
     project_id: zod
         .string()
