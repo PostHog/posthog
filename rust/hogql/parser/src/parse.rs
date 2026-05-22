@@ -317,19 +317,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     }
 }
 
-/// Convenience constructors for the JsonEmitter-bound `Parser<'_, JsonEmitter>` path. Public `parse_<rule>` entry points route through `parse_<rule>_with_emit` directly, so these only have callers inside the test module — `#[cfg(test)]` silences dead-code warnings in non-test builds.
+/// Test-only convenience: the JsonEmitter-bound `Parser::new(src)` form. Production code routes through `parse_<rule>_with_emit` (which uses `new_with_emit`) so this only has callers inside the `#[cfg(test)] mod tests` below.
 #[cfg(test)]
 impl<'a> Parser<'a, JsonEmitter> {
     pub(crate) fn new(src: &'a str) -> Result<Self, ParseError> {
         Self::new_with_emit(src, JsonEmitter)
-    }
-
-    /// Construct a Parser whose lexer starts at the given byte offset.
-    /// Used by the template-body splitter to parse a `{ … }` expression
-    /// block without lexing the literal text on either side.
-    #[allow(dead_code)]
-    pub(crate) fn with_pos(src: &'a str, pos: usize) -> Result<Self, ParseError> {
-        Self::with_pos_emit(src, pos, JsonEmitter)
     }
 }
 
@@ -610,7 +602,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// is the bounded-backtrack analogue of ANTLR's adaptive LL
     /// prediction without the DFA cache. For our grammar's decision
     /// points the wasted work is bounded by the arm depth.
-    #[allow(dead_code, clippy::type_complexity)]
+    #[cfg(test)]
+    #[allow(clippy::type_complexity)]
     pub(crate) fn try_alt_with_followup<T, F>(
         &mut self,
         alts: &[&dyn Fn(&mut Self) -> Result<T, ParseError>],

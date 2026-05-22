@@ -25,12 +25,6 @@ pub struct ParseError {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)] // `NotImplemented` is reserved for future
-                    // deferred-feature stubs (e.g. when new grammar
-                    // rules land in cpp that this parser hasn't
-                    // caught up to yet) — keep the variant + helper
-                    // around so callers can opt back in without
-                    // adding back the enum case.
 pub enum ErrorKind {
     Syntax,
     NotImplemented,
@@ -56,8 +50,6 @@ impl ParseError {
         }
     }
 
-    #[allow(dead_code)] // Reserved for deferred-feature stubs; see
-                        // `ErrorKind` for context.
     pub fn not_implemented(message: impl Into<String>, start: usize, end: usize) -> Self {
         Self {
             message: message.into(),
@@ -68,8 +60,7 @@ impl ParseError {
         }
     }
 
-    /// Like `not_implemented`, but marks the error fatal so `try_alt`
-    /// short-circuits and doesn't fall back to the next alternative.
+    /// Like `not_implemented`, but marks the error fatal so `try_alt` short-circuits and doesn't fall back to the next alternative.
     pub fn not_implemented_fatal(message: impl Into<String>, start: usize, end: usize) -> Self {
         Self {
             message: message.into(),

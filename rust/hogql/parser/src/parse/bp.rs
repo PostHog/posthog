@@ -30,7 +30,6 @@ pub(super) const BP_IGNORE_NULLS: u8 = 87;
 pub(super) const BP_COMPARE: u8 = 90;
 pub(super) const BP_ADDITIVE: u8 = 100;
 pub(super) const BP_MULT: u8 = 110;
-#[allow(dead_code)]
 pub(super) const BP_UNARY_MINUS: u8 = 120;
 pub(super) const BP_POSTFIX: u8 = 130;
 

@@ -225,7 +225,6 @@ pub trait Emitter {
         include_nulls: bool,
     ) -> Self::Value;
     /// `JoinExpr(table, alias?, table_args?, column_aliases?, table_final?, sample?)`.
-    #[allow(clippy::too_many_arguments)]
     fn join_expr(
         &self,
         table: Self::Value,
@@ -236,7 +235,6 @@ pub trait Emitter {
         sample: Option<Self::Value>,
     ) -> Self::Value;
     /// `WindowFunction(name, exprs, args, over_expr, over_identifier)`. `over_expr` and `over_identifier` are alternatives — only one is set per node. `args` defaults to empty list (NOT None) so the deserialiser's `__eq__` distinguishes from non-window calls.
-    #[allow(clippy::too_many_arguments)]
     fn window_function(
         &self,
         name: &str,

@@ -163,9 +163,6 @@ pub struct PyEmitter<'py> {
     compare_op_iregex: Bound<'py, PyAny>,
     compare_op_not_regex: Bound<'py, PyAny>,
     compare_op_not_iregex: Bound<'py, PyAny>,
-    // ===== Module handle as escape hatch for any class not cached above. Currently unused — every emitted node has a typed entry, but kept in case a future trait extension needs `getattr` fallback for less-common classes.
-    #[allow(dead_code)]
-    pub ast_module: Bound<'py, PyModule>,
 }
 
 impl<'py> PyEmitter<'py> {
@@ -263,7 +260,6 @@ impl<'py> PyEmitter<'py> {
             compare_op_iregex: compare_enum.get_item("IRegex")?,
             compare_op_not_regex: compare_enum.get_item("NotRegex")?,
             compare_op_not_iregex: compare_enum.get_item("NotIRegex")?,
-            ast_module,
             py,
         })
     }
