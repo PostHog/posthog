@@ -15,6 +15,23 @@ implementation assertions.
 6. Capture a screenshot under `.qa-frontend/runs/<run-id>/`.
 7. Read error-level console messages and network failures for the page.
 
+## Locked Browser Profile
+
+If Playwright MCP reports that the browser profile is already in use, treat it
+as an infrastructure blocker, not a QA result.
+
+1. Prefer the MCP/browser option that starts a fresh isolated profile, when one
+   is available.
+2. If a stale local browser process is holding the profile, ask the user before
+   killing processes or clearing profile locks.
+3. After recovery, re-open the target route and repeat the affected action from
+   scratch.
+4. If the lock cannot be resolved, record a coverage gap with the exact browser
+   error and do not claim the route was tested.
+
+Do not delete browser profile data or close the user's visible browser windows
+without explicit approval.
+
 ## Snapshot Use
 
 Start with the default snapshot. Deepen or scroll only when:

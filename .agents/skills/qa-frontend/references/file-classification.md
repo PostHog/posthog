@@ -31,12 +31,14 @@ Each planned case should be concrete enough for a later agent to execute:
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "Dashboard filters should persist after save",
+  "diff_behavior": "Dashboard save flow now writes filter state through the new field",
   "risk": "User saves a dashboard and loses the selected filter on reload",
+  "expected_behavior": "Saved filter remains visible and no error toast appears",
+  "oracle_source": "existing dashboard save behavior and nearby filter persistence tests",
+  "oracle_confidence": "high",
   "setup": "Use a dashboard with at least one insight",
   "route": "/dashboard/:id",
   "action": "Change filter, save, reload dashboard",
-  "expected": "Saved filter remains visible and no error toast appears",
   "evidence": "Screenshot after reload plus console/network check"
 }
 ```

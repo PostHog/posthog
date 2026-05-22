@@ -8,6 +8,7 @@ For each meaningful hunk, ask:
 - What user-visible behavior could this alter?
 - What can a reviewer learn only by running the UI?
 - What is the smallest workflow that proves the behavior?
+- What independent source says what the correct behavior should be?
 - What state, data, feature flag, viewport, or theme makes the risk visible?
 - What would be the clearest evidence if this regressed?
 
@@ -18,18 +19,22 @@ Use this shape in `run-notes.md` and `findings.json` planning notes:
 ```json
 {
   "kind": "browser|visual|coverage_gap",
-  "changed_behavior": "Saving a dashboard filter should preserve the breakdown",
+  "diff_behavior": "Dashboard filter saving changed",
   "risk": "Regression silently drops user filter state after save",
+  "expected_behavior": "Saved filters and breakdowns remain visible after reload",
+  "oracle_source": "existing dashboard save tests and base behavior",
+  "oracle_confidence": "high",
   "setup": "Use a dashboard with an insight and a breakdown",
   "route": "/dashboard/:id",
   "action": "Change filter, save, reload dashboard",
-  "expected": "Filter and breakdown remain visible after reload",
   "evidence": "Screenshot after reload plus console/network check"
 }
 ```
 
-`changed_behavior` and `risk` should be human-readable. Avoid file-only plans
-like "open Dashboard.tsx route". Tie the case to what could break for a user.
+`diff_behavior` and `risk` should be human-readable. Avoid file-only plans like
+"open Dashboard.tsx route". Tie the case to what could break for a user. Use
+`expected-behavior.md` before finalizing `expected_behavior`: the changed line
+itself is not a valid oracle.
 
 ## Priority Order
 
@@ -55,6 +60,8 @@ One precise workflow beats five shallow page loads.
   the component appears in different layouts or states.
 - For visual changes, define the expected visual outcome before opening the
   browser.
+- For flow/state changes, inspect base behavior, nearby tests, and surrounding
+  invariants before deciding what PASS means.
 - For refactors, smoke the most important visible flow and watch console/network
   errors.
 - For bug fixes, recreate the reported failure before checking the fixed state
@@ -64,6 +71,9 @@ One precise workflow beats five shallow page loads.
 
 ## Examples
 
+The examples below focus on choosing the right workflow. When writing the final
+plan, also include `oracle_source` and `oracle_confidence` for each case.
+
 ### Form Save
 
 Diff signal: form fields, kea form logic, validation, submit button, toast, save
@@ -72,12 +82,12 @@ endpoint caller.
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "Survey customization changes should save and persist",
+  "diff_behavior": "Survey customization changes should save and persist",
   "risk": "Users think settings saved, but reload restores stale values",
   "setup": "Create or open a survey with customization enabled",
   "route": "/surveys/:id",
   "action": "Change button label, save, reload the survey editor",
-  "expected": "Updated label remains visible and no error toast appears",
+  "expected_behavior": "Updated label remains visible and no error toast appears",
   "evidence": "Before save, after reload screenshot, console/network check"
 }
 ```
@@ -90,12 +100,12 @@ after clone.
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "Duplicating a dashboard should create a distinct copy with copied tiles",
+  "diff_behavior": "Duplicating a dashboard should create a distinct copy with copied tiles",
   "risk": "Duplicate opens the original or loses child items",
   "setup": "Use a dashboard with at least one insight",
   "route": "/dashboard/:id",
   "action": "Open more menu, duplicate, inspect the destination dashboard",
-  "expected": "New dashboard title indicates a copy and tiles are present",
+  "expected_behavior": "New dashboard title indicates a copy and tiles are present",
   "evidence": "Destination dashboard screenshot and URL"
 }
 ```
@@ -108,12 +118,12 @@ copy or action.
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "Empty recordings list should show the setup call-to-action",
+  "diff_behavior": "Empty recordings list should show the setup call-to-action",
   "risk": "New users see a blank table and cannot recover",
   "setup": "Use a project with no recordings or filter to zero results",
   "route": "/replay",
   "action": "Load replay list with no matching recordings",
-  "expected": "Empty state explains why no recordings appear and shows next action",
+  "expected_behavior": "Empty state explains why no recordings appear and shows next action",
   "evidence": "Empty state screenshot"
 }
 ```
@@ -125,12 +135,12 @@ Diff signal: loaders, async selectors, error banners, query retry behavior.
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "Experiment results should show a recoverable error when loading fails",
+  "diff_behavior": "Experiment results should show a recoverable error when loading fails",
   "risk": "Failures look like endless loading or a blank page",
   "setup": "Open an experiment detail page and simulate or observe failed result loading",
   "route": "/experiments/:id",
   "action": "Load results and watch the result panel",
-  "expected": "Error state is visible, page shell remains usable, no uncaught console error",
+  "expected_behavior": "Error state is visible, page shell remains usable, no uncaught console error",
   "evidence": "Error state screenshot plus console excerpt"
 }
 ```
@@ -142,12 +152,12 @@ Diff signal: guards, disabled buttons, role checks, organization/project access.
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "Read-only users should see disabled billing actions",
+  "diff_behavior": "Read-only users should see disabled billing actions",
   "risk": "A user sees an action they cannot perform or gets a late 403",
   "setup": "Use a user/project state without permission if available locally",
   "route": "/organization/billing",
   "action": "Open billing settings and inspect primary action controls",
-  "expected": "Restricted controls are hidden or disabled with clear UI feedback",
+  "expected_behavior": "Restricted controls are hidden or disabled with clear UI feedback",
   "evidence": "Settings screenshot or coverage gap if local role setup is unavailable"
 }
 ```
@@ -160,12 +170,12 @@ component.
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "Labs tag appears only when the feature flag is enabled",
+  "diff_behavior": "Labs tag appears only when the feature flag is enabled",
   "risk": "Flagged UI leaks to everyone or stays hidden for enabled users",
   "setup": "Override the flag in browser state for the seed user",
   "route": "/data-management",
   "action": "Load with flag on, then clear override and reload",
-  "expected": "Tagged item appears with flag on and disappears or downgrades with flag off",
+  "expected_behavior": "Tagged item appears with flag on and disappears or downgrades with flag off",
   "evidence": "Two screenshots with flag state noted"
 }
 ```
@@ -177,12 +187,12 @@ Diff signal: component under `frontend/src/lib/` or shared product folder.
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "LemonTable row actions should remain reachable in dense and empty states",
+  "diff_behavior": "LemonTable row actions should remain reachable in dense and empty states",
   "risk": "Shared table change breaks action menus across products",
   "setup": "Find one table with populated rows and one table with an empty state",
   "route": "/insights and /data-management",
   "action": "Open row action menu in populated table, then load empty table state",
-  "expected": "Actions are reachable and empty state layout is not distorted",
+  "expected_behavior": "Actions are reachable and empty state layout is not distorted",
   "evidence": "One populated screenshot, one empty state screenshot"
 }
 ```
@@ -195,12 +205,12 @@ sync.
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "Insight editor should keep selected breakdown when switching display type",
+  "diff_behavior": "Insight editor should keep selected breakdown when switching display type",
   "risk": "State selector clears user input during a normal edit",
   "setup": "Create or open a trend insight with a breakdown",
   "route": "/insights/new",
   "action": "Add breakdown, switch display type, save or preview",
-  "expected": "Breakdown remains selected and preview updates without console errors",
+  "expected_behavior": "Breakdown remains selected and preview updates without console errors",
   "evidence": "Editor screenshot after switch plus console/network check"
 }
 ```
@@ -212,12 +222,12 @@ Diff signal: `urls.ts`, `sceneLogic`, route params, tabs, redirects, breadcrumbs
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "Error tracking issue tab URL should deep-link to the selected tab",
+  "diff_behavior": "Error tracking issue tab URL should deep-link to the selected tab",
   "risk": "Reviewer can navigate by click but shared links open the wrong tab",
   "setup": "Use an existing error tracking issue if available",
   "route": "/error_tracking/:id",
   "action": "Switch tab, copy URL, reload",
-  "expected": "Reload opens the same tab and breadcrumb/title still match",
+  "expected_behavior": "Reload opens the same tab and breadcrumb/title still match",
   "evidence": "URL plus tab screenshot after reload"
 }
 ```
@@ -229,12 +239,12 @@ Diff signal: query params, filter bars, search inputs, list sorting, pagination.
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "Searching persons should update the table and persist in the URL",
+  "diff_behavior": "Searching persons should update the table and persist in the URL",
   "risk": "Search appears to work but cannot be shared or reloads to unfiltered data",
   "setup": "Use existing persons or seeded events",
   "route": "/persons",
   "action": "Search for a visible person, reload the page",
-  "expected": "Filtered table remains and search term is preserved",
+  "expected_behavior": "Filtered table remains and search term is preserved",
   "evidence": "Screenshot before and after reload"
 }
 ```
@@ -247,12 +257,12 @@ styles.
 ```json
 {
   "kind": "visual",
-  "changed_behavior": "Feedback button position selector should remain aligned in fullscreen customization",
+  "diff_behavior": "Feedback button position selector should remain aligned in fullscreen customization",
   "risk": "Control becomes hard to read or overlaps adjacent settings",
   "setup": "Open survey customization with fullscreen presentation",
   "route": "/surveys/:id",
   "action": "Switch to customization tab and reveal position selector",
-  "expected": "Selector stays aligned, text is visible, and controls do not overlap",
+  "expected_behavior": "Selector stays aligned, text is visible, and controls do not overlap",
   "evidence": "Focused screenshot of the selector area"
 }
 ```
@@ -265,12 +275,12 @@ theme variables.
 ```json
 {
   "kind": "visual",
-  "changed_behavior": "Status tag contrast should work in dark and light themes",
+  "diff_behavior": "Status tag contrast should work in dark and light themes",
   "risk": "Text becomes unreadable in one theme",
   "setup": "Use a route that renders the changed tag",
   "route": "/experiments",
   "action": "Capture light theme, switch to dark theme, capture again",
-  "expected": "Tag text and border remain readable in both themes",
+  "expected_behavior": "Tag text and border remain readable in both themes",
   "evidence": "Light and dark screenshots"
 }
 ```
@@ -283,12 +293,12 @@ wrapping.
 ```json
 {
   "kind": "visual",
-  "changed_behavior": "Insight header actions should wrap without overlapping on narrow width",
+  "diff_behavior": "Insight header actions should wrap without overlapping on narrow width",
   "risk": "Primary action becomes hidden or text overlaps the title",
   "setup": "Open an insight detail page and use a narrow viewport",
   "route": "/insights/:id",
   "action": "Resize to a narrow desktop/mobile-ish width and inspect header",
-  "expected": "Title and actions remain usable without overlap",
+  "expected_behavior": "Title and actions remain usable without overlap",
   "evidence": "Narrow viewport screenshot"
 }
 ```
@@ -301,12 +311,12 @@ logic changes.
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "Dashboard detail still loads after component extraction",
+  "diff_behavior": "Dashboard detail still loads after component extraction",
   "risk": "Refactor changed imports or state wiring and page crashes",
   "setup": "Use any dashboard with at least one insight",
   "route": "/dashboard/:id",
   "action": "Load dashboard, open one tile action, watch console",
-  "expected": "Dashboard renders and interaction works with no new console errors",
+  "expected_behavior": "Dashboard renders and interaction works with no new console errors",
   "evidence": "Loaded dashboard screenshot plus console check"
 }
 ```
@@ -318,12 +328,12 @@ Diff signal: user-facing string, tooltip copy, empty state wording, label.
 ```json
 {
   "kind": "browser",
-  "changed_behavior": "The invite modal should explain domain restrictions",
+  "diff_behavior": "The invite modal should explain domain restrictions",
   "risk": "Admins misunderstand why an invite cannot be sent",
   "setup": "Open organization invite modal",
   "route": "/organization/members",
   "action": "Enter an email outside the allowed domain",
-  "expected": "Validation text matches the new copy and remains visible near the field",
+  "expected_behavior": "Validation text matches the new copy and remains visible near the field",
   "evidence": "Modal screenshot with validation text"
 }
 ```
@@ -336,12 +346,12 @@ exercise it honestly.
 ```json
 {
   "kind": "coverage_gap",
-  "changed_behavior": "Enterprise SSO setup flow changed",
+  "diff_behavior": "Enterprise SSO setup flow changed",
   "risk": "SSO-only state is unavailable in local seed data",
   "setup": "Checked route, callers, and local feature prerequisites",
   "route": "/organization/authentication",
   "action": "Not run locally",
-  "expected": "Needs an enterprise SSO-configured organization",
+  "expected_behavior": "Needs an enterprise SSO-configured organization",
   "evidence": "Run note explaining the missing local prerequisite"
 }
 ```

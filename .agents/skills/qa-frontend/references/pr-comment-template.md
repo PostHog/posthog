@@ -28,6 +28,7 @@ count, runtime, and tested commit:
 **🟢 PASS** · 3/3 · 5m21s · commit `<sha7>`
 **🟡 FIXED** · 3/3 · 6m04s · commit `<sha7>` · 1 high-sev auto-fixed
 **🔴 FAIL** · 1/3 · 5m48s · commit `<sha7>` · 2 reported, no autonomous push
+**🟣 NEEDS-INTENT** · 2/3 · 4m55s · commit `<sha7>` · 1 behavior needs product intent
 **🟠 REPORT-ONLY** · 3/3 · 4m12s · commit `<sha7>` · fork PR, suggested patches only
 ```
 
@@ -47,19 +48,27 @@ wrapper - reviewers must see what was exercised vs skipped at a glance.
 ```markdown
 **Coverage**
 
-| Target           | Action                                  | Result |
-| ---------------- | --------------------------------------- | ------ |
-| `/dashboard/:id` | Loaded scene, clicked Save              | ✅     |
-| `/insights/new`  | Created trend, switched breakdown       | ✅     |
-| `/billing`       | Coverage gap · blocked by auth boundary | ⏭     |
+| Target           | Action                                            | Result |
+| ---------------- | ------------------------------------------------- | ------ |
+| `/dashboard/:id` | Loaded scene, clicked Save                        | ✅     |
+| `/insights/new`  | Created trend, switched breakdown                 | ✅     |
+| `/surveys/new`   | Needs intent · template selection skips Questions | ❓     |
+| `/billing`       | Coverage gap · blocked by auth boundary           | ⏭     |
 ```
 
 Result symbols: `✅` passed, `❌` failed, `⏭` skipped/coverage gap, `🛠`
-fixed (use only when a fix landed on this target).
+fixed (use only when a fix landed on this target), `❓` expected behavior needs
+intent.
 
 Coverage gaps from route-finding or the frontend QA loop must appear as their
 own row with the "Coverage gap · `<reason>`" action and the `⏭` symbol. Do not
 relegate them to a footer.
+
+Intent gaps must also appear as their own row with the "Needs intent ·
+`<observed behavior>`" action and the `❓` symbol. Use this when the browser
+confirmed a behavior, but the expected outcome could not be established from
+base behavior, tests, product copy, surrounding invariants, or user
+confirmation.
 
 ## Effort Saved (optional)
 
@@ -93,6 +102,8 @@ level-3 section with a status suffix:
 ### 🐛 Finding 2 · reported, no autonomous fix
 
 ### 🐛 Finding 3 · suggested patch (out of PR diff)
+
+### ❓ Needs intent 1 · product behavior unclear
 ```
 
 Finding body has six blocks in order. The full block layout for one
@@ -141,6 +152,39 @@ Severity bars: `████████░░ HIGH`, `█████░░░�
 
 Skip the Fix diff block when there is no patch. Skip the Fix cycle
 collapsible when no fix loop ran.
+
+## Needs Intent
+
+Use this section for `needs_intent` entries only. Do not present them as bugs
+unless an independent oracle supports the expected behavior. Be explicit about
+what was observed, why the run cannot decide if it is intended, and the question
+reviewers should answer:
+
+````markdown
+### ❓ Needs intent 1 · product behavior unclear
+
+**`Template selection skips the Questions step`**
+
+```text
+severity   █████░░░░░   MEDIUM
+```
+
+`frontend/src/scenes/surveys/wizard/surveyWizardLogic.ts` · `selectTemplate`
+
+**Observed step**
+
+```text
+url:      /surveys/guided/new
+action:   selected a survey template
+expected: unclear - intent needed
+got:      wizard landed on Targeting instead of Questions
+question: should template selection skip Questions for this flow?
+```
+
+**Evidence**
+
+- ![still](<cloudinary url>)
+````
 
 ## Suggested patches (when fix was not applied autonomously)
 

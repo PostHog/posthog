@@ -71,6 +71,7 @@ Examples:
 
 - `QA-VERDICT: PASS`
 - `QA-VERDICT: FAIL findings=3 fixes=1 coverage_gaps=2`
+- `QA-VERDICT: NEEDS_INTENT ambiguities=1`
 - `QA-VERDICT: FORK_READONLY findings=1`
 - `QA-VERDICT: COMMENT_ONLY findings=2`
 
@@ -79,7 +80,7 @@ Examples:
 ```json
 {
   "id": "<sha1(target+step)[:12]>",
-  "kind": "finding|coverage_gap",
+  "kind": "finding|coverage_gap|needs_intent",
   "severity": "high|medium|low",
   "confidence": "high|medium",
   "target": "/route",
@@ -87,14 +88,19 @@ Examples:
   "expected": "expected outcome",
   "actual": "actual outcome",
   "evidence": ["<uploaded url or local path>"],
-  "status": "new|fix-applied|suggested-patch|skipped",
-  "fix_commit": "<sha or null>"
+  "status": "new|fix-applied|suggested-patch|skipped|needs-intent",
+  "fix_commit": "<sha or null>",
+  "question": "intent question for needs_intent entries"
 }
 ```
 
 `coverage_gap` entries record routes or files the QA loop could not exercise.
 They must appear as visible rows in the PR comment's test-plan table, not as a
 footer note.
+
+`needs_intent` entries record observed behavior whose expected outcome could not
+be established. Local mode should ask the user before finalizing when possible.
+PR mode should render these visibly instead of calling the run a clean PASS.
 
 ## Rendering
 
@@ -114,6 +120,7 @@ PR mode posts one PR comment for every completed run after explicit approval:
 - Clean run: PASS verdict plus coverage table.
 - Confident fixes: pushed fix summary plus findings and evidence.
 - Low-confidence or fork PR: findings with repro steps and suggested patches.
+- Unclear expected behavior: NEEDS-INTENT verdict plus visible intent rows.
 - Frontend target gaps: explicit coverage-gap rows.
 
 Before any push, verify the comment path works. Prefer a read-only `gh api`

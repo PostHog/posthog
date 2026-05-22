@@ -24,9 +24,10 @@ against a local PostHog stack and operates in one of two modes:
   approval, and posts a single PR comment after approval. Requires a clean
   working tree.
 - **Local mode** - user asks to QA their current work with no PR reference. The
-  skill QAs the current checkout against `origin/master` plus staged,
-  unstaged, and untracked changes, writes a report locally, and does **not**
-  upload evidence or touch GitHub. A dirty working tree is fine in this mode.
+  skill QAs the current checkout against `origin/master` by default, or an
+  explicit local base ref when the user provides one, plus staged, unstaged, and
+  untracked changes. It writes a report locally and does **not** upload evidence
+  or touch GitHub. A dirty working tree is fine in this mode.
 
 Choose mode from the prompt. If the user names a PR, links one, or asks to "QA
 PR <N>", use PR mode. If the user says "QA my current changes", "QA this
@@ -69,6 +70,7 @@ Supported invocation forms:
 /qa-frontend <PR URL or PR number>
 /qa-frontend <PR URL or PR number> --login-username <email> --login-password <password>
 /qa-frontend                           # local mode: QA current branch + uncommitted
+/qa-frontend --base <branch-or-sha>     # local mode: diff against an explicit base
 ```
 
 The skill is conversational, not a rigid CLI. The agent should infer mode and
@@ -82,6 +84,7 @@ Load these files only when the matching phase starts:
 - `references/safety-rules.md` - hard approval gates, fork handling, push policy.
 - `references/file-classification.md` - diff pattern to frontend test type mapping.
 - `references/test-case-design.md` - behavior/risk-first test case design examples.
+- `references/expected-behavior.md` - expected-behavior oracle and ambiguity handling.
 - `references/route-finding.md` - route-finding heuristics and coverage gaps.
 - `references/playwright-mcp-patterns.md` - MCP execution and evidence capture.
 - `references/evidence-and-output.md` - evidence upload, verdict artifacts, and
@@ -116,6 +119,9 @@ Parse `$ARGUMENTS` into:
   local mode, required in PR mode.
 - `LOGIN_USERNAME`: value after `--login-username` or `--username`.
 - `LOGIN_PASSWORD`: value after `--login-password` or `--password`.
+- `LOCAL_BASE_REF`: value after `--base` or `--base-ref`. Only applies in
+  local mode. Default `origin/master`, or the repo default branch if that is
+  different.
 - `AUTO_PUSH_FIXES`: boolean. True if `$ARGUMENTS` contains `--auto-push` or
   natural-language equivalents like "auto push fixes", "push fixes
   automatically", "no need to ask before pushing". Default false.
@@ -161,16 +167,22 @@ commit there. Ask before editing. Approved local edits stay unstaged.
 Record:
 
 - Current branch: `git branch --show-current`
-- Base ref: `origin/master` (or repo default branch)
+- Base ref: `LOCAL_BASE_REF`, defaulting to `origin/master` (or repo default
+  branch)
 - Changed-file set: union of path-only commands so the result is a clean
   list of paths (not status-prefixed porcelain output):
 
   ```bash
-  git diff --name-only origin/master...HEAD          # committed on branch
+  git rev-parse --verify "$LOCAL_BASE_REF"
+  git diff --name-only "$LOCAL_BASE_REF"...HEAD      # committed on branch
   git diff --name-only                               # unstaged
   git diff --cached --name-only                      # staged
   git ls-files --others --exclude-standard           # untracked
   ```
+
+  If `LOCAL_BASE_REF` cannot be resolved, stop and ask the user for a valid
+  base ref. Do not silently fall back to `origin/master` after the user supplied
+  an explicit base.
 
   For renames (`R` status), use `git diff --name-only -M` and accept the
   new path; do not use `oldname -> newname` strings in route-finding notes.
@@ -287,7 +299,7 @@ gh pr diff "$PR_REF"
 Local mode - gather diff material from the current checkout:
 
 ```bash
-git diff origin/master...HEAD       # committed-on-branch
+git diff "$LOCAL_BASE_REF"...HEAD   # committed-on-branch
 git diff                            # unstaged
 git diff --cached                   # staged
 git status --porcelain
@@ -295,22 +307,26 @@ git status --porcelain
 
 Classify files using `references/file-classification.md`, then load
 `references/test-case-design.md`. Start from the changed behavior and user risk,
-not the route. Load `references/route-finding.md` after cases exist so each case
-has a concrete place to run. If a behavior maps to many routes, choose 1-3
-high-signal routes and note the sampling choice in `run-notes.md`. If no route
-is clear after a short search, record a coverage gap instead of guessing.
+not the route. Load `references/expected-behavior.md` before finalizing expected
+outcomes: the diff is evidence, not the spec. Load `references/route-finding.md`
+after cases exist so each case has a concrete place to run. If a behavior maps
+to many routes, choose 1-3 high-signal routes and note the sampling choice in
+`run-notes.md`. If no route is clear after a short search, record a coverage gap
+instead of guessing.
 
 The test plan is a list of behavior-focused cases:
 
 ```json
 {
   "kind": "browser|visual|coverage_gap",
-  "changed_behavior": "user-visible behavior the diff could alter",
+  "diff_behavior": "user-visible behavior the diff appears to change",
   "risk": "what could regress for users",
+  "expected_behavior": "observable correct behavior, independently sourced",
+  "oracle_source": "base code, tests, product copy, docs, or user confirmation",
+  "oracle_confidence": "high|medium|unclear",
   "setup": "data, flag, state, viewport, or theme needed",
   "route": "/path",
   "action": "workflow to perform",
-  "expected": "observable pass condition",
   "evidence": "screenshot, GIF, console/network check, or gap note"
 }
 ```
@@ -363,6 +379,8 @@ For each test case:
 - Visual target: capture before/after screenshots and describe visible issues;
   do not claim pixel-perfect visual regression.
 - Coverage gap: report what could not be mapped or exercised.
+- Unclear expected behavior: follow `references/expected-behavior.md`; never
+  mark PASS solely because the observed UI matches the edited code.
 
 Evidence files live under `.qa-frontend/runs/<run-id>/` and stay uncommitted.
 Use filenames like `001-dashboard-load.png`, `002-save-click.png`, and
@@ -483,3 +501,6 @@ flox activate -- bin/hogli down -y
 
 If the user started the stack themselves, do not stop or restart it without
 explicit approval.
+
+If `hogli` auto-adds a local `phrocs` command to `hogli.yaml`, remove only that
+generated hunk during cleanup. Do not commit it as part of a QA run.
