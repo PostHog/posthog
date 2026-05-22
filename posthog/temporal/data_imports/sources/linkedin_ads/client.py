@@ -70,15 +70,20 @@ class LinkedinAdsDailyRateLimitError(Exception):
 
 def _parse_retry_after(response: Any) -> float | None:
     """Pull a numeric Retry-After (seconds) off the underlying requests.Response, if present.
-    LinkedIn sends integer seconds; HTTP-date forms are ignored (treated as absent)."""
+    LinkedIn sends integer seconds; HTTP-date forms and negative/garbage values are ignored
+    (treated as absent), so a malformed header falls back to exponential backoff rather than a
+    zero/negative sleep that would either hammer the API or crash tenacity's `time.sleep`."""
     headers = getattr(getattr(response, "response", None), "headers", None)
     if not headers:
         return None
     raw = headers.get("Retry-After")
+    if raw is None:
+        return None
     try:
-        return float(raw) if raw is not None else None
+        seconds = float(raw)
     except (TypeError, ValueError):
         return None
+    return seconds if seconds >= 0 else None
 
 
 def _is_daily_throttle(body: str | None) -> bool:

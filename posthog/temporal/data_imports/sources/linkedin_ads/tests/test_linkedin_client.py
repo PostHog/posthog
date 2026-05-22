@@ -465,6 +465,32 @@ class TestLinkedinAdsClient:
         # tenacity sleeps for the wait our strategy returns — the oversized Retry-After is clamped.
         mock_tenacity_sleep.assert_called_once_with(MAX_RETRY_AFTER_SECONDS)
 
+    @pytest.mark.parametrize("bad_retry_after", ["-1", "-30", "not-a-number"])
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_invalid_retry_after_falls_back_to_backoff(self, mock_restli_client, mock_sleep, bad_retry_after):
+        """A negative or non-numeric Retry-After is ignored (never produces a negative sleep that
+        would crash tenacity) — we fall back to exponential backoff, which sleeps a positive time."""
+        throttled = mock.MagicMock()
+        throttled.status_code = 429
+        throttled.response.text = "Resource level throttle MINUTE limit reached."
+        throttled.response.headers = {"Retry-After": bad_retry_after}
+
+        success = mock.MagicMock()
+        success.status_code = 200
+        success.elements = [{"id": "ok"}]
+
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = [throttled, success]
+
+        client = LinkedinAdsClient(self.access_token)
+        result = client.get_accounts()
+
+        assert result == [{"id": "ok"}]
+        # Whatever wait we chose, it must be non-negative (tenacity would raise otherwise).
+        assert mock_sleep.call_count == 1
+        assert mock_sleep.call_args[0][0] >= 0
+
     def test_retryable_error_is_exported(self):
         assert issubclass(LinkedinAdsRetryableError, Exception)
         assert issubclass(LinkedinAdsDailyRateLimitError, Exception)
