@@ -651,12 +651,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         colorIndexMap.set(key, colorIndexMap.size)
                     }
                 }
-                return steps.map((step, index) => ({
-                    ...step,
-                    seriesIndex: index,
-                    colorIndex: colorIndexMap.get(getFunnelDatasetKey(step)) ?? 0,
-                    id: index,
-                }))
+                return steps.map((step, index) => {
+                    // The funnels runner tags compare rows with `compare_label` but doesn't set
+                    // `compare: true`. `LineGraph.processDataset` requires both to dim the previous
+                    // line — normalize here so the previous-period series renders at 50% alpha.
+                    const stepWithCompare = step as typeof step & {
+                        compare_label?: 'current' | 'previous'
+                        compare?: boolean
+                    }
+                    return {
+                        ...step,
+                        seriesIndex: index,
+                        colorIndex: colorIndexMap.get(getFunnelDatasetKey(step)) ?? 0,
+                        id: index,
+                        compare: stepWithCompare.compare_label != null ? true : stepWithCompare.compare,
+                    }
+                })
             },
         ],
         getFunnelsColorToken: [

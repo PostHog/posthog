@@ -324,6 +324,8 @@ export const funnelResultTrends = {
 // 1. Add step "Pageview"
 // 2. Select graph type "Trends"
 // 3. Toggle "Compare to previous"
+// Note: the runner tags rows with `compare_label` but does not set `compare: true` —
+// indexedSteps normalizes that so LineGraph dims the previous-period series.
 export const funnelResultTrendsCompare = {
     result: [
         {
@@ -331,7 +333,6 @@ export const funnelResultTrendsCompare = {
             data: [74.12, 68.67, 71.05, 72.06, 69.33, 70.83, 72.37],
             days: ['2023-02-01', '2023-02-02', '2023-02-03', '2023-02-04', '2023-02-05', '2023-02-06', '2023-02-07'],
             labels: ['1-Feb-2023', '2-Feb-2023', '3-Feb-2023', '4-Feb-2023', '5-Feb-2023', '6-Feb-2023', '7-Feb-2023'],
-            compare: true,
             compare_label: 'current',
         },
         {
@@ -347,7 +348,6 @@ export const funnelResultTrendsCompare = {
                 '30-Jan-2023',
                 '31-Jan-2023',
             ],
-            compare: true,
             compare_label: 'previous',
         },
     ],
@@ -360,6 +360,8 @@ export const funnelResultTrendsCompare = {
 // 2. Select graph type "Trends"
 // 3. Break down by country
 // 4. Toggle "Compare to previous"
+// Note: the runner tags rows with `compare_label` but does not set `compare: true` —
+// indexedSteps normalizes that so LineGraph dims the previous-period series.
 export const funnelResultTrendsCompareWithBreakdown = {
     result: [
         {
@@ -368,7 +370,6 @@ export const funnelResultTrendsCompareWithBreakdown = {
             days: ['2023-02-01', '2023-02-02', '2023-02-03', '2023-02-04', '2023-02-05', '2023-02-06', '2023-02-07'],
             labels: ['1-Feb-2023', '2-Feb-2023', '3-Feb-2023', '4-Feb-2023', '5-Feb-2023', '6-Feb-2023', '7-Feb-2023'],
             breakdown_value: 'us',
-            compare: true,
             compare_label: 'current',
         },
         {
@@ -377,7 +378,6 @@ export const funnelResultTrendsCompareWithBreakdown = {
             days: ['2023-02-01', '2023-02-02', '2023-02-03', '2023-02-04', '2023-02-05', '2023-02-06', '2023-02-07'],
             labels: ['1-Feb-2023', '2-Feb-2023', '3-Feb-2023', '4-Feb-2023', '5-Feb-2023', '6-Feb-2023', '7-Feb-2023'],
             breakdown_value: 'uk',
-            compare: true,
             compare_label: 'current',
         },
         {
@@ -394,7 +394,6 @@ export const funnelResultTrendsCompareWithBreakdown = {
                 '31-Jan-2023',
             ],
             breakdown_value: 'us',
-            compare: true,
             compare_label: 'previous',
         },
         {
@@ -411,7 +410,6 @@ export const funnelResultTrendsCompareWithBreakdown = {
                 '31-Jan-2023',
             ],
             breakdown_value: 'uk',
-            compare: true,
             compare_label: 'previous',
         },
     ],

@@ -1352,6 +1352,10 @@ describe('funnelDataLogic', () => {
             expect(steps[1].seriesIndex).toBe(1)
             expect(steps[0].compare_label).toBe('current')
             expect(steps[1].compare_label).toBe('previous')
+            // The runner only sets `compare_label`; `indexedSteps` normalizes `compare: true`
+            // so LineGraph.processDataset dims the previous-period series.
+            expect(steps[0].compare).toBe(true)
+            expect(steps[1].compare).toBe(true)
         })
 
         it('pairs current and previous per breakdown value', async () => {
