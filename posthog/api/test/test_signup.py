@@ -2914,6 +2914,57 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
         self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
 
+    @pytest.mark.skip_on_multitenancy
+    def test_passkey_invite_signup_marks_credentials_reviewed(self):
+        # Self-created passkeys via invite signup count as already-acknowledged: otherwise
+        # the user lands on the credential review interstitial after signup and could revoke
+        # their only login credential.
+        from django.contrib.sessions.backends.db import SessionStore
+
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import (
+            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+            WEBAUTHN_SIGNUP_EMAIL_KEY,
+            WEBAUTHN_SIGNUP_USER_UUID_KEY,
+        )
+
+        invite: OrganizationInvite = OrganizationInvite.objects.create(
+            target_email="reviewed_invite_passkey@posthog.com", organization=self.organization
+        )
+
+        session = SessionStore()
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = "reviewed_invite_passkey@posthog.com"
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(uuid.uuid4())
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(b"reviewed-invite-credential-id"),
+            "public_key": bytes_to_base64url(b"reviewed-invite-public-key"),
+            "algorithm": -7,
+            "sign_count": 0,
+            "transports": ["internal"],
+        }
+        session.create()
+        self.client.cookies["sessionid"] = session.session_key or ""
+
+        response = self.client.post(
+            f"/api/signup/{invite.id}/",
+            {
+                "first_name": "Reviewed",
+                "last_name": "InvitePasskey",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email="reviewed_invite_passkey@posthog.com")
+        self.assertIsNotNone(user.credentials_reviewed_at)
+        # Confirm a passkey credential was actually minted — otherwise this test would pass
+        # vacuously if the passkey branch silently skipped credential creation.
+        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 1)
+
+        me_response = self.client.get("/api/users/@me/")
+        self.assertEqual(me_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(me_response.json()["requires_credential_review"])
+
 
 class TestSignupPrecheckPendingInvite(APIBaseTest):
     def setUp(self):
