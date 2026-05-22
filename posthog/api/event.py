@@ -415,7 +415,7 @@ class EventViewSet(
             capture_exception(ex)
             raise
 
-    def _get_people(self, query_result: list[dict], team: Team) -> dict[str, Person]:
+    def _get_people(self, query_result: list[dict], team: Team) -> "dict[str, Person]":
         distinct_ids = list({event["distinct_id"] for event in query_result})
         return get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
