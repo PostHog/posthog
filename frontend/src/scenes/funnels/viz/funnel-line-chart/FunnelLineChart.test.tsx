@@ -146,44 +146,36 @@ describe('FunnelLineChart', () => {
     })
 
     describe('annotations', () => {
-        it('renders an annotation badge when an annotation exists', async () => {
-            renderInsight({
-                query: buildFunnelsQuery(),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
-                mocks: {
-                    annotations: [
-                        buildAnnotation({
-                            scope: AnnotationScope.Project,
-                            content: 'Hedgehog spotted',
-                            date_marker: '2024-06-12T12:00:00Z',
-                        }),
-                    ],
-                },
-            })
+        it.each([
+            { inSharedMode: false, expectsBadges: true },
+            { inSharedMode: true, expectsBadges: false },
+        ])(
+            'renders annotation badges only when inSharedMode is false (inSharedMode=$inSharedMode)',
+            async ({ inSharedMode, expectsBadges }) => {
+                renderInsight({
+                    query: buildFunnelsQuery(),
+                    featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+                    inSharedMode,
+                    mocks: {
+                        annotations: [
+                            buildAnnotation({
+                                scope: AnnotationScope.Project,
+                                content: 'Hedgehog spotted',
+                                date_marker: '2024-06-12T12:00:00Z',
+                            }),
+                        ],
+                    },
+                })
 
-            await waitFor(() => {
-                expect(document.querySelectorAll('.AnnotationsBadge').length).toBeGreaterThan(0)
-            })
-        })
-
-        it('does not render annotations when inSharedMode is true', async () => {
-            renderInsight({
-                query: buildFunnelsQuery(),
-                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
-                inSharedMode: true,
-                mocks: {
-                    annotations: [
-                        buildAnnotation({
-                            scope: AnnotationScope.Project,
-                            content: 'Hidden in shared mode',
-                            date_marker: '2024-06-12T12:00:00Z',
-                        }),
-                    ],
-                },
-            })
-
-            await screen.findByRole('img', { name: /chart with/i })
-            expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
-        })
+                if (expectsBadges) {
+                    await waitFor(() => {
+                        expect(document.querySelectorAll('.AnnotationsBadge').length).toBeGreaterThan(0)
+                    })
+                } else {
+                    await screen.findByRole('img', { name: /chart with/i })
+                    expect(document.querySelectorAll('.AnnotationsBadge')).toHaveLength(0)
+                }
+            }
+        )
     })
 })
