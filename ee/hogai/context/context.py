@@ -459,26 +459,36 @@ class AssistantContextManager(AssistantContextMixin):
         return self._deduplicate_context_messages(state, prompts)
 
     def _get_voice_mode_prompt(self, ui_context: MaxUIContext | None) -> str | None:
-        """Return a voice-mode instruction when the user is asking via hands-free voice.
+        """Return a voice-mode instruction reflecting the current turn's modality.
 
-        The response is rendered to speech by ElevenLabs TTS, so the LLM needs to write
-        text that sounds natural when read aloud: numbers and currencies spelled out,
-        no markdown formatting, no inline code, no emoji.
+        Emits a tag whenever the frontend tells us explicitly whether voice mode is on
+        or off — both states need to survive in conversation history so a typed turn
+        that follows a spoken one cleanly overrides the earlier voice formatting rules
+        (otherwise the prior <voice_mode> instruction keeps steering the model toward
+        spelled-out numbers and no markdown).
         """
-        if not ui_context or not ui_context.voice_mode:
+        if ui_context is None or ui_context.voice_mode is None:
             return None
+        if ui_context.voice_mode:
+            return (
+                "<voice_mode>\n"
+                "The user is asking via hands-free voice mode. Your response will be read "
+                "aloud by text-to-speech. Write it so it sounds natural when spoken:\n"
+                "- Spell out all numbers and currencies in words "
+                '(e.g. "one hundred dollars from five thousand two hundred and thirty eight users", '
+                'not "$100 from 5,238 users").\n'
+                "- Spell out percentages as words "
+                '(e.g. "twelve point five percent", not "12.5%").\n'
+                "- No markdown — no headings, no bullets, no bold, no inline code or code blocks.\n"
+                "- No emoji.\n"
+                "- Use plain sentences. Keep it concise — assume the user can't see the screen.\n"
+                "</voice_mode>"
+            )
         return (
             "<voice_mode>\n"
-            "The user is asking via hands-free voice mode. Your response will be read "
-            "aloud by text-to-speech. Write it so it sounds natural when spoken:\n"
-            "- Spell out all numbers and currencies in words "
-            '(e.g. "one hundred dollars from five thousand two hundred and thirty eight users", '
-            'not "$100 from 5,238 users").\n'
-            "- Spell out percentages as words "
-            '(e.g. "twelve point five percent", not "12.5%").\n'
-            "- No markdown — no headings, no bullets, no bold, no inline code or code blocks.\n"
-            "- No emoji.\n"
-            "- Use plain sentences. Keep it concise — assume the user can't see the screen.\n"
+            "The user is no longer in hands-free voice mode for this turn. Ignore any "
+            "earlier voice-mode formatting instructions in this conversation: you may use "
+            "markdown, numerals, currency symbols, code blocks, and emoji as normal.\n"
             "</voice_mode>"
         )
 
