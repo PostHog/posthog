@@ -234,11 +234,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
                       investigation_inconclusive_action: 'notify',
                       insight: props.insightId,
                   } as AlertFormType),
-            errors: (alert: AlertType | AlertFormType) =>
+            errors: (alert: AlertFormType) =>
                 ({
                     name: !alert.name ? 'You need to give your alert a name' : undefined,
                     schedule_restriction: quietHoursFormError(alert.schedule_restriction),
-                }) as DeepPartialMap<AlertType | AlertFormType, ValidationErrorType>,
+                }) as DeepPartialMap<AlertFormType, ValidationErrorType>,
             submit: async (alert) => {
                 if (
                     blockSubmitWithoutHighFrequencyAlertsEntitlement(
@@ -336,7 +336,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     tryShowMCPHint('alerts.create')
                 }
 
-                return updatedAlert
+                return alertToFormType(updatedAlert, props.insightId)
             },
         },
     })),
