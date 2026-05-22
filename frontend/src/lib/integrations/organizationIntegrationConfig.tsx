@@ -10,7 +10,7 @@ export type OrganizationIntegrationConfig = {
 const INTEGRATION_CONFIGS: Partial<Record<IntegrationKind, OrganizationIntegrationConfig>> = {
     vercel: {
         getSuffix: (integration) => <VercelIntegrationSuffix integration={integration} />,
-        getDisplayName: (integration) => integration.config?.account?.name || integration.display_name,
+        getDisplayName: (integration) => integration.config?.account?.name || integration.display_name || 'Vercel',
     },
 }
 
