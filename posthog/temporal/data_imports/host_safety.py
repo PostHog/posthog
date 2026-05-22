@@ -119,17 +119,23 @@ def _is_host_safe(
         _log("allow", "post_connect_ip", None, [resolved_ip])
         return True, None
 
+    # `normalized` (not the raw `host`) is what the literal-IP checks vet —
+    # same as the `.postwh.com` / `localhost` checks above — so a trailing dot
+    # or surrounding whitespace can't slip an internal IP literal past the
+    # cheap no-DNS pre-flight (`127.0.0.1.` and `  127.0.0.1  ` both fail
+    # `ip_address` / `inet_aton` on the raw string and would otherwise pass).
     try:
-        if not _is_safe_public_ip(host):
+        if not _is_safe_public_ip(normalized):
             _log("block", "literal_ip", _INTERNAL_IP_ERROR)
             return False, _INTERNAL_IP_ERROR
     except ValueError:
-        # `host` isn't a canonical IP literal. It may still be an obfuscated
-        # IPv4 literal — decimal (2130706433), hex (0x7f000001) or short-form
-        # (127.1) — that `inet_aton` accepts. Canonicalize and re-check so the
-        # cheap no-DNS pre-flight isn't bypassed by an obfuscated internal IP.
+        # `normalized` isn't a canonical IP literal. It may still be an
+        # obfuscated IPv4 literal — decimal (2130706433), hex (0x7f000001) or
+        # short-form (127.1) — that `inet_aton` accepts. Canonicalize and
+        # re-check so the cheap no-DNS pre-flight isn't bypassed by an
+        # obfuscated internal IP.
         try:
-            canonical = socket.inet_ntoa(socket.inet_aton(host))
+            canonical = socket.inet_ntoa(socket.inet_aton(normalized))
         except OSError:
             canonical = None
         if canonical is not None and not _is_safe_public_ip(canonical):

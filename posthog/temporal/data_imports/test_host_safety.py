@@ -80,11 +80,14 @@ class TestIsHostSafe(SimpleTestCase):
             ("decimal", "2130706433"),  # 127.0.0.1
             ("hex", "0x7f000001"),  # 127.0.0.1
             ("short_form", "127.1"),  # 127.0.0.1
+            ("trailing_dot", "127.0.0.1."),
+            ("whitespace_padded", "  127.0.0.1  "),
         ]
     )
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_resolve_false_blocks_obfuscated_internal_ip(self, _name: str, host: str):
-        """The no-DNS pre-flight must not be bypassed by an obfuscated IPv4 literal."""
+        """The no-DNS pre-flight must not be bypassed by an obfuscated or
+        non-canonical (trailing-dot, whitespace-padded) internal IP literal."""
         valid, error = _is_host_safe(host, team_id=999, resolve=False)
         assert not valid
         assert error is not None
