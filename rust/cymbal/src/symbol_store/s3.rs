@@ -15,6 +15,7 @@ use crate::{
 pub trait BlobClient: Send + Sync {
     async fn get(&self, bucket: &str, key: &str) -> Result<Option<Bytes>, UnhandledError>;
     async fn put(&self, bucket: &str, key: &str, data: Bytes) -> Result<(), UnhandledError>;
+    async fn delete(&self, bucket: &str, key: &str) -> Result<(), UnhandledError>;
     async fn ping_bucket(&self, bucket: &str) -> Result<(), UnhandledError>;
 }
 
@@ -91,6 +92,18 @@ impl BlobClient for S3Impl {
             .label("outcome", if res.is_ok() { "success" } else { "failure" })
             .fin();
         res
+    }
+
+    #[allow(dead_code)]
+    async fn delete(&self, bucket: &str, key: &str) -> Result<(), UnhandledError> {
+        self.inner
+            .delete_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|e| S3Error::from(e).into())
+            .map(|_| ())
     }
 
     // Simply assert we can do a ListBucket operation, returning an error if not. This is
