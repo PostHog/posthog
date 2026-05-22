@@ -1212,6 +1212,24 @@ impl<'py> Emitter for PyEmitter<'py> {
             }
         }
         bound.setattr(name, value.obj.bind(self.py)).unwrap();
+        // Re-run `__post_init__` when setting a field that the dataclass validates there. JoinExpr.join_type / OrderExpr.order / JoinConstraint.constraint_type / SelectSetNode.set_operator each gate on a fixed allow-list in `__post_init__`, and the printer trusts that gate (it interpolates these fields verbatim into the emitted SQL). The JSON path always runs the check because it constructs via `cls(**kwargs)` with the field already populated; rust-py builds the node first and writes some of these fields post-construction via `set_field` (notably `join_type` via `chain_join`), so `__post_init__` only saw the unset default. Re-firing the validation here keeps the rust-py path defense-equivalent to the JSON path — any future grammar regression that produces a non-canonical token combination (e.g. `LEFT OUTER SEMI JOIN`) surfaces as a clean parser error instead of silently flowing to the printer.
+        if matches!(
+            name,
+            "join_type" | "order" | "constraint_type" | "set_operator"
+        ) {
+            if let Ok(post_init) = bound.getattr("__post_init__") {
+                if let Err(py_err) = post_init.call0() {
+                    // Surface only the Python exception's string so the user-facing message reads as a clean parser error (e.g. `Invalid join type: LEFT OUTER SEMI JOIN`) rather than a Rust PyErr debug repr. `run_py`'s `catch_unwind` converts this panic into a `ParseError::not_implemented` envelope.
+                    let msg = py_err
+                        .value_bound(self.py)
+                        .str()
+                        .ok()
+                        .and_then(|s| s.to_str().ok().map(str::to_string))
+                        .unwrap_or_else(|| "ast dataclass validation failed".to_string());
+                    panic!("{msg}");
+                }
+            }
+        }
     }
 }
 

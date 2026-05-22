@@ -2716,6 +2716,21 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
+        def test_grammar_quirk_invalid_join_type_rejected_on_all_backends(self):
+            # Defense-in-depth: `LEFT OUTER SEMI JOIN` slips through the rust
+            # parser's grammar checks (no rule forbids LEFT+OUTER+SEMI together)
+            # but isn't in `VALID_JOIN_TYPES`. cpp / rust-json reach the dataclass
+            # via `cls(**kwargs)`, so `JoinExpr.__post_init__` rejects it. rust-py
+            # used to set `join_type` via `setattr` post-construction, which
+            # bypassed the check; `PyEmitter::set_field` now re-runs
+            # `__post_init__` for `join_type` / `order` / `constraint_type` /
+            # `set_operator` so the printer's verbatim interpolation of these
+            # fields is backed by validation on every path.
+            q = "SELECT 1 FROM a LEFT OUTER SEMI JOIN b ON a.x = b.x"
+            with self.assertRaises((ValueError, ExposedHogQLError)) as cm:
+                self._select(q)
+            self.assertIn("Invalid join type", str(cm.exception))
+
         def test_deeply_nested_expression_does_not_stack_overflow(self):
             # Regression: ~4800-paren expressions used to SIGSEGV the worker
             # via stack OOM in the recursive-descent expression parser. Now

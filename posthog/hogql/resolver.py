@@ -67,6 +67,11 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "localtimestamp": ast.DateTimeType,
 }
 
+# Locked at import time: any divergence between the resolver's keyword catalog and `ast.Keyword.__post_init__`'s allowlist would either let the resolver emit `Keyword` nodes the dataclass rejects (raising at construction) or admit `Keyword` names the dataclass would refuse to surface through the printer. Either drift is a silent vector; the assertion forces the two sets to be edited together.
+assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
+    "POSTGRES_KEYWORD_TYPES and ast.VALID_KEYWORD_NAMES are out of sync — update both."
+)
+
 # Dialects that share Postgres's SQL surface (feature support, keyword set, syntax quirks).
 # DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
 # takes the PG code path in the resolver.

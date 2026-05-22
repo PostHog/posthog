@@ -97,7 +97,8 @@ class PostgresPrinter(BasePrinter):
         return self.visit(node.type)
 
     def visit_keyword(self, node: ast.Keyword):
-        if not node.name.isidentifier():
+        # `Keyword.__post_init__` already enforces the allowlist; re-check here as defense-in-depth (the dataclass field could be set via `setattr` after construction).
+        if node.name not in ast.VALID_KEYWORD_NAMES:
             raise QueryError(f"Invalid keyword name: {node.name}")
         return node.name.upper()
 

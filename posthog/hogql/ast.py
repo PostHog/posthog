@@ -29,6 +29,10 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
 
+# `OrderExpr.order` is interpolated verbatim by the SQL printer; keep the
+# allowlist as an importable constant so `__post_init__` and the printer
+# defense-in-depth check stay locked to one source.
+VALID_ORDER_DIRECTIONS = ("ASC", "DESC")
 VALID_JOIN_CONSTRAINT_TYPES = get_args(Literal["ON", "USING"])
 VALID_JOIN_TYPES = frozenset(
     {
@@ -897,7 +901,7 @@ class OrderExpr(Expr):
     with_fill: Optional[WithFillExpr] = None
 
     def __post_init__(self):
-        if self.order not in ("ASC", "DESC"):
+        if self.order not in VALID_ORDER_DIRECTIONS:
             raise ValueError(f"Invalid order direction: {self.order}")
 
 
@@ -948,9 +952,31 @@ class Constant(Expr):
     value: Any
 
 
+# `Keyword.name` is interpolated verbatim into the emitted SQL (the ClickHouse
+# printer returns `node.name` directly, the Postgres printer uppercases it).
+# Restrict to the exact set the resolver actually emits — the Postgres-family
+# time pseudo-functions from `POSTGRES_KEYWORD_TYPES`. A broader check (e.g.
+# `str.isidentifier()`) blocks injection-shaped strings but still admits any
+# Python-valid identifier, which would let a malicious AST construction emit
+# arbitrary ClickHouse keywords unquoted.
+VALID_KEYWORD_NAMES = frozenset(
+    {
+        "current_date",
+        "current_time",
+        "current_timestamp",
+        "localtime",
+        "localtimestamp",
+    }
+)
+
+
 @dataclass(kw_only=True, slots=True)
 class Keyword(Expr):
     name: str
+
+    def __post_init__(self):
+        if self.name not in VALID_KEYWORD_NAMES:
+            raise ValueError(f"Invalid Keyword name: {self.name!r}")
 
 
 @dataclass(kw_only=True, slots=True)
