@@ -1319,7 +1319,7 @@ class DashboardsViewSet(
         after_results = self._get_cached_results_for_analysis(dashboard, request)
 
         # Generate AI analysis
-        analysis = generate_refresh_analysis(before_results, after_results, self.team.id)
+        analysis = generate_refresh_analysis(before_results, after_results, dashboard)
 
         if not analysis:
             return Response({"result": "No significant changes detected in the dashboard data."})
