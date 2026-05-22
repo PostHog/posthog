@@ -10,12 +10,15 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.instance_settings import (
+    REDACTED,
+    UNSET,
+    _redact_if_secret,
     cast_str_to_desired_type,
     get_instance_setting as get_instance_setting_helper,
 )
 from posthog.models import ActivityLog
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
-from posthog.settings import CONSTANCE_CONFIG
+from posthog.settings import CONSTANCE_CONFIG, SECRET_SETTINGS, SETTINGS_ALLOWING_API_OVERRIDE
 
 
 class TestCastStrToDesiredType(unittest.TestCase):
@@ -50,6 +53,59 @@ class TestCastStrToDesiredType(unittest.TestCase):
     def test_cast_raises_on_bad_input(self, _name: str, value: object, target_type: type) -> None:
         with self.assertRaises((ValueError, TypeError)):
             cast_str_to_desired_type(value, target_type)
+
+
+class TestSecretSettingsCoverage(unittest.TestCase):
+    SENSITIVE_NAME_SUBSTRINGS = ("SECRET", "PASSWORD", "KEY", "TOKEN")
+
+    def test_api_overridable_keys_with_sensitive_names_are_in_secret_settings(self) -> None:
+        offenders = [
+            key
+            for key in SETTINGS_ALLOWING_API_OVERRIDE
+            if any(s in key for s in self.SENSITIVE_NAME_SUBSTRINGS) and key not in SECRET_SETTINGS
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            (
+                f"Keys named like credentials must be redacted. Add {offenders} to SECRET_SETTINGS "
+                f"in posthog/settings/dynamic_settings.py, or rename them if they are not actually secrets."
+            ),
+        )
+
+    def test_every_secret_setting_exists_in_constance_config(self) -> None:
+        missing = [key for key in SECRET_SETTINGS if key not in CONSTANCE_CONFIG]
+        self.assertEqual(
+            missing,
+            [],
+            f"SECRET_SETTINGS references unknown keys {missing}; CONSTANCE_CONFIG is the source of truth.",
+        )
+
+    @parameterized.expand(
+        [
+            ("none", None, UNSET),
+            ("empty_string", "", UNSET),
+            ("nonempty_string", "hunter2", REDACTED),
+            ("integer", 42, REDACTED),
+            ("boolean", False, REDACTED),
+        ]
+    )
+    def test_redact_if_secret_redacts_secret_keys(self, _name: str, value: object, expected: object) -> None:
+        self.assertEqual(_redact_if_secret("EMAIL_HOST_PASSWORD", value), expected)
+
+    @parameterized.expand(
+        [
+            ("string", "smtp.example.com"),
+            ("integer", 25),
+            ("boolean_true", True),
+            ("boolean_false", False),
+            ("empty_string", ""),
+            ("none", None),
+            ("list", [1, 2, 3]),
+        ]
+    )
+    def test_redact_if_secret_passes_through_non_secret_keys(self, _name: str, value: object) -> None:
+        self.assertEqual(_redact_if_secret("EMAIL_HOST", value), value)
 
 
 class TestInstanceSettings(APIBaseTest):
@@ -311,6 +367,48 @@ class TestInstanceSettings(APIBaseTest):
             self.assertNotIn(before, raw_detail)
         if after:
             self.assertNotIn(after, raw_detail)
+
+    @parameterized.expand([(key,) for key in SECRET_SETTINGS])
+    def test_every_secret_setting_is_redacted_on_update(self, key: str):
+        # End-to-end: PATCH every declared secret setting and assert the cleartext
+        # never lands in `posthog_activitylog.detail`. Catches the case where someone
+        # adds a new key to SECRET_SETTINGS but the redaction path silently misses it.
+        before_value = f"old-{key}-cleartext"
+        after_value = f"new-{key}-cleartext"
+        set_instance_setting(key, before_value)
+        initial_count = self._instance_setting_logs().count()
+
+        response = self.client.patch(f"/api/instance_settings/{key}", {"value": after_value})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        logs = self._instance_setting_logs()
+        self.assertEqual(logs.count(), initial_count + 1)
+
+        log = logs.order_by("-created_at").first()
+        assert log is not None
+        change = log.detail["changes"][0]
+        self.assertEqual(change["before"], "<redacted>")
+        self.assertEqual(change["after"], "<redacted>")
+
+        raw_detail = json.dumps(log.detail)
+        self.assertNotIn(before_value, raw_detail)
+        self.assertNotIn(after_value, raw_detail)
+
+    @parameterized.expand([(key,) for key in SECRET_SETTINGS])
+    def test_every_secret_setting_is_redacted_on_retrieve(self, key: str):
+        # GET every declared secret. When set, the cleartext must never appear in the
+        # response — only the "*****" placeholder. Catches regressions where a future
+        # refactor of get_instance_setting drops the masking for one (or all) keys.
+        cleartext = f"cleartext-for-{key}"
+        with override_instance_config(key, cleartext):
+            response = self.client.get(f"/api/instance_settings/{key}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        json_response = response.json()
+
+        self.assertEqual(json_response["key"], key)
+        self.assertTrue(json_response["is_secret"])
+        self.assertEqual(json_response["value"], "*****")
+        self.assertNotIn(cleartext, response.content.decode())
 
     @parameterized.expand(
         [
