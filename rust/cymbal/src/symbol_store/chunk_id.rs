@@ -89,12 +89,12 @@ pub async fn load_symbol_set_data(
 // use a 0 variant enum to indicate their data is only available in the presence of a chunk ID, and the underlying
 // fetcher simply asserts `unreachable!()`.
 //
-// Most of the "cleverness" of this layer is actually that the `Display` implementation of `OrChunkId`
-// which returns the chunk ID if it's set, rather than the inner T's display implementation, which means
-// that the saving and caching layers, or any other layers above this one that rely on Fetcher::Ref: ToString
-// will use the chunk ID as the symbol set key, rather than the inner T's reference - which makes things like
-// deleting all saved frame resolution results for any frame with a chunk ID that were seen before the chunk id
-// symbol data was uploaded, possible using the chunk id directly.
+// Layers above this one use two different ref-derivation traits:
+//   - Caching and concurrency use `Display`, which collapses to the chunk id when one is
+//     set — that's the right per-symbol-set identity for in-memory cache reuse.
+//   - The `Saving` persistence layer uses `SymbolSetKey` (defined below), which separates
+//     the lookup keys (chunk id first, then URL) from the save key (URL when present).
+//     See the trait's docs for why those are kept distinct.
 #[async_trait]
 impl<P> Fetcher for ChunkIdFetcher<P>
 where
@@ -198,9 +198,12 @@ where
     }
 }
 
-// The "cleverness" mentioned above - any time an OrChunkId is used as a symbol set reference,
-// and the chunk id is set, it will be used as the key when calling ToString, rather than the
-// inner T's display impl
+// `Display` is the "logical identity" of a ref — used by the in-memory caching and
+// concurrency layers (which want a stable per-symbol-set key) and by log lines.
+// For Both, we surface the chunk id because it's the more meaningful identifier across
+// frames carrying both a URL and a chunk id.
+//
+// The persistence layer (`Saving`) does NOT use this — see `SymbolSetKey` below for why.
 impl<R> Display for OrChunkId<R>
 where
     R: Display,
@@ -211,6 +214,61 @@ where
             OrChunkId::ChunkId(id) => write!(f, "{id}"),
             OrChunkId::Both { inner: _, id } => write!(f, "{id}"),
         }
+    }
+}
+
+// `SymbolSetKey` separates the DB lookup keys from the DB save key.
+//
+// The capture pipeline can receive a frame carrying both an attacker-controlled URL and an
+// arbitrary chunk id. Persisting that fetch under the chunk id namespace would let the
+// capture path squat rows that the authenticated upload API (which always keys by chunk id)
+// would later want to write — letting unauthenticated capture traffic pre-empt or be
+// confused with authenticated uploads.
+//
+// To prevent that, capture-driven writes are keyed by the URL the bytes were fetched from,
+// while upload-driven writes stay keyed by chunk id. The two writers can no longer target
+// the same row. Lookups still try the chunk id first (so an upload-API row keyed by chunk
+// id is preferred over a capture-cached row keyed by URL), then fall back to the URL.
+//
+// `save_ref` is `None` for a bare `ChunkId` ref — there is no URL to fetch from, so there's
+// nothing meaningful to persist, and we refuse to write a row keyed by a chunk id we never
+// fetched data for.
+pub trait SymbolSetKey {
+    fn lookup_refs(&self) -> Vec<String>;
+    fn save_ref(&self) -> Option<String>;
+}
+
+impl<R> SymbolSetKey for OrChunkId<R>
+where
+    R: Display,
+{
+    fn lookup_refs(&self) -> Vec<String> {
+        match self {
+            OrChunkId::Inner(inner) => vec![inner.to_string()],
+            OrChunkId::ChunkId(id) => vec![id.clone()],
+            OrChunkId::Both { inner, id } => vec![id.clone(), inner.to_string()],
+        }
+    }
+
+    fn save_ref(&self) -> Option<String> {
+        match self {
+            OrChunkId::Inner(inner) => Some(inner.to_string()),
+            OrChunkId::Both { inner, .. } => Some(inner.to_string()),
+            OrChunkId::ChunkId(_) => None,
+        }
+    }
+}
+
+// `Url` standalone behaves exactly like `OrChunkId::Inner(url)` — a single self-keyed ref
+// with no chunk-id alternative. Used directly by unit tests that wrap `SourcemapProvider`
+// in `Saving` without an intervening `ChunkIdFetcher`.
+impl SymbolSetKey for reqwest::Url {
+    fn lookup_refs(&self) -> Vec<String> {
+        vec![self.to_string()]
+    }
+
+    fn save_ref(&self) -> Option<String> {
+        Some(self.to_string())
     }
 }
 
