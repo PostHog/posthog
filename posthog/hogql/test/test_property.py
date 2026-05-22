@@ -38,8 +38,10 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENT
 from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
 
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ee.clickhouse.materialized_columns.columns import materialize
 

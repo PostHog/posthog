@@ -17,6 +17,7 @@ import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
+import { SelfReadOnlyNotice } from '~/layout/navigation/SelfReadOnlyNotice'
 
 import { sceneLogic } from './sceneLogic'
 
@@ -41,6 +42,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <Command />
                 <PostOnboardingModal />
                 <ImpersonationNotice />
+                <SelfReadOnlyNotice />
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
                     <div data-attr="experiments-dw-aa-test-variant" className="hidden" />
                 )}

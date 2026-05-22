@@ -11,6 +11,8 @@ common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-kafka = { path = "../common/kafka" }
 envconfig = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
 siphasher = { workspace = true }
 tokio = { workspace = true }

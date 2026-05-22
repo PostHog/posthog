@@ -48,7 +48,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.models import DataWarehouseTable
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
@@ -96,12 +95,14 @@ from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
-from products.data_warehouse.backend.models.external_table_definitions import external_tables
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.webhook_consumer.config import WebhookConsumerConfig
 from products.data_warehouse.backend.webhook_consumer.consumer import WebhookS3Sink
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_table_definitions import external_tables
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -648,34 +649,63 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                 )
 
 
+_STRIPE_JOB_INPUTS: dict[str, str | dict[str, str]] = {
+    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+    "stripe_account_id": "acct_id",
+}
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_balance_transactions(team, stripe_balance_transaction, mock_stripe_client):
+@pytest.mark.parametrize(
+    "schema_name,table_name,fixture_name",
+    [
+        (STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME, "stripe_balancetransaction", "stripe_balance_transaction"),
+        (STRIPE_CUSTOMER_RESOURCE_NAME, "stripe_customer", "stripe_customer"),
+        (STRIPE_INVOICE_RESOURCE_NAME, "stripe_invoice", "stripe_invoice"),
+        (STRIPE_PRICE_RESOURCE_NAME, "stripe_price", "stripe_price"),
+        (STRIPE_PRODUCT_RESOURCE_NAME, "stripe_product", "stripe_product"),
+        (STRIPE_SUBSCRIPTION_RESOURCE_NAME, "stripe_subscription", "stripe_subscription"),
+        (STRIPE_DISPUTE_RESOURCE_NAME, "stripe_dispute", "stripe_dispute"),
+        (STRIPE_PAYOUT_RESOURCE_NAME, "stripe_payout", "stripe_payout"),
+        (STRIPE_REFUND_RESOURCE_NAME, "stripe_refund", "stripe_refund"),
+        (STRIPE_INVOICE_ITEM_RESOURCE_NAME, "stripe_invoiceitem", "stripe_invoiceitem"),
+        (STRIPE_CREDIT_NOTE_RESOURCE_NAME, "stripe_creditnote", "stripe_credit_note"),
+        (
+            STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
+            "stripe_customerbalancetransaction",
+            "stripe_customer_balance_transaction",
+        ),
+        (
+            STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+            "stripe_customerpaymentmethod",
+            "stripe_customer_payment_method",
+        ),
+    ],
+)
+async def test_stripe_source(team, mock_stripe_client, request, schema_name, table_name, fixture_name):
+    fixture_data = request.getfixturevalue(fixture_name)
     await _run(
         team=team,
-        schema_name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
-        table_name="stripe_balancetransaction",
+        schema_name=schema_name,
+        table_name=table_name,
         source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_balance_transaction["data"],
+        job_inputs=_STRIPE_JOB_INPUTS,
+        mock_data_response=fixture_data["data"],
     )
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
+    # Kept standalone: also asserts that the revenue analytics first-sync
+    # notification flag gets set after a successful charges sync.
     await _run(
         team=team,
         schema_name=STRIPE_CHARGE_RESOURCE_NAME,
         table_name="stripe_charge",
         source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
+        job_inputs=_STRIPE_JOB_INPUTS,
         mock_data_response=stripe_charge["data"],
     )
 
@@ -684,378 +714,68 @@ async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
     assert team.revenue_analytics_config.notified_first_sync
 
 
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_customer(team, stripe_customer, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-        table_name="stripe_customer",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_customer["data"],
-    )
+_ZENDESK_JOB_INPUTS: dict[str, str | dict[str, str]] = {
+    "subdomain": "test",
+    "api_key": "test_api_key",
+    "email_address": "test@posthog.com",
+}
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_stripe_invoice(team, stripe_invoice, mock_stripe_client):
+@pytest.mark.parametrize(
+    "schema_name,table_name,fixture_name,fixture_data_key",
+    [
+        ("brands", "zendesk_brands", "zendesk_brands", "brands"),
+        ("organizations", "zendesk_organizations", "zendesk_organizations", "organizations"),
+        ("groups", "zendesk_groups", "zendesk_groups", "groups"),
+        ("sla_policies", "zendesk_sla_policies", "zendesk_sla_policies", "sla_policies"),
+        ("users", "zendesk_users", "zendesk_users", "users"),
+        ("ticket_fields", "zendesk_ticket_fields", "zendesk_ticket_fields", "ticket_fields"),
+        ("ticket_events", "zendesk_ticket_events", "zendesk_ticket_events", "ticket_events"),
+        ("tickets", "zendesk_tickets", "zendesk_tickets", "tickets"),
+        (
+            "ticket_metric_events",
+            "zendesk_ticket_metric_events",
+            "zendesk_ticket_metric_events",
+            "ticket_metric_events",
+        ),
+    ],
+)
+async def test_zendesk_source(team, request, schema_name, table_name, fixture_name, fixture_data_key):
+    fixture_data = request.getfixturevalue(fixture_name)
     await _run(
         team=team,
-        schema_name=STRIPE_INVOICE_RESOURCE_NAME,
-        table_name="stripe_invoice",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_invoice["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_price(team, stripe_price, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_PRICE_RESOURCE_NAME,
-        table_name="stripe_price",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_price["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_product(team, stripe_product, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_PRODUCT_RESOURCE_NAME,
-        table_name="stripe_product",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_product["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_subscription(team, stripe_subscription, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_SUBSCRIPTION_RESOURCE_NAME,
-        table_name="stripe_subscription",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_subscription["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_dispute(team, stripe_dispute, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_DISPUTE_RESOURCE_NAME,
-        table_name="stripe_dispute",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_dispute["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_payout(team, stripe_payout, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_PAYOUT_RESOURCE_NAME,
-        table_name="stripe_payout",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_payout["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_refund(team, stripe_refund, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_REFUND_RESOURCE_NAME,
-        table_name="stripe_refund",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_refund["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_invoiceitem(team, stripe_invoiceitem, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_INVOICE_ITEM_RESOURCE_NAME,
-        table_name="stripe_invoiceitem",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_invoiceitem["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_credit_note(team, stripe_credit_note, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_CREDIT_NOTE_RESOURCE_NAME,
-        table_name="stripe_creditnote",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_credit_note["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_customer_balance_transaction(team, stripe_customer_balance_transaction, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
-        table_name="stripe_customerbalancetransaction",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_customer_balance_transaction["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_stripe_customer_payment_method(team, stripe_customer_payment_method, mock_stripe_client):
-    await _run(
-        team=team,
-        schema_name=STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
-        table_name="stripe_customerpaymentmethod",
-        source_type="Stripe",
-        job_inputs={
-            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-            "stripe_account_id": "acct_id",
-        },
-        mock_data_response=stripe_customer_payment_method["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_brands(team, zendesk_brands):
-    await _run(
-        team=team,
-        schema_name="brands",
-        table_name="zendesk_brands",
+        schema_name=schema_name,
+        table_name=table_name,
         source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_brands["brands"],
+        job_inputs=_ZENDESK_JOB_INPUTS,
+        mock_data_response=fixture_data[fixture_data_key],
     )
+
+
+_PADDLE_JOB_INPUTS: dict[str, str | dict[str, str]] = {"paddle_api_key": "test_api_key"}
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_zendesk_organizations(team, zendesk_organizations):
+@pytest.mark.parametrize(
+    "schema_name,table_name,fixture_name",
+    [
+        ("customers", "paddle_customers", "paddle_customers"),
+        ("subscriptions", "paddle_subscriptions", "paddle_subscriptions"),
+    ],
+)
+async def test_paddle_source(team, mock_paddle_client, request, schema_name, table_name, fixture_name):
+    fixture_data = request.getfixturevalue(fixture_name)
+    mock_paddle_client(fixture_data["data"])
     await _run(
         team=team,
-        schema_name="organizations",
-        table_name="zendesk_organizations",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_organizations["organizations"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_groups(team, zendesk_groups):
-    await _run(
-        team=team,
-        schema_name="groups",
-        table_name="zendesk_groups",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_groups["groups"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_sla_policies(team, zendesk_sla_policies):
-    await _run(
-        team=team,
-        schema_name="sla_policies",
-        table_name="zendesk_sla_policies",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_sla_policies["sla_policies"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_users(team, zendesk_users):
-    await _run(
-        team=team,
-        schema_name="users",
-        table_name="zendesk_users",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_users["users"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_ticket_fields(team, zendesk_ticket_fields):
-    await _run(
-        team=team,
-        schema_name="ticket_fields",
-        table_name="zendesk_ticket_fields",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_ticket_fields["ticket_fields"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_ticket_events(team, zendesk_ticket_events):
-    await _run(
-        team=team,
-        schema_name="ticket_events",
-        table_name="zendesk_ticket_events",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_ticket_events["ticket_events"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_tickets(team, zendesk_tickets):
-    await _run(
-        team=team,
-        schema_name="tickets",
-        table_name="zendesk_tickets",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_tickets["tickets"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_zendesk_ticket_metric_events(team, zendesk_ticket_metric_events):
-    await _run(
-        team=team,
-        schema_name="ticket_metric_events",
-        table_name="zendesk_ticket_metric_events",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-        mock_data_response=zendesk_ticket_metric_events["ticket_metric_events"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_paddle_customers(team, paddle_customers, mock_paddle_client):
-    mock_paddle_client(paddle_customers["data"])
-
-    await _run(
-        team=team,
-        schema_name="customers",
-        table_name="paddle_customers",
+        schema_name=schema_name,
+        table_name=table_name,
         source_type="Paddle",
-        job_inputs={"paddle_api_key": "test_api_key"},
-        mock_data_response=paddle_customers["data"],
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_paddle_subscriptions(team, paddle_subscriptions, mock_paddle_client):
-    mock_paddle_client(paddle_subscriptions["data"])
-
-    await _run(
-        team=team,
-        schema_name="subscriptions",
-        table_name="paddle_subscriptions",
-        source_type="Paddle",
-        job_inputs={"paddle_api_key": "test_api_key"},
-        mock_data_response=paddle_subscriptions["data"],
+        job_inputs=_PADDLE_JOB_INPUTS,
+        mock_data_response=fixture_data["data"],
     )
 
 
@@ -1073,131 +793,32 @@ async def _run_customer_io(team, schema_name, table_name, mock_data, mock_custom
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_customer_io_broadcasts(team, customer_io_broadcasts, mock_customer_io_client):
+@pytest.mark.parametrize(
+    "schema_name,table_name,fixture_name,fixture_data_key",
+    [
+        ("broadcasts", "customerio_broadcasts", "customer_io_broadcasts", "broadcasts"),
+        ("campaigns", "customerio_campaigns", "customer_io_campaigns", "campaigns"),
+        ("collections", "customerio_collections", "customer_io_collections", "collections"),
+        ("newsletters", "customerio_newsletters", "customer_io_newsletters", "newsletters"),
+        ("object_types", "customerio_object_types", "customer_io_object_types", "types"),
+        ("segments", "customerio_segments", "customer_io_segments", "segments"),
+        ("sender_identities", "customerio_sender_identities", "customer_io_sender_identities", "sender_identities"),
+        ("snippets", "customerio_snippets", "customer_io_snippets", "snippets"),
+        ("subscription_topics", "customerio_subscription_topics", "customer_io_subscription_topics", "topics"),
+        ("transactional", "customerio_transactional", "customer_io_transactional", "messages"),
+    ],
+)
+async def test_customer_io_source(
+    team, mock_customer_io_client, request, schema_name, table_name, fixture_name, fixture_data_key
+):
+    fixture_data = request.getfixturevalue(fixture_name)
     await _run_customer_io(
         team,
-        schema_name="broadcasts",
-        table_name="customerio_broadcasts",
-        mock_data=customer_io_broadcasts["broadcasts"],
+        schema_name=schema_name,
+        table_name=table_name,
+        mock_data=fixture_data[fixture_data_key],
         mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_broadcasts,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_campaigns(team, customer_io_campaigns, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="campaigns",
-        table_name="customerio_campaigns",
-        mock_data=customer_io_campaigns["campaigns"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_campaigns,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_collections(team, customer_io_collections, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="collections",
-        table_name="customerio_collections",
-        mock_data=customer_io_collections["collections"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_collections,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_newsletters(team, customer_io_newsletters, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="newsletters",
-        table_name="customerio_newsletters",
-        mock_data=customer_io_newsletters["newsletters"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_newsletters,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_object_types(team, customer_io_object_types, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="object_types",
-        table_name="customerio_object_types",
-        mock_data=customer_io_object_types["types"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_object_types,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_segments(team, customer_io_segments, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="segments",
-        table_name="customerio_segments",
-        mock_data=customer_io_segments["segments"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_segments,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_sender_identities(team, customer_io_sender_identities, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="sender_identities",
-        table_name="customerio_sender_identities",
-        mock_data=customer_io_sender_identities["sender_identities"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_sender_identities,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_snippets(team, customer_io_snippets, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="snippets",
-        table_name="customerio_snippets",
-        mock_data=customer_io_snippets["snippets"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_snippets,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_subscription_topics(team, customer_io_subscription_topics, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="subscription_topics",
-        table_name="customerio_subscription_topics",
-        mock_data=customer_io_subscription_topics["topics"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_subscription_topics,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_customer_io_transactional(team, customer_io_transactional, mock_customer_io_client):
-    await _run_customer_io(
-        team,
-        schema_name="transactional",
-        table_name="customerio_transactional",
-        mock_data=customer_io_transactional["messages"],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=customer_io_transactional,
+        payload=fixture_data,
     )
 
 

@@ -7,7 +7,6 @@ import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
-from posthog.models import DataWarehouseTable
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
@@ -50,9 +49,10 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import Parque
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.utils import get_machine_id
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 PARQUET_COMPRESSION: ParquetCompression = "zstd"
 

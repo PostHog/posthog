@@ -2134,6 +2134,7 @@
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
          "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -2729,6 +2730,7 @@
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
          "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -4684,6 +4686,7 @@
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
          "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -9882,6 +9885,7 @@
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
          "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -10459,6 +10463,7 @@
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
          "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -15287,6 +15292,7 @@
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
          "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"
@@ -18376,6 +18382,7 @@
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
          "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
          "posthog_tag"."id",
          "posthog_tag"."name",
          "posthog_tag"."team_id"

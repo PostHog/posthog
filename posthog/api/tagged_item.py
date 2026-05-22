@@ -384,3 +384,29 @@ def handle_tagged_item_change(
                     ],
                 ),
             )
+
+        if related_object_type == "account" and related_object_id:
+            account_tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
+            log_activity(
+                organization_id=tagged_item.tag.team.organization_id
+                if tagged_item.tag and tagged_item.tag.team
+                else None,
+                team_id=tagged_item.tag.team_id if tagged_item.tag else None,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=related_object_id,
+                scope="Account",
+                activity="updated",
+                detail=Detail(
+                    name=related_object_name,
+                    changes=[
+                        Change(
+                            type="Account",
+                            field="tag",
+                            action=account_tag_action,
+                            after=tagged_item.tag.name if activity == "created" else None,
+                            before=tagged_item.tag.name if activity == "deleted" else None,
+                        )
+                    ],
+                ),
+            )

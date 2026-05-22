@@ -457,25 +457,19 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                     configs_updated += 1
 
             # A key assignment resolves any `provider_key_deleted` / `model_not_allowed` error on the
-            # dependent evals — the cause no longer applies once they're attached to a live key. Clear
-            # the error-reason marker regardless of whether the caller also asked to re-enable.
-            # `.update()` bypasses the model's invariant coercion in save(), so write the full trio.
-            Evaluation.objects.filter(
-                id__in=evaluation_ids,
-                team_id=self.team_id,
-                deleted=False,
-                status="error",
-            ).update(enabled=False, status="paused", status_reason=None)
+            # dependent evals — the cause no longer applies once they're attached to a live key.
+            for eval_obj in Evaluation.objects.filter(
+                id__in=evaluation_ids, team_id=self.team_id, deleted=False, status="error"
+            ):
+                eval_obj.set_status("paused")
 
             evals_enabled = 0
             if enable:
-                # Re-enabling via key assignment: transition paused-or-just-cleared evals to ACTIVE.
-                evals_enabled = Evaluation.objects.filter(
-                    id__in=evaluation_ids,
-                    team_id=self.team_id,
-                    deleted=False,
-                    enabled=False,
-                ).update(enabled=True, status="active", status_reason=None)
+                for eval_obj in Evaluation.objects.filter(
+                    id__in=evaluation_ids, team_id=self.team_id, deleted=False, enabled=False
+                ):
+                    eval_obj.set_status("active")
+                    evals_enabled += 1
 
         report_user_action(
             request.user,
@@ -525,12 +519,13 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 # Deleting the key leaves dependent evals unrunnable. Only promote currently-active
                 # evals to the error state — user-paused evals should stay paused (the user's intent
                 # is preserved), and already-errored evals don't need their existing reason overwritten.
-                Evaluation.objects.filter(
+                for eval_obj in Evaluation.objects.filter(
                     model_configuration_id__in=model_config_ids,
                     team_id=self.team_id,
                     deleted=False,
                     status="active",
-                ).update(enabled=False, status="error", status_reason="provider_key_deleted")
+                ):
+                    eval_obj.set_status("error", "provider_key_deleted")
                 return super().destroy(request, *args, **kwargs)
 
 

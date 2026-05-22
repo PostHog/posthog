@@ -7,7 +7,7 @@ from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourc
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     SourceConfig,
