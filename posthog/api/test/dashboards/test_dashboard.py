@@ -3094,6 +3094,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_analyze_refresh_result_with_empty_cache(self):
         # Simulate snapshot creating an empty cache entry (e.g. no cached results)
         # This happens when the dashboard has no data or no cached results before refresh
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
         cache_key = "dashboard_refresh_test_empty"
 
@@ -3113,6 +3115,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_analyze_refresh_result_with_missing_cache(self):
         # Simulate cache miss (expired or invalid key)
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
         cache_key = "dashboard_refresh_test_missing"
 

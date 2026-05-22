@@ -1268,12 +1268,23 @@ class DashboardsViewSet(
         response = Response(data)
         return response
 
+    def _validate_ai_feature_access(self) -> None:
+        """Validate that AI data processing is approved by the organization.
+
+        Mirrors `InsightsViewSet._validate_ai_feature_access`. The dashboard refresh
+        flow is `snapshot` -> `analyze_refresh_result`; both touch the same data the
+        OpenAI call ultimately sees, so both gate on this check.
+        """
+        if not self.organization.is_ai_data_processing_approved:
+            raise exceptions.PermissionDenied("AI data processing must be approved by your organization")
+
     @action(methods=["POST"], detail=True)
     def snapshot(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Snapshot the current dashboard state (from cache) for AI analysis.
         Returns a cache_key representing the 'before' state, to be used with analyze_refresh_result.
         """
+        self._validate_ai_feature_access()
         dashboard = self.get_object()
 
         input_serializer = DashboardSnapshotSerializer(data=request.data)
@@ -1301,6 +1312,8 @@ class DashboardsViewSet(
         Generate AI analysis comparing before/after dashboard refresh.
         Expects cache_key in request body pointing to the stored 'before' state.
         """
+        self._validate_ai_feature_access()
+
         dashboard = self.get_object()
         cache_key = request.data.get("cache_key")
 
@@ -1319,7 +1332,7 @@ class DashboardsViewSet(
         after_results = self._get_cached_results_for_analysis(dashboard, request)
 
         # Generate AI analysis
-        analysis = generate_refresh_analysis(before_results, after_results, self.team.id)
+        analysis = generate_refresh_analysis(before_results, after_results, dashboard)
 
         if not analysis:
             return Response({"result": "No significant changes detected in the dashboard data."})
