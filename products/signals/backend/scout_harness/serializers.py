@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
+from posthog.schema import Severity
+
 # --- Run history -----------------------------------------------------------
 
 
@@ -190,11 +192,11 @@ class EmitFindingRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Optional one-line hypothesis the finding tests.",
     )
-    severity = serializers.CharField(
+    severity = serializers.ChoiceField(
+        choices=[(s.value, s.value) for s in Severity],
         required=False,
         allow_null=True,
-        allow_blank=True,
-        help_text="Optional severity tag (`P0`-`P4`) — informational only.",
+        help_text="Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.",
     )
     dedupe_keys = serializers.ListField(
         child=serializers.CharField(),

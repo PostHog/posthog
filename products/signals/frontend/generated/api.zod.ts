@@ -65,7 +65,17 @@ export const SignalsScoutRunsFindingsCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutRunsFindingsCreateBodyEvidenceMax)
             .describe('Citations supporting the finding. Capped at 20 entries.'),
         hypothesis: zod.string().nullish().describe('Optional one-line hypothesis the finding tests.'),
-        severity: zod.string().nullish().describe('Optional severity tag (`P0`-`P4`) — informational only.'),
+        severity: zod
+            .union([
+                zod
+                    .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+                    .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
+            ),
         dedupe_keys: zod
             .array(zod.string())
             .optional()

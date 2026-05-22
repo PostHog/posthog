@@ -528,6 +528,9 @@ SPECTACULAR_SETTINGS = {
         # Same-value collisions: identical choice sets appear on fields with different names.
         # href_matching, text_matching, url_matching on ActionStep all share the same choices.
         "ActionStepMatchingEnum": ["contains", "regex", "exact"],
+        # `severity` field on the Signals scout emit endpoint shares the field name with
+        # other unrelated `severity` enums in the schema; force a stable name.
+        "SignalsScoutSeverityEnum": ["P0", "P1", "P2", "P3", "P4"],
         # effective_restriction_level and effective_privilege_level are SerializerMethodFields
         # returning Dashboard.RestrictionLevel/PrivilegeLevel (IntegerChoices).  Since they
         # go through the type-hint path (no x-spec-enum-id), they hash as (value, value).
