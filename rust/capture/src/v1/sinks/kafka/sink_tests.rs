@@ -884,16 +884,30 @@ async fn health_refreshed_on_partial_success() {
 }
 
 // ---------------------------------------------------------------------------
-// Partition key: None vs Some
+// Partition key: null-key policy × destination
 // ---------------------------------------------------------------------------
 
+#[rstest]
+#[case::analytics_main(Destination::AnalyticsMain, true, None)]
+#[case::overflow(Destination::Overflow, true, None)]
+#[case::dlq(Destination::Dlq, true, Some("phc_test:user-1"))]
+#[case::historical(Destination::AnalyticsHistorical, true, Some("phc_test:user-1"))]
+#[case::custom(Destination::Custom("my_topic".into()), true, Some("phc_test:user-1"))]
+#[case::analytics_main_no_disable(Destination::AnalyticsMain, false, Some("phc_test:user-1"))]
 #[tokio::test]
-async fn force_disable_person_processing_nulls_key_for_analytics_main() {
+async fn force_disable_null_key_policy(
+    #[case] destination: Destination,
+    #[case] force_disable: bool,
+    #[case] expected_key: Option<&str>,
+) {
     let h = TestHarness::new();
     let mut headers = empty_captured_headers();
-    headers.force_disable_person_processing = Some(true);
+    if force_disable {
+        headers.force_disable_person_processing = Some(true);
+    }
     let event = FakeEvent::ok("evt-1")
-        .with_destination(Destination::AnalyticsMain)
+        .with_partition_key(Some("phc_test:user-1"))
+        .with_destination(destination)
         .with_headers(headers);
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
 
@@ -902,10 +916,7 @@ async fn force_disable_person_processing_nulls_key_for_analytics_main() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].outcome(), Outcome::Success);
     h.producer.with_records(|records| {
-        assert_eq!(
-            records[0].key, None,
-            "force_disable + AnalyticsMain must null the partition key"
-        );
+        assert_eq!(records[0].key.as_deref(), expected_key);
     });
 }
 
