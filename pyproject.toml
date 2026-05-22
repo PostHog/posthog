@@ -268,6 +268,7 @@ dev = [
     "types-tzlocal~=5.1.0.1",
     "pywatchman~=3.0",
     "watchdog==5.0.3",
+    "testcontainers[mysql]~=4.14",
     # Developer CLI
     "hogli",
 ]
