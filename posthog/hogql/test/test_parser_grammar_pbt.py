@@ -243,6 +243,107 @@ def _apply_jiggle(query: str) -> st.SearchStrategy[str]:
 
 
 # ---------------------------------------------------------------------------
+# Mutation layer
+# ---------------------------------------------------------------------------
+#
+# The grammar generator only emits *valid* surface (it walks valid
+# productions). To exercise the rejection path — "does the candidate
+# refuse what the oracle refuses?" — we perturb a valid query into a
+# near-miss invalid one. Each operator targets a distinct syntactic
+# failure mode. A mutation that happens to land on still-valid syntax
+# is harmless: it flows through the normal acceptance-parity check.
+#
+# Tokens are crude space-split units (the generator emits space-separated
+# tokens), which keeps the perturbations cheap and the invalid forms
+# realistic (a stray `)` mid-query, a doubled keyword, a truncated tail).
+
+# Reserved keywords / operators that are hostile when injected into an
+# arbitrary position — they break the surrounding production without
+# being silently absorbable as identifiers.
+_INJECTION_TOKENS = (
+    "select",
+    "from",
+    "where",
+    "group",
+    "by",
+    "join",
+    "union",
+    "(",
+    ")",
+    "[",
+    "]",
+    ",",
+    "*",
+    "+",
+    "::",
+    "->",
+    "between",
+    "and",
+)
+
+
+@st.composite
+def _mutate_once(draw: Any, query: str) -> str:
+    """Apply a single perturbation. Returns the query unchanged when it's
+    too short to perturb meaningfully."""
+    tokens = [t for t in query.split(" ") if t != ""]
+    if len(tokens) < 2:
+        return query
+
+    op = draw(
+        st.sampled_from(
+            [
+                "delete",  # drop a token — unbalances counts, strands operators
+                "duplicate",  # repeat a token — e.g. `SELECT SELECT`
+                "swap",  # reorder adjacent tokens
+                "inject",  # splice in a hostile keyword/operator
+                "drop_paren",  # remove one `(` or `)` to unbalance nesting
+                "truncate",  # cut the tail — incomplete production
+            ]
+        )
+    )
+
+    if op == "delete":
+        i = draw(st.integers(min_value=0, max_value=len(tokens) - 1))
+        del tokens[i]
+    elif op == "duplicate":
+        i = draw(st.integers(min_value=0, max_value=len(tokens) - 1))
+        tokens.insert(i, tokens[i])
+    elif op == "swap":
+        i = draw(st.integers(min_value=0, max_value=len(tokens) - 2))
+        tokens[i], tokens[i + 1] = tokens[i + 1], tokens[i]
+    elif op == "inject":
+        i = draw(st.integers(min_value=0, max_value=len(tokens)))
+        tokens.insert(i, draw(st.sampled_from(_INJECTION_TOKENS)))
+    elif op == "drop_paren":
+        paren_positions = [i for i, t in enumerate(tokens) if t in ("(", ")", "[", "]")]
+        if not paren_positions:
+            return query
+        del tokens[draw(st.sampled_from(paren_positions))]
+    elif op == "truncate":
+        cut = draw(st.integers(min_value=1, max_value=len(tokens) - 1))
+        tokens = tokens[:cut]
+
+    return " ".join(tokens)
+
+
+def _apply_mutation(query: str) -> st.SearchStrategy[str]:
+    """Perturb a valid query into a near-miss invalid one (1-3 stacked
+    mutations). Used by the diagnostic's ``--mutate`` mode to flood the
+    rejection path: most outputs are invalid, so the two-sided contract
+    (oracle rejects -> candidate must reject) gets exercised heavily."""
+
+    @st.composite
+    def _inner(draw: Any) -> str:
+        result = query
+        for _ in range(draw(st.integers(min_value=1, max_value=3))):
+            result = draw(_mutate_once(result))
+        return result
+
+    return _inner()
+
+
+# ---------------------------------------------------------------------------
 # Differential parsing harness
 # ---------------------------------------------------------------------------
 

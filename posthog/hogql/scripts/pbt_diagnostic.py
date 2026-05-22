@@ -81,7 +81,7 @@ from posthog.hogql.scripts._diagnostic_common import (
     _shape_for,
 )
 from posthog.hogql.test._generated_grammar_strategies import expr_strategy, program_strategy, select_strategy
-from posthog.hogql.test.test_parser_grammar_pbt import _PBT_SETTINGS, _apply_jiggle
+from posthog.hogql.test.test_parser_grammar_pbt import _PBT_SETTINGS, _apply_jiggle, _apply_mutation
 
 # ---------------------------------------------------------------------------
 # Auto-shrinker
@@ -194,6 +194,16 @@ def main() -> int:
     parser.add_argument("--rule", choices=("expr", "select", "program"), default="expr")
     parser.add_argument("--jiggle", action="store_true")
     parser.add_argument(
+        "--mutate",
+        action="store_true",
+        help=(
+            "Perturb each generated query into a near-miss invalid one "
+            "(delete/duplicate/swap/inject/unbalance/truncate tokens). Floods "
+            "the rejection path so the two-sided contract gets exercised — most "
+            "outputs are queries the oracle rejects, surfacing any the candidate accepts."
+        ),
+    )
+    parser.add_argument(
         "--accepted-only",
         action="store_true",
         help=(
@@ -273,7 +283,11 @@ def main() -> int:
         "select": select_strategy,
         "program": program_strategy,
     }[args.rule]()
-    strategy = base_strategy.flatmap(_apply_jiggle) if args.jiggle else base_strategy
+    strategy = base_strategy
+    if args.jiggle:
+        strategy = strategy.flatmap(_apply_jiggle)
+    if args.mutate:
+        strategy = strategy.flatmap(_apply_mutation)
 
     # Stream JSONL during the run rather than collecting everything in
     # memory. Opened in the try-block below so the strategy
