@@ -10,6 +10,8 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationConditionSet } from '../types'
 
+const roundToTwoDP = (value: number): number => Math.round(value * 100) / 100
+
 export function EvaluationTriggers(): JSX.Element {
     const { evaluation } = useValues(llmEvaluationLogic)
     const { setTriggerConditions } = useActions(llmEvaluationLogic)
@@ -106,7 +108,7 @@ export function EvaluationTriggers(): JSX.Element {
                                         value={percentageValue}
                                         onChange={(value) =>
                                             updateConditionSet(index, {
-                                                rollout_percentage: Math.round(value * 100) / 100,
+                                                rollout_percentage: roundToTwoDP(value),
                                             })
                                         }
                                         min={0.1}
@@ -120,7 +122,7 @@ export function EvaluationTriggers(): JSX.Element {
                                         value={percentageValue}
                                         onChange={(value) =>
                                             updateConditionSet(index, {
-                                                rollout_percentage: Math.round((Number(value) || 0) * 100) / 100,
+                                                rollout_percentage: roundToTwoDP(Number(value) || 0),
                                             })
                                         }
                                         min={0.1}
