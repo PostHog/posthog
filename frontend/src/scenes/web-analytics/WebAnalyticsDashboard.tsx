@@ -183,13 +183,15 @@ const QueryTileItemV2 = ({
                 showIntervalSelect={showIntervalSelect}
                 tileId={tile.tileId}
                 headerSlot={
-                    <WebTileHeader
-                        tileId={tile.tileId}
-                        title={title}
-                        docs={docs}
-                        openInsight={openInsight}
-                        overflowMenuItems={overflowMenuItems}
-                    />
+                    tile.tileId === TileId.OVERVIEW ? undefined : (
+                        <WebTileHeader
+                            tileId={tile.tileId}
+                            title={title}
+                            docs={docs}
+                            openInsight={openInsight}
+                            overflowMenuItems={overflowMenuItems}
+                        />
+                    )
                 }
             />
         </div>
