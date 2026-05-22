@@ -498,15 +498,19 @@ export type SignalsReportsListParams = {
 
 export type SignalsScoutRunsListParams = {
     /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     */
+    date_to?: string
+    /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1
      * @maximum 100
      */
     limit?: number
-    /**
-     * ISO-8601 lower bound on `created_at`. Use to scope to a recent window.
-     */
-    since?: string
     /**
      * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
      * @minLength 1

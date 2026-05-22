@@ -72,21 +72,27 @@ class RunDetail:
 def search_recent_runs(
     *,
     team_id: int,
-    since: datetime | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
     text: str | None = None,
     limit: int = DEFAULT_RUN_SEARCH_LIMIT,
 ) -> list[RunSummary]:
     """Return the most recent runs for a team, newest first.
 
-    `since` filters on `created_at` (the bridge-row insert timestamp, which fires
-    right after `MultiTurnSession.start`). `text` is a case-insensitive substring
-    match on the agent's end-of-run `summary` — the primary dedupe path for runs
-    that didn't emit findings. Results are capped at `MAX_RUN_SEARCH_LIMIT`.
+    `date_from` / `date_to` are a half-open time window on `created_at` (the
+    bridge-row insert timestamp, which fires right after `MultiTurnSession.start`)
+    — `created_at >= date_from` and `created_at < date_to`. Pass `date_to` to walk
+    backwards past the result cap on subsequent calls (cursor-style iteration).
+    `text` is a case-insensitive substring match on the agent's end-of-run
+    `summary` — the primary dedupe path for runs that didn't emit findings.
+    Results are capped at `MAX_RUN_SEARCH_LIMIT`.
     """
     clamped_limit = _clamp_limit(limit)
     qs = SignalScoutRun.objects.filter(team_id=team_id).select_related("task_run").order_by("-created_at")
-    if since is not None:
-        qs = qs.filter(created_at__gte=since)
+    if date_from is not None:
+        qs = qs.filter(created_at__gte=date_from)
+    if date_to is not None:
+        qs = qs.filter(created_at__lt=date_to)
     if text:
         qs = qs.filter(summary__icontains=text)
     qs = qs[:clamped_limit]

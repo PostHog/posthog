@@ -67,9 +67,17 @@ class SignalScoutRunDetailSerializer(SignalScoutRunSummarySerializer):
 class SearchRecentRunsQuerySerializer(serializers.Serializer):
     """Query parameters for `search-recent-runs`."""
 
-    since = serializers.DateTimeField(
+    date_from = serializers.DateTimeField(
         required=False,
-        help_text="ISO-8601 lower bound on `created_at`. Use to scope to a recent window.",
+        help_text="ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result "
+            "cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run "
+            "from the prior page)."
+        ),
     )
     text = serializers.CharField(
         required=False,

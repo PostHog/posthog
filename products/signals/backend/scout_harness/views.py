@@ -88,15 +88,24 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Return the most recent `SignalScoutRun` summaries for this project, newest first. "
             "Used by the headless scout to dedupe against work other runs already covered. ILIKE "
-            "matches on `summary`; pass `since` to scope to a recent window. Results capped at 100."
+            "matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` "
+            "(`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the "
+            "100-row cap. Results capped at 100."
         ),
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
-        since = validated.get("since")
+        date_from = validated.get("date_from")
+        date_to = validated.get("date_to")
         text = validated.get("text") or None
         limit = validated.get("limit") or 20
-        rows = search_recent_runs(team_id=self.team_id, since=since, text=text, limit=limit)
+        rows = search_recent_runs(
+            team_id=self.team_id,
+            date_from=date_from,
+            date_to=date_to,
+            text=text,
+            limit=limit,
+        )
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
 
     @extend_schema(

@@ -81,15 +81,34 @@ class TestSearchRecentRuns(BaseTest):
 
         assert [r.run_id for r in results] == [str(second.id), str(first.id)]
 
-    def test_filters_by_since(self) -> None:
+    def test_filters_by_date_from(self) -> None:
         old = _create_run(self.team)
         recent = _create_run(self.team)
         SignalScoutRun.objects.filter(id=old.id).update(created_at=timezone.now() - timedelta(days=10))
         SignalScoutRun.objects.filter(id=recent.id).update(created_at=timezone.now() - timedelta(hours=1))
 
-        hits = search_recent_runs(team_id=self.team.id, since=timezone.now() - timedelta(days=1))
+        hits = search_recent_runs(team_id=self.team.id, date_from=timezone.now() - timedelta(days=1))
 
         assert [r.run_id for r in hits] == [str(recent.id)]
+
+    def test_filters_by_date_to_for_cursor_iteration(self) -> None:
+        """`date_to` is the upper bound the scout uses to walk past the result cap.
+
+        Set it to the `created_at` of the oldest result on the prior page and the
+        next call returns the *next* older slice.
+        """
+        old = _create_run(self.team)
+        middle = _create_run(self.team)
+        recent = _create_run(self.team)
+        SignalScoutRun.objects.filter(id=old.id).update(created_at=timezone.now() - timedelta(days=14))
+        middle_ts = timezone.now() - timedelta(days=7)
+        SignalScoutRun.objects.filter(id=middle.id).update(created_at=middle_ts)
+        SignalScoutRun.objects.filter(id=recent.id).update(created_at=timezone.now() - timedelta(hours=1))
+
+        # Strict `<` bound: middle's own timestamp is excluded, only `old` is returned.
+        hits = search_recent_runs(team_id=self.team.id, date_to=middle_ts)
+
+        assert [r.run_id for r in hits] == [str(old.id)]
 
     def test_does_not_leak_runs_from_other_teams(self) -> None:
         from posthog.models import Team

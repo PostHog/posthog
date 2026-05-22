@@ -56,7 +56,7 @@ export const SignalsReportsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`; pass `since` to scope to a recent window. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const SignalsScoutRunsListParams = /* @__PURE__ */ zod.object({
@@ -70,16 +70,22 @@ export const SignalsScoutRunsListParams = /* @__PURE__ */ zod.object({
 export const signalsScoutRunsListQueryLimitMax = 100
 
 export const SignalsScoutRunsListQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).'
+        ),
     limit: zod
         .number()
         .min(1)
         .max(signalsScoutRunsListQueryLimitMax)
         .optional()
         .describe('Max rows to return (default 20, hard cap 100).'),
-    since: zod.iso
-        .datetime({ offset: true })
-        .optional()
-        .describe('ISO-8601 lower bound on `created_at`. Use to scope to a recent window.'),
     text: zod
         .string()
         .min(1)
