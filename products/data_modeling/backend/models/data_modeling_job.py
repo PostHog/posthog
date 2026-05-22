@@ -21,7 +21,7 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     Engine = DataModelingJobEngine
 
     team = models.ForeignKey("posthog.Team", on_delete=models.SET_NULL, null=True)
-    saved_query = models.ForeignKey("data_warehouse.DataWarehouseSavedQuery", on_delete=models.SET_NULL, null=True)
+    saved_query = models.ForeignKey("data_modeling.DataWarehouseSavedQuery", on_delete=models.SET_NULL, null=True)
     status = models.CharField(max_length=400, choices=Status, default=Status.RUNNING)
     engine = models.CharField(max_length=20, choices=Engine, default=Engine.CLICKHOUSE)
     rows_materialized = models.IntegerField(default=0)

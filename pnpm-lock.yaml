@@ -625,6 +625,9 @@ importers:
       '@posthog/products-data-modeling':
         specifier: workspace:*
         version: link:../products/data_modeling
+      '@posthog/products-data-tools':
+        specifier: workspace:*
+        version: link:../products/data_tools
       '@posthog/products-data-warehouse':
         specifier: workspace:*
         version: link:../products/data_warehouse
@@ -724,6 +727,9 @@ importers:
       '@posthog/products-visual-review':
         specifier: workspace:*
         version: link:../products/visual_review
+      '@posthog/products-warehouse-sources':
+        specifier: workspace:*
+        version: link:../products/warehouse_sources
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
@@ -2298,6 +2304,8 @@ importers:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
 
+  products/data_tools: {}
+
   products/data_warehouse:
     dependencies:
       '@posthog/icons':
@@ -3424,6 +3432,8 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+
+  products/warehouse_sources: {}
 
   products/warehouse_sources_queue: {}
 

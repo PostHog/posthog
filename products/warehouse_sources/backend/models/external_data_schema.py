@@ -52,8 +52,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     name = models.CharField(max_length=400)
     label = models.CharField(max_length=400, null=True, blank=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    source = models.ForeignKey("data_warehouse.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
-    table = models.ForeignKey("data_warehouse.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    source = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
+    table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     should_sync = models.BooleanField(default=True)
     latest_error = models.TextField(
         null=True, blank=True, help_text="The latest error that occurred when syncing this schema."

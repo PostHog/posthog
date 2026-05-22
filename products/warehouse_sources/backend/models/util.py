@@ -22,7 +22,8 @@ from posthog.hogql.database.models import (
 )
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class DatabaseFieldFactory(Protocol):
@@ -32,7 +33,8 @@ class DatabaseFieldFactory(Protocol):
 
 
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
-    from products.data_warehouse.backend.models import DataWarehouseSavedQuery, DataWarehouseTable
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
     table_names = [name]
     if "." in name:
@@ -87,7 +89,7 @@ def validate_source_prefix(prefix: str | None) -> tuple[bool, str]:
 
 def remove_named_tuples(type):
     """Remove named tuples from query"""
-    from products.data_warehouse.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
+    from products.warehouse_sources.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
 
     tokenified_type = re.split(r"(\W)", type)
     filtered_tokens = []

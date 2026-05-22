@@ -23,7 +23,7 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 
-from products.data_warehouse.backend.models.util import (
+from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
@@ -92,7 +92,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
 
     # In case the saved query is materialized to a table, this will be set
-    table = models.ForeignKey("data_warehouse.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
     # The name of the view at the time of soft deletion
@@ -100,14 +100,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     # If this view is managed by a DataWarehouseManagedViewSet, this will be set
     managed_viewset = models.ForeignKey(
-        "data_warehouse.DataWarehouseManagedViewSet",
+        "data_modeling.DataWarehouseManagedViewSet",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="saved_queries",
     )
     folder = models.ForeignKey(
-        "data_warehouse.DataWarehouseSavedQueryFolder",
+        "data_tools.DataWarehouseSavedQueryFolder",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -149,7 +149,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return self.name.split(".")
 
     def setup_model_paths(self):
-        from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+        from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 
         if not DataWarehouseModelPath.objects.filter(team=self.team, saved_query=self).exists():
             DataWarehouseModelPath.objects.create_from_saved_query(self)
@@ -192,8 +192,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             self.save(update_fields=["is_materialized"])
 
     def revert_materialization(self):
+        from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
         from products.data_warehouse.backend.data_load.saved_query_service import delete_saved_query_schedule
-        from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
 
         self.sync_frequency_interval = None
         self.last_run_at = None
@@ -329,7 +329,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         columns = self.columns or {}
         fields: dict[str, FieldOrTable] = {}
 
-        from products.data_warehouse.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
+        from products.warehouse_sources.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
 
         for column, type in columns.items():
             # Support for 'old' style columns

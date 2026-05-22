@@ -20,7 +20,7 @@ from posthog.hogql.database.models import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 
@@ -289,7 +289,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         #
         # If the types here prove to be wrong, we can easily run the following script to update the types:
         # ```python
-        # from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+        # from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
         # for viewset in DataWarehouseManagedViewSet.objects.iterator():
         #     viewset.sync_views()
         # ```

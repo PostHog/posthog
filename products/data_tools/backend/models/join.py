@@ -13,8 +13,6 @@ from posthog.hogql.errors import ResolutionError
 
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
 
 class DataWarehouseViewLink(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Meta:
@@ -35,7 +33,7 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     table = models.CharField(max_length=128)
     from_join_key = models.CharField(max_length=400)
-    saved_query = models.ForeignKey(DataWarehouseSavedQuery, on_delete=models.CASCADE)
+    saved_query = models.ForeignKey("data_modeling.DataWarehouseSavedQuery", on_delete=models.CASCADE)
     to_join_key = models.CharField(max_length=400)
 
 
