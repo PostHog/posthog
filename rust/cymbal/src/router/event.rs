@@ -20,7 +20,7 @@ use crate::{
         ERRORS, PROCESS_BATCH_EVENTS, PROCESS_IN_FLIGHT, PROCESS_REQUESTS_TOTAL,
         PROCESS_REQUEST_DURATION_SECONDS,
     },
-    stages::http_pipeline::HttpEventPipeline,
+    stages::http_pipeline::HttpProcessPipeline,
     types::{batch::Batch, event::AnyEvent, stage::Stage},
 };
 
@@ -221,9 +221,9 @@ pub async fn process_events(
 
     let slow_log_threshold_ms = ctx.config.process_slow_log_threshold_ms;
     // Legacy /process flow: no shared batch cache (each call gets its own
-    // per-batch cache inside LinkingStage) and no spike-alert accumulator
-    // (spike detection runs inline at the end of this batch).
-    let pipeline = HttpEventPipeline::new(ctx.clone(), None, None);
+    // per-batch cache inside LinkingStage) and spike detection runs inline
+    // at the end of this batch.
+    let pipeline = HttpProcessPipeline::new(ctx.clone());
     let input = Batch::from(events);
     let output = pipeline.process(input).await;
 

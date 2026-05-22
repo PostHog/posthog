@@ -8,7 +8,7 @@ use crate::{
     issue_resolution::Issue,
     metric_consts::HTTP_EXCEPTION_PIPELINE,
     stages::{
-        alerting::SpikeAlertAccumulator,
+        alerting::AlertingStage,
         pipeline::{create_pre_post_processing, ExceptionEventPipeline},
     },
     types::{
@@ -24,34 +24,31 @@ use crate::{
 /// endpoint-specific response adaptation. The original event is kept alongside
 /// the processing result so callers can either enrich it (legacy `/process`) or
 /// map the handled error directly into a routing decision (`/v2/resolve`).
-pub struct HttpEventProcessingResult {
+pub struct HttpResolveResult {
     pub original_event: AnyEvent,
     pub result: Result<ExceptionProperties, EventError>,
 }
 
-pub struct HttpEventProcessingPipeline {
+pub struct HttpResolvePipeline {
     app_context: Arc<AppContext>,
     batch_issue_cache: Option<Cache<(TeamId, String), Issue>>,
-    spike_alert_accumulator: Option<Arc<SpikeAlertAccumulator>>,
 }
 
-impl HttpEventProcessingPipeline {
+impl HttpResolvePipeline {
     pub fn new(
         app_context: Arc<AppContext>,
         batch_issue_cache: Option<Cache<(TeamId, String), Issue>>,
-        spike_alert_accumulator: Option<Arc<SpikeAlertAccumulator>>,
     ) -> Self {
         Self {
             app_context,
             batch_issue_cache,
-            spike_alert_accumulator,
         }
     }
 }
 
-impl Stage for HttpEventProcessingPipeline {
+impl Stage for HttpResolvePipeline {
     type Input = AnyEvent;
-    type Output = HttpEventProcessingResult;
+    type Output = HttpResolveResult;
 
     fn name(&self) -> &'static str {
         HTTP_EXCEPTION_PIPELINE
@@ -61,11 +58,8 @@ impl Stage for HttpEventProcessingPipeline {
         let (preprocess, postprocess) =
             create_pre_post_processing(batch.len(), Box::new(preserve_result));
 
-        let exception_pipeline = ExceptionEventPipeline::new(
-            self.app_context.clone(),
-            self.batch_issue_cache,
-            self.spike_alert_accumulator,
-        );
+        let exception_pipeline =
+            ExceptionEventPipeline::new(self.app_context.clone(), self.batch_issue_cache);
 
         batch
             .apply_stage(preprocess)
@@ -77,37 +71,17 @@ impl Stage for HttpEventProcessingPipeline {
     }
 }
 
-pub struct HttpEventPipeline {
+pub struct HttpProcessPipeline {
     app_context: Arc<AppContext>,
-    /// Optional shared per-batch issue cache, threaded down to `LinkingStage`.
-    /// `/v2/resolve` creates one cache per request and supplies it on every
-    /// per-event invocation so they share fingerprint -> Issue dedup across
-    /// the request. `None` for the legacy `/process` flow (linking stage
-    /// allocates a fresh cache).
-    batch_issue_cache: Option<Cache<(TeamId, String), Issue>>,
-    /// Optional accumulator for deferring spike-alert work. `/v2/resolve`
-    /// creates one accumulator per request, threads it through every
-    /// per-event invocation, and runs spike detection once at end-of-request
-    /// with the merged inputs. `None` for the legacy `/process` flow
-    /// (alerting stage calls Redis inline).
-    spike_alert_accumulator: Option<Arc<SpikeAlertAccumulator>>,
 }
 
-impl HttpEventPipeline {
-    pub fn new(
-        app_context: Arc<AppContext>,
-        batch_issue_cache: Option<Cache<(TeamId, String), Issue>>,
-        spike_alert_accumulator: Option<Arc<SpikeAlertAccumulator>>,
-    ) -> Self {
-        Self {
-            app_context,
-            batch_issue_cache,
-            spike_alert_accumulator,
-        }
+impl HttpProcessPipeline {
+    pub fn new(app_context: Arc<AppContext>) -> Self {
+        Self { app_context }
     }
 }
 
-impl Stage for HttpEventPipeline {
+impl Stage for HttpProcessPipeline {
     type Input = AnyEvent;
     type Output = Option<AnyEvent>;
 
@@ -116,13 +90,19 @@ impl Stage for HttpEventPipeline {
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
-        let processing_pipeline = HttpEventProcessingPipeline::new(
-            self.app_context,
-            self.batch_issue_cache,
-            self.spike_alert_accumulator,
-        );
+        let (preprocess, postprocess) =
+            create_pre_post_processing(batch.len(), Box::new(preserve_result));
+        let exception_pipeline = ExceptionEventPipeline::new(self.app_context.clone(), None);
 
-        let processed = processing_pipeline.process(batch).await?;
+        let processed = batch
+            .apply_stage(preprocess)
+            .await?
+            .apply_stage(exception_pipeline)
+            .await?
+            .apply_stage(AlertingStage::new(self.app_context))
+            .await?
+            .apply_stage(postprocess)
+            .await?;
         let events = processed
             .into_iter()
             .map(handle_legacy_result)
@@ -134,16 +114,14 @@ impl Stage for HttpEventPipeline {
 fn preserve_result(
     original: AnyEvent,
     processed: Result<ExceptionProperties, EventError>,
-) -> Result<HttpEventProcessingResult, UnhandledError> {
-    Ok(HttpEventProcessingResult {
+) -> Result<HttpResolveResult, UnhandledError> {
+    Ok(HttpResolveResult {
         original_event: original,
         result: processed,
     })
 }
 
-fn handle_legacy_result(
-    result: HttpEventProcessingResult,
-) -> Result<Option<AnyEvent>, UnhandledError> {
+fn handle_legacy_result(result: HttpResolveResult) -> Result<Option<AnyEvent>, UnhandledError> {
     let mut original = result.original_event;
     let item: Option<AnyEvent> = match result.result {
         Ok(props) => {

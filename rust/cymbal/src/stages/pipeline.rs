@@ -9,7 +9,6 @@ use crate::{
     issue_resolution::Issue,
     metric_consts::EXCEPTION_PROCESSING_PIPELINE,
     stages::{
-        alerting::{AlertingStage, SpikeAlertAccumulator},
         grouping::GroupingStage,
         linking::LinkingStage,
         post_processing::{PostProcessingHandler, PostProcessingStage},
@@ -24,6 +23,10 @@ use crate::{
     },
 };
 
+/// Core exception processing pipeline shared by HTTP endpoints. It resolves,
+/// groups, and links events while preserving handled `EventError`s in-band.
+/// Endpoint-specific pipelines decide how to adapt results and when to run
+/// alerting.
 pub struct ExceptionEventPipeline {
     app_context: Arc<AppContext>,
     /// Optional override for `LinkingStage::batch_issue_cache`. When `Some`,
@@ -32,24 +35,16 @@ pub struct ExceptionEventPipeline {
     /// per request and threads it through so every per-event invocation
     /// shares the same fingerprint -> Issue dedup.
     batch_issue_cache: Option<Cache<(TeamId, String), Issue>>,
-    /// Optional accumulator for deferring spike-alert work. When `Some`, the
-    /// alerting stage records events into shared state instead of calling
-    /// Redis; the `/v2` handler runs spike detection once at end-of-request
-    /// with the merged inputs. When `None`, spike detection runs inline at
-    /// the end of this batch (legacy `/process` behaviour).
-    spike_alert_accumulator: Option<Arc<SpikeAlertAccumulator>>,
 }
 
 impl ExceptionEventPipeline {
     pub fn new(
         app_context: Arc<AppContext>,
         batch_issue_cache: Option<Cache<(TeamId, String), Issue>>,
-        spike_alert_accumulator: Option<Arc<SpikeAlertAccumulator>>,
     ) -> Self {
         Self {
             app_context,
             batch_issue_cache,
-            spike_alert_accumulator,
         }
     }
 }
@@ -77,12 +72,6 @@ impl Stage for ExceptionEventPipeline {
             .await?
             // Link events to issues and suppress
             .apply_stage(LinkingStage::new(&self.app_context, self.batch_issue_cache))
-            .await?
-            // Send internal events for alerting (deferred if accumulator is Some)
-            .apply_stage(AlertingStage::new(
-                self.app_context,
-                self.spike_alert_accumulator,
-            ))
             .await
     }
 }

@@ -15,10 +15,10 @@
 //! - **Batch issue cache**: a per-request `Cache<(team_id, fingerprint), Issue>`
 //!   that all per-event pipeline invocations share, so events with the same
 //!   fingerprint within a request resolve their issue exactly once.
-//! - **Spike-alert accumulator**: a shared accumulator that collects
-//!   `(issue, props)` from every per-event invocation and runs spike
-//!   detection **once** at end-of-request with the merged batch — avoiding
-//!   the per-event Redis call amplification we'd otherwise see.
+//! - **Spike-alert inputs**: each per-event invocation returns any alerting
+//!   candidate it produced, and the handler runs spike detection **once** at
+//!   end-of-request with the merged batch — avoiding per-event Redis call
+//!   amplification without hidden shared state.
 
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
@@ -40,7 +40,7 @@ use crate::{
         event_disposition_processor::PerEventDispositionProcessor,
     },
     stages::{
-        alerting::{spike_detection::do_spike_detection, SpikeAlertAccumulator},
+        alerting::{run_spike_detection_for_inputs, SpikeAlertInput},
         linking::LinkingStage,
     },
     types::{event::AnyEvent, event_disposition::EventDisposition},
@@ -89,19 +89,22 @@ pub async fn resolve_events_v2(
         started_at + Duration::from_millis(ctx.config.process_request_deadline_ms);
     let per_event_budget = Duration::from_millis(ctx.config.process_per_event_deadline_ms);
 
-    // Per-request shared state. Both pieces are threaded into every per-event
-    // pipeline invocation so the per-event isolation we get for free doesn't
-    // come at the cost of losing the legacy flow's cross-event optimizations.
+    // Per-request issue cache is threaded into every per-event pipeline
+    // invocation so per-event isolation doesn't lose the legacy flow's
+    // cross-event issue lookup deduplication.
     let shared_batch_issue_cache = LinkingStage::default_batch_issue_cache();
-    let spike_alert_accumulator = SpikeAlertAccumulator::new();
 
-    let processor = PerEventDispositionProcessor::new(
-        ctx.clone(),
-        per_event_budget,
-        shared_batch_issue_cache,
-        spike_alert_accumulator.clone(),
-    );
-    let dispositions = processor.process_batch(events, request_deadline).await;
+    let processor =
+        PerEventDispositionProcessor::new(ctx.clone(), per_event_budget, shared_batch_issue_cache);
+    let resolutions = processor.process_batch(events, request_deadline).await;
+    let spike_alert_inputs = resolutions
+        .iter()
+        .filter_map(|resolution| resolution.spike_alert_input.clone())
+        .collect::<Vec<_>>();
+    let dispositions = resolutions
+        .into_iter()
+        .map(|resolution| resolution.disposition)
+        .collect::<Vec<_>>();
     let disposition_counts = DispositionCounts::from_dispositions(&dispositions);
 
     // Run spike detection once with the merged inputs from every per-event
@@ -113,7 +116,7 @@ pub async fn resolve_events_v2(
     // request so the client retries (matching the legacy `/process` flow).
     // Silently dropping a failure here would mean a customer-visible spike
     // alert never fires — worse than re-symbolicating a batch on retry.
-    if let Err(err) = run_deferred_spike_detection(ctx.clone(), spike_alert_accumulator).await {
+    if let Err(err) = run_deferred_spike_detection(ctx.clone(), spike_alert_inputs).await {
         let duration_ms = started_at.elapsed().as_millis() as u64;
         metrics::counter!(
             PROCESS_REQUESTS_TOTAL,
@@ -191,18 +194,9 @@ pub async fn resolve_events_v2(
 /// effect; silently dropping a failure here would mean missed alerts.
 async fn run_deferred_spike_detection(
     ctx: Arc<AppContext>,
-    accumulator: Arc<SpikeAlertAccumulator>,
+    inputs: Vec<SpikeAlertInput>,
 ) -> Result<(), crate::error::UnhandledError> {
-    let state = accumulator.take().await;
-    if state.issues.is_empty() {
-        return Ok(());
-    }
-
-    let counts = state.issues_count_by_id();
-    let props = state.issue_props_by_id.clone();
-    let by_id = state.issues_by_id();
-
-    do_spike_detection(ctx, by_id, props, counts).await
+    run_spike_detection_for_inputs(ctx, inputs).await
 }
 
 fn record_disposition_metrics(dispositions: &[EventDisposition]) {
@@ -242,55 +236,5 @@ impl DispositionCounts {
                 counts
             },
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::issue_resolution::{Issue, IssueStatus};
-    use crate::stages::alerting::SpikeAlertAccumulatorState;
-    use uuid::Uuid;
-
-    /// The deferred spike-detection inputs are aggregated by
-    /// `SpikeAlertAccumulatorState`. This is the unit that the request
-    /// handler hands to `do_spike_detection` once at end-of-request, so
-    /// its shape is what makes the deferred Redis call single-shot.
-    #[test]
-    fn accumulator_state_counts_and_maps_issues() {
-        let issue_alpha = Issue {
-            id: Uuid::from_u128(1),
-            team_id: 7,
-            status: IssueStatus::Active,
-            name: None,
-            description: None,
-            created_at: chrono::Utc::now(),
-        };
-        let issue_beta = Issue {
-            id: Uuid::from_u128(2),
-            team_id: 7,
-            status: IssueStatus::Active,
-            name: None,
-            description: None,
-            created_at: chrono::Utc::now(),
-        };
-
-        // Simulate 3 per-event pipelines contributing: 2 for alpha, 1 for
-        // beta. In production this is built up by `record_batch` calls
-        // from each AlertingStage invocation; for the aggregation unit
-        // test we construct the state directly.
-        let state = SpikeAlertAccumulatorState {
-            issues: vec![issue_alpha.clone(), issue_alpha.clone(), issue_beta.clone()],
-            issue_props_by_id: Default::default(),
-        };
-
-        let counts = state.issues_count_by_id();
-        assert_eq!(counts.get(&issue_alpha.id), Some(&2));
-        assert_eq!(counts.get(&issue_beta.id), Some(&1));
-        assert_eq!(counts.len(), 2);
-
-        let by_id = state.issues_by_id();
-        assert_eq!(by_id.len(), 2);
-        assert!(by_id.contains_key(&issue_alpha.id));
-        assert!(by_id.contains_key(&issue_beta.id));
     }
 }

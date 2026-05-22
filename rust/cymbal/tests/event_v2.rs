@@ -340,7 +340,8 @@ async fn invalid_json_returns_400(db: PgPool) {
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn spike_detection_runs_once_per_request(db: PgPool) {
-    // With the shared `SpikeAlertAccumulator`, a request with N events
+    // `/v2/resolve` collects spike-alert inputs from each isolated event
+    // and runs spike detection once per request, so a request with N events
     // produces exactly one batched Redis call for issue buckets, not N.
     // We assert this by inspecting the `MockRedisClient` call log after
     // posting 5 events.
@@ -362,7 +363,7 @@ async fn spike_detection_runs_once_per_request(db: PgPool) {
 
     assert!(status.is_success());
 
-    // The accumulator should have produced one batched
+    // Request-level spike detection should produce one batched
     // `batch_incr_by_expire_nx` call per request (covering both the issue
     // bucket and team bucket increments), not five.
     //

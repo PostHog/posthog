@@ -14,8 +14,8 @@ use crate::{
         DISPOSITION_REQUEST_DEADLINE_EXHAUSTED_TOTAL,
     },
     stages::{
-        alerting::SpikeAlertAccumulator,
-        http_pipeline::{HttpEventProcessingPipeline, HttpEventProcessingResult},
+        alerting::SpikeAlertInput,
+        http_pipeline::{HttpResolvePipeline, HttpResolveResult},
     },
     types::{
         batch::Batch,
@@ -26,6 +26,20 @@ use crate::{
     },
 };
 
+pub(super) struct EventResolution {
+    pub disposition: EventDisposition,
+    pub spike_alert_input: Option<SpikeAlertInput>,
+}
+
+impl EventResolution {
+    fn without_alert(disposition: EventDisposition) -> Self {
+        Self {
+            disposition,
+            spike_alert_input: None,
+        }
+    }
+}
+
 /// Runs per-event Cymbal processing for `/v2/resolve` and converts each raw
 /// result into an `EventDisposition`. The struct owns the request-scoped shared
 /// state that must be reused across all isolated `Batch<1>` invocations.
@@ -34,7 +48,6 @@ pub(super) struct PerEventDispositionProcessor {
     ctx: Arc<AppContext>,
     per_event_budget: Duration,
     batch_issue_cache: Cache<(TeamId, String), Issue>,
-    spike_alert_accumulator: Arc<SpikeAlertAccumulator>,
 }
 
 impl PerEventDispositionProcessor {
@@ -42,13 +55,11 @@ impl PerEventDispositionProcessor {
         ctx: Arc<AppContext>,
         per_event_budget: Duration,
         batch_issue_cache: Cache<(TeamId, String), Issue>,
-        spike_alert_accumulator: Arc<SpikeAlertAccumulator>,
     ) -> Self {
         Self {
             ctx,
             per_event_budget,
             batch_issue_cache,
-            spike_alert_accumulator,
         }
     }
 
@@ -65,7 +76,7 @@ impl PerEventDispositionProcessor {
         &self,
         events: Vec<AnyEvent>,
         request_deadline: Instant,
-    ) -> Vec<EventDisposition> {
+    ) -> Vec<EventResolution> {
         let event_count = events.len();
         if event_count == 0 {
             return Vec::new();
@@ -81,7 +92,8 @@ impl PerEventDispositionProcessor {
         .buffered(concurrency_limit);
         tokio::pin!(futures);
 
-        let mut dispositions: Vec<Option<EventDisposition>> = vec![None; event_count];
+        let mut resolutions: Vec<Option<EventResolution>> =
+            std::iter::repeat_with(|| None).take(event_count).collect();
         let mut remaining = event_count;
         let deadline_sleep = tokio::time::sleep_until(request_deadline);
         tokio::pin!(deadline_sleep);
@@ -90,9 +102,9 @@ impl PerEventDispositionProcessor {
             tokio::select! {
                 item = futures.next() => {
                     match item {
-                        Some((index, disposition)) => {
-                            if dispositions[index].is_none() {
-                                dispositions[index] = Some(disposition);
+                        Some((index, resolution)) => {
+                            if resolutions[index].is_none() {
+                                resolutions[index] = Some(resolution);
                                 remaining -= 1;
                             }
                         }
@@ -116,16 +128,20 @@ impl PerEventDispositionProcessor {
             );
         }
 
-        dispositions
+        resolutions
             .into_iter()
-            .map(|disposition| disposition.unwrap_or_else(deadline_exceeded_disposition))
+            .map(|resolution| {
+                resolution.unwrap_or_else(|| {
+                    EventResolution::without_alert(deadline_exceeded_disposition())
+                })
+            })
             .collect()
     }
 
     /// Run the core processing pipeline on a single event (as a `Batch<1>`)
     /// with the per-event deadline and panic catching applied, then convert
     /// the result to an `EventDisposition`.
-    async fn process_one(&self, event: AnyEvent, deadline: Instant) -> EventDisposition {
+    async fn process_one(&self, event: AnyEvent, deadline: Instant) -> EventResolution {
         let started = Instant::now();
         let remaining = match deadline.checked_duration_since(started) {
             Some(d) if !d.is_zero() => d,
@@ -135,7 +151,7 @@ impl PerEventDispositionProcessor {
                 // is tighter than the per-event budget for the last events
                 // in the batch.
                 metrics::counter!(DISPOSITION_DEADLINE_FALLBACK_TOTAL).increment(1);
-                return deadline_exceeded_disposition();
+                return EventResolution::without_alert(deadline_exceeded_disposition());
             }
         };
 
@@ -143,14 +159,9 @@ impl PerEventDispositionProcessor {
         // Cloning the moka cache is a refcount bump on the underlying
         // storage — every per-event invocation sees the same data.
         let batch_issue_cache = self.batch_issue_cache.clone();
-        let spike_alert_accumulator = self.spike_alert_accumulator.clone();
 
         let work = async move {
-            let pipeline = HttpEventProcessingPipeline::new(
-                ctx,
-                Some(batch_issue_cache),
-                Some(spike_alert_accumulator),
-            );
+            let pipeline = HttpResolvePipeline::new(ctx, Some(batch_issue_cache));
             let input = Batch::from(vec![event]);
             pipeline.process(input).await
         };
@@ -159,16 +170,18 @@ impl PerEventDispositionProcessor {
         // panic doesn't taint another's disposition.
         let panic_safe = AssertUnwindSafe(work).catch_unwind();
 
-        let disposition = match tokio::time::timeout(remaining, panic_safe).await {
+        let resolution = match tokio::time::timeout(remaining, panic_safe).await {
             Ok(Ok(Ok(batch))) => match disposition_from_pipeline_output(batch) {
-                Ok(disposition) => disposition,
-                Err(unhandled) => EventDisposition::from_unhandled_error(unhandled),
+                Ok(resolution) => resolution,
+                Err(unhandled) => EventResolution::without_alert(
+                    EventDisposition::from_unhandled_error(unhandled),
+                ),
             },
             Ok(Ok(Err(unhandled))) => {
                 // UnhandledError from the pipeline — classify as retry per the
                 // contract. Cymbal does not assert the event is broken; we
                 // don't know whether the failure is event-caused or cymbal-side.
-                EventDisposition::from_unhandled_error(unhandled)
+                EventResolution::without_alert(EventDisposition::from_unhandled_error(unhandled))
             }
             Ok(Err(panic_payload)) => {
                 warn!(
@@ -176,21 +189,21 @@ impl PerEventDispositionProcessor {
                     panic_message(&panic_payload)
                 );
                 metrics::counter!(DISPOSITION_PANIC_TOTAL).increment(1);
-                EventDisposition::Retry {
+                EventResolution::without_alert(EventDisposition::Retry {
                     reason: RetryReason::UnhandledProcessingError,
                     retry_after_ms: None,
-                }
+                })
             }
             Err(_elapsed) => {
                 metrics::counter!(DISPOSITION_DEADLINE_FALLBACK_TOTAL).increment(1);
-                deadline_exceeded_disposition()
+                EventResolution::without_alert(deadline_exceeded_disposition())
             }
         };
 
-        metrics::histogram!(DISPOSITION_DURATION_SECONDS, "action" => disposition.action_label())
+        metrics::histogram!(DISPOSITION_DURATION_SECONDS, "action" => resolution.disposition.action_label())
             .record(started.elapsed().as_secs_f64());
 
-        disposition
+        resolution
     }
 }
 
@@ -198,43 +211,54 @@ impl PerEventDispositionProcessor {
 /// Per-event isolation guarantees the input was a `Batch<1>`, so the output
 /// must also be length 1.
 fn disposition_from_pipeline_output(
-    batch: Batch<HttpEventProcessingResult>,
-) -> Result<EventDisposition, crate::error::UnhandledError> {
+    batch: Batch<HttpResolveResult>,
+) -> Result<EventResolution, crate::error::UnhandledError> {
     let mut iter = Vec::from(batch).into_iter();
     match iter.next() {
         Some(result) => disposition_from_processing_result(result),
         // The pipeline returned an empty batch for a Batch<1> input.
         // This is a contract violation by the pipeline itself; treat as
         // retry so the pipeline can be debugged without dropping events.
-        None => Ok(EventDisposition::Retry {
+        None => Ok(EventResolution::without_alert(EventDisposition::Retry {
             reason: RetryReason::UnhandledProcessingError,
             retry_after_ms: None,
-        }),
+        })),
     }
 }
 
 fn disposition_from_processing_result(
-    processing_result: HttpEventProcessingResult,
-) -> Result<EventDisposition, crate::error::UnhandledError> {
+    processing_result: HttpResolveResult,
+) -> Result<EventResolution, crate::error::UnhandledError> {
     let mut original = processing_result.original_event;
     match processing_result.result {
         Ok(props) => {
+            let spike_alert_input = props.issue.as_ref().map(|issue| SpikeAlertInput {
+                issue: issue.clone(),
+                props: props.to_output(issue.id).ok(),
+            });
             original.set_properties(props)?;
-            Ok(EventDisposition::Forward {
-                event: Box::new(original),
+            Ok(EventResolution {
+                disposition: EventDisposition::Forward {
+                    event: Box::new(original),
+                },
+                spike_alert_input,
             })
         }
-        Err(EventError::Suppressed(_)) => Ok(EventDisposition::Drop {
-            reason: DropReason::IssueSuppressed,
-        }),
-        Err(EventError::SuppressedByRule(_)) => Ok(EventDisposition::Drop {
-            reason: DropReason::SuppressedByRule,
-        }),
+        Err(EventError::Suppressed(_)) => {
+            Ok(EventResolution::without_alert(EventDisposition::Drop {
+                reason: DropReason::IssueSuppressed,
+            }))
+        }
+        Err(EventError::SuppressedByRule(_)) => {
+            Ok(EventResolution::without_alert(EventDisposition::Drop {
+                reason: DropReason::SuppressedByRule,
+            }))
+        }
         Err(err) => {
             original.attach_error(err.to_string())?;
-            Ok(EventDisposition::Forward {
+            Ok(EventResolution::without_alert(EventDisposition::Forward {
                 event: Box::new(original),
-            })
+            }))
         }
     }
 }
@@ -281,13 +305,13 @@ mod tests {
     fn disposition_from_pipeline_output_maps_processed_event_to_forward() {
         let event = make_event();
         let props = ExceptionProperties::try_from(event.clone()).unwrap();
-        let batch = Batch::from(vec![HttpEventProcessingResult {
+        let batch = Batch::from(vec![HttpResolveResult {
             original_event: event.clone(),
             result: Ok(props),
         }]);
 
-        let disposition = disposition_from_pipeline_output(batch).unwrap();
-        match disposition {
+        let resolution = disposition_from_pipeline_output(batch).unwrap();
+        match resolution.disposition {
             EventDisposition::Forward { event: returned } => {
                 assert_eq!(returned.uuid, event.uuid);
             }
@@ -298,15 +322,14 @@ mod tests {
     #[test]
     fn disposition_from_pipeline_output_maps_suppressed_error_to_drop() {
         let event = make_event();
-        let batch: Batch<HttpEventProcessingResult> =
-            Batch::from(vec![HttpEventProcessingResult {
-                original_event: event,
-                result: Err(crate::error::EventError::Suppressed(Uuid::nil())),
-            }]);
+        let batch: Batch<HttpResolveResult> = Batch::from(vec![HttpResolveResult {
+            original_event: event,
+            result: Err(crate::error::EventError::Suppressed(Uuid::nil())),
+        }]);
 
-        let disposition = disposition_from_pipeline_output(batch).unwrap();
+        let resolution = disposition_from_pipeline_output(batch).unwrap();
         assert!(matches!(
-            disposition,
+            resolution.disposition,
             EventDisposition::Drop {
                 reason: DropReason::IssueSuppressed,
             }
@@ -316,14 +339,13 @@ mod tests {
     #[test]
     fn disposition_from_pipeline_output_attaches_handled_error_to_forwarded_event() {
         let event = make_event();
-        let batch: Batch<HttpEventProcessingResult> =
-            Batch::from(vec![HttpEventProcessingResult {
-                original_event: event,
-                result: Err(crate::error::EventError::EmptyExceptionList(Uuid::nil())),
-            }]);
+        let batch: Batch<HttpResolveResult> = Batch::from(vec![HttpResolveResult {
+            original_event: event,
+            result: Err(crate::error::EventError::EmptyExceptionList(Uuid::nil())),
+        }]);
 
-        let disposition = disposition_from_pipeline_output(batch).unwrap();
-        let EventDisposition::Forward { event } = disposition else {
+        let resolution = disposition_from_pipeline_output(batch).unwrap();
+        let EventDisposition::Forward { event } = resolution.disposition else {
             panic!("expected Forward disposition");
         };
         let errors = event
@@ -341,11 +363,11 @@ mod tests {
         // A pipeline that returns an empty batch for a Batch<1> input is
         // a contract violation. Emit Retry so the pipeline can be debugged
         // without silently dropping events.
-        let batch: Batch<HttpEventProcessingResult> = Batch::from(Vec::new());
+        let batch: Batch<HttpResolveResult> = Batch::from(Vec::new());
 
-        let disposition = disposition_from_pipeline_output(batch).unwrap();
+        let resolution = disposition_from_pipeline_output(batch).unwrap();
         assert!(matches!(
-            disposition,
+            resolution.disposition,
             EventDisposition::Retry {
                 reason: RetryReason::UnhandledProcessingError,
                 ..
