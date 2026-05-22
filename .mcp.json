@@ -9,8 +9,8 @@
             "args": ["run", "python", "tools/traffic-sim/mcp_server.py"]
         },
         "posthog-local": {
-            "command": "npx",
-            "args": ["-y", "mcp-remote@0.1.38", "http://localhost:8787/mcp"]
+            "type": "http",
+            "url": "http://localhost:8787/mcp"
         }
     }
 }
