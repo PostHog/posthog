@@ -221,21 +221,22 @@ class TestGetSchemas:
 
 
 class TestDefaultNonRetryableErrors:
-    def test_includes_source_column_type_changed(self) -> None:
+    @pytest.mark.parametrize(
+        "key,expected_substring",
+        [
+            ("Source column type changed", "reset and fully re-sync"),
+            ("Cannot build decimal array from values", "decimal storage limits"),
+        ],
+    )
+    def test_includes_expected_entry(self, key: str, expected_substring: str) -> None:
+        # Calling without an instance proves the classmethod shape too — the
+        # eventual subclass call site is `cls.default_non_retryable_errors()`.
         errors = SQLSource.default_non_retryable_errors()
-        assert "Source column type changed" in errors
-        assert errors["Source column type changed"]
-        assert "reset and fully re-sync" in errors["Source column type changed"]
+        assert key in errors
+        assert errors[key]
+        assert expected_substring in errors[key]
 
-    def test_includes_cannot_build_decimal_array(self) -> None:
-        errors = SQLSource.default_non_retryable_errors()
-        assert "Cannot build decimal array from values" in errors
-        assert errors["Cannot build decimal array from values"]
-        assert "decimal storage limits" in errors["Cannot build decimal array from values"]
-
-    def test_is_classmethod_no_instance_required(self) -> None:
-        # Subclasses should be able to call this without instantiating —
-        # mirrors the way subclass `get_non_retryable_errors` will use it.
+    def test_returns_exactly_the_two_shared_entries(self) -> None:
         errors = SQLSource.default_non_retryable_errors()
         assert isinstance(errors, dict)
         assert len(errors) == 2

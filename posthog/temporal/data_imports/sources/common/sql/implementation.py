@@ -253,7 +253,9 @@ class SQLSourceImplementation(Generic[ConfigT, ConnT, CursorT], ABC):
             if row is None:
                 logger.debug("get_rows_to_sync: No results returned. Using 0 as rows to sync")
                 return 0
-            return int(row[0] or 0)
+            rows_to_sync_int = int(row[0] or 0)
+            logger.debug(f"get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
+            return rows_to_sync_int
         except Exception as e:
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
             capture_exception(e)

@@ -182,28 +182,25 @@ class TestGetRowsToSync:
         impl.get_rows_to_sync(cursor, "SELECT x FROM y", {"a": 1}, logger)
         cursor.execute.assert_called_once_with("SELECT COUNT(*) FROM (SELECT x FROM y) as t", {"a": 1})
 
-    def test_returns_zero_when_fetchone_none(self, logger):
+    @pytest.mark.parametrize(
+        "configure_cursor",
+        [
+            pytest.param(lambda c: setattr(c, "fetchone", MagicMock(return_value=None)), id="fetchone_none"),
+            pytest.param(lambda c: setattr(c, "fetchone", MagicMock(return_value=(None,))), id="count_null"),
+            pytest.param(
+                lambda c: setattr(c, "execute", MagicMock(side_effect=RuntimeError("connection lost"))),
+                id="execute_exception",
+            ),
+            pytest.param(
+                lambda c: setattr(c, "fetchone", MagicMock(side_effect=RuntimeError("read failed"))),
+                id="fetchone_exception",
+            ),
+        ],
+    )
+    def test_returns_zero(self, logger, configure_cursor):
         impl = _FakeImplementation()
         cursor = MagicMock()
-        cursor.fetchone.return_value = None
-        assert impl.get_rows_to_sync(cursor, "SELECT 1", None, logger) == 0
-
-    def test_returns_zero_when_count_null(self, logger):
-        impl = _FakeImplementation()
-        cursor = MagicMock()
-        cursor.fetchone.return_value = (None,)
-        assert impl.get_rows_to_sync(cursor, "SELECT 1", None, logger) == 0
-
-    def test_returns_zero_on_execute_exception(self, logger):
-        impl = _FakeImplementation()
-        cursor = MagicMock()
-        cursor.execute.side_effect = RuntimeError("connection lost")
-        assert impl.get_rows_to_sync(cursor, "SELECT 1", None, logger) == 0
-
-    def test_returns_zero_on_fetchone_exception(self, logger):
-        impl = _FakeImplementation()
-        cursor = MagicMock()
-        cursor.fetchone.side_effect = RuntimeError("read failed")
+        configure_cursor(cursor)
         assert impl.get_rows_to_sync(cursor, "SELECT 1", None, logger) == 0
 
     def test_casts_count_to_int(self, logger):
