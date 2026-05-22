@@ -68,21 +68,11 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
             return
         }
 
-        if (queryInput === null) {
-            // First mount — seed kea and run the query so results show immediately.
-            lastAttrRef.current = editorSourceQuery
-            lastLocalRef.current = editorSourceQuery
-            setQueryInput(editorSourceQuery.source.query)
-            setSourceQuery(editorSourceQuery)
-            runQuery(editorSourceQuery.source.query)
-            return
-        }
-
         const localQuery: DataVisualizationNode = {
             ...sourceQuery,
             source: {
                 ...sourceQuery.source,
-                query: queryInput,
+                query: queryInput ?? '',
             },
             display: sourceQuery.display ?? editorSourceQuery.display ?? ChartDisplayType.ActionsTable,
         }
@@ -95,10 +85,18 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
 
         if (!equal(editorSourceQuery, lastAttrRef.current)) {
             // Attribute moved — pull (overrides any in-flight typing: last write wins).
+            // On first mount `lastAttrRef.current` is null, so we also seed kea here and
+            // kick off an initial `runQuery` so results show on load. We deliberately don't
+            // re-run on subsequent remote updates: that would fire a backend query every
+            // time another tab edits a keystroke through the collab stream.
+            const isFirstSeed = lastAttrRef.current === null
             lastAttrRef.current = editorSourceQuery
             lastLocalRef.current = editorSourceQuery
             setQueryInput(editorSourceQuery.source.query)
             setSourceQuery(editorSourceQuery)
+            if (isFirstSeed) {
+                runQuery(editorSourceQuery.source.query)
+            }
             return
         }
 
