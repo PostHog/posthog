@@ -244,12 +244,7 @@ export const proxyLogic = kea<proxyLogicType>([
         ],
         shouldShowCloudflareOptIn: [
             (s) => [s.cloudflareOptInAcknowledged, s.proxyRecordsLoaded, s.proxyRecords, s.user],
-            (
-                acknowledged: boolean,
-                recordsLoaded: boolean,
-                records: ProxyRecord[],
-                user: UserType | null
-            ): boolean => {
+            (acknowledged: boolean, recordsLoaded: boolean, records: ProxyRecord[], user: UserType | null): boolean => {
                 if (acknowledged) {
                     return false
                 }
