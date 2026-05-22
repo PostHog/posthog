@@ -3,7 +3,6 @@ import { useEffect, useMemo } from 'react'
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { CrossProjectQuerySettings } from 'scenes/settings/environment/CrossProjectQuerySettings'
 
 import { HogQLQueryModifiers, NodeKind } from '~/queries/schema/schema-general'
 
@@ -100,11 +99,6 @@ export function Modifiers<Q extends QueryWithModifiers>({
 
     return (
         <div className="deprecated-space-y-2">
-            {query.kind === NodeKind.HogQLQuery ? (
-                <div className="rounded border p-3">
-                    <CrossProjectQuerySettings />
-                </div>
-            ) : null}
             <div className="flex flex-wrap gap-2">
                 <ConnectionIdModifier labelClassName={labelClassName} query={query} setQuery={setQuery} />
                 <LemonLabel className={labelClassName}>
