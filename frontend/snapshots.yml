@@ -5407,9 +5407,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-csp-reporting--light:
         hash: v1.k794b7964.b4e6331c9cc771553a4776ada571b668ef394635acf926c75dee54746bcbe507.rEtltqqg7Nbx4Thm5RA6dL6vTqM0JaJTi10aVxs-6P8
     scenes-app-settings-environment--settings-environment-customization--dark:
-        hash: v1.k794b7964.16e59401092003b5b8d382c7ed4f3996434509485a408405d1ee97dad47ada3c.ni0G926IY_lM9F2fishorunH5-SdLpeQeEMZSuKbXEk
+        hash: v1.k794b7964.01c7c88ebb7c070f3f701447ca9fb66c1e117ae1c7eb6fdce756d85e07977be5.fTNQfEwXqUj2UlZCp8zvcPG_FCTwUx_yfUo0EXhN9mg
     scenes-app-settings-environment--settings-environment-customization--light:
-        hash: v1.k794b7964.7938b74599bea82278ac239e6d36e82145e70618d19533483fc5fd5d4601d10f.Sfighk8JQdxo4JHtgUGv8kiYAp0B3cUeu1UQHPQvT_0
+        hash: v1.k794b7964.e1afb0c5425e947170168cea6bcab9548e3e99399757cf18810d02b9bb167f25.sKX3N9HgxVDIbjaC2XgCGhoQRNschIjibhigymcyaLg
     scenes-app-settings-environment--settings-environment-danger-zone--dark:
         hash: v1.k794b7964.1266b20b84f374a2695152bd87129860eb609a0c300811e4ea1bcd46b330e381.ZlY3-Sa6th8M6ZBp0tDv-CeLT0ejeHhTJZc3dhOyZq4
     scenes-app-settings-environment--settings-environment-danger-zone--light:
@@ -5553,7 +5553,7 @@ snapshots:
     scenes-app-settings-user--settings-user-profile--dark:
         hash: v1.k794b7964.0b28e1056e6cea0c3b02da3d7d22330d30b0e117b74aa08abedc0539bdbe1a50.6JsM_NMqr9lko8t1YF3mIvoffzNEfUZWAQyA_tCY4-Q
     scenes-app-settings-user--settings-user-profile--light:
-        hash: v1.k794b7964.a7378b229e68ced0eebc3c9001e3d955060cb2b194a2a2997e2e2a4f142c31d1.2A464VmDJtdbBSSA1Hhz5XpyrdpDl0WBRhwrqpKchNc
+        hash: v1.k794b7964.4212f6d8c1746d2611365bd74cd398b88a934d567162b6f2226df7fb6302c6ed.lorh_CULCUDS3FjudDXVRtT4K783xbGFrlfnfmWXj14
     scenes-app-sidepanels--side-panel-access-control--dark:
         hash: v1.k794b7964.96a98335ae32b8f6f68285b320326a21e3a89f338461597bc5e8d26b98e232e3.iG8-nEzaS8lBK7tpEdOkBF1O9GzHJnWkDzGYLV6r6Go
     scenes-app-sidepanels--side-panel-access-control--light:
@@ -5903,9 +5903,9 @@ snapshots:
     scenes-other-onboarding-post-onboarding-modal--workflows--light:
         hash: v1.k794b7964.fe0bbdd94043036fa8a1133e6b99950d76a8f175a41ac3fe35989445c04d561a.VjP9Cyy5ilxplkCzZG8cHytn1yFwT6t2AqPWDXFO7TI
     scenes-other-onboarding-product-selection--base--dark:
-        hash: v1.k794b7964.5c094da11f501dd20ed0755a60c9b7b1bd55a70e469734201b8f9f220d6c06a6.e4fy-aJB70b-ULhvXkz_aFF8AaZx-0hHi1HfwK6qpmo
+        hash: v1.k794b7964.98c8c237be42cdff687a4d0e17288cf9b87c0ecfd0d45f6fb7038b1c08343afc._0bNgtLiKO3hf65SU97DiFQ1mjUjgeIIbWy7qQl3MwY
     scenes-other-onboarding-product-selection--base--light:
-        hash: v1.k794b7964.ddca88d75ad2c3d020f72dd8cd470610851d84663542514a8930e43e1b9ca413.I9J8-blKK96ivpXDeJoyIM-kcUhbMHofr0qr6z2z8UM
+        hash: v1.k794b7964.b06b552dc3c53616de4d809c892e49843271347fcd2445900585a20a925b47b8.S8Ik2YI5dGrmmDbVIIZsLSquFs8o8GpM38j9XBe6vrM
     scenes-other-org-member-invites--current-user-is-admin--dark:
         hash: v1.k794b7964.2d7c67e51b355b2ae5f362a4857d137fb71f484ed80428f448847a726c8a36ae.5O9LsMrz0geti5nE4nf4EbmvE2VZs0hKMpRYaqhTVMY
     scenes-other-org-member-invites--current-user-is-admin--light:
