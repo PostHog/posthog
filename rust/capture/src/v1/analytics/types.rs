@@ -31,7 +31,8 @@ fn empty_raw_object() -> Box<RawValue> {
 }
 
 /// Per-event outcome in the batch response.
-/// Maps to HTTP semantics: Ok (2xx), Drop (4xx), Limited (429), Retry (5xx).
+/// Ok: captured successfully. Drop: rejected (billing/validation). Limited: accepted
+/// with person processing disabled (do not resubmit). Retry: not persisted, safe to resubmit.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventResult {
@@ -56,10 +57,7 @@ pub struct Batch {
 pub struct Options {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cookieless_mode: Option<bool>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        alias = "disable_skew_adjustment"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_skew_correction: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub product_tour_id: Option<String>,
