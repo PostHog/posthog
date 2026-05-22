@@ -137,6 +137,30 @@ def test_tags_context():
     assert get_query_tags() == create_base_tags(team_id=123)
 
 
+def test_product_set_by_client_marks_provenance():
+    reset_query_tags()
+    # Client-supplied product tags carry the provenance marker.
+    tag_queries(product=Product.BILLING, product_set_by_client=True)
+    assert get_query_tags().product == Product.BILLING
+    assert get_query_tags().product_set_by_client is True
+
+
+def test_server_set_product_reclaims_provenance():
+    reset_query_tags()
+    # A client-set product is later overridden by trusted server code (e.g. via tags_context):
+    # setting product without the marker must reset provenance to server-determined.
+    tag_queries(product=Product.BILLING, product_set_by_client=True)
+    tag_queries(product=Product.MAX_AI)
+    assert get_query_tags().product == Product.MAX_AI
+    assert get_query_tags().product_set_by_client is None
+
+
+def test_product_set_by_client_excluded_from_query_log_json():
+    reset_query_tags()
+    tag_queries(product=Product.BILLING, product_set_by_client=True)
+    assert "product_set_by_client" not in get_query_tags().to_json()
+
+
 @pytest.mark.asyncio
 async def test_async_tasks_have_isolated_tags():
     reset_query_tags()

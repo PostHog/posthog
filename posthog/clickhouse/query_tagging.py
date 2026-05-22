@@ -323,6 +323,11 @@ class QueryTags(BaseModel):
     api_key_label: Optional[str] = None
     org_id: Optional[uuid.UUID] = None
     product: Optional[Product | ProductKey] = None
+    # True when `product` was derived from client-supplied query tags (QueryLogTags.productKey),
+    # which are advisory and used for observability/attribution only. Server-side infrastructure
+    # decisions (e.g. ClickHouse user selection) key off a server-determined product instead.
+    # None (the default) means server-determined; only the client-tag entry point sets it True.
+    product_set_by_client: Optional[bool] = None
 
     # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
@@ -446,6 +451,11 @@ class QueryTags(BaseModel):
     model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
 
     def update(self, **kwargs):
+        # Setting `product` without an explicit `product_set_by_client` marks it as
+        # server-determined. Only the client-tag entry point passes product_set_by_client=True,
+        # so a later server-side product (e.g. via tags_context) always reclaims provenance.
+        if "product" in kwargs and "product_set_by_client" not in kwargs:
+            kwargs["product_set_by_client"] = None
         for field, value in kwargs.items():
             setattr(self, field, value)
 
@@ -459,7 +469,9 @@ class QueryTags(BaseModel):
         self.dagster = dagster_tags
 
     def to_json(self) -> str:
-        return self.model_dump_json(exclude_none=True)
+        # product_set_by_client is an internal provenance flag used only at execution time; it is
+        # not part of the query-log payload.
+        return self.model_dump_json(exclude_none=True, exclude={"product_set_by_client"})
 
 
 query_tags: contextvars.ContextVar = contextvars.ContextVar("query_tags")

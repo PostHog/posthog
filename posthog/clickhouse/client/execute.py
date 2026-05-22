@@ -364,11 +364,16 @@ def sync_execute(
 
     add_fallback_query_tags(tags)
 
-    if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
+    # `tags.product` may be client-supplied (query runners copy `query.tags.productKey` into it for
+    # observability/attribution). ClickHouse user selection keys off the server-determined product
+    # only — a client-set product is advisory and must not pick the connecting user.
+    trusted_product = None if tags.product_set_by_client else tags.product
+
+    if trusted_product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI
-    elif tags.product == Product.ENDPOINTS:
+    elif trusted_product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
-    elif tags.product == Product.BILLING:
+    elif trusted_product == Product.BILLING:
         ch_user = ClickHouseUser.BILLING
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
