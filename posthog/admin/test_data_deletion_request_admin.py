@@ -375,7 +375,7 @@ class TestDataDeletionRequestAdminSaveModel(BaseTest):
         _attach_messages(http_request)
 
         class _FakeForm:
-            changed_data = []
+            changed_data: list[str] = []
 
         form = _FakeForm()
         if changed_data is not None:
