@@ -41665,6 +41665,21 @@ export namespace Schemas {
       Schedule: 'schedule',
     } as const;
 
+    export type VisionObservationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Session recording id to return observations for.
+     */
+    session_id: string;
+    };
+
     export type WarehouseSavedQueryDraftsListParams = {
     /**
      * Number of results to return per page.

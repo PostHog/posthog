@@ -640,3 +640,65 @@ class TestObserveActionFeatureFlag(APIBaseTest):
                 format="json",
             )
             self.assertEqual(resp.status_code, 404)
+
+
+class TestSessionReplayObservationViewSet(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner_a = self._create_lens(name="scanner-a")
+        self.scanner_b = self._create_lens(name="scanner-b")
+
+    @property
+    def session_observations_url(self) -> str:
+        return f"/api/environments/{self.team.id}/vision/observations/"
+
+    def _create_observation(self, scanner: ReplayScanner, session_id: str) -> ReplayObservation:
+        return ReplayObservation.objects.create(
+            scanner=scanner,
+            session_id=session_id,
+            scanner_snapshot=_snapshot_for(scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+
+    def test_list_returns_observations_from_every_scanner_for_the_session(self) -> None:
+        self._create_observation(self.scanner_a, "sess-target")
+        self._create_observation(self.scanner_b, "sess-target")
+        self._create_observation(self.scanner_a, "sess-other")
+
+        resp = self.client.get(f"{self.session_observations_url}?session_id=sess-target")
+        self.assertEqual(resp.status_code, 200)
+        results = resp.json()["results"]
+        self.assertEqual({r["scanner_id"] for r in results}, {str(self.scanner_a.id), str(self.scanner_b.id)})
+
+    def test_list_requires_session_id(self) -> None:
+        resp = self.client.get(self.session_observations_url)
+        self.assertEqual(resp.status_code, 400)
+
+    def test_list_excludes_other_teams(self) -> None:
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org, name="other-team")
+        other_scanner = ReplayScanner.objects.create(
+            team=other_team,
+            name="theirs",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_FLASH,
+        )
+        ReplayObservation.objects.create(
+            scanner=other_scanner,
+            session_id="sess-target",
+            scanner_snapshot=_snapshot_for(other_scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        self._create_observation(self.scanner_a, "sess-target")
+
+        resp = self.client.get(f"{self.session_observations_url}?session_id=sess-target")
+        self.assertEqual(resp.status_code, 200)
+        results = resp.json()["results"]
+        self.assertEqual([r["scanner_id"] for r in results], [str(self.scanner_a.id)])
+
+    def test_retrieve(self) -> None:
+        observation = self._create_observation(self.scanner_a, "sess-target")
+        resp = self.client.get(f"{self.session_observations_url}{observation.id}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["id"], str(observation.id))
