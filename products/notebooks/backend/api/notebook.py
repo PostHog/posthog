@@ -40,6 +40,7 @@ from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
+from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
 from products.tasks.backend.services.sandbox import SandboxStatus
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 
@@ -149,6 +150,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
             },
         }
+
+    def validate_content(self, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        try:
+            return normalize_notebook_query_nodes(value)
+        except InvalidNotebookQueryError as err:
+            raise serializers.ValidationError(str(err))
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
         request = self.context["request"]
@@ -297,6 +306,14 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
     cursor_head = serializers.IntegerField(
         required=False, allow_null=True, help_text="ProseMirror cursor head position after applying steps."
     )
+
+    def validate_content(self, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+        try:
+            return normalize_notebook_query_nodes(value)
+        except InvalidNotebookQueryError as err:
+            raise serializers.ValidationError(str(err))
 
 
 def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
