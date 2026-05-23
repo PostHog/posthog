@@ -629,8 +629,8 @@ class ExperimentService:
         # ordering reference to it remains valid. The regenerated uuid is appended
         # to ordering by the loop below as a brand-new entry.
         seen_metric_uuids: set[str] = self._collect_saved_metric_uuids(saved_metrics_ids)
-        metrics, _ = self._assign_uuids_to_metrics(metrics, seen=seen_metric_uuids)
-        metrics_secondary, _ = self._assign_uuids_to_metrics(metrics_secondary, seen=seen_metric_uuids)
+        metrics = self._assign_uuids_to_metrics(metrics, seen=seen_metric_uuids)
+        metrics_secondary = self._assign_uuids_to_metrics(metrics_secondary, seen=seen_metric_uuids)
         self.validate_variant_shapes(parameters)
         self.validate_variant_percentages(parameters)
         self.validate_experiment_metrics(metrics)
@@ -879,34 +879,35 @@ class ExperimentService:
         metrics: list[dict] | None,
         *,
         seen: set[str] | None = None,
-    ) -> tuple[list[dict] | None, dict[str, str]]:
+    ) -> list[dict] | None:
         """Return a deep copy of ``metrics`` with a unique ``uuid`` on every entry.
 
         Fills missing uuids and regenerates any uuid that collides with one already
         in ``seen`` (used to share a single uniqueness space across primary +
-        secondary metric lists). Returns the prepared list plus a mapping from
-        original-uuid → regenerated-uuid for any duplicate that was rewritten.
-        Callers thread that mapping into the corresponding ordering arrays.
+        secondary metric lists, plus saved-metric query uuids).
+
+        Ordering arrays don't need a remap from this function: the first occurrence
+        of a duplicated uuid keeps its original value, so existing ordering entries
+        stay valid; regenerated duplicates are handled as new additions by
+        ``_sync_ordering_with_metric_changes`` (update path) or by the append loop
+        in ``create_experiment``.
 
         Callers pass dicts by reference, so we deepcopy to avoid leaking the
         generated uuid back into their data.
         """
         if metrics is None:
-            return None, {}
+            return None
         prepared = deepcopy(metrics)
         seen = seen if seen is not None else set()
-        remap: dict[str, str] = {}
         for metric in prepared:
             original = metric.get("uuid")
             if not original or original in seen:
                 new_uuid = str(uuid4())
                 metric["uuid"] = new_uuid
-                if original:
-                    remap[original] = new_uuid
                 seen.add(new_uuid)
             else:
                 seen.add(original)
-        return prepared, remap
+        return prepared
 
     @staticmethod
     def _remap_ordering(ordering: list[str] | None, remap: dict[str, str]) -> list[str] | None:
@@ -1713,13 +1714,13 @@ class ExperimentService:
         # regenerated uuids as additions; _sync_ordering_for_saved_metrics_on_update
         # handles saved-metric link uuids independently.
         if "metrics" in update_data:
-            update_data["metrics"], _ = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
+            update_data["metrics"] = self._assign_uuids_to_metrics(update_data["metrics"], seen=seen_metric_uuids)
             self.validate_experiment_metrics(update_data["metrics"])
             self.validate_metric_action_ids(update_data["metrics"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics"])
         if "metrics_secondary" in update_data:
-            update_data["metrics_secondary"], _ = self._assign_uuids_to_metrics(
+            update_data["metrics_secondary"] = self._assign_uuids_to_metrics(
                 update_data["metrics_secondary"], seen=seen_metric_uuids
             )
             self.validate_experiment_metrics(update_data["metrics_secondary"])
