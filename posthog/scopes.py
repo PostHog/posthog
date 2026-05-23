@@ -150,11 +150,11 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"metrics", "w
 # only, leaving the user-facing `get_scope_descriptions()` strict-exclusion
 # (and therefore `validate_scopes()` on personal API keys) untouched.
 #
-# Today this is the Signals agent harness sandbox: the harness mints an OAuth
-# token containing `signal_scout_internal:write` so the in-sandbox agent can
-# call `signals-scout-runs-findings-create` / `-memory-create` / `-memory-delete`,
+# Today this is the Signals scout harness sandbox: the harness mints an OAuth
+# token containing `signal_scout_internal:write` so the in-sandbox scout can
+# call `signals-scout-emit-signal` / `-scratchpad-remember` / `-scratchpad-forget`,
 # but a user PAK with that scope would be a durable prompt-injection vector
-# (memory rows are read verbatim into every subsequent run's prompt).
+# (scratchpad rows are read verbatim into every subsequent run's prompt).
 PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"signal_scout_internal"})
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]

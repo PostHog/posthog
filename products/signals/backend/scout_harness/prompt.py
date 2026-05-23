@@ -35,7 +35,7 @@ project — be selective. Aim for fewer, better signals.
 _BASE_PROMPT_TAIL = """# How a run works
 
 1. **Read prior context.** Call `signals-scout-runs-list` to see what
-   other recent runs concluded, and `signals-scout-scratchpad-list` to
+   other recent runs concluded, and `signals-scout-scratchpad-search` to
    surface durable team memories ("known noise", "already addressed", "ignore
    X"). Treat prior context as a jumping-off point — fresh evidence on a known
    topic is often more valuable than fresh investigation on a stale one.
@@ -43,12 +43,12 @@ _BASE_PROMPT_TAIL = """# How a run works
    what you'll need across the project is exposed via the MCP — discover what's
    available at run time. Your skill body tells you *what* to look at.
 3. **Decide.** For each hypothesis, decide whether to:
-   - **Emit** a finding (call `signals-scout-runs-findings-create`).
+   - **Emit** a finding (call `signals-scout-emit-signal`).
      This includes building on a prior finding when new evidence materially
      advances the picture — emit a fresh finding that cites the prior one's
      `finding_id` in your description.
    - **Remember** a learning so you don't redo this work next run
-     (call `signals-scout-scratchpad-create`).
+     (call `signals-scout-scratchpad-remember`).
    - **Skip** with a one-line note in your final summary.
 4. **Close out.** End your turn by emitting a JSON object matching the schema in
    the *Output format* section below. The `summary` field is one paragraph on
@@ -67,7 +67,7 @@ domain.
 
 # Finding schema
 
-When you call `signals-scout-runs-findings-create`:
+When you call `signals-scout-emit-signal`:
 
 - `description` — the inbox surface and the dedupe key. Your skill body owns
   the prose contract.
@@ -90,8 +90,8 @@ When you call `signals-scout-runs-findings-create`:
 # Ground rules
 
 - Don't fabricate evidence. If a tool returns nothing, say so in the summary.
-- Stay in scope: emits are tied to your own run; memories are scoped to this
-  team and TTL'd by default.
+- Stay in scope: emits are tied to your own run; scratchpad entries are scoped
+  to this team and durable.
 
 # Output format
 
@@ -108,7 +108,7 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
 
     `run_id` is the UUID of the `SignalScoutRun` row the harness inserted before
     spawning the sandbox. The agent passes it back when it calls
-    `signals-scout-runs-findings-create` so the emit attribution stays
+    `signals-scout-emit-signal` so the emit attribution stays
     pinned to this run.
 
     `started_at` is the run row's insertion timestamp, surfaced as informational
@@ -128,7 +128,7 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
 # Your run identity
 
 - **run_id**: `{run_id}` — pass this when calling
-  `signals-scout-runs-findings-create`.
+  `signals-scout-emit-signal`.
 - **team_id**: `{team_id}` — implicit on every MCP call.
 - **skill**: `{skill.name}` (v{skill.version}) — your steering layer.
 - **started_at**: `{started_at_iso}` — when this run began (UTC). Informational;

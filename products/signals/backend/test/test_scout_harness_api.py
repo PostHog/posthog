@@ -129,8 +129,8 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
             defaults={"enabled": True},
         )
 
-    def _findings_url(self, run_id: str) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/findings/"
+    def _emit_signal_url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/emit-signal/"
 
     def _payload(self, **overrides) -> dict:
         body: dict = {
@@ -152,7 +152,7 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def test_emit_finding_calls_emit_signal_with_deterministic_source_id(self) -> None:
         run = _make_run(self.team)
         with patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit:
-            response = self.client.post(self._findings_url(str(run.id)), data=self._payload(), format="json")
+            response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["emitted"] is True
@@ -164,31 +164,31 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
 
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
         run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
-        response = self.client.post(self._findings_url(str(run.id)), data=self._payload(), format="json")
+        response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_emit_finding_validates_weight_range(self) -> None:
         run = _make_run(self.team)
-        response = self.client.post(self._findings_url(str(run.id)), data=self._payload(weight=2.0), format="json")
+        response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(weight=2.0), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_emit_finding_unknown_run_returns_404(self) -> None:
         response = self.client.post(
-            self._findings_url("00000000-0000-0000-0000-000000000000"), data=self._payload(), format="json"
+            self._emit_signal_url("00000000-0000-0000-0000-000000000000"), data=self._payload(), format="json"
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_emit_finding_other_teams_run_returns_404(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
         run = _make_run(other)
-        response = self.client.post(self._findings_url(str(run.id)), data=self._payload(), format="json")
+        response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_emit_finding_malformed_run_id_returns_404(self) -> None:
         # Same guard as `retrieve`: a URL-safe non-UUID must 404 before any DB
         # call, not 500 from `.filter(id=...)` on a non-UUID string.
         for bad in ("not-a-uuid", "abc-def-ghi", "123", "deadbeef"):
-            response = self.client.post(self._findings_url(bad), data=self._payload(), format="json")
+            response = self.client.post(self._emit_signal_url(bad), data=self._payload(), format="json")
             assert response.status_code == status.HTTP_404_NOT_FOUND, (
                 f"expected 404 for {bad!r}, got {response.status_code}"
             )
@@ -198,8 +198,8 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/scratchpad/"
 
-    def _delete_url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/delete/"
+    def _forget_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/scratchpad/forget/"
 
     def test_remember_creates_entry(self) -> None:
         body = {"key": "k1", "content": "checkout regression noise — already tracked"}
@@ -243,13 +243,13 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
 
     def test_forget_removes_entry(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="k1", content="v")
-        response = self.client.post(self._delete_url(), data={"key": "k1"}, format="json")
+        response = self.client.post(self._forget_url(), data={"key": "k1"}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"deleted": True}
         assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
 
     def test_forget_returns_false_when_key_missing(self) -> None:
-        response = self.client.post(self._delete_url(), data={"key": "ghost"}, format="json")
+        response = self.client.post(self._forget_url(), data={"key": "ghost"}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"deleted": False}
 

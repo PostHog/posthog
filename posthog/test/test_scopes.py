@@ -89,10 +89,10 @@ class TestScopeBucketInvariants(SimpleTestCase):
 
 class TestGetOAuthScopesSupported(SimpleTestCase):
     def test_signal_scout_internal_write_is_advertised(self) -> None:
-        # Regression — without this entry the Signals agent sandbox token is
+        # Regression — without this entry the Signals scout sandbox token is
         # minted with `signal_scout_internal:write` but the MCP server filters
-        # it out at session init, leaving the agent unable to call
-        # `signals-scout-runs-findings-create` / `-memory-create` / `-memory-delete`.
+        # it out at session init, leaving the scout unable to call
+        # `signals-scout-emit-signal` / `-scratchpad-remember` / `-scratchpad-forget`.
         assert "signal_scout_internal:write" in get_oauth_scopes_supported()
 
     @parameterized.expand(
@@ -131,8 +131,8 @@ class TestGetScopeDescriptions(SimpleTestCase):
         # Critical security invariant — the carve-out relaxes ONLY the OAuth
         # filter. PAK validation reads from `get_scope_descriptions()` and must
         # continue to reject `signal_scout_internal` (it's a prompt-injection
-        # vector if user-grantable: memory rows are read verbatim into every
-        # subsequent agent run's prompt).
+        # vector if user-grantable: scratchpad rows are read verbatim into every
+        # subsequent scout run's prompt).
         assert scope not in get_scope_descriptions()
 
     def test_all_non_internal_objects_get_pak_descriptions(self) -> None:

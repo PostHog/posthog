@@ -29,7 +29,7 @@ import type {
     SignalsProcessingListParams,
     SignalsReportsListParams,
     SignalsScoutRunsListParams,
-    SignalsScoutScratchpadListParams,
+    SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
 
@@ -209,21 +209,21 @@ export const signalsScoutRunsRetrieve = async (
     })
 }
 
-export const getSignalsScoutRunsFindingsCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/scout/runs/${id}/findings/`
+export const getSignalsScoutEmitSignalUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${id}/emit-signal/`
 }
 
 /**
  * Fire `emit_signal` with `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` via the deterministic `Signal.source_id = run:<id>:finding:<id>` — a second call with the same `finding_id` short-circuits without re-firing the pipeline.
  * @summary Emit a finding for a run
  */
-export const signalsScoutRunsFindingsCreate = async (
+export const signalsScoutEmitSignal = async (
     projectId: string,
     id: string,
     emitFindingRequestApi: EmitFindingRequestApi,
     options?: RequestInit
 ): Promise<EmitFindingResponseApi> => {
-    return apiMutator<EmitFindingResponseApi>(getSignalsScoutRunsFindingsCreateUrl(projectId, id), {
+    return apiMutator<EmitFindingResponseApi>(getSignalsScoutEmitSignalUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -231,7 +231,7 @@ export const signalsScoutRunsFindingsCreate = async (
     })
 }
 
-export const getSignalsScoutScratchpadListUrl = (projectId: string, params?: SignalsScoutScratchpadListParams) => {
+export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: SignalsScoutScratchpadSearchParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -249,33 +249,33 @@ export const getSignalsScoutScratchpadListUrl = (projectId: string, params?: Sig
 
 /**
  * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`.
- * @summary Search durable memories
+ * @summary Search the scout scratchpad
  */
-export const signalsScoutScratchpadList = async (
+export const signalsScoutScratchpadSearch = async (
     projectId: string,
-    params?: SignalsScoutScratchpadListParams,
+    params?: SignalsScoutScratchpadSearchParams,
     options?: RequestInit
 ): Promise<ScratchpadEntryApi[]> => {
-    return apiMutator<ScratchpadEntryApi[]>(getSignalsScoutScratchpadListUrl(projectId, params), {
+    return apiMutator<ScratchpadEntryApi[]>(getSignalsScoutScratchpadSearchUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getSignalsScoutScratchpadCreateUrl = (projectId: string) => {
+export const getSignalsScoutScratchpadRememberUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/scratchpad/`
 }
 
 /**
  * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
- * @summary Write or refresh an agent memory
+ * @summary Remember a scratchpad entry
  */
-export const signalsScoutScratchpadCreate = async (
+export const signalsScoutScratchpadRemember = async (
     projectId: string,
     rememberRequestApi: RememberRequestApi,
     options?: RequestInit
 ): Promise<ScratchpadEntryApi> => {
-    return apiMutator<ScratchpadEntryApi>(getSignalsScoutScratchpadCreateUrl(projectId), {
+    return apiMutator<ScratchpadEntryApi>(getSignalsScoutScratchpadRememberUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -283,20 +283,20 @@ export const signalsScoutScratchpadCreate = async (
     })
 }
 
-export const getSignalsScoutScratchpadDeleteUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/scout/scratchpad/delete/`
+export const getSignalsScoutScratchpadForgetUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/forget/`
 }
 
 /**
  * Delete an entry by key. Returns `deleted=false` if no row matched.
- * @summary Delete an agent memory by key
+ * @summary Forget a scratchpad entry by key
  */
-export const signalsScoutScratchpadDelete = async (
+export const signalsScoutScratchpadForget = async (
     projectId: string,
     forgetRequestApi: ForgetRequestApi,
     options?: RequestInit
 ): Promise<ForgetResponseApi> => {
-    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadDeleteUrl(projectId), {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadForgetUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

@@ -72,7 +72,7 @@
             "description": "Optional one-line hypothesis the finding tests."
         },
         "id": {
-            "pattern": "^[0-9a-f-]+$",
+            "description": "A UUID string identifying this Signal scout run.",
             "type": "string"
         },
         "mcp_trace_id": {

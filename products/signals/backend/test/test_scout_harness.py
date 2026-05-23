@@ -152,8 +152,8 @@ class TestPromptBuilder(BaseTest):
         assert "watch for spikes" not in prompt
         assert "refs/playbook.md" not in prompt
         # The base prompt teaches the agent to call the harness MCP tools by name.
-        assert "signals-scout-runs-findings-create" in prompt
-        assert "signals-scout-scratchpad-list" in prompt
+        assert "signals-scout-emit-signal" in prompt
+        assert "signals-scout-scratchpad-search" in prompt
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt

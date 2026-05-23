@@ -230,7 +230,7 @@ def emit_finding_sync(
 def _assert_team_owns_run(team: Team, run: SignalScoutRun) -> None:
     """Defense-in-depth: confirm `team` actually owns `run`.
 
-    The view path (`SignalScoutRunViewSet.findings`) already filters the run
+    The view path (`SignalScoutRunViewSet.emit_signal`) already filters the run
     lookup by `team_id`, so a foreign-team `run_id` returns 404 before this
     function is reached. This guard catches a future direct caller (in-process
     MCP path, management command, ...) that bypasses that filter, rather than

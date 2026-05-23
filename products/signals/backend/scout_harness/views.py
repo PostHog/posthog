@@ -1,18 +1,19 @@
-"""DRF viewsets exposing the Signals agent surface over HTTP for MCP consumption.
+"""DRF viewsets exposing the Signals scout surface over HTTP for MCP consumption.
 
-These wrap the sync Python tools in `scout_harness/tools/` so the headless agent
+These wrap the sync Python tools in `scout_harness/tools/` so the headless scout
 (and any other agent on the team's PostHog MCP) can call the `signals-scout-*`
-tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
-`memory-create`, and `memory-delete` — over the standard PostHog MCP plumbing.
+tools — `runs-list`, `runs-retrieve`, `emit-signal`, `scratchpad-search`,
+`scratchpad-remember`, and `scratchpad-forget` — over the standard PostHog MCP
+plumbing.
 
 Auth uses two dedicated scope objects: `signal_scout:read` is user-grantable
-via the personal-API-key picker (so a team can introspect runs/memory from
+via the personal-API-key picker (so a team can introspect runs/scratchpad from
 their own clients), while `signal_scout_internal:write` is in
 `INTERNAL_API_SCOPE_OBJECTS` and so can't be granted via PAK at all — the
 sandbox gets it only via `INTERNAL_SCOPES` when its OAuth token is minted.
 This blocks the prompt-injection vector where a user could mint a PAK,
-write to durable agent memory, and have the agent read it back verbatim
-on its next run. Every read filters on `team_id` first; the agent's MCP
+write to the durable scratchpad, and have the scout read it back verbatim
+on its next run. Every read filters on `team_id` first; the scout's MCP
 token is already pinned to the team.
 """
 
@@ -163,15 +164,16 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`(run_id, finding_id)` via the deterministic `Signal.source_id = run:<id>:finding:<id>` — "
             "a second call with the same `finding_id` short-circuits without re-firing the pipeline."
         ),
+        operation_id="signals_scout_emit_signal",
     )
     @action(
         detail=True,
         methods=["post"],
-        url_path="findings",
+        url_path="emit-signal",
         required_scopes=["signal_scout_internal:write"],
         pagination_class=None,
     )
-    def findings(self, request: Request, **kwargs) -> Response:
+    def emit_signal(self, request: Request, **kwargs) -> Response:
         run_id = _parse_run_id_or_404(kwargs)
         from products.tasks.backend.models import TaskRun
 
@@ -273,8 +275,9 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="Matching memory entries newest-first.",
             ),
         },
-        summary="Search durable memories",
+        summary="Search the scout scratchpad",
         description=("Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`."),
+        operation_id="signals_scout_scratchpad_search",
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
@@ -289,8 +292,9 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=ScratchpadEntrySerializer, description="Memory entry written or refreshed."),
             400: OpenApiResponse(description="Invalid memory shape (empty key/content, key too long)."),
         },
-        summary="Write or refresh an agent memory",
+        summary="Remember a scratchpad entry",
         description=("Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place."),
+        operation_id="signals_scout_scratchpad_remember",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         data = request.validated_data
@@ -318,18 +322,18 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={
             200: OpenApiResponse(response=ForgetResponseSerializer, description="Whether a row was removed."),
         },
-        summary="Delete an agent memory by key",
+        summary="Forget a scratchpad entry by key",
         description="Delete an entry by key. Returns `deleted=false` if no row matched.",
-        operation_id="signals_scout_scratchpad_delete",
+        operation_id="signals_scout_scratchpad_forget",
     )
     @action(
         detail=False,
         methods=["post"],
-        url_path="delete",
+        url_path="forget",
         required_scopes=["signal_scout_internal:write"],
         pagination_class=None,
     )
-    def delete(self, request: Request, **kwargs) -> Response:
+    def forget(self, request: Request, **kwargs) -> Response:
         data = request.validated_data
         removed = forget(team_id=self.team_id, key=data["key"])
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
