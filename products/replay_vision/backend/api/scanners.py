@@ -396,10 +396,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=False,
         methods=["post"],
         url_path="estimate",
-        required_scopes=["replay_scanner:read"],
+        required_scopes=["replay_scanner:read", "session_recording:read"],
     )
     def estimate(self, request: Request, **kwargs: Any) -> Response:
         """Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview."""
+        # The query runs over recording data, so a probed filter can leak recording metadata
+        # (URLs, events, person properties, console logs); gate on session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Estimating scanner volume requires session_recording read access.")
+
         body = EstimateRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         sampling_rate: float = body.validated_data["sampling_rate"]
