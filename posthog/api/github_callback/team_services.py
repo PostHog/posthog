@@ -153,8 +153,7 @@ def link_existing_team_github_integration(
     # installation_id is stored in JSONB and historically written as either a
     # string or a number, so match both representations.
     installation_id_match = (
-        Q(config__installation_id=str(installation_id_param))
-        | Q(config__installation_id=int(installation_id_param))
+        Q(config__installation_id=str(installation_id_param)) | Q(config__installation_id=int(installation_id_param))
         if installation_id_param
         else None
     )
@@ -289,5 +288,3 @@ def build_team_oauth_authorize_url(
             "state": urlencode({"token": token}),
         }
     )
-
-

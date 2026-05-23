@@ -1,7 +1,6 @@
 import os
 import re
 import json
-from datetime import datetime
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -12,7 +11,6 @@ from django.shortcuts import redirect
 from django.utils import timezone
 
 import stripe
-import requests
 import structlog
 from anthropic import APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from django_filters.rest_framework import DjangoFilterBackend
@@ -1064,7 +1062,9 @@ class IntegrationViewSet(
             team_id=self.team_id,
             installation_id=request.data.get("installation_id"),
             next_url=str(request.data.get("next") or ""),
-            connect_from=request.data.get("connect_from") if request.data.get("connect_from") == "posthog_code" else None,
+            connect_from=request.data.get("connect_from")
+            if request.data.get("connect_from") == "posthog_code"
+            else None,
         )
         return Response({"oauth_url": oauth_url})
 

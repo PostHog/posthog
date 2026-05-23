@@ -9,7 +9,6 @@ import re
 
 from django.conf import settings
 
-
 # Server-side state cache used by the personal GitHub linking flow (the install
 # callback and the OAuth-only fast paths). Keys are written when a flow starts
 # and consumed when GitHub redirects back to us.

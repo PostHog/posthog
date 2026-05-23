@@ -19,10 +19,7 @@ import requests
 import structlog
 
 from posthog.api.github_callback import personal_state
-from posthog.api.github_callback.redirects import (
-    PERSONAL_INTEGRATIONS_SETTINGS_PATH,
-    final_github_redirect,
-)
+from posthog.api.github_callback.redirects import PERSONAL_INTEGRATIONS_SETTINGS_PATH, final_github_redirect
 from posthog.api.github_callback.types import (
     APP_CONNECT_FROM_VALUES,
     GITHUB_INSTALL_STATE_CACHE_PREFIX,

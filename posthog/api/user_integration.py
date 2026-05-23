@@ -39,11 +39,7 @@ from posthog.api.integration import (
     GitHubReposResponseSerializer,
     validate_github_repository_name,
 )
-from posthog.auth import (
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    SessionAuthentication,
-)
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
@@ -351,7 +347,6 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "connect_flow": "app_install",
             }
         )
-
 
 
 def _resolve_team_for_github_start(user: User, request: Request):
