@@ -2062,6 +2062,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "posthog_session_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "posthog_session_id",
+                  "id": null,
+                  "name": "posthog_session_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "posthog_distinct_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "posthog_distinct_id",
+                  "id": null,
+                  "name": "posthog_distinct_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "logs",
@@ -9450,6 +9470,26 @@
                   "hogql_value": "service_name",
                   "id": null,
                   "name": "service_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "posthog_session_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "posthog_session_id",
+                  "id": null,
+                  "name": "posthog_session_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "posthog_distinct_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "posthog_distinct_id",
+                  "id": null,
+                  "name": "posthog_distinct_id",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
