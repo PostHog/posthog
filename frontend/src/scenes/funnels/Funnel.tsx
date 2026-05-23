@@ -16,6 +16,7 @@ import { FunnelFlowGraph } from './FunnelFlowGraph/FunnelFlowGraph'
 import { FunnelHistogram } from './FunnelHistogram'
 import { FunnelHistogramChart } from './viz/funnel-histogram/FunnelHistogramChart'
 import { FunnelLineChart } from './viz/funnel-line-chart/FunnelLineChart'
+import { FunnelStepsBarChart } from './viz/funnel-steps-bar-chart/FunnelStepsBarChart'
 
 export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -31,7 +32,7 @@ export function Funnel(props: ChartParams): JSX.Element {
     } else if (funnelVizType === FunnelVizType.Flow) {
         viz = <FunnelFlowGraph />
     } else if ((layout || FunnelLayout.vertical) === FunnelLayout.vertical) {
-        viz = <FunnelBarVertical {...props} />
+        viz = hogChartsFunnelEnabled ? <FunnelStepsBarChart {...props} /> : <FunnelBarVertical {...props} />
     } else {
         viz = <FunnelBarHorizontal {...props} />
     }
