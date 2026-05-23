@@ -7,7 +7,6 @@ import {
     defineMcpProtocolTests,
     defineResilienceTests,
     defineResourceCatalogTests,
-    defineSessionLifecycleTests,
     defineToolBehaviorTests,
     defineUiAppProtocolTests,
     type ProtocolTestHarness,
@@ -21,10 +20,17 @@ import {
 //
 // Boot the local PostHog stack with `./bin/start` before running this suite.
 //
-// Note: the JSON-RPC edge-case and HTTP-route suites are Hono-specific (they
-// assert on dispatcher internals and public routes the CF SDK doesn't expose
-// in the same shape). The protocol / resilience / UI / session / resource /
-// auth / tool-behavior suites run against both runtimes.
+// What runs here vs Hono-only:
+//   - SDK-based suites work on both runtimes because the SDK client handles
+//     CF's SSE-streaming responses and Durable Object session lifecycle.
+//   - Raw-fetch JSON-asserting suites (defineHttpRouteTests,
+//     defineJsonRpcEdgeCaseTests, defineSessionLifecycleTests) are Hono-only:
+//     CF returns SSE bodies and requires an initialized DO session before
+//     it'll dispatch arbitrary JSON-RPC methods, which the raw assertions
+//     don't account for. These behaviors are still covered against the Hono
+//     runtime — both runtimes share the same dispatcher / catalog code.
+//   - defineAuthTests is shared because every test in it asserts on a 401
+//     rejection that fires before the dispatcher / session layer.
 
 let env: IntegrationEnv
 let harness: IntegrationHarness
@@ -52,6 +58,5 @@ defineMcpProtocolTests('Cloudflare Workers (real stack)', harnessFor)
 defineResilienceTests('Cloudflare Workers (real stack)', harnessFor)
 defineUiAppProtocolTests('Cloudflare Workers (real stack)', harnessFor)
 defineAuthTests('Cloudflare Workers (real stack)', harnessFor)
-defineSessionLifecycleTests('Cloudflare Workers (real stack)', harnessFor)
 defineResourceCatalogTests('Cloudflare Workers (real stack)', harnessFor)
 defineToolBehaviorTests('Cloudflare Workers (real stack)', harnessFor)
