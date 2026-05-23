@@ -21,6 +21,8 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
     can_use_lazy_precompute as _can_use_lazy_precompute_shared,
     ceil_utc_day,
     check_common_eligible,
@@ -29,6 +31,8 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     test_account_filter_expr,
     user_filter_expr,
 )
+
+_FAMILY = "web_overview"
 
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
@@ -231,6 +235,7 @@ def execute_lazy_precomputed_read(
         time_range_end = ceil_utc_day(current_end_utc)
 
         if time_range_start >= time_range_end:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="empty_range").inc()
             logger.info(
                 "web_overview_lazy_precompute_empty_range",
                 team_id=team_id,
@@ -263,9 +268,11 @@ def execute_lazy_precomputed_read(
         )
 
         if not result.job_ids:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="no_job_ids").inc()
             return None
 
         if not result.ready:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="current_not_ready").inc()
             logger.info(
                 "web_overview_lazy_precompute_current_not_ready",
                 team_id=team_id,
@@ -300,6 +307,7 @@ def execute_lazy_precomputed_read(
                     ensure_duration_ms += int((time.perf_counter() - prev_ensure_started) * 1000)
 
                     if not prev_result.ready:
+                        WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="previous_not_ready").inc()
                         logger.info(
                             "web_overview_lazy_precompute_previous_not_ready",
                             team_id=team_id,
@@ -321,6 +329,7 @@ def execute_lazy_precomputed_read(
         read_duration_ms = int((time.perf_counter() - read_started) * 1000)
         total_duration_ms = int((time.perf_counter() - overall_started) * 1000)
 
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS.labels(family=_FAMILY).inc()
         logger.info(
             "web_overview_lazy_precompute_completed",
             team_id=team_id,

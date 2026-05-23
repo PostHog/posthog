@@ -14,6 +14,7 @@ from typing import Optional, Protocol, Union
 
 import structlog
 import posthoganalytics
+from prometheus_client import Counter
 
 from posthog.schema import EventPropertyFilter, PropertyOperator, WebOverviewQuery, WebStatsTableQuery
 
@@ -24,6 +25,33 @@ from posthog.hogql.transforms.preaggregated_table_transformation import is_integ
 from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
+
+
+# Counts requests refused by `can_use_lazy_precompute`. `family` is the
+# `log_prefix` (`web_overview` / `web_stats`); `reason` is the
+# `LazyPrecomputeIneligible` subclass name. Together with `_fallback_total`
+# and `_success_total`, callers can compute lazy adoption per family.
+WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED = Counter(
+    "web_analytics_lazy_precompute_rejected_total",
+    "Requests refused by the lazy precompute gate, by family and rejection reason.",
+    ["family", "reason"],
+)
+
+# Counts requests that passed the gate but couldn't be served from precompute
+# (window empty, no jobs created, current/previous period not yet READY). The
+# caller falls back to the raw / v2 path on each of these.
+WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK = Counter(
+    "web_analytics_lazy_precompute_fallback_total",
+    "Lazy precompute fall-throughs after the gate accepted, by family and reason.",
+    ["family", "reason"],
+)
+
+# Counts requests where the lazy path successfully returned a precomputed row.
+WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS = Counter(
+    "web_analytics_lazy_precompute_success_total",
+    "Requests served from the lazy precompute path, by family.",
+    ["family"],
+)
 
 # Bucketing the precompute hourly keeps reads correct for any whole-hour-offset
 # timezone — boundaries line up exactly when the team-local window is converted
@@ -169,10 +197,12 @@ def can_use_lazy_precompute(
         if extra_check is not None:
             extra_check(runner)
     except LazyPrecomputeIneligible as exc:
+        reason = type(exc).__name__
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED.labels(family=log_prefix, reason=reason).inc()
         logger.info(
             f"{log_prefix}_lazy_precompute_rejected",
             team_id=runner.team.pk,
-            reason=type(exc).__name__,
+            reason=reason,
             detail=str(exc) or None,
         )
         return False
