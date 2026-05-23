@@ -780,41 +780,40 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             ): QuickFilterItem[] =>
                 enableKeywordShortcuts && searchQuery.trim() ? (group?.keywordShortcuts?.(searchQuery) ?? []) : [],
         ],
-        items: [
+        // Deduped per-group top matches for the SuggestedFilters tab: when a search surfaces the
+        // same `{ groupType, value }` from a per-group top-match AND from a recent/pinned row,
+        // drop the per-group row so the user doesn't see e.g. "Recent · pageview" stacked above
+        // "Events · pageview". Extracted from `items` to keep that selector's input count down —
+        // every extra input on `items` cascades into longer kea typegen times for downstream
+        // logics.
+        dedupedTopMatches: [
             (s) => [
-                s.remoteItems,
-                s.localItems,
-                s.listGroupType,
                 s.topMatchItemsWithSkeletons,
+                s.listGroupType,
                 s.searchQuery,
                 s.contextFilteredRecentItems,
                 s.contextFilteredPinnedItems,
-                s.suggestedPinnedMatches,
                 s.suggestedRecentMatches,
-                s.keywordShortcutItems,
+                s.suggestedPinnedMatches,
                 s.taxonomicGroups,
             ],
             (
-                remoteItems,
-                localItems,
-                listGroupType,
                 topMatchItemsWithSkeletons,
+                listGroupType,
                 searchQuery,
                 contextFilteredRecentItems,
                 contextFilteredPinnedItems,
-                suggestedPinnedMatches,
                 suggestedRecentMatches,
-                keywordShortcutItems,
+                suggestedPinnedMatches,
                 taxonomicGroups
-            ) => {
+            ): (TaxonomicDefinitionTypes | SkeletonItem)[] => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
-                const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
-                const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                if (!isSuggested) {
+                    return []
+                }
+                const recentPrefix = !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
+                const pinnedPrefix = !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
 
-                // Keep recents/pinned as the canonical row for an underlying value: when a search
-                // surfaces the same `{ groupType, value }` from a per-group top-match, drop the
-                // per-group row so the user doesn't see e.g. "Recent · pageview" stacked above
-                // "Events · pageview".
                 const dedupeKeys = new Set<string>()
                 const addRecentKey = (item: TaxonomicDefinitionTypes): void => {
                     if (hasRecentContext(item) && item._recentContext.sourceValue != null) {
@@ -831,26 +830,55 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 suggestedRecentMatches.forEach(addRecentKey)
                 suggestedPinnedMatches.forEach(addPinnedKey)
 
-                const rawTopMatches = isSuggested ? topMatchItemsWithSkeletons : []
-                const groupsByType = dedupeKeys.size === 0 ? null : new Map(taxonomicGroups.map((g) => [g.type, g]))
-                const topMatches =
-                    groupsByType === null
-                        ? rawTopMatches
-                        : rawTopMatches.filter((item) => {
-                              if (isSkeletonItem(item)) {
-                                  return true
-                              }
-                              const group = (item as TaxonomicDefinitionTypes & { group?: TaxonomicFilterGroupType })
-                                  .group
-                              if (!group) {
-                                  return true
-                              }
-                              const value = groupsByType.get(group)?.getValue?.(item as TaxonomicDefinitionTypes)
-                              if (value == null) {
-                                  return true
-                              }
-                              return !dedupeKeys.has(`${group}::${value}`)
-                          })
+                if (dedupeKeys.size === 0) {
+                    return topMatchItemsWithSkeletons
+                }
+                const groupsByType = new Map(taxonomicGroups.map((g) => [g.type, g]))
+                return topMatchItemsWithSkeletons.filter((item) => {
+                    if (isSkeletonItem(item)) {
+                        return true
+                    }
+                    const group = (item as TaxonomicDefinitionTypes & { group?: TaxonomicFilterGroupType }).group
+                    if (!group) {
+                        return true
+                    }
+                    const value = groupsByType.get(group)?.getValue?.(item as TaxonomicDefinitionTypes)
+                    if (value == null) {
+                        return true
+                    }
+                    return !dedupeKeys.has(`${group}::${value}`)
+                })
+            },
+        ],
+        items: [
+            (s) => [
+                s.remoteItems,
+                s.localItems,
+                s.listGroupType,
+                s.dedupedTopMatches,
+                s.searchQuery,
+                s.contextFilteredRecentItems,
+                s.contextFilteredPinnedItems,
+                s.suggestedPinnedMatches,
+                s.suggestedRecentMatches,
+                s.keywordShortcutItems,
+            ],
+            (
+                remoteItems,
+                localItems,
+                listGroupType,
+                dedupedTopMatches,
+                searchQuery,
+                contextFilteredRecentItems,
+                contextFilteredPinnedItems,
+                suggestedPinnedMatches,
+                suggestedRecentMatches,
+                keywordShortcutItems
+            ) => {
+                const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
+                const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
+                const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+                const topMatches = isSuggested ? dedupedTopMatches : []
 
                 // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
                 // see the autocapture/event-type shortcut prominently and pressing Enter picks it.
