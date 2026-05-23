@@ -5,58 +5,58 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.replay_vision.backend.models import ReplayLens, ReplayObservation
-from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType
+from products.replay_vision.backend.models import ReplayObservation, ReplayScanner
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
+from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerProvider, ScannerType
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
-def _make_lens(team, **overrides) -> ReplayLens:
+def _make_scanner(team, **overrides) -> ReplayScanner:
     defaults = {
         "team": team,
-        "name": "my-lens",
-        "lens_type": LensType.MONITOR,
-        "lens_config": {"prompt": "test"},
-        "model": LensModel.GEMINI_3_FLASH,
+        "name": "my-scanner",
+        "scanner_type": ScannerType.MONITOR,
+        "scanner_config": {"prompt": "test"},
+        "model": ScannerModel.GEMINI_3_FLASH,
     }
     defaults.update(overrides)
-    return ReplayLens.objects.create(**defaults)
+    return ReplayScanner.objects.create(**defaults)
 
 
-class TestReplayLens(BaseTest):
-    def _create_lens(self, **overrides) -> ReplayLens:
-        return _make_lens(self.team, **overrides)
+class TestReplayScanner(BaseTest):
+    def _create_scanner(self, **overrides) -> ReplayScanner:
+        return _make_scanner(self.team, **overrides)
 
     def test_create_with_required_fields(self) -> None:
-        lens = self._create_lens()
-        self.assertEqual(lens.lens_type, LensType.MONITOR)
-        self.assertTrue(lens.enabled)
-        self.assertEqual(lens.provider, LensProvider.GOOGLE)
-        self.assertEqual(lens.sampling_rate, 1.0)
-        self.assertEqual(lens.lens_version, 1)
-        self.assertFalse(lens.emits_signals)
-        self.assertIsNotNone(lens.last_swept_at)
+        scanner = self._create_scanner()
+        self.assertEqual(scanner.scanner_type, ScannerType.MONITOR)
+        self.assertTrue(scanner.enabled)
+        self.assertEqual(scanner.provider, ScannerProvider.GOOGLE)
+        self.assertEqual(scanner.sampling_rate, 1.0)
+        self.assertEqual(scanner.scanner_version, 1)
+        self.assertFalse(scanner.emits_signals)
+        self.assertIsNotNone(scanner.last_swept_at)
 
     def test_unique_team_name(self) -> None:
-        self._create_lens(name="dup")
+        self._create_scanner(name="dup")
         with self.assertRaises(IntegrityError):
-            self._create_lens(name="dup")
+            self._create_scanner(name="dup")
 
     def test_same_name_different_teams_allowed(self) -> None:
         other_team = self.organization.teams.create(name="other")
-        self._create_lens(name="shared")
-        ReplayLens.objects.create(
+        self._create_scanner(name="shared")
+        ReplayScanner.objects.create(
             team=other_team,
             name="shared",
-            lens_type=LensType.MONITOR,
-            lens_config={"prompt": "test"},
-            model=LensModel.GEMINI_3_FLASH,
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "test"},
+            model=ScannerModel.GEMINI_3_FLASH,
         )
 
     def test_str_includes_name_and_type(self) -> None:
-        lens = self._create_lens(name="checkout-friction", lens_type=LensType.CLASSIFIER)
-        self.assertIn("checkout-friction", str(lens))
-        self.assertIn(LensType.CLASSIFIER.value, str(lens))
+        scanner = self._create_scanner(name="checkout-friction", scanner_type=ScannerType.CLASSIFIER)
+        self.assertIn("checkout-friction", str(scanner))
+        self.assertIn(ScannerType.CLASSIFIER.value, str(scanner))
 
     @parameterized.expand(
         [
@@ -69,134 +69,134 @@ class TestReplayLens(BaseTest):
     def test_sampling_rate_constraint(self, label: str, value: float, expect_error: bool) -> None:
         if expect_error:
             with self.assertRaises(IntegrityError):
-                self._create_lens(name=label, sampling_rate=value)
+                self._create_scanner(name=label, sampling_rate=value)
         else:
-            self._create_lens(name=label, sampling_rate=value)
+            self._create_scanner(name=label, sampling_rate=value)
 
-    def test_lens_version_starts_at_one(self) -> None:
-        lens = self._create_lens()
-        self.assertEqual(lens.lens_version, 1)
+    def test_scanner_version_starts_at_one(self) -> None:
+        scanner = self._create_scanner()
+        self.assertEqual(scanner.scanner_version, 1)
 
     @parameterized.expand(
         [
-            ("lens_type", LensType.CLASSIFIER),
-            ("lens_config", {"prompt": "different prompt"}),
+            ("scanner_type", ScannerType.CLASSIFIER),
+            ("scanner_config", {"prompt": "different prompt"}),
             ("query", {"properties": [{"key": "foo"}]}),
             ("sampling_rate", 0.25),
-            ("model", LensModel.GEMINI_3_FLASH_LITE),
+            ("model", ScannerModel.GEMINI_3_FLASH_LITE),
             ("emits_signals", True),
         ]
     )
-    def test_lens_version_bumps_on_tracked_field_change(self, field: str, new_value) -> None:
-        lens = self._create_lens()
-        setattr(lens, field, new_value)
-        lens.save()
-        self.assertEqual(lens.lens_version, 2)
+    def test_scanner_version_bumps_on_tracked_field_change(self, field: str, new_value) -> None:
+        scanner = self._create_scanner()
+        setattr(scanner, field, new_value)
+        scanner.save()
+        self.assertEqual(scanner.scanner_version, 2)
 
-    def test_lens_version_does_not_bump_on_metadata_change(self) -> None:
-        lens = self._create_lens(name="original")
-        lens.name = "renamed"
-        lens.description = "now described"
-        lens.save()
-        self.assertEqual(lens.lens_version, 1)
+    def test_scanner_version_does_not_bump_on_metadata_change(self) -> None:
+        scanner = self._create_scanner(name="original")
+        scanner.name = "renamed"
+        scanner.description = "now described"
+        scanner.save()
+        self.assertEqual(scanner.scanner_version, 1)
 
-    def test_lens_version_does_not_bump_on_no_change(self) -> None:
-        lens = self._create_lens()
-        lens.save()
-        self.assertEqual(lens.lens_version, 1)
+    def test_scanner_version_does_not_bump_on_no_change(self) -> None:
+        scanner = self._create_scanner()
+        scanner.save()
+        self.assertEqual(scanner.scanner_version, 1)
 
-    def test_lens_version_bumps_per_save_of_changed_config(self) -> None:
-        lens = self._create_lens()
-        lens.sampling_rate = 0.5
-        lens.save()
-        lens.sampling_rate = 0.25
-        lens.save()
-        self.assertEqual(lens.lens_version, 3)
+    def test_scanner_version_bumps_per_save_of_changed_config(self) -> None:
+        scanner = self._create_scanner()
+        scanner.sampling_rate = 0.5
+        scanner.save()
+        scanner.sampling_rate = 0.25
+        scanner.save()
+        self.assertEqual(scanner.scanner_version, 3)
 
-    def test_lens_version_does_not_bump_with_non_tracked_update_fields(self) -> None:
-        lens = self._create_lens()
-        lens.lens_config = {"prompt": "in-memory only"}  # tracked change in memory
-        lens.enabled = False
-        lens.save(update_fields=["enabled"])  # save only enabled — tracked change shouldn't bump
-        lens.refresh_from_db()
-        self.assertEqual(lens.lens_version, 1)
-        self.assertFalse(lens.enabled)
+    def test_scanner_version_does_not_bump_with_non_tracked_update_fields(self) -> None:
+        scanner = self._create_scanner()
+        scanner.scanner_config = {"prompt": "in-memory only"}  # tracked change in memory
+        scanner.enabled = False
+        scanner.save(update_fields=["enabled"])  # save only enabled — tracked change shouldn't bump
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_version, 1)
+        self.assertFalse(scanner.enabled)
 
-    def test_lens_version_bumps_with_tracked_update_field_persists(self) -> None:
-        lens = self._create_lens()
-        lens.lens_config = {"prompt": "persisted"}
-        lens.save(update_fields=["lens_config"])
-        lens.refresh_from_db()
-        self.assertEqual(lens.lens_version, 2)
-        self.assertEqual(lens.lens_config, {"prompt": "persisted"})
+    def test_scanner_version_bumps_with_tracked_update_field_persists(self) -> None:
+        scanner = self._create_scanner()
+        scanner.scanner_config = {"prompt": "persisted"}
+        scanner.save(update_fields=["scanner_config"])
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_version, 2)
+        self.assertEqual(scanner.scanner_config, {"prompt": "persisted"})
 
 
 class TestReplayObservation(BaseTest):
-    def _create_lens(self, **overrides) -> ReplayLens:
-        return _make_lens(self.team, **overrides)
+    def _create_scanner(self, **overrides) -> ReplayScanner:
+        return _make_scanner(self.team, **overrides)
 
-    def _create_observation(self, lens: ReplayLens, session_id: str = "abc-123") -> ReplayObservation:
-        # team is auto-populated from lens by save() override.
+    def _create_observation(self, scanner: ReplayScanner, session_id: str = "abc-123") -> ReplayObservation:
+        # team is auto-populated from scanner by save() override.
         return ReplayObservation.objects.create(
-            lens=lens,
+            scanner=scanner,
             session_id=session_id,
-            lens_snapshot=_snapshot_for(lens),
+            scanner_snapshot=_snapshot_for(scanner),
             triggered_by=ObservationTrigger.SCHEDULE,
         )
 
     def test_create_with_required_fields(self) -> None:
-        lens = self._create_lens()
-        obs = self._create_observation(lens)
+        scanner = self._create_scanner()
+        obs = self._create_observation(scanner)
         self.assertEqual(obs.status, ObservationStatus.PENDING)
         self.assertEqual(obs.error_reason, "")
         self.assertEqual(obs.workflow_id, "")
         self.assertIsNone(obs.started_at)
         self.assertIsNone(obs.completed_at)
 
-    def test_unique_lens_session(self) -> None:
-        lens = self._create_lens()
-        self._create_observation(lens, session_id="s1")
+    def test_unique_scanner_session(self) -> None:
+        scanner = self._create_scanner()
+        self._create_observation(scanner, session_id="s1")
         with self.assertRaises(IntegrityError):
-            self._create_observation(lens, session_id="s1")
+            self._create_observation(scanner, session_id="s1")
 
-    def test_same_session_different_lenses_allowed(self) -> None:
-        lens_a = self._create_lens()
-        lens_b = ReplayLens.objects.create(
+    def test_same_session_different_scanners_allowed(self) -> None:
+        scanner_a = self._create_scanner()
+        scanner_b = ReplayScanner.objects.create(
             team=self.team,
-            name="other-lens",
-            lens_type=LensType.MONITOR,
-            lens_config={"prompt": "test"},
-            model=LensModel.GEMINI_3_FLASH,
+            name="other-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "test"},
+            model=ScannerModel.GEMINI_3_FLASH,
         )
-        self._create_observation(lens_a, session_id="shared-session")
-        self._create_observation(lens_b, session_id="shared-session")
+        self._create_observation(scanner_a, session_id="shared-session")
+        self._create_observation(scanner_b, session_id="shared-session")
 
-    def test_observation_cascade_deletes_with_lens(self) -> None:
-        lens = self._create_lens()
-        self._create_observation(lens)
-        lens_id = lens.id
-        lens.delete()
-        self.assertEqual(ReplayObservation.objects.filter(lens_id=lens_id).count(), 0)
+    def test_observation_cascade_deletes_with_scanner(self) -> None:
+        scanner = self._create_scanner()
+        self._create_observation(scanner)
+        scanner_id = scanner.id
+        scanner.delete()
+        self.assertEqual(ReplayObservation.objects.filter(scanner_id=scanner_id).count(), 0)
 
-    def test_team_id_auto_populated_from_lens(self) -> None:
-        lens = self._create_lens()
+    def test_team_id_auto_populated_from_scanner(self) -> None:
+        scanner = self._create_scanner()
         obs = ReplayObservation.objects.create(
-            lens=lens,
+            scanner=scanner,
             session_id="auto-team",
-            lens_snapshot=_snapshot_for(lens),
+            scanner_snapshot=_snapshot_for(scanner),
             triggered_by=ObservationTrigger.SCHEDULE,
         )
-        self.assertEqual(obs.team_id, lens.team_id)
+        self.assertEqual(obs.team_id, scanner.team_id)
 
     def test_mismatched_team_rejected(self) -> None:
-        lens = self._create_lens()
+        scanner = self._create_scanner()
         other_team = self.organization.teams.create(name="other")
         with self.assertRaises(ValueError):
             ReplayObservation.objects.create(
-                lens=lens,
+                scanner=scanner,
                 team=other_team,
                 session_id="mismatch",
-                lens_snapshot=_snapshot_for(lens),
+                scanner_snapshot=_snapshot_for(scanner),
                 triggered_by=ObservationTrigger.SCHEDULE,
             )
 
@@ -210,11 +210,11 @@ class TestReplayObservation(BaseTest):
     def test_completed_at_status_invariant(
         self, label: str, status: str, has_completed_at: bool, expect_error: bool
     ) -> None:
-        lens = self._create_lens()
+        scanner = self._create_scanner()
         kwargs: dict = {
-            "lens": lens,
+            "scanner": scanner,
             "session_id": label,
-            "lens_snapshot": _snapshot_for(lens),
+            "scanner_snapshot": _snapshot_for(scanner),
             "triggered_by": ObservationTrigger.SCHEDULE,
             "status": status,
         }
@@ -226,30 +226,30 @@ class TestReplayObservation(BaseTest):
         else:
             ReplayObservation.objects.create(**kwargs)
 
-    def test_team_delete_cascades_to_lens_and_observations(self) -> None:
+    def test_team_delete_cascades_to_scanner_and_observations(self) -> None:
         other_team = self.organization.teams.create(name="cascade-target")
-        lens = ReplayLens.objects.create(
+        scanner = ReplayScanner.objects.create(
             team=other_team,
             name="doomed",
-            lens_type=LensType.MONITOR,
-            lens_config={"prompt": "test"},
-            model=LensModel.GEMINI_3_FLASH,
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "test"},
+            model=ScannerModel.GEMINI_3_FLASH,
         )
-        self._create_observation(lens, session_id="doomed-session")
-        lens_id = lens.id
+        self._create_observation(scanner, session_id="doomed-session")
+        scanner_id = scanner.id
         other_team.delete()
-        self.assertFalse(ReplayLens.objects.filter(id=lens_id).exists())
-        self.assertEqual(ReplayObservation.objects.filter(lens_id=lens_id).count(), 0)
+        self.assertFalse(ReplayScanner.objects.filter(id=scanner_id).exists())
+        self.assertEqual(ReplayObservation.objects.filter(scanner_id=scanner_id).count(), 0)
 
     def test_user_delete_nulls_triggered_by_user(self) -> None:
         from django.contrib.auth import get_user_model
 
         ephemeral = get_user_model().objects.create_user(email="ephemeral@example.com", password="x", first_name="Eph")
-        lens = self._create_lens()
+        scanner = self._create_scanner()
         obs = ReplayObservation.objects.create(
-            lens=lens,
+            scanner=scanner,
             session_id="user-cascade",
-            lens_snapshot=_snapshot_for(lens),
+            scanner_snapshot=_snapshot_for(scanner),
             triggered_by=ObservationTrigger.ON_DEMAND,
             triggered_by_user=ephemeral,
         )
@@ -258,18 +258,18 @@ class TestReplayObservation(BaseTest):
         obs.refresh_from_db()
         self.assertIsNone(obs.triggered_by_user_id)
 
-    def test_lens_snapshot_immutable_to_lens_edits(self) -> None:
-        lens = self._create_lens(lens_config={"prompt": "original"})
-        obs = self._create_observation(lens, session_id="snap-test")
-        self.assertEqual(obs.lens_snapshot["lens_config"], {"prompt": "original"})
-        lens.lens_config = {"prompt": "edited"}
-        lens.save()
+    def test_scanner_snapshot_immutable_to_scanner_edits(self) -> None:
+        scanner = self._create_scanner(scanner_config={"prompt": "original"})
+        obs = self._create_observation(scanner, session_id="snap-test")
+        self.assertEqual(obs.scanner_snapshot["scanner_config"], {"prompt": "original"})
+        scanner.scanner_config = {"prompt": "edited"}
+        scanner.save()
         obs.refresh_from_db()
-        self.assertEqual(obs.lens_snapshot["lens_config"], {"prompt": "original"})
+        self.assertEqual(obs.scanner_snapshot["scanner_config"], {"prompt": "original"})
 
     def test_mark_succeeded_sets_completed_at(self) -> None:
-        lens = self._create_lens()
-        obs = self._create_observation(lens, session_id="mark-ok")
+        scanner = self._create_scanner()
+        obs = self._create_observation(scanner, session_id="mark-ok")
         self.assertIsNone(obs.completed_at)
         obs.mark_succeeded()
         obs.refresh_from_db()
@@ -277,8 +277,8 @@ class TestReplayObservation(BaseTest):
         self.assertIsNotNone(obs.completed_at)
 
     def test_mark_failed_sets_completed_at_and_error(self) -> None:
-        lens = self._create_lens()
-        obs = self._create_observation(lens, session_id="mark-fail")
+        scanner = self._create_scanner()
+        obs = self._create_observation(scanner, session_id="mark-fail")
         obs.mark_failed("provider timeout after retries")
         obs.refresh_from_db()
         self.assertEqual(obs.status, ObservationStatus.FAILED)

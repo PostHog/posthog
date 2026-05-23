@@ -3335,6 +3335,7 @@ checksum = "37909eebbb50d72f9059c3b6d82c0463f2ff062c9e95845c43a6c9c0355411be"
 name = "feature-flags"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
  "anyhow",
  "assert-json-diff",
  "async-trait",

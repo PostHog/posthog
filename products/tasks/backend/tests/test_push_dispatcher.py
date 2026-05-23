@@ -49,12 +49,14 @@ class TestPushDispatcher(TransactionTestCase):
     def test_notify_enqueues_push(self, _name, notify_fn, expected_body_fragment, mock_delay, _flag):
         notify_fn(self.task_run)
         mock_delay.assert_called_once()
-        user_id, title, body, data = mock_delay.call_args.args
+        user_id, title, body, data, suppressed = mock_delay.call_args.args
         self.assertEqual(user_id, self.user.id)
         self.assertEqual(title, "PostHog Code")
         self.assertIn(expected_body_fragment, body)
         self.assertEqual(data["taskId"], str(self.task.id))
         self.assertEqual(data["taskRunId"], str(self.task_run.id))
+        # No presence rows in this test's setUp, so nothing to suppress.
+        self.assertEqual(suppressed, [])
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")

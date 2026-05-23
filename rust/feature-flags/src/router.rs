@@ -55,6 +55,7 @@ use crate::{
         utils::team_id_label_filter,
     },
     rayon_dispatcher::RayonDispatcher,
+    utils::bot_detection,
 };
 
 #[derive(Clone)]
@@ -193,6 +194,11 @@ pub fn router(
         flag_definitions_limiter.clone(),
         config.rate_limiter_cleanup_interval_secs,
     );
+
+    // Force eager construction of the bot UA matcher and IP-range table so
+    // the first `/flags` request after a pod restart doesn't pay the
+    // (sub-ms) build cost on its hot path.
+    bot_detection::warm_caches();
 
     let state = State {
         redis_client,
