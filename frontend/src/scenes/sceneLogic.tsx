@@ -6,6 +6,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
+import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -36,6 +37,7 @@ import {
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
@@ -857,8 +859,16 @@ export const sceneLogic = kea<sceneLogicType>([
                 persistTabs(values.tabs, values.homepage)
             }
         },
-        setHomepage: () => {
-            persistTabs(values.tabs, values.homepage)
+        setHomepage: ({ tab }) => {
+            if (isSharedView() || cache.skipNextHomepageSync) {
+                cache.skipNextHomepageSync = false
+                return
+            }
+            api.update('api/user_home_settings/@me/', {
+                homepage: tab ? sanitizeTabForPersistence(tab) : null,
+            }).catch((error) => {
+                console.error('Failed to persist homepage', error)
+            })
         },
         closeTabId: ({ tabId, options }) => {
             const tab = values.tabs.find(({ id }) => id === tabId)
@@ -1289,6 +1299,21 @@ export const sceneLogic = kea<sceneLogicType>([
                 },
             ])
             cache.initialNavigationTabCreated = true
+        }
+
+        if (!isSharedView() && !cache.homepageLoaded) {
+            cache.homepageLoaded = true
+            ;(async () => {
+                try {
+                    const response = await api.get<{ homepage?: SceneTab | null }>('api/user_home_settings/@me/')
+                    if (response?.homepage) {
+                        cache.skipNextHomepageSync = true
+                        actions.setHomepage(response.homepage)
+                    }
+                } catch (error) {
+                    console.error('Failed to load homepage', error)
+                }
+            })()
         }
     }),
 
