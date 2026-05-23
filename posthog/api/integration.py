@@ -1058,7 +1058,7 @@ class IntegrationViewSet(
     def github_oauth_authorize(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one."""
         oauth_url = build_team_oauth_authorize_url(
-            user_id=request.user.id,
+            user_id=cast(User, request.user).id,
             team_id=self.team_id,
             installation_id=request.data.get("installation_id"),
             next_url=str(request.data.get("next") or ""),
