@@ -9,7 +9,6 @@ import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { Search } from 'lib/components/Search/Search'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { uuid } from 'lib/utils'
@@ -21,8 +20,7 @@ import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { HomepageGridItem, HomepageGridItemKind, aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
@@ -234,45 +232,6 @@ const GRID_COLUMNS: GridColumn[] = [
     },
 ]
 
-function getGridItemContextMenu(
-    item: HomepageGridItem,
-    actions: { deleteShortcut: (id: string) => void; addShortcutItem: (entry: FileSystemEntry) => void }
-): React.ReactNode | undefined {
-    if (item.kind === 'starred' && item.entryId) {
-        return (
-            <ContextMenuItem
-                asChild
-                onClick={() => {
-                    posthog.capture('homepage grid item remove from starred', { kind: item.kind, href: item.href })
-                    actions.deleteShortcut(item.entryId!)
-                }}
-                data-attr="homepage-grid-remove-from-starred"
-            >
-                <ButtonPrimitive menuItem variant="danger" forceVariant>
-                    <IconStar className="size-4 text-inherit" /> Remove from starred
-                </ButtonPrimitive>
-            </ContextMenuItem>
-        )
-    }
-    if (item.kind === 'recent' && item.entry) {
-        return (
-            <ContextMenuItem
-                asChild
-                onClick={() => {
-                    posthog.capture('homepage grid item add to starred', { kind: item.kind, href: item.href })
-                    actions.addShortcutItem(item.entry!)
-                }}
-                data-attr="homepage-grid-add-to-starred"
-            >
-                <ButtonPrimitive menuItem>
-                    <IconStar className="size-4" /> Add to starred
-                </ButtonPrimitive>
-            </ContextMenuItem>
-        )
-    }
-    return undefined
-}
-
 const GRID_SKELETON_COUNTS_KEY = 'homepage-grid-skeleton-counts'
 
 function getStoredSkeletonCounts(): Record<string, number> | null {
@@ -287,7 +246,6 @@ function getStoredSkeletonCounts(): Record<string, number> | null {
 function IdleGrid(): JSX.Element {
     const { gridItems, query, dashboardsLoading, recentItemsLoading, starredItemsLoading } =
         useValues(aiFirstHomepageLogic)
-    const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const gridRef = useRef<HTMLDivElement>(null)
     // [col, row] position of the highlighted item, null = nothing highlighted
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
@@ -510,10 +468,6 @@ function IdleGrid(): JSX.Element {
                                             }
                                             onMouseEnter={() => setHighlight([colIndex, rowIndex])}
                                             onMouseLeave={() => setHighlight(null)}
-                                            extraContextMenuItems={getGridItemContextMenu(item, {
-                                                deleteShortcut,
-                                                addShortcutItem,
-                                            })}
                                         >
                                             <GridItemIcon item={item} />
                                             <span className="truncate">{item.label}</span>

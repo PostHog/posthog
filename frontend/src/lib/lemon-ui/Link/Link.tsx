@@ -6,22 +6,12 @@ import React from 'react'
 import { IconExternal, IconSend } from '@posthog/icons'
 
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    ContextMenu,
-    ContextMenuContent,
-    ContextMenuGroup,
-    ContextMenuItem,
-    ContextMenuTrigger,
-} from 'lib/ui/ContextMenu/ContextMenu'
-import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { urlToResource } from 'scenes/urls'
-
-import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
 
@@ -83,10 +73,6 @@ export type LinkProps = LinkPrimitiveProps & {
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
-
-    extraContextMenuItems?: React.ReactNode
-    /** Skip the context menu */
-    skipContext?: boolean
 }
 
 const shouldForcePageLoad = (input: any): boolean => {
@@ -257,13 +243,10 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             tooltipCloseDelayMs,
             role,
             tabIndex,
-            skipContext = false,
-            extraContextMenuItems,
             ...props
         },
         ref
     ) => {
-        const externalLink = isExternalLink(to)
         const href = resolveHref(to, disableClientSideRouting)
 
         const elementClasses = buttonProps
@@ -306,28 +289,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 >
                     {element}
                 </Tooltip>
-            )
-        }
-
-        if (href && !externalLink && !skipContext) {
-            element = (
-                <ContextMenu>
-                    <ContextMenuTrigger asChild>
-                        {/* Span so tooltip + context menu can coexist on the same trigger */}
-                        <span className="contents">{element}</span>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="max-w-[300px] click-outside-block">
-                        <ContextMenuGroup>
-                            <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
-                            {extraContextMenuItems && (
-                                <>
-                                    <MenuSeparator />
-                                    {extraContextMenuItems}
-                                </>
-                            )}
-                        </ContextMenuGroup>
-                    </ContextMenuContent>
-                </ContextMenu>
             )
         }
 
