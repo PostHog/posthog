@@ -4609,7 +4609,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--dark:
         hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.O7SwG4Drfr3z02hcLNC1LsLsGWddouhybBp4xZaUE-A
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--light:
-        hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.KSiw8WpvjWXIDh87ExL4cPnopVJlTXvzU8N8ruh6Hi8
+        hash: v1.k794b7964.6c391cbc05b64230fbd8defdbb960b131fd433409817497873fb9ffc705cd360.EIwByuofuT77yP259A9ffqfjSFwW9MrUDOvsZNA_aZM
     scenes-app-insights-funnels--funnel-time-to-convert--dark:
         hash: v1.k794b7964.d64808d2bfc36017f89b57feeaa373e20188738a622801207fa1beb59d02fdd9.cFuKF_Ow887Z3X3BoNhtTvkUWY2vips9HDBe-B02eQE
     scenes-app-insights-funnels--funnel-time-to-convert--light:
@@ -4635,9 +4635,9 @@ snapshots:
     scenes-app-insights-funnels--funnel-top-to-bottom-edit--light:
         hash: v1.k794b7964.1c2ab846bcc3edd498c949f8b875b48675ffeaaa7aad8a79f2f91d21e57f96c3.pdYnj8IH2XgUb4O9A1aS2On1qH53zfvlx9-1bmS5HS8
     scenes-app-insights-funnels--funnel-with-inline-events-edit--dark:
-        hash: v1.k794b7964.3b7b5f9590d162bbe6f2e9c980281218985542e069bdaa62881134a0bcd9fe98.Z2CxEngtWWGcwOMrnGVOSX7a8FL1Qh9znhaktn5CAmU
+        hash: v1.k794b7964.049fdee2b2e2c02be9e2c78618354d1bc807b1246093bb7e434bf55889152a03.ggJmRLiPar7YiJLivhdgWntEO3MdPpa3ssfMQZ6gXAc
     scenes-app-insights-funnels--funnel-with-inline-events-edit--light:
-        hash: v1.k794b7964.d48c03dd5208fbf0627266bed4a85007230ff09b7dbd71097a75406ad6af41c2.Pik3GjvV-xtddO0GB-1_Pp6CosfGDwBmPMNvtvAEwHM
+        hash: v1.k794b7964.81c194234f58bfc2c8a7697f56a013ac54e4a542032d073edda0f34d42d98054.1iKaZT3qOw6ZuvzNdRtj2fZ7zYw_6rIQjrMb12cJvNM
     scenes-app-insights-insight-quick-start--default--dark:
         hash: v1.k794b7964.e91e85b0ee937a14ef9bc524a1b98568c55a38eafdff6415d46c0e27f04a0771.LUZPkOS3UjH82ME39wve3LwP9FipEC-HrNVr6Ag8t84
     scenes-app-insights-insight-quick-start--default--light:
