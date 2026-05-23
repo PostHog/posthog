@@ -45,7 +45,26 @@ from ..models import UserInterview, UserInterviewTopic
 logger = structlog.get_logger(__name__)
 
 
-class InterviewStartCallIPThrottle(IPThrottle):
+class _MetricsEmittingIPThrottle(IPThrottle):
+    """`IPThrottle` subclass that emits `rate_limit_exceeded_total` on rejection.
+
+    Kept here (not on the base `IPThrottle`) on purpose: tweaking the base would tighten
+    the signature of `allow_request` and cascade into unrelated products that subclass
+    `IPThrottle`. Keeping the metric emission product-local means user_interviews owns
+    its own alerting surface without touching other products' code.
+    """
+
+    def allow_request(self, request: Request, view: Any) -> bool:
+        from posthog.rate_limit import RATE_LIMIT_EXCEEDED_COUNTER, get_route_from_path
+
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            route = get_route_from_path(getattr(request, "path", None))
+            RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id="", scope=self.scope, path=route, route=route).inc()
+        return bool(allowed)
+
+
+class InterviewStartCallIPThrottle(_MetricsEmittingIPThrottle):
     """Per-IP cap on `start_call`. The endpoint is `AllowAny`, so without this any caller
     can spin DB queries on share-token lookups indefinitely. 60/min comfortably handles
     legitimate interviewees clicking Start (one share token can't dial multiple times in
@@ -55,14 +74,14 @@ class InterviewStartCallIPThrottle(IPThrottle):
     rate = "60/minute"
 
 
-class VapiWebhookIPThrottle(IPThrottle):
+class VapiWebhookIPThrottle(_MetricsEmittingIPThrottle):
     """Per-IP cap on `vapi_webhook`. Vapi calls us a small handful of times per interview
     (status-update + end-of-call-report), but its egress is shared across all of our tenants,
     so the bucket has to be generous enough that a noisy concurrent interview hour doesn't
     bleed onto a normal one. 1200/min is well above legitimate aggregate volume while still
     stopping a persistent attacker from driving HMAC-verification CPU or structured-log
-    volume from a single IP. Rejection emits `rate_limit_exceeded_total` via the IPThrottle
-    base class so we can alert if it ever trips."""
+    volume from a single IP. Rejection emits `rate_limit_exceeded_total` via the parent
+    mixin so we can alert if it ever trips."""
 
     scope = "user_interviews_vapi_webhook_ip"
     rate = "1200/minute"
