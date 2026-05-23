@@ -8,12 +8,13 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphDataset, GraphType } from '~/types'
 
+import { RetentionBarChart } from 'products/product_analytics/frontend/insights/retention/RetentionBarChart/RetentionBarChart'
+import { RetentionLineChart } from 'products/product_analytics/frontend/insights/retention/RetentionLineChart/RetentionLineChart'
+
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { LineGraph } from '../insights/views/LineGraph/LineGraph'
 import { retentionGraphLogic } from './retentionGraphLogic'
 import { retentionModalLogic } from './retentionModalLogic'
-import { RetentionBarChart } from './viz/retention-bar-chart/RetentionBarChart'
-import { RetentionLineChart } from './viz/retention-line-chart/RetentionLineChart'
 
 interface RetentionGraphProps {
     inSharedMode?: boolean
