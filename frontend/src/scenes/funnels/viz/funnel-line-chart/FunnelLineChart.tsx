@@ -9,7 +9,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { AnnotationsLayer } from 'scenes/trends/viz/shared/AnnotationsLayer'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -18,6 +17,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { isFunnelsQuery } from '~/queries/utils'
 import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
+
+import { AnnotationsLayer } from 'products/product_analytics/frontend/insights/trends/shared/AnnotationsLayer'
 
 import { funnelDataLogic } from '../../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../../funnelPersonsModalLogic'
