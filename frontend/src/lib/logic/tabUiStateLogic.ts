@@ -86,6 +86,18 @@ export function readPersistedState(): PersistedShape {
     }
 }
 
+export function clearPersistedTabUiState(): void {
+    const storage = getStorage()
+    if (!storage) {
+        return
+    }
+    try {
+        storage.removeItem(TAB_UI_STATE_STORAGE_KEY)
+    } catch {
+        // ignore — best-effort cleanup
+    }
+}
+
 let writeWarned = false
 
 function writePersistedState(state: PersistedShape): void {

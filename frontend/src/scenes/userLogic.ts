@@ -8,6 +8,7 @@ import api, { getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { clearPersistedTabUiState } from 'lib/logic/tabUiStateLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -261,6 +262,7 @@ export const userLogic = kea<userLogicType>([
             }
             cache.loggingOut = true
             posthog.reset()
+            clearPersistedTabUiState()
 
             const form = document.createElement('form')
             form.method = 'POST'

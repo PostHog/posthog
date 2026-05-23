@@ -3,6 +3,7 @@ import {
     TAB_UI_STATE_STORAGE_KEY,
     TAB_UI_STATE_STORAGE_VERSION,
     TAB_UI_STATE_TTL_MS,
+    clearPersistedTabUiState,
     readPersistedState,
     tabUiStateLogic,
 } from 'lib/logic/tabUiStateLogic'
@@ -276,27 +277,28 @@ describe('tabUiStateLogic', () => {
             })
         })
 
-        it('readPersistedState ignores payloads with wrong version', () => {
-            window.localStorage.setItem(
-                TAB_UI_STATE_STORAGE_KEY,
-                JSON.stringify({
-                    version: TAB_UI_STATE_STORAGE_VERSION + 1,
-                    updatedAt: Date.now(),
-                    state: { chatDraftsByTab: { [TAB_A]: 'stale' } },
-                })
-            )
-            expect(readPersistedState().chatDraftsByTab).toEqual({})
-        })
-
-        it('readPersistedState ignores payloads older than the TTL', () => {
-            window.localStorage.setItem(
-                TAB_UI_STATE_STORAGE_KEY,
-                JSON.stringify({
-                    version: TAB_UI_STATE_STORAGE_VERSION,
-                    updatedAt: Date.now() - TAB_UI_STATE_TTL_MS - 1,
-                    state: { chatDraftsByTab: { [TAB_A]: 'expired' } },
-                })
-            )
+        it.each([
+            [
+                'wrong version',
+                () =>
+                    JSON.stringify({
+                        version: TAB_UI_STATE_STORAGE_VERSION + 1,
+                        updatedAt: Date.now(),
+                        state: { chatDraftsByTab: { [TAB_A]: 'stale' } },
+                    }),
+            ],
+            [
+                'older than TTL',
+                () =>
+                    JSON.stringify({
+                        version: TAB_UI_STATE_STORAGE_VERSION,
+                        updatedAt: Date.now() - TAB_UI_STATE_TTL_MS - 1,
+                        state: { chatDraftsByTab: { [TAB_A]: 'expired' } },
+                    }),
+            ],
+            ['corrupt JSON', () => 'not-json{'],
+        ])('readPersistedState returns empty for payload with %s', (_label, makePayload) => {
+            window.localStorage.setItem(TAB_UI_STATE_STORAGE_KEY, makePayload())
             expect(readPersistedState().chatDraftsByTab).toEqual({})
         })
 
@@ -318,13 +320,7 @@ describe('tabUiStateLogic', () => {
             expect(restored.expandedRowsByTabAndVizKey[TAB_A][VIZ_KEY]).toEqual([1, 2])
         })
 
-        it('readPersistedState recovers from corrupt JSON', () => {
-            window.localStorage.setItem(TAB_UI_STATE_STORAGE_KEY, 'not-json{')
-            expect(readPersistedState().chatDraftsByTab).toEqual({})
-        })
-
         it('does not crash when localStorage.setItem throws (quota guard)', () => {
-            const original = window.localStorage.setItem.bind(window.localStorage)
             const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
                 throw new Error('QuotaExceededError')
             })
@@ -335,8 +331,21 @@ describe('tabUiStateLogic', () => {
             } finally {
                 spy.mockRestore()
                 warn.mockRestore()
-                window.localStorage.setItem = original
             }
+        })
+
+        it('clearPersistedTabUiState removes the storage key', () => {
+            window.localStorage.setItem(
+                TAB_UI_STATE_STORAGE_KEY,
+                JSON.stringify({
+                    version: TAB_UI_STATE_STORAGE_VERSION,
+                    updatedAt: Date.now(),
+                    state: { chatDraftsByTab: { [TAB_A]: 'secret' } },
+                })
+            )
+            clearPersistedTabUiState()
+            expect(window.localStorage.getItem(TAB_UI_STATE_STORAGE_KEY)).toBeNull()
+            expect(readPersistedState().chatDraftsByTab).toEqual({})
         })
     })
 })
