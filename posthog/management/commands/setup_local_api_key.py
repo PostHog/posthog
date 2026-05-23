@@ -12,6 +12,7 @@ Safety: Only runs when DEBUG=True and CLOUD_DEPLOYMENT is unset.
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
 from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -100,6 +101,13 @@ class Command(BaseCommand):
             mask_value=mask_key_value(DEV_API_KEY),
             scopes=create_scopes,
         )
+
+        # The dev key is a local-only convenience, not a partner-issued credential the
+        # user needs to review. Stamp credentials_reviewed_at so the new key doesn't
+        # bounce the user into the credential review screen on their next login.
+        if user.credentials_reviewed_at is None:
+            user.credentials_reviewed_at = timezone.now()
+            user.save(update_fields=["credentials_reviewed_at"])
 
         print(f"Created personal API key for '{email}'")
         if create_scopes:
