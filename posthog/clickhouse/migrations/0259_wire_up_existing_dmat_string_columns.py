@@ -143,28 +143,39 @@ operations += [
     ),
 ]
 
-# Step 3: create the dmat slot-assignments backing table and dictionary BEFORE recreating the
-# MV. The recreated MV computes dmat_string columns itself via `dictGet` on this dictionary
-# (so ingestion no longer writes them), which means the dictionary must already exist when the
-# MV is created — hence this runs before Step 4.
+# Step 3: create the dmat slot-assignments backing table + dictionary BEFORE recreating the MV.
+# The recreated MV computes dmat_string columns via `dictGet` on this dictionary (so ingestion no
+# longer writes them), so the dictionary must already exist when the MV is created.
 #
-# The weekly batched workflow writes the current `(team_id, slot_index) → property_name`
-# mapping into this table and reloads the dictionary; the live MV and the backfill mutation both
-# read it via `dictGet` / `dictHas`. Until the first workflow run populates the table the dict is
-# empty and `dictHas` returns 0 for every (team_id, slot_index) pair, so the column is left NULL.
+# The weekly batched workflow publishes the current `(team_id, slot_index) → property_name` mapping
+# as a new generation in this table and reloads the dictionary; the live MV and the backfill
+# mutation both read it via `dictGet` / `dictHas`. Until the first workflow run the dict is empty
+# and `dictHas` returns 0 for every pair, so the column is left NULL.
 #
-# node_roles spans DATA (where `sharded_events` + the backfill mutation live and the MSK MV runs)
-# and, on cloud, INGESTION_EVENTS (where the WarpStream events MV runs and now evaluates
-# `dictGet`). It is NOT NodeRole.ALL — that would fan the CREATE out to satellite clusters
-# (ops/aux/sessions) that never run the events MV, which was the trigger for the previous
-# revert. `populate_slot_assignments` writes + reloads on these same two roles so every host that
-# has the dict gets a populated source table. Order matters: the dictionary's SOURCE references
-# the table, so the table is created first.
-_dmat_dict_roles = [NodeRole.DATA] + ([NodeRole.INGESTION_EVENTS] if _is_cloud else [])
+# Topology (see posthog/models/dmat_slot_assignments/sql.py):
+#   * The backing table is a ReplicatedReplacingMergeTree on DATA **only** — stable EC2 nodes with
+#     persistent storage. It is NOT created on the ingestion-events pods, which autoscale and would
+#     otherwise serve their dictionary from a still-syncing local replica (silent NULLs).
+#   * On DATA we create a dictionary whose source is the local table (used by the backfill mutation
+#     and, on non-cloud single-node installs, by the MV).
+#   * On cloud INGESTION_EVENTS we create a dictionary whose source reads the data cluster
+#     *remotely* via the CLICKHOUSE_DMAT_DATA_NAMED_COLLECTION named collection. A freshly-started
+#     ingestion pod therefore loads the complete current snapshot (or `dictGet` throws and the Kafka
+#     block fails closed) instead of reading a partial local copy.
 operations += [
-    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(on_cluster=False), node_roles=_dmat_dict_roles),
-    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster=False), node_roles=_dmat_dict_roles),
+    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_TABLE_SQL(), node_roles=[NodeRole.DATA]),
+    run_sql_with_exceptions(DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
 ]
+if _is_cloud:
+    operations += [
+        run_sql_with_exceptions(
+            DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL(
+                on_cluster=False,
+                remote_named_collection=settings.CLICKHOUSE_DMAT_DATA_NAMED_COLLECTION,
+            ),
+            node_roles=[NodeRole.INGESTION_EVENTS],
+        ),
+    ]
 
 # Step 4: recreate the kafka table and MV. The MV is created with compute_dmat=True so it fills
 # dmat_string_0..9 itself from `properties` + `team_id` via the dictionary created in Step 3,

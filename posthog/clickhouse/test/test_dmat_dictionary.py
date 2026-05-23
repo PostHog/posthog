@@ -3,7 +3,7 @@
 These tests pin the dict mechanics that the dmat backfill mutation depends on:
 - `dictHas` returns true for known `(team_id, column_index)` keys, false otherwise.
 - `dictGetString` returns the inserted property name for known keys.
-- Reload picks up new rows after TRUNCATE+INSERT.
+- Publishing a new generation supersedes the previous one (the dict reads `max(generation)`).
 
 The end-to-end coercion parity is covered by
 `posthog/temporal/tests/backfill_materialized_property/test_coercion_parity.py::TestDictBackedDispatchCoercion`.
@@ -11,6 +11,7 @@ This file is the focused unit-style equivalent: no event rows, no extraction, ju
 dict round-trip the mutation builder relies on.
 """
 
+import time
 import uuid
 
 from posthog.clickhouse.client import sync_execute
@@ -18,14 +19,17 @@ from posthog.models.dmat_slot_assignments.sql import (
     DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME,
     INSERT_DMAT_SLOT_ASSIGNMENTS_SQL,
     RELOAD_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL,
-    TRUNCATE_DMAT_SLOT_ASSIGNMENTS_SQL,
 )
 
 
 def _populate(rows: list[tuple[int, int, str]]) -> None:
-    sync_execute(TRUNCATE_DMAT_SLOT_ASSIGNMENTS_SQL())
-    if rows:
-        sync_execute(INSERT_DMAT_SLOT_ASSIGNMENTS_SQL(), rows)
+    """Publish `rows` as a new generation, mirroring the populate activity. A nanosecond
+    generation is strictly increasing across calls (and prior test runs), so the dictionary —
+    which reads `generation = max(generation)` — always reflects the latest publish. An empty
+    publish still advances the generation via the team_id=0 marker, so it clears real entries."""
+    generation = time.time_ns()
+    payload = [(t, c, p, generation) for (t, c, p) in rows] or [(0, 0, "", generation)]
+    sync_execute(INSERT_DMAT_SLOT_ASSIGNMENTS_SQL(), payload)
     sync_execute(RELOAD_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL())
 
 
@@ -66,7 +70,7 @@ def test_dict_get_string_round_trips_property_name() -> None:
     assert result == [(property_name,)]
 
 
-def test_truncate_then_reload_clears_dict() -> None:
+def test_new_generation_supersedes_previous() -> None:
     team_id = 3_000_003
     column_index = 7
     _populate([(team_id, column_index, "browser")])
@@ -78,20 +82,23 @@ def test_truncate_then_reload_clears_dict() -> None:
     )
     assert has_before == [(1,)]
 
-    # Truncate and reload — the populate activity uses this exact pattern every cycle.
+    # Publish an empty generation — the activity does this when the last slot is removed.
     _populate([])
 
     has_after = sync_execute(
         f"SELECT dictHas('{DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME}', (toUInt64(%(team)s), toUInt8(%(idx)s)))",
         {"team": team_id, "idx": column_index},
     )
-    assert has_after == [(0,)], "dict must drop the entry after TRUNCATE+RELOAD"
+    assert has_after == [(0,)], "dict must drop the entry once a newer generation omits it"
 
 
 def test_distinct_team_ids_lookup_via_in_subselect() -> None:
-    """The mutation's WHERE uses `team_id IN (SELECT DISTINCT team_id FROM dmat_slot_assignments)`.
-    Confirms the subselect actually returns the right team set so the mutation prunes
-    parts correctly.
+    """The mutation's WHERE prunes on
+    `team_id IN (SELECT DISTINCT team_id FROM dmat_slot_assignments
+                 WHERE generation = max(generation) AND team_id != 0)`.
+    Confirms that subselect returns exactly the latest generation's team set (collapsing
+    duplicates, excluding the marker and superseded generations) so the mutation prunes parts
+    correctly.
     """
     team_a = 4_000_001
     team_b = 4_000_002
@@ -105,5 +112,9 @@ def test_distinct_team_ids_lookup_via_in_subselect() -> None:
         ]
     )
 
-    result = sync_execute("SELECT DISTINCT team_id FROM dmat_slot_assignments ORDER BY team_id")
+    result = sync_execute(
+        "SELECT DISTINCT team_id FROM dmat_slot_assignments "
+        "WHERE generation = (SELECT max(generation) FROM dmat_slot_assignments) AND team_id != 0 "
+        "ORDER BY team_id"
+    )
     assert result == [(team_a,), (team_b,), (team_c,)]

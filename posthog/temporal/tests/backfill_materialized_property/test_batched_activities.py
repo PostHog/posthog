@@ -448,40 +448,32 @@ class TestPopulateSlotAssignments:
     table that the dmat_slot_assignments_dict reads from. The PENDING-allocation
     workflow calls it after `assign_pending_columns`."""
 
-    def _fake_cluster_with_hosts(self, host_count: int = 3, fail_on_host: int | None = None) -> MagicMock:
-        """Build a MagicMock ClickhouseCluster whose `map_hosts_by_roles(fn, node_roles)` invokes
-        `fn` once per synthetic host. If `fail_on_host` is set, that host's call raises, and the
-        FuturesMap's .result() raises ExceptionGroup like the real cluster does."""
+    def _fake_cluster_with_hosts(self, host_count: int = 3) -> MagicMock:
+        """Build a MagicMock ClickhouseCluster. `any_host_by_role(fn, role)` runs `fn` once (the
+        per-role write) and `map_hosts_by_roles(fn, node_roles)` runs `fn` once per synthetic host
+        (the reload), each returning a future / FuturesMap whose `.result()` mirrors the real
+        cluster."""
         cluster = MagicMock()
 
-        def map_hosts_by_roles(fn, node_roles):
-            results: dict[str, object] = {}
-            errors: dict[str, Exception] = {}
-            for host_idx in range(host_count):
-                client = MagicMock()
-                try:
-                    if fail_on_host is not None and host_idx == fail_on_host:
-                        raise RuntimeError(f"populate failed on host {host_idx}")
-                    results[f"host-{host_idx}"] = fn(client)
-                except Exception as e:
-                    errors[f"host-{host_idx}"] = e
+        def any_host_by_role(fn, node_role, *args, **kwargs):
+            value = fn(MagicMock())
+            future = MagicMock()
+            future.result = lambda: value
+            return future
 
+        def map_hosts_by_roles(fn, node_roles, *args, **kwargs):
+            results = {f"host-{host_idx}": fn(MagicMock()) for host_idx in range(host_count)}
             futures_map = MagicMock()
-
-            def result():
-                if errors:
-                    raise ExceptionGroup("simulated cluster failure", list(errors.values()))
-                return results
-
-            futures_map.result = result
+            futures_map.result = lambda: results
             futures_map.values = lambda: results.values()
             return futures_map
 
+        cluster.any_host_by_role = MagicMock(side_effect=any_host_by_role)
         cluster.map_hosts_by_roles = MagicMock(side_effect=map_hosts_by_roles)
         return cluster
 
     @patch("posthog.temporal.backfill_materialized_property.activities.get_cluster")
-    def test_truncates_inserts_and_reloads_on_every_host(self, mock_get_cluster, team, activity_environment):
+    def test_publishes_generation_to_data_cluster_and_reloads(self, mock_get_cluster, team, activity_environment):
         prop_a = PropertyDefinition.objects.create(team=team, name="browser", type=PropertyDefinition.Type.EVENT)
         prop_b = PropertyDefinition.objects.create(team=team, name="plan", type=PropertyDefinition.Type.EVENT)
         MaterializedColumnSlot.objects.create(
@@ -497,28 +489,32 @@ class TestPopulateSlotAssignments:
             state=MaterializedColumnSlotState.READY,
         )
 
-        # Capture every SQL string each "host" sees so we can assert the order: TRUNCATE, INSERT, RELOAD.
+        # Capture every SQL string each invocation sees so we can assert ordering.
         all_executed: list[list] = []
 
-        def map_hosts_by_roles(fn, node_roles):
+        def run_capturing(fn) -> object:
+            executed_per_host: list = []
+            client = MagicMock()
+            client.execute = lambda sql, *args, _log=executed_per_host, **kwargs: _log.append((sql, args))
+            value = fn(client)
+            all_executed.append(executed_per_host)
+            return value
+
+        def any_host_by_role(fn, node_role, *args, **kwargs):
+            value = run_capturing(fn)
+            future = MagicMock()
+            future.result = lambda: value
+            return future
+
+        def map_hosts_by_roles(fn, node_roles, *args, **kwargs):
+            results = {f"host-{host_idx}": run_capturing(fn) for host_idx in range(3)}
             futures_map = MagicMock()
-
-            def run_per_host():
-                results = {}
-                for host_idx in range(3):
-                    executed_per_host: list = []
-                    client = MagicMock()
-                    client.execute = lambda sql, *args, _log=executed_per_host: _log.append((sql, args))
-                    results[f"host-{host_idx}"] = fn(client)
-                    all_executed.append(executed_per_host)
-                return results
-
-            stored = run_per_host()
-            futures_map.result = lambda: stored
-            futures_map.values = stored.values
+            futures_map.result = lambda: results
+            futures_map.values = results.values
             return futures_map
 
         cluster = MagicMock()
+        cluster.any_host_by_role = MagicMock(side_effect=any_host_by_role)
         cluster.map_hosts_by_roles = MagicMock(side_effect=map_hosts_by_roles)
         mock_get_cluster.return_value = cluster
 
@@ -527,25 +523,28 @@ class TestPopulateSlotAssignments:
         # Two rows: (team, slot_index=3, browser), (team, slot_index=7, plan).
         assert result.rows_written == 2
 
-        # 3 hosts populated + 3 hosts reloaded → 6 host-fn invocations total.
-        # Each populate host sees [TRUNCATE, INSERT]; each reload host sees [RELOAD].
-        truncate_count = sum(1 for batch in all_executed for sql, _ in batch if "TRUNCATE TABLE" in sql)
-        insert_count = sum(1 for batch in all_executed for sql, _ in batch if "INSERT INTO" in sql)
-        reload_count = sum(1 for batch in all_executed for sql, _ in batch if "SYSTEM RELOAD DICTIONARY" in sql)
-        assert truncate_count == 3
-        assert insert_count == 3
+        all_sql = [sql for batch in all_executed for sql, _ in batch]
+        truncate_count = sum(1 for sql in all_sql if "TRUNCATE TABLE" in sql)
+        insert_count = sum(1 for sql in all_sql if "INSERT INTO" in sql)
+        sync_count = sum(1 for sql in all_sql if "SYSTEM SYNC REPLICA" in sql and "STRICT" in sql)
+        reload_count = sum(1 for sql in all_sql if "SYSTEM RELOAD DICTIONARY" in sql)
+        delete_count = sum(1 for sql in all_sql if "DELETE FROM" in sql)
+        # Generation model: a single INSERT publishes the new snapshot to the data cluster (no
+        # TRUNCATE), STRICT-sync + reload run on every data node (3 synthetic), and one DELETE
+        # prunes superseded generations.
+        assert truncate_count == 0
+        assert insert_count == 1
+        assert sync_count == 3
         assert reload_count == 3
+        assert delete_count == 1
 
-        # Within each populate host, TRUNCATE precedes INSERT.
-        for batch in all_executed:
-            sql_seq = [s for s, _ in batch]
-            if any("TRUNCATE TABLE" in s for s in sql_seq):
-                truncate_idx = next(i for i, s in enumerate(sql_seq) if "TRUNCATE TABLE" in s)
-                insert_idx = next(i for i, s in enumerate(sql_seq) if "INSERT INTO" in s)
-                assert truncate_idx < insert_idx
+        # Every inserted row carries the same generation as its 4th element.
+        insert_rows = next(args[0] for batch in all_executed for sql, args in batch if "INSERT INTO" in sql)
+        generations = {row[3] for row in insert_rows}
+        assert len(generations) == 1
 
     @patch("posthog.temporal.backfill_materialized_property.activities.get_cluster")
-    def test_aborts_before_reload_when_a_host_populate_fails(self, mock_get_cluster, team, activity_environment):
+    def test_aborts_before_reload_when_a_role_populate_fails(self, mock_get_cluster, team, activity_environment):
         prop = PropertyDefinition.objects.create(team=team, name="browser", type=PropertyDefinition.Type.EVENT)
         MaterializedColumnSlot.objects.create(
             team=team,
@@ -554,24 +553,27 @@ class TestPopulateSlotAssignments:
             state=MaterializedColumnSlotState.READY,
         )
 
-        # First map_hosts_by_roles call (populate) fails on host 1; second call (reload) must never happen.
-        call_count = {"calls": 0}
+        # The data-cluster write (any_host_by_role) fails; the sync/reload (map_hosts_by_roles)
+        # must never run, so the next mutation can't see a partial cluster.
+        reload_called = {"called": False}
 
-        def map_hosts_by_roles(fn, node_roles):
-            call_count["calls"] += 1
+        def any_host_by_role(fn, node_role, *args, **kwargs):
+            future = MagicMock()
+
+            def result():
+                raise ExceptionGroup("populate failed", [RuntimeError("data role down")])
+
+            future.result = result
+            return future
+
+        def map_hosts_by_roles(fn, node_roles, *args, **kwargs):
+            reload_called["called"] = True
             futures_map = MagicMock()
-            if call_count["calls"] == 1:
-                # Populate raises on the second host.
-                def result():
-                    raise ExceptionGroup("populate failed", [RuntimeError("host 1 down")])
-
-                futures_map.result = result
-            else:
-                # Reload should never reach here.
-                futures_map.result = MagicMock(return_value={})
+            futures_map.result = MagicMock(return_value={})
             return futures_map
 
         cluster = MagicMock()
+        cluster.any_host_by_role = MagicMock(side_effect=any_host_by_role)
         cluster.map_hosts_by_roles = MagicMock(side_effect=map_hosts_by_roles)
         mock_get_cluster.return_value = cluster
 
@@ -579,9 +581,9 @@ class TestPopulateSlotAssignments:
             activity_environment.run(populate_slot_assignments, PopulateSlotAssignmentsInputs())
 
         # Either the ExceptionGroup itself or the activity's wrapping raises — what matters
-        # is that the second map_hosts_by_roles call (reload) never happened.
-        assert "populate failed" in str(excinfo.value) or "host 1 down" in str(excinfo.value)
-        assert call_count["calls"] == 1, "reload must not be issued when populate fails on any host"
+        # is that the reload never happened.
+        assert "populate failed" in str(excinfo.value) or "data role down" in str(excinfo.value)
+        assert reload_called["called"] is False, "reload must not be issued when a role's populate fails"
 
     @patch("posthog.temporal.backfill_materialized_property.activities.get_cluster")
     def test_idempotent_under_retry(self, mock_get_cluster, team, activity_environment):
@@ -602,5 +604,5 @@ class TestPopulateSlotAssignments:
         second = activity_environment.run(populate_slot_assignments, PopulateSlotAssignmentsInputs())
 
         assert first.rows_written == second.rows_written
-        # Two activity invocations × (1 populate + 1 reload) per invocation × per-host execution
-        # — what matters is each call dispatched the same operations.
+        # Each invocation writes once per role then reloads on every host; TRUNCATE+INSERT is
+        # end-state idempotent, so running twice yields the same row count.

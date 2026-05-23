@@ -29,6 +29,7 @@ Two test classes:
 """
 
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -40,7 +41,6 @@ from posthog.models.dmat_slot_assignments.sql import (
     DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME,
     INSERT_DMAT_SLOT_ASSIGNMENTS_SQL,
     RELOAD_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL,
-    TRUNCATE_DMAT_SLOT_ASSIGNMENTS_SQL,
 )
 from posthog.temporal.backfill_materialized_property.activities import _generate_property_extraction_sql
 
@@ -95,13 +95,13 @@ class TestCoercionParity:
 
 
 def _populate_dict(team_id: int, column_index: int, property_name: str) -> None:
-    """Replace the dict's contents with a single (team_id, column_index, property_name)
-    row, then reload so the next dictGet/dictHas sees the new state. Using TRUNCATE+INSERT
-    matches what the populate_slot_assignments activity does in production."""
-    sync_execute(TRUNCATE_DMAT_SLOT_ASSIGNMENTS_SQL())
+    """Publish a new generation containing a single (team_id, column_index, property_name)
+    row, then reload so the next dictGet/dictHas sees it. The dict reads `generation =
+    max(generation)`, so this supersedes any prior state — matching what the
+    populate_slot_assignments activity does in production."""
     sync_execute(
         INSERT_DMAT_SLOT_ASSIGNMENTS_SQL(),
-        [(team_id, column_index, property_name)],
+        [(team_id, column_index, property_name, time.time_ns())],
     )
     sync_execute(RELOAD_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL())
 
@@ -166,7 +166,8 @@ class TestDictBackedDispatchCoercion:
         return the fallback (the column itself in the production builder, NULL here so
         we can assert via SELECT). Confirms the no-op path that protects unrelated
         teams' rows from being clobbered when the mutation runs."""
-        sync_execute(TRUNCATE_DMAT_SLOT_ASSIGNMENTS_SQL())
+        # Publish an empty generation (team_id=0 marker only) so the dict has no real entries.
+        sync_execute(INSERT_DMAT_SLOT_ASSIGNMENTS_SQL(), [(0, 0, "", time.time_ns())])
         sync_execute(RELOAD_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL())
 
         property_name = f"prop_{uuid.uuid4().hex[:8]}"

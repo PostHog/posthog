@@ -17,10 +17,11 @@ from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dmat_slot_assignments.sql import (
+    DELETE_OLD_DMAT_GENERATIONS_SQL,
     DMAT_SLOT_ASSIGNMENTS_DICTIONARY_NAME,
     INSERT_DMAT_SLOT_ASSIGNMENTS_SQL,
     RELOAD_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL,
-    TRUNCATE_DMAT_SLOT_ASSIGNMENTS_SQL,
+    SYNC_REPLICA_DMAT_SLOT_ASSIGNMENTS_SQL,
 )
 from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
 from posthog.models.materialized_column_slots import MaterializedColumnSlotState
@@ -276,50 +277,85 @@ class PopulateSlotAssignmentsResult:
 @activity.defn
 @close_db_connections
 def populate_slot_assignments(inputs: PopulateSlotAssignmentsInputs) -> PopulateSlotAssignmentsResult:
-    """Sync slot assignments from Postgres to `dmat_slot_assignments`, then reload
-    `dmat_slot_assignments_dict`, on every host that has the dictionary.
+    """Publish the current slot assignments as a new generation of `dmat_slot_assignments`
+    on the data cluster, then reload `dmat_slot_assignments_dict` everywhere.
 
-    Two-phase: TRUNCATE+INSERT then RELOAD. If any host fails the populate, the reload never
-    runs — the next mutation won't see a partially-populated cluster.
+    Sequence:
+      1. INSERT the full snapshot under a new monotonic `generation` on **one** data node
+         (ReplicatedReplacingMergeTree replicates it across the data cluster).
+      2. `SYSTEM SYNC REPLICA … STRICT` on every data node so all of them provably hold the
+         new generation — this is the barrier that lets the ingestion-events pods' *remote*
+         dictionary read a complete snapshot from any data node.
+      3. RELOAD the dictionary on the data cluster (local source) and on the ingestion-events
+         pods (remote source → re-reads the data cluster). Each load reads only the new
+         generation via `generation = max(generation)`.
+      4. Prune older generations.
 
-    Scoped to the same roles migration 0259 creates the dict on (DATA, plus INGESTION_EVENTS on
-    cloud where the WarpStream events MV evaluates dictGet), rather than every host — the
-    satellite clusters (ops/aux/sessions) never have the dmat_slot_assignments table.
+    The table lives only on the data cluster; the ingestion-events dictionary sources it
+    remotely (see posthog/models/dmat_slot_assignments/sql.py), so a freshly-started ingestion
+    pod loads the complete snapshot or its `dictGet` throws and ingestion of that block blocks —
+    it never reads a half-synced local copy. If any step fails the activity raises before the
+    mutation runs, so the next mutation won't see a partial cluster.
     """
-    rows: list[tuple[int, int, str]] = []
+    generation = int(time.time())
+    rows: list[tuple[int, int, str, int]] = []
     for slot in (
         MaterializedColumnSlot.objects.select_related("property_definition")
         .filter(state__in=[MaterializedColumnSlotState.READY, MaterializedColumnSlotState.BACKFILL])
         .order_by("team_id", "id")
     ):
         if slot.slot_index is not None:
-            rows.append((slot.team_id, int(slot.slot_index), slot.property_definition.name))
+            rows.append((slot.team_id, int(slot.slot_index), slot.property_definition.name, generation))
 
-    truncate_sql = TRUNCATE_DMAT_SLOT_ASSIGNMENTS_SQL()
+    # Always advance the generation, even with zero real assignments, so that removing the last
+    # slot propagates (the new — empty-of-real-rows — generation becomes `max`). team_id 0 never
+    # appears in real events, so this marker is invisible to lookups.
+    if not rows:
+        rows.append((0, 0, "", generation))
+
     insert_sql = INSERT_DMAT_SLOT_ASSIGNMENTS_SQL()
+    sync_sql = SYNC_REPLICA_DMAT_SLOT_ASSIGNMENTS_SQL()
     reload_sql = RELOAD_DMAT_SLOT_ASSIGNMENTS_DICTIONARY_SQL()
+    delete_old_sql = DELETE_OLD_DMAT_GENERATIONS_SQL(generation)
 
     def populate(client) -> int:
-        client.execute(truncate_sql)
-        if rows:
-            client.execute(insert_sql, rows)
+        # Force the whole snapshot into one insert block → one part. A multi-part generation
+        # could be read half-replicated by a remote dictionary the instant it became `max`
+        # (parts replicate independently); a single part transfers atomically, so a data node
+        # either has the complete new generation or still serves the previous one. The table is
+        # tiny (one row per team-slot), so one block is never a memory concern.
+        client.execute(insert_sql, rows, settings={"max_insert_block_size": 10_000_000})
         return len(rows)
+
+    def sync(client) -> None:
+        client.execute(sync_sql)
 
     def reload(client) -> None:
         client.execute(reload_sql)
+
+    def prune(client) -> None:
+        client.execute(delete_old_sql)
 
     dict_roles = [NodeRole.DATA] + (
         [NodeRole.INGESTION_EVENTS] if settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV") else []
     )
     cluster = get_cluster()
-    populate_results = cluster.map_hosts_by_roles(populate, dict_roles).result()
+    # 1. Write the new generation once on the data cluster (replicates within it).
+    cluster.any_host_by_role(populate, NodeRole.DATA).result()
+    # 2. Block until every data node holds the new generation, so the ingestion pods' remote
+    #    dictionary reads a complete snapshot from whichever data node it hits.
+    cluster.map_hosts_by_roles(sync, [NodeRole.DATA]).result()
+    # 3. Reload the data-cluster (local) and ingestion-events (remote) dictionaries onto it.
     cluster.map_hosts_by_roles(reload, dict_roles).result()
+    # 4. Drop superseded generations now that every dictionary reads the new one.
+    cluster.any_host_by_role(prune, NodeRole.DATA).result()
 
-    rows_written = next(iter(populate_results.values()), 0)
+    rows_written = len(rows)
     logger.info(
-        "Populated dmat_slot_assignments and reloaded dictionary on all hosts",
-        host_count=len(populate_results),
-        rows_per_host=rows_written,
+        "Published dmat_slot_assignments generation and reloaded dictionaries",
+        generation=generation,
+        roles=[role.value for role in dict_roles],
+        rows_written=rows_written,
     )
     return PopulateSlotAssignmentsResult(rows_written=rows_written)
 
@@ -378,8 +414,12 @@ def _build_dict_backed_update_command(
         dispatch_sql = f"if(dictHas('{qualified_dict}', (team_id, {idx})), {extract_sql}, {col_name})"
         set_clauses.append(f"{col_name} = {dispatch_sql}")
 
+    # Prune to teams in the latest published generation only (older generations are superseded),
+    # and skip the team_id=0 generation marker. dictHas still gates each row, so this subselect is
+    # purely a part-pruning optimisation, but reading all generations would scan stale/empty teams.
     where_clause = (
-        f"team_id IN (SELECT DISTINCT team_id FROM {qualified_assignments_table}) "
+        f"team_id IN (SELECT DISTINCT team_id FROM {qualified_assignments_table} "
+        f"WHERE generation = (SELECT max(generation) FROM {qualified_assignments_table}) AND team_id != 0) "
         f"AND {int(cycle_marker_int)} = {int(cycle_marker_int)}"
     )
     command = f"UPDATE {', '.join(set_clauses)} WHERE {where_clause}"

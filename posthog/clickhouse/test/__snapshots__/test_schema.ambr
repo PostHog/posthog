@@ -1203,9 +1203,10 @@
       team_id UInt64,
       column_index UInt8,
       property_name String,
+      generation UInt64,
       version UInt32 DEFAULT toUnixTimestamp(now())
-  ) ENGINE = ReplacingMergeTree(version)
-  ORDER BY (team_id, column_index);
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.dmat_slot_assignments', '{replica}-{shard}', version)
+  ORDER BY (team_id, column_index, generation);
   
   '''
 # ---
@@ -7406,9 +7407,10 @@
       team_id UInt64,
       column_index UInt8,
       property_name String,
+      generation UInt64,
       version UInt32 DEFAULT toUnixTimestamp(now())
-  ) ENGINE = ReplacingMergeTree(version)
-  ORDER BY (team_id, column_index);
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.dmat_slot_assignments', '{replica}-{shard}', version)
+  ORDER BY (team_id, column_index, generation);
   
   '''
 # ---

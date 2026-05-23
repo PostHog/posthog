@@ -344,6 +344,11 @@ CLICKHOUSE_LOGS_ENABLE_STORAGE_POLICY: bool = get_from_env(
 )
 
 CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
+# Named collection (defined in the ingestion-events ClickHouse config) pointing at the data
+# cluster, used by the dmat slot-assignments dictionary on the ingestion-events pods to read
+# the mapping remotely from the stable data cluster. Empty on single-node/self-hosted installs,
+# where the dictionary sources its local table instead. See posthog/models/dmat_slot_assignments.
+CLICKHOUSE_DMAT_DATA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_DMAT_DATA_NAMED_COLLECTION", "")
 CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION: str = os.getenv(
     "CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION", "warpstream_ingestion"
 )
