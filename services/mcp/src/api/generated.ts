@@ -36977,6 +36977,11 @@ export namespace Schemas {
       connect_flow: string;
     }
 
+    export interface UserGitHubPrepareCallbackRequest {
+      /** GitHub App installation id being managed on github.com. */
+      installation_id: string;
+    }
+
     /**
      * * `transcript` - transcript
     * `summary` - summary

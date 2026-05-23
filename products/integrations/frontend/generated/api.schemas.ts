@@ -384,6 +384,11 @@ export interface PaginatedUserGitHubIntegrationListResponseListApi {
     results: UserGitHubIntegrationListResponseApi[]
 }
 
+export interface UserGitHubPrepareCallbackRequestApi {
+    /** GitHub App installation id being managed on github.com. */
+    installation_id: string
+}
+
 export interface UserGitHubLinkStartRequestApi {
     /**
      * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.

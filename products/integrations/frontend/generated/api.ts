@@ -33,6 +33,7 @@ import type {
     SlackChannelsResponseApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
+    UserGitHubPrepareCallbackRequestApi,
     UsersIntegrationsGithubBranchesRetrieveParams,
     UsersIntegrationsGithubReposRetrieveParams,
     UsersIntegrationsListParams,
@@ -839,6 +840,26 @@ export const usersIntegrationsGithubReposRefreshCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getUsersIntegrationsGithubPrepareCallbackCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/github/prepare_callback/`
+}
+
+/**
+ * Seed personal GitHub manage callback state before opening installation settings on GitHub.
+ */
+export const usersIntegrationsGithubPrepareCallbackCreate = async (
+    uuid: string,
+    userGitHubPrepareCallbackRequestApi: UserGitHubPrepareCallbackRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsGithubPrepareCallbackCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userGitHubPrepareCallbackRequestApi),
+    })
 }
 
 export const getUsersIntegrationsGithubStartCreateUrl = (uuid: string) => {

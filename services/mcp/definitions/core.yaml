@@ -806,6 +806,9 @@ tools:
     users-integrations-github-destroy:
         operation: users_integrations_github_destroy
         enabled: false
+    users-integrations-github-prepare-callback-create:
+        operation: users_integrations_github_prepare_callback_create
+        enabled: false
     users-integrations-github-repos-refresh-create:
         operation: users_integrations_github_repos_refresh_create
         enabled: false
