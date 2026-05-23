@@ -35985,6 +35985,21 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    /**
+     * Request body for the presence beacon and beacon-leave endpoints.
+
+    `device_id` is the UUID of the caller's `UserPushToken` row, which the
+    client received when it registered for push via `/api/users/@me/push_tokens/`.
+    The client is expected to use the same identifier on the beacon and leave
+    calls; if the user has unregistered the underlying push token, the value
+    won't resolve and the call returns 404 — at which point pushes were
+    already not going there anyway.
+     */
+    export interface TaskPresenceBeaconRequest {
+      /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
+      device_id: string;
+    }
+
     export interface TaskRepositoriesResponse {
       /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
       repositories: string[];
@@ -40345,6 +40360,22 @@ export namespace Schemas {
 
     export type AccountsListParams = {
     /**
+     * Filter by account executive. Use 'unassigned' or an integer user id.
+     */
+    account_executive?: string;
+    /**
+     * Filter by account owner. Use 'unassigned' or an integer user id.
+     */
+    account_owner?: string;
+    /**
+     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     */
+    all_roles_unassigned?: boolean;
+    /**
+     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
+     */
+    csm?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -40352,6 +40383,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Case-insensitive substring search across account name and external ID.
+     */
+    search?: string;
     /**
      * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
      */

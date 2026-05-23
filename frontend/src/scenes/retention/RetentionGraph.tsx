@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { roundToDecimal } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -8,6 +10,7 @@ import { ChartDisplayType, GraphDataset, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { LineGraph } from '../insights/views/LineGraph/LineGraph'
+import { RetentionGraphHogCharts } from './RetentionGraphHogCharts'
 import { retentionGraphLogic } from './retentionGraphLogic'
 import { retentionModalLogic } from './retentionModalLogic'
 
@@ -27,6 +30,7 @@ function displayTypeToGraphType(displayType: ChartDisplayType): GraphType {
 
 export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         hasValidBreakdown,
         retentionFilter,
@@ -42,6 +46,12 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
     const selectedInterval = retentionFilter?.selectedInterval ?? null
 
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
+
+    const isBarDisplay = retentionFilter?.display === ChartDisplayType.ActionsBar
+    // Bar display still uses the legacy d3 graph — the hog-charts bar path lands separately.
+    if (!isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_LINE]) {
+        return <RetentionGraphHogCharts inSharedMode={inSharedMode} />
+    }
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
         return (

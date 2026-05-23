@@ -293,6 +293,18 @@ pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_tot
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
 
+// Counter for /flags requests classified as bot traffic. Fires regardless
+// of whether the request was actually short-circuited, so dashboards can
+// plot the "would-have-rejected" rate during the log-only rollout phase
+// alongside the actual enforce-mode reject rate.
+// Labels: `bot_category` (google, ai, seo, uptime, social, headless,
+// crawler, other), `bot_source` (user_agent, ip), and
+// `mode` (`log_only` — classified but not blocked; `enforced` — classified
+// and short-circuited). No `team_id` because classification fires before
+// token extraction; per-team analysis lives in the canonical log line via
+// Loki.
+pub const FLAG_BOT_DETECTED_COUNTER: &str = "flags_bot_detected_total";
+
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
 
