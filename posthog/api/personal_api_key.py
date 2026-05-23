@@ -159,11 +159,17 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             user=user, secure_value=secure_value, mask_value=mask_value, **validated_data
         )
         personal_api_key._value = value  # type: ignore
-        # User created this PAT themselves, so it counts as already-acknowledged for the
-        # credential review interstitial. The interstitial is meant to surface partner-
-        # provisioned credentials the user didn't create - those use
-        # PersonalAPIKey.objects.create directly and bypass this serializer.
-        if user.credentials_reviewed_at is None:
+        # User created this PAT themselves through a session, so it counts as
+        # already-acknowledged for the credential review interstitial. Gated to
+        # SessionAuthentication on purpose: accepting PersonalAPIKeyAuthentication
+        # here would let an attacker holding a partner-issued PAT mint another PAT
+        # to silently stamp credentials_reviewed_at and bypass the review screen
+        # the legit account owner is supposed to see. Same constraint as the
+        # credentials_review_complete endpoint (posthog/api/user.py).
+        request = self.context["request"]
+        if user.credentials_reviewed_at is None and isinstance(
+            request.successful_authenticator, SessionAuthentication
+        ):
             user.credentials_reviewed_at = timezone.now()
             user.save(update_fields=["credentials_reviewed_at"])
         return personal_api_key
