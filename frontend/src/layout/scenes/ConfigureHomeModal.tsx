@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
 
 import { LemonSegmentedButton, LemonSelect, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
@@ -30,6 +31,21 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
     const isUsingDefaultDashboard =
         homepage?.sceneId === Scene.Dashboard && homepage?.id?.startsWith('homepage-dashboard-')
+
+    // Local UI selection so users can preview the "Default dashboard" picker even
+    // when no `primary_dashboard` is set yet — otherwise the picker is hidden behind
+    // a disabled tile, and the only place to set it is the same hidden picker.
+    const [pendingMode, setPendingMode] = useState<'launchpad' | 'search' | 'default_dashboard' | null>(null)
+    const currentMode = isUsingProjectDefault
+        ? 'launchpad'
+        : isUsingNewTabHomepage
+          ? 'search'
+          : isUsingDefaultDashboard
+            ? 'default_dashboard'
+            : null
+    useEffect(() => setPendingMode(null), [currentMode])
+    const activeMode = pendingMode ?? currentMode
+    const showDashboardPicker = activeMode === 'default_dashboard'
 
     const projectDefaultDashboardId = currentTeam?.primary_dashboard ?? null
 
@@ -89,26 +105,21 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                         </div>
                         <LemonSegmentedButton
                             size="small"
-                            value={
-                                isUsingProjectDefault
-                                    ? 'launchpad'
-                                    : isUsingNewTabHomepage
-                                      ? 'search'
-                                      : isUsingDefaultDashboard
-                                        ? 'default_dashboard'
-                                        : undefined
-                            }
+                            value={activeMode ?? undefined}
                             onChange={(newValue) => {
                                 posthog.capture('homepage configure set homepage', {
                                     'homepage choice': newValue,
                                 })
                                 if (newValue === 'launchpad') {
+                                    setPendingMode(null)
                                     setHomepage(null)
                                 } else if (newValue === 'search') {
+                                    setPendingMode(null)
                                     setHomepage(newTabHomepage)
                                 } else if (newValue === 'default_dashboard') {
                                     const dashboardId = currentTeam?.primary_dashboard
                                     if (dashboardId) {
+                                        setPendingMode(null)
                                         setHomepage({
                                             id: `homepage-dashboard-${dashboardId}`,
                                             pathname: urls.dashboard(dashboardId),
@@ -122,6 +133,10 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                             sceneKey: `dashboard-${dashboardId}`,
                                             sceneParams: emptySceneParams,
                                         })
+                                    } else {
+                                        // No primary dashboard yet — keep selection local so the picker
+                                        // appears; setHomepage fires once a dashboard is chosen below.
+                                        setPendingMode('default_dashboard')
                                     }
                                 }
                             }}
@@ -150,14 +165,11 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                     label: 'Default dashboard',
                                     'data-attr': 'configure-home-modal-set-default-dashboard',
                                     tooltip: "Open your project's default dashboard when you go home",
-                                    disabledReason: !currentTeam?.primary_dashboard
-                                        ? 'No default dashboard configured'
-                                        : undefined,
                                 },
                             ]}
                         />
                     </div>
-                    {isUsingDefaultDashboard && (
+                    {showDashboardPicker && (
                         <section className="space-y-3 bg-surface-secondary rounded-lg p-3 border">
                             <div className="flex flex-col">
                                 <h4 className="text-base font-semibold text-primary m-0">
@@ -176,6 +188,22 @@ export function ConfigureHomeModal({ isOpen, onClose }: ConfigureHomeModalProps)
                                 onChange={(dashboardId) => {
                                     posthog.capture('homepage configure default dashboard changed')
                                     updateCurrentTeam({ primary_dashboard: dashboardId ?? null })
+                                    if (dashboardId) {
+                                        setPendingMode(null)
+                                        setHomepage({
+                                            id: `homepage-dashboard-${dashboardId}`,
+                                            pathname: urls.dashboard(dashboardId),
+                                            search: '',
+                                            hash: '',
+                                            title: 'Default dashboard',
+                                            iconType: 'dashboard',
+                                            active: false,
+                                            pinned: true,
+                                            sceneId: Scene.Dashboard,
+                                            sceneKey: `dashboard-${dashboardId}`,
+                                            sceneParams: emptySceneParams,
+                                        })
+                                    }
                                 }}
                                 disabledReason={dashboardsLoading ? 'Loading dashboards…' : undefined}
                             />

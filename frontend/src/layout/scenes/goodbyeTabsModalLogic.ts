@@ -180,7 +180,7 @@ export const goodbyeTabsModalLogic = kea<goodbyeTabsModalLogicType>([
             (backendTabs, localTabs): FarewellTab[] => sortPinnedFirst(dedupe([...backendTabs, ...localTabs])),
         ],
     }),
-    listeners(() => ({
+    listeners(({ actions, values, cache }) => ({
         dismiss: () => {
             try {
                 localStorage.removeItem(getStorageKey(PINNED_TAB_STATE_KEY))
@@ -188,31 +188,32 @@ export const goodbyeTabsModalLogic = kea<goodbyeTabsModalLogicType>([
             } catch {
                 // ignore
             }
+            // Best-effort: clear server-side tabs so a fresh browser doesn't reopen the modal.
+            api.update('api/user_home_settings/@me/', { tabs: [], homepage: null }).catch(() => {
+                // ignore — modal will simply reopen on next browser; not worth surfacing
+            })
+        },
+        loadBackendTabsSuccess: ({ backendTabs }) => {
+            if (values.dismissed) {
+                return
+            }
+            const hasAnything = (cache.probedLocalTabs?.length ?? 0) > 0 || backendTabs.length > 0
+            if (hasAnything) {
+                actions.open()
+            } else {
+                // Nothing on this browser, nothing on the backend — never bother this user again.
+                actions.dismiss()
+            }
         },
     })),
-    afterMount(({ actions, values }) => {
-        if (values.dismissed) {
+    afterMount(({ actions, values, cache }) => {
+        if (values.dismissed || cache.probed) {
             return
         }
-        const local = collectLocal()
-        if (local.length > 0) {
-            actions.open()
-            actions.loadBackendTabs()
-            return
-        }
-        // Backend may still have pins from another browser; fetch once and reuse the
-        // payload to seed `backendTabs` so the loader doesn't repeat the request.
-        ;(async () => {
-            try {
-                const response = await api.get<BackendResponse>('api/user_home_settings/@me/')
-                const backendTabs = backendResponseToTabs(response)
-                if (backendTabs.length > 0) {
-                    actions.loadBackendTabsSuccess(backendTabs)
-                    actions.open()
-                }
-            } catch {
-                // ignore
-            }
-        })()
+        cache.probed = true
+        // Snapshot local tabs so the loadBackendTabsSuccess listener can compare without
+        // having to also dispatch `open` just to populate the `localTabs` reducer.
+        cache.probedLocalTabs = collectLocal()
+        actions.loadBackendTabs()
     }),
 ])
