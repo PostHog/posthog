@@ -173,7 +173,11 @@ describe('TaxonomicFilter pinning', () => {
         // source group's getValue on the stored item. Before the fix, the old
         // `{ name }`-only shape threw `TypeError: Cannot read properties of
         // undefined (reading '0')` here because Persons read `distinct_ids[0]`.
-        expect(() => userEvent.hover(pinnedRow)).not.toThrow()
+        // Awaiting the async hover ensures any rejection from a synchronous
+        // render throw fails the test, and the positive `Person` popover-header
+        // assertion proves the chain ran to completion — not just "didn't throw".
+        await userEvent.hover(pinnedRow)
+        expect(await screen.findByText('Person')).toBeInTheDocument()
 
         logic.unmount()
     })
