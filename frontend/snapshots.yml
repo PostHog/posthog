@@ -4583,13 +4583,13 @@ snapshots:
     scenes-app-insights-funnels--funnel-historical-trends-edit--light:
         hash: v1.k794b7964.fa67675b6f95f0ae9c46eb0e803f9db69702419bb4ccc2d21ea973f9fe49d9cc.Zz4siV83g7nIXf96Nfvy6eN5rRtzwO3CEmv24KSztlA
     scenes-app-insights-funnels--funnel-left-to-right-breakdown-edit--dark:
-        hash: v1.k794b7964.da7408ac759f81d6f806ad8994073060aeb28223f270e4a56fa0967acf741486.0hk563fxOgKIbDMQGLOr5V6tz4DB_FAWR96ASmtYcqE
+        hash: v1.k794b7964.945ed16d72ed2ec67559ed2a478237267bf3fae0ec5437202145e4bbddaa99c2.Pl63KVs13EuxFB41jKCVv-dOTSP27veYuLRl7pFf7UQ
     scenes-app-insights-funnels--funnel-left-to-right-breakdown-edit--light:
         hash: v1.k794b7964.414326f685dca45885b93d728ae8a75c7d8b600af35d76c9512a74a27e453006.IyZ8qHUwOv6qsBYvdUR1ZsK1Md_GNFCftDGvNZj78BQ
     scenes-app-insights-funnels--funnel-left-to-right-edit--dark:
         hash: v1.k794b7964.b018c83c850711c9ec18c2bf6613e4412aece8bfddcaef16bd6045909b551111.DqurIx1t3SZ5ai2h5rVn589syUhmx87W93eKPMIaTnA
     scenes-app-insights-funnels--funnel-left-to-right-edit--light:
-        hash: v1.k794b7964.1a564a7e326dd6ce74422aeec8cc336763529a54aac381e2c3039c950f73e0b9.wumhgGqgZsmHlAU_iVgKRQ3b3hEQXtCDIIvV5YMwt3g
+        hash: v1.k794b7964.85c3472bdf5bbb2cc4192dcbb94e08f9e0a0bab75c0cb9ab33f73159f57145dc.cQyIslgEmojkd0sw2qGxsPbg8HA8mquQaXYqPJCh6Ds
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--dark:
         hash: v1.k794b7964.36814bd223fdaa124f92bbc2b45de89865c13890bf5f7a14179029dc7f33ca27.jq91_V-Z1EaJWopXWnh8EuqryG4eGkFxCIgXLCwkpv8
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--light:
@@ -4666,6 +4666,10 @@ snapshots:
         hash: v1.k794b7964.02ffa288b3f9fc2dde2fa1732bd164ccf771ef3a35ca9177d592571bc045e62e.PJ1SdvfwVPJtkFHwRSBMnqje3CP0ne57BD3kgWh-YvQ
     scenes-app-insights-retention--retention--light:
         hash: v1.k794b7964.a47c3c899143d4e9846757e32e67bb0945a2781233c79e44d0356ea43a59d2cd.70yC-geHj-Zl5tKxqL4DcS4R6lxJRlvlK1ftwBcxSZg
+    scenes-app-insights-retention--retention-bar--dark:
+        hash: v1.k794b7964.f15eb090aaf7506732f662ac5393bf40f606560750b9e458cac5844936bcf30b.Nmwikb-TXVhUdC2ZdeRPjiG8JV_8_vaUYbTrwrUxtbQ
+    scenes-app-insights-retention--retention-bar--light:
+        hash: v1.k794b7964.ae10238ad7f8c6e506f56fac7a184b390aa3b502f01539b9c12b37ff6686a97a.iYj-zHd0v8dv2JTna2_MuGlQTgHU2NdVIYrzxs3BGkU
     scenes-app-insights-retention--retention-edit--dark:
         hash: v1.k794b7964.f462cd65020702c381cbd29c4c7bf74283348383048ac6f1f26d31b565f4380f.jqXlFe9kyIfOs-PWEbkaAhi1sD8lQFfn_UBW9MjOuIM
     scenes-app-insights-retention--retention-edit--light:
