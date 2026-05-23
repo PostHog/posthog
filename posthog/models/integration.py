@@ -2340,6 +2340,7 @@ class GitHubInstallationAccessFetchError(Exception):
 
 
 def invalidate_github_repository_caches_for_installation(installation_id: str | int) -> None:
+    """Affects both team Integration and personal UserIntegration rows."""
     from posthog.models.user_integration import UserIntegration
 
     installation_id_str = str(installation_id)

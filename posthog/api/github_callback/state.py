@@ -156,6 +156,7 @@ def resolve_github_setup_callback_context(
     user: User,
     state_raw: str | None,
 ) -> tuple[int | None, str | None]:
+    """Reads from both the authorize cache and the GitHub ``state`` query param, preferring the query param."""
     _, cached_next, cached_team_id = peek_github_authorize_state(user.id)
 
     team_id = cached_team_id
