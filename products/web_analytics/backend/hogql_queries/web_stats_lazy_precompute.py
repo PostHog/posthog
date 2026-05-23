@@ -2,7 +2,7 @@ import json
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 import structlog
 from prometheus_client import Counter
@@ -324,12 +324,14 @@ def _breakdown_having_expr(breakdown_by: WebStatsBreakdown) -> ast.Expr:
     operates on the JSON-encoded `breakdown_value` column produced by the INSERT.
 
     Index 2 / index 1 here are 1-based JSON array positions (`JSONExtractRaw`
-    follows ClickHouse's 1-based indexing). For tuples, the raw query rejects
-    rows whose second element (region within country, height within viewport)
-    is null or zero.
+    follows ClickHouse's 1-based indexing). For VIEWPORT specifically, the raw
+    query rejects rows whose width/height are null or zero.
+
+    REGION/CITY *look* like they should drop `(country, null)` rows, but the
+    raw query's `tupleElement(..., 2) IS NOT NULL` runs on a non-nullable
+    `Tuple(String, String, String)` and never matches in practice — so the
+    lazy path keeps null subdivisions too, matching what ships from raw.
     """
-    if breakdown_by in (WebStatsBreakdown.REGION, WebStatsBreakdown.CITY):
-        return parse_expr("JSONExtractRaw(breakdown_value, 2) != 'null'")
     if breakdown_by == WebStatsBreakdown.VIEWPORT:
         return parse_expr(
             "JSONExtractRaw(breakdown_value, 1) NOT IN ('null', '0') "
@@ -410,7 +412,7 @@ def execute_read_query(
     # raw path's pagination operates on.
     parsed.having = _breakdown_having_expr(runner.query.breakdownBy)
 
-    direction = "DESC" if descending else "ASC"
+    direction: Literal["ASC", "DESC"] = "DESC" if descending else "ASC"
     secondary = "views" if sort_metric == "visitors" else "visitors"
     parsed.order_by = [
         ast.OrderExpr(expr=ast.Field(chain=[sort_metric]), order=direction),
