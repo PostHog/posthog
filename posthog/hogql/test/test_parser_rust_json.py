@@ -7,7 +7,7 @@ parser does not yet match the C++ reference on.
 """
 
 from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 
 from ._test_parser import parser_test_factory
 
@@ -55,6 +55,18 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             for backend in ("cpp-json", "rust-json"):
                 with self.assertRaises(BaseHogQLError):
                     parse_expr(query, backend=backend)
+
+    def test_from_table_implicit_alias_rejected(self):
+        # `from <implicit-alias>` in table position is the grammar's
+        # ColumnExprInvalidFromImplicitAlias footgun — cpp rejects it. rust
+        # parsed `select a, from b, from c` as a comma-join whose second table
+        # is `from` aliased `c`, accepting input cpp rejects. `from AS c` (explicit
+        # alias) and a plain comma-join (`select a, from b, c`) stay valid.
+        for backend in ("cpp-json", "rust-json"):
+            with self.assertRaises(BaseHogQLError):
+                parse_select("select a, from b, from c", backend=backend)
+            parse_select("select a, from b, c", backend=backend)
+            parse_select("select a, from b as c", backend=backend)
 
     def test_invalid_cast_type_param_rejected(self):
         # A parametric type's params are `columnExpr`s. rust's raw-text Param

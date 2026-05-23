@@ -1673,8 +1673,9 @@ impl<'a> Parser<'a> {
 
 /// True when `expr` is a bare `from` Field — a `Field` whose chain is
 /// the single element `from` (any case). Used to flag the grammar's
-/// `ColumnExprInvalidFromImplicitAlias` footgun (`select from x`).
-fn is_bare_from_field(expr: &Value) -> bool {
+/// `ColumnExprInvalidFromImplicitAlias` footgun (`select from x`) in both
+/// the SELECT column list (here) and the FROM table-alias path (`join.rs`).
+pub(crate) fn is_bare_from_field(expr: &Value) -> bool {
     let Some(obj) = expr.as_object() else {
         return false;
     };
