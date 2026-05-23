@@ -75,12 +75,7 @@ export function computeSliceAngles(
 
 /** Returns the index of the slice under the cursor, or -1.
  *  Cursor position is in canvas pixels (relative to the wrapper). */
-export function hitTestSlice(
-    cursorX: number,
-    cursorY: number,
-    layout: PieLayout,
-    sliceAngles: SliceAngle[]
-): number {
+export function hitTestSlice(cursorX: number, cursorY: number, layout: PieLayout, sliceAngles: SliceAngle[]): number {
     if (sliceAngles.length === 0 || layout.outerRadius <= 0) {
         return -1
     }
@@ -121,19 +116,15 @@ function isAngleInRange(angle: number, start: number, end: number): boolean {
 }
 
 /** Returns the (x, y) position where a slice's label should be drawn —
- *  on the bisector of the slice at the midpoint between inner and outer radii. */
-export function sliceLabelPosition(
-    layout: PieLayout,
-    angle: SliceAngle,
-    hoverOffset: number = 0
-): { x: number; y: number; midAngle: number } {
+ *  on the bisector of the slice at the midpoint between inner and outer radii.
+ *  Callers that need to nudge the label for a hovered slice add the offset from
+ *  `sliceHoverOffset` to the returned `{x, y}` instead of passing it here. */
+export function sliceLabelPosition(layout: PieLayout, angle: SliceAngle): { x: number; y: number; midAngle: number } {
     const midAngle = (angle.startAngle + angle.endAngle) / 2
-    const innerR = layout.innerRadius
-    const outerR = layout.outerRadius
-    const labelR = (innerR + outerR) / 2
+    const labelR = (layout.innerRadius + layout.outerRadius) / 2
     return {
-        x: layout.cx + Math.cos(midAngle) * (labelR + hoverOffset),
-        y: layout.cy + Math.sin(midAngle) * (labelR + hoverOffset),
+        x: layout.cx + Math.cos(midAngle) * labelR,
+        y: layout.cy + Math.sin(midAngle) * labelR,
         midAngle,
     }
 }

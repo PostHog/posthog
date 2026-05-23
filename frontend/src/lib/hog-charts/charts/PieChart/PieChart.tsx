@@ -3,8 +3,9 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useChartCanvas } from '../../core/hooks/useChartCanvas'
-import type { ChartMargins, ChartTheme, TooltipConfig } from '../../core/types'
+import type { ChartMargins, ChartTheme, Series, TooltipConfig, TooltipContext } from '../../core/types'
 import { PieTooltip } from './PieTooltip'
+import { drawPieSlices, drawSliceLabels, highlightColorFor } from './utils/pie-canvas'
 import {
     computePieLayout,
     computeSliceAngles,
@@ -14,7 +15,6 @@ import {
     type ResolvedPieSlice,
     type SliceAngle,
 } from './utils/pie-layout'
-import { drawPieSlices, drawSliceLabels, highlightColorFor } from './utils/pie-canvas'
 
 const WRAPPER_STYLE_BASE: React.CSSProperties = {
     position: 'relative',
@@ -45,8 +45,9 @@ export interface PieSlice<Meta = unknown> {
     value: number
     /** CSS color string. When omitted the chart picks one from `theme.colors` by slice index. */
     color?: string
-    /** Arbitrary consumer data attached to the slice — flows through to `PieTooltipContext`
-     *  and the slice-click callback. */
+    /** Arbitrary consumer data attached to the slice — flows through to the synthetic
+     *  `Series.meta` exposed via `TooltipContext.seriesData[].series.meta`, and to the
+     *  slice-click callback. */
     meta?: Meta
 }
 
@@ -84,41 +85,16 @@ export interface PieSliceClickData<Meta = unknown> {
     total: number
 }
 
-/** Context passed to the tooltip render prop. Narrower than the line/bar `TooltipContext`
- *  because pies don't have axes or cross-series comparisons. */
-export interface PieTooltipContext<Meta = unknown> {
-    /** Index into the *filtered* (positive-value) slice array. */
-    sliceIndex: number
-    /** The hovered slice. */
-    slice: ResolvedPieSliceWithMeta<Meta>
-    /** Slice's percentage of the total (0–100). */
-    percent: number
-    /** Sum of every visible slice's value. */
-    total: number
-    /** All visible slices, in render order. */
-    slices: ResolvedPieSliceWithMeta<Meta>[]
-    /** Cursor position in canvas pixels. */
-    position: { x: number; y: number }
-    /** Bounding rect of the canvas — useful for portal-positioned tooltip overrides. */
-    canvasBounds: DOMRect
-    /** Theme passed to the chart. */
-    theme: ChartTheme
-    /** Resolved value formatter (caller's `config.valueFormatter` or the default). */
-    valueFormatter: (value: number) => string
-    /** True once a click has pinned the tooltip. */
-    isPinned: boolean
-    /** Closes a pinned tooltip. Only present when `isPinned`. */
-    onUnpin?: () => void
-}
-
 export interface PieChartProps<Meta = unknown> {
     /** Slices to render. Non-positive values are filtered out; the chart shows an empty state
      *  when no slices remain. */
     slices: PieSlice<Meta>[]
     theme: ChartTheme
     config?: PieChartConfig
-    /** Override the tooltip body — receives a `PieTooltipContext`. */
-    tooltip?: (ctx: PieTooltipContext<Meta>) => React.ReactNode
+    /** Override the tooltip body. Receives the same `TooltipContext` every hog-chart emits;
+     *  each slice is a synthetic one-point series so `seriesData[dataIndex]` is the hovered
+     *  slice, and `seriesData.reduce(...)` gives the total. */
+    tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onSliceClick?: (data: PieSliceClickData<Meta>) => void
     className?: string
     /** `data-attr` applied to the chart wrapper. */
@@ -237,9 +213,7 @@ function PieChartInner<Meta = unknown>({
             // shifts on hover.
             const slicesForDraw =
                 hoverIndex >= 0
-                    ? visibleSlices.map((s, i) =>
-                          i === hoverIndex ? { ...s, color: highlightColorFor(s.color) } : s
-                      )
+                    ? visibleSlices.map((s, i) => (i === hoverIndex ? { ...s, color: highlightColorFor(s.color) } : s))
                     : visibleSlices
 
             drawPieSlices(ctx, layout, slicesForDraw as ResolvedPieSlice[], sliceAngles, {
@@ -309,9 +283,11 @@ function PieChartInner<Meta = unknown>({
             clearHover()
             return
         }
+        // Pinning and onSliceClick are independent — a consumer can ask for both, in which
+        // case the click pins the tooltip *and* fires the callback. We don't early-return
+        // here so the two paths don't shadow each other.
         if (pinnableTooltip && showTooltip) {
             setIsPinned(true)
-            return
         }
         if (onSliceClick) {
             const slice = visibleSlices[currentIndex]
@@ -361,7 +337,25 @@ function PieChartInner<Meta = unknown>({
         [canvasRef]
     )
 
-    const tooltipCtx = useMemo<PieTooltipContext<Meta> | null>(() => {
+    // Each slice becomes a single-point synthetic Series so the tooltip context matches
+    // the bar/line shape — the testing harness, DefaultTooltip, and `TooltipSnapshot.series`
+    // accessor all key off `series.key`, which mirrors `slice.key` here.
+    const seriesData = useMemo(
+        () =>
+            visibleSlices.map((slice) => {
+                const series: Series<Meta> = {
+                    key: slice.key,
+                    label: slice.label,
+                    data: [slice.value],
+                    color: slice.color,
+                    meta: slice.meta,
+                }
+                return { series, value: slice.value, color: slice.color }
+            }),
+        [visibleSlices]
+    )
+
+    const tooltipCtx = useMemo<TooltipContext<Meta> | null>(() => {
         if (!showTooltip || hoverIndex < 0 || !hoverPosition) {
             return null
         }
@@ -370,34 +364,19 @@ function PieChartInner<Meta = unknown>({
             return null
         }
         return {
-            sliceIndex: hoverIndex,
-            slice,
-            percent: total > 0 ? (slice.value / total) * 100 : 0,
-            total,
-            slices: visibleSlices,
+            dataIndex: hoverIndex,
+            label: slice.label,
+            seriesData,
             position: hoverPosition,
+            hoverPosition,
             canvasBounds: canvasBounds(),
-            theme,
-            valueFormatter,
             isPinned,
             onUnpin: isPinned ? unpin : undefined,
         }
-    }, [
-        showTooltip,
-        hoverIndex,
-        hoverPosition,
-        visibleSlices,
-        total,
-        canvasBounds,
-        theme,
-        valueFormatter,
-        isPinned,
-        unpin,
-    ])
+    }, [showTooltip, hoverIndex, hoverPosition, visibleSlices, seriesData, canvasBounds, isPinned, unpin])
 
-    const wrapperStyle = hoverIndex >= 0 && (onSliceClick || pinnableTooltip)
-        ? WRAPPER_STYLE_POINTER
-        : WRAPPER_STYLE_DEFAULT
+    const wrapperStyle =
+        hoverIndex >= 0 && (onSliceClick || pinnableTooltip) ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT
 
     const ariaLabel = `Chart with ${visibleSlices.length} data series`
 
@@ -441,8 +420,12 @@ function PieChartInner<Meta = unknown>({
         >
             <canvas ref={canvasRef} role="img" aria-label={ariaLabel} style={CANVAS_STYLE} />
             {tooltipCtx && (
-                <PiePortalTooltip ctx={tooltipCtx}>
-                    {tooltipRenderProp ? tooltipRenderProp(tooltipCtx) : <PieTooltip ctx={tooltipCtx} />}
+                <PiePortalTooltip ctx={tooltipCtx} theme={theme}>
+                    {tooltipRenderProp ? (
+                        tooltipRenderProp(tooltipCtx)
+                    ) : (
+                        <PieTooltip ctx={tooltipCtx} theme={theme} valueFormatter={valueFormatter} />
+                    )}
                 </PiePortalTooltip>
             )}
         </div>
@@ -450,12 +433,13 @@ function PieChartInner<Meta = unknown>({
 }
 
 interface PiePortalTooltipProps<Meta> {
-    ctx: PieTooltipContext<Meta>
+    ctx: TooltipContext<Meta>
+    theme: ChartTheme
     children: React.ReactNode
 }
 
-function PiePortalTooltip<Meta>({ ctx, children }: PiePortalTooltipProps<Meta>): React.ReactElement {
-    const zIndex = ctx.theme.tooltipZIndex ?? DEFAULT_TOOLTIP_Z_INDEX
+function PiePortalTooltip<Meta>({ ctx, theme, children }: PiePortalTooltipProps<Meta>): React.ReactElement {
+    const zIndex = theme.tooltipZIndex ?? DEFAULT_TOOLTIP_Z_INDEX
     const x = ctx.canvasBounds.left + ctx.position.x
     const y = ctx.canvasBounds.top + ctx.position.y
 

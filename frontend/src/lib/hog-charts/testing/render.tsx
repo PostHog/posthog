@@ -1,16 +1,28 @@
 import { cleanup, render, type RenderResult } from '@testing-library/react'
 import React, { type ReactElement, type ReactNode } from 'react'
 
-import { PieTooltip } from '../charts/PieChart/PieTooltip'
-import type { PieTooltipContext } from '../charts/PieChart/PieChart'
-import type { TooltipContext } from '../core/types'
+import { ChartLayoutContext, type ChartLayoutContextValue } from '../core/chart-context'
+import type { ChartTheme, TooltipContext } from '../core/types'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { getHogChart, type HogChart } from './accessor'
 import { ensureJsdom } from './jsdom'
 import { HOG_CHARTS_TOOLTIP_SELECTOR } from './tooltip'
 
-function isPieTooltipContext(ctx: unknown): ctx is PieTooltipContext {
-    return typeof ctx === 'object' && ctx !== null && 'slice' in ctx && 'percent' in ctx
+// Charts that wrap themselves in `ChartLayoutContext.Provider` (BarChart, LineChart, TimeSeries*)
+// override this in their render tree, so this fallback only kicks in for charts that don't
+// emit a layout context — like PieChart — so the substituted `DefaultTooltip` can still call
+// `useChartLayout()` for theme. The non-`theme` fields are stubs no overlay reads on the pie path.
+function buildFallbackLayoutContext(theme: ChartTheme): ChartLayoutContextValue {
+    return {
+        dimensions: { width: 0, height: 0, plotLeft: 0, plotTop: 0, plotWidth: 0, plotHeight: 0 },
+        labels: [],
+        series: [],
+        scales: { x: () => 0, y: () => 0, yTicks: () => [] },
+        theme,
+        resolvePositionValue: (s, i) => s.data[i] ?? 0,
+        canvasBounds: () => null,
+        axis: { orientation: 'vertical', xTickFormatter: undefined, isPercent: false },
+    }
 }
 
 /** Render a hog-charts component and return Testing Library's `RenderResult` with a `chart`
@@ -29,18 +41,21 @@ export function renderHogChart<Meta = unknown>(ui: ReactElement): RenderResult &
     // we still call it for the rendered DOM; otherwise we fall through to DefaultTooltip,
     // matching the chart's natural default.
     let lastTooltipContext: TooltipContext<Meta> | null = null
-    const props = ui.props as { tooltip?: (ctx: unknown) => ReactNode; labels?: string[] }
-    const userTooltip = props.tooltip
-    const captureTooltip = (ctx: unknown): ReactNode => {
-        if (!isPieTooltipContext(ctx)) {
-            lastTooltipContext = ctx as TooltipContext<Meta>
-        }
-        if (userTooltip) {
-            return userTooltip(ctx)
-        }
-        return isPieTooltipContext(ctx) ? PieTooltip({ ctx }) : DefaultTooltip(ctx as TooltipContext)
+    const props = ui.props as {
+        tooltip?: (ctx: TooltipContext<Meta>) => ReactNode
+        labels?: string[]
+        theme: ChartTheme
     }
-    const wrapped = React.cloneElement(ui, { tooltip: captureTooltip })
+    const userTooltip = props.tooltip
+    const captureTooltip = (ctx: TooltipContext<Meta>): ReactNode => {
+        lastTooltipContext = ctx
+        return userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx as TooltipContext)
+    }
+    const wrapped = (
+        <ChartLayoutContext.Provider value={buildFallbackLayoutContext(props.theme)}>
+            {React.cloneElement(ui, { tooltip: captureTooltip })}
+        </ChartLayoutContext.Provider>
+    )
     const result = render(wrapped)
     return {
         ...result,

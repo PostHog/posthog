@@ -129,14 +129,7 @@ export function drawSliceLabels(
     ctx.restore()
 }
 
-function roundedRect(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    radius: number
-): void {
+function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, radius: number): void {
     const r = Math.min(radius, w / 2, h / 2)
     ctx.beginPath()
     ctx.moveTo(x + r, y)

@@ -1,9 +1,10 @@
 import { fireEvent, waitFor } from '@testing-library/react'
 
-import type { ChartTheme } from '../../core/types'
+import type { ChartTheme, TooltipContext } from '../../core/types'
 import { renderHogChart, waitForHogChartTooltip } from '../../testing'
 import { mockRect } from '../../testing/jsdom'
-import { PieChart, type PieSlice, type PieTooltipContext } from './PieChart'
+import { PieChart, type PieSlice } from './PieChart'
+import { PieTooltip } from './PieTooltip'
 import { computePieLayout, computeSliceAngles, type ResolvedPieSlice } from './utils/pie-layout'
 
 const THEME: ChartTheme = {
@@ -85,8 +86,10 @@ describe('PieChart', () => {
         expect(chart.element.getAttribute('data-attr')).toBe('pie-instance')
     })
 
-    it('opens the default tooltip with value and percentage on hover', async () => {
-        const { chart } = renderHogChart(<PieChart slices={SLICES} theme={THEME} />)
+    it('opens PieTooltip with value and percentage on hover', async () => {
+        const { chart } = renderHogChart(
+            <PieChart slices={SLICES} theme={THEME} tooltip={(ctx) => <PieTooltip ctx={ctx} theme={THEME} />} />
+        )
         fireMouseOverSlice(chart.element, 1)
         const tooltip = await waitForHogChartTooltip()
         expect(tooltip.textContent).toContain('B')
@@ -94,17 +97,18 @@ describe('PieChart', () => {
         expect(tooltip.textContent).toContain('50.0%')
     })
 
-    it('invokes the tooltip render prop with PieTooltipContext', async () => {
-        const tooltipSpy = jest.fn((_ctx: PieTooltipContext) => <div>custom tooltip</div>)
+    it('invokes the tooltip render prop with a series-shaped TooltipContext', async () => {
+        const tooltipSpy = jest.fn((_ctx: TooltipContext) => <div>custom tooltip</div>)
         const { chart } = renderHogChart(<PieChart slices={SLICES} theme={THEME} tooltip={tooltipSpy} />)
         fireMouseOverSlice(chart.element, 0)
         await waitForHogChartTooltip()
         expect(tooltipSpy).toHaveBeenCalled()
         const ctx = tooltipSpy.mock.calls[0]![0]
-        expect(ctx.slice.key).toBe('a')
-        expect(ctx.percent).toBeCloseTo(30)
-        expect(ctx.total).toBe(100)
-        expect(ctx.slices).toHaveLength(3)
+        expect(ctx.dataIndex).toBe(0)
+        expect(ctx.label).toBe('A')
+        expect(ctx.seriesData).toHaveLength(3)
+        expect(ctx.seriesData[0]!.series.key).toBe('a')
+        expect(ctx.seriesData[0]!.value).toBe(30)
     })
 
     it('invokes onSliceClick with the slice and percent', async () => {
@@ -144,6 +148,26 @@ describe('PieChart', () => {
         })
     })
 
+    it('pins the tooltip *and* fires onSliceClick when both are configured', async () => {
+        const onSliceClick = jest.fn()
+        const { chart } = renderHogChart(
+            <PieChart
+                slices={SLICES}
+                theme={THEME}
+                config={{ tooltip: { pinnable: true } }}
+                onSliceClick={onSliceClick}
+            />
+        )
+        fireMouseOverSlice(chart.element, 1)
+        const tooltip = await waitForHogChartTooltip()
+        fireEvent.click(chart.element)
+        await waitFor(() => {
+            expect(tooltip.classList.contains('hog-charts-tooltip--pinned')).toBe(true)
+        })
+        expect(onSliceClick).toHaveBeenCalledTimes(1)
+        expect(onSliceClick.mock.calls[0][0].slice.key).toBe('b')
+    })
+
     it('hides the tooltip when tooltip.enabled is false', () => {
         const { chart } = renderHogChart(
             <PieChart slices={SLICES} theme={THEME} config={{ tooltip: { enabled: false } }} />
@@ -153,16 +177,19 @@ describe('PieChart', () => {
     })
 
     it('caps innerRadius into the donut range without crashing', () => {
-        const { chart } = renderHogChart(
-            <PieChart slices={SLICES} theme={THEME} config={{ innerRadius: 0.5 }} />
-        )
+        const { chart } = renderHogChart(<PieChart slices={SLICES} theme={THEME} config={{ innerRadius: 0.5 }} />)
         expect(chart.seriesCount).toBe(3)
     })
 
-    it('applies a custom value formatter to the tooltip', async () => {
+    it('applies a custom value formatter to PieTooltip', async () => {
         const formatter = (v: number): string => `$${v}`
         const { chart } = renderHogChart(
-            <PieChart slices={SLICES} theme={THEME} config={{ valueFormatter: formatter }} />
+            <PieChart
+                slices={SLICES}
+                theme={THEME}
+                config={{ valueFormatter: formatter }}
+                tooltip={(ctx) => <PieTooltip ctx={ctx} theme={THEME} valueFormatter={formatter} />}
+            />
         )
         fireMouseOverSlice(chart.element, 0)
         const tooltip = await waitForHogChartTooltip()
