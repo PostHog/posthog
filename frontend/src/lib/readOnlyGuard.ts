@@ -49,10 +49,12 @@ export function isReadOnly(): boolean {
 //      retention via POST because the payload is too large for a query string.
 //      Block-listing it would make the entire app unusable.
 //   2. Passive telemetry — /file_system/log_view records that the user viewed
-//      a log, which happens automatically on mount and should not raise.
+//      a log, and /insights/viewed is the insight-view counterpart powering
+//      "recently viewed insights". Both auto-fire on mount and should not raise.
 const READ_ONLY_ALLOWED_PATTERNS = [
     /\/query(?:\/|$|\?)/, // /api/environments/:team_id/query, /api/environments/:team_id/query/:queryId/log, etc.
     /\/file_system\/log_view(?:\/|$|\?)/, // /api/environments/:team_id/file_system/log_view
+    /\/insights\/viewed(?:\/|$|\?)/, // /api/environments/:team_id/insights/viewed
 ]
 
 function isReadDisguisedAsWrite(url: string): boolean {
