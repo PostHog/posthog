@@ -6,6 +6,8 @@ the `rust-json` backend into that suite and lists the cases the Rust
 parser does not yet match the C++ reference on.
 """
 
+from posthog.test.base import no_memory_leak_check
+
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_expr, parse_program, parse_select
 
@@ -89,6 +91,7 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             parse_expr(query, backend="cpp-json")
             parse_expr(query, backend="rust-json")
 
+    @no_memory_leak_check
     def test_brace_placeholder_only_positions_reject_dict(self):
         # `tableExpr`, `ratioExpr` (SAMPLE) and the `selectStmtWithParens`
         # placeholder arm all admit only a placeholder `{ columnExpr }`, never
@@ -118,6 +121,7 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             for query in valid_placeholder:
                 parse_select(query, backend=backend)
 
+    @no_memory_leak_check
     def test_empty_columns_call_and_star_spread_rejected(self):
         # Empty `columns()` matches no `ColumnExprColumns*` production. rust
         # built an empty-list ColumnsExpr and accepted it; it must instead let
@@ -147,6 +151,7 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             for backend in ("cpp-json", "rust-json"):
                 parse_program(query, backend=backend)
 
+    @no_memory_leak_check
     def test_over_window_name_rejects_hog_statement_keywords(self):
         # A named-window reference (`<call> OVER <name>`) is an `identifier`,
         # which admits only the keywords in cpp's `keyword` rule. The
@@ -160,3 +165,26 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
         for name in ("select", "from", "with", "where", "w"):
             for backend in ("cpp-json", "rust-json"):
                 parse_expr(f"f() over {name}", backend=backend)
+
+    @no_memory_leak_check
+    def test_materialized_keyword_rejected_as_identifier(self):
+        # MATERIALIZED is a lexer keyword used only in `WITH x AS MATERIALIZED
+        # (...)`; the grammar's `keyword` rule omits it, so it is not a valid
+        # identifier. rust admitted it via `kw_valid_as_identifier` /
+        # `kw_acts_as_ident_in_primary`, accepting `x.materialized`,
+        # `select materialized`, `exclude(materialized)` etc. where cpp rejects.
+        for query in ("x.materialized", "materialized", "columns(* exclude(materialized))"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+        for query in ("select 1 as materialized", "select x from t as materialized", "select materialized from t"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
+        # The legitimate MATERIALIZED keyword usage (CTE materialization) still parses.
+        for query in (
+            "with x as materialized (select 1) select 1 from x",
+            "with x as not materialized (select 1) select 1 from x",
+        ):
+            for backend in ("cpp-json", "rust-json"):
+                parse_select(query, backend=backend)

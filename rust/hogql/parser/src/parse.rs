@@ -950,6 +950,8 @@ pub(crate) fn kw_valid_as_identifier(kw: Kw) -> bool {
             | Kw::Try
             | Kw::Catch
             | Kw::Finally
+            // MATERIALIZED is a lexer keyword used only in `WITH x AS MATERIALIZED (…)`; the grammar's `keyword` rule omits it, so it is never a valid identifier.
+            | Kw::Materialized
     )
 }
 
@@ -982,6 +984,8 @@ pub(crate) fn kw_acts_as_ident_in_primary(kw: Kw) -> bool {
         // expression position).
         | Kw::Fn | Kw::Fun | Kw::Let | Kw::While
         | Kw::Throw | Kw::Try | Kw::Catch | Kw::Finally
+        // MATERIALIZED — keyword only in `WITH … AS MATERIALIZED (…)`, never a `keyword`-rule identifier.
+        | Kw::Materialized
     )
 }
 
