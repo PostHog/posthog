@@ -2616,24 +2616,6 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ),
             )
 
-        @parameterized.expand(
-            [
-                ("using_sample_before_group_by", "select 1 from events using sample 0.1"),
-                ("bare_sample_statement_level", "select 1 from events where 1 sample 0.1 group by 1"),
-                ("using_sample_after_qualify", "select 1 from events qualify 1 using sample 0.1"),
-                ("sample_after_unpivot", "select 1 from (a positional join b) unpivot (m for n in (o)) sample 0.5"),
-                ("table_and_statement_sample", "select 1 from events sample 0.1 using sample 0.2"),
-            ]
-        )
-        def test_statement_level_sample_rejected(self, _name: str, query: str):
-            # The selectStmt-level `(USING? sampleClause)?` slots (HogQLParser.g4:75/79) are
-            # DuckDB's `USING SAMPLE` (added with the duck/postgres syntax in #50353), distinct
-            # from ClickHouse's table-level `SAMPLE` (`JoinExprTable`, the only form that lands on
-            # `JoinExpr.sample`). HogQL has no AST representation for statement-level sampling, so
-            # every backend rejects it rather than silently dropping the sampling directive.
-            with self.assertRaises((ExposedHogQLError, SyntaxError)):
-                self._select(query)
-
             self.assertEqual(
                 self._select("select 1 from events sample 10 offset 1/2"),
                 ast.SelectQuery(
@@ -2664,6 +2646,24 @@ def parser_test_factory(backend: HogQLParserBackend):
                     ),
                 ),
             )
+
+        @parameterized.expand(
+            [
+                ("using_sample_before_group_by", "select 1 from events using sample 0.1"),
+                ("bare_sample_statement_level", "select 1 from events where 1 sample 0.1 group by 1"),
+                ("using_sample_after_qualify", "select 1 from events qualify 1 using sample 0.1"),
+                ("sample_after_unpivot", "select 1 from (a positional join b) unpivot (m for n in (o)) sample 0.5"),
+                ("table_and_statement_sample", "select 1 from events sample 0.1 using sample 0.2"),
+            ]
+        )
+        def test_statement_level_sample_rejected(self, _name: str, query: str):
+            # The selectStmt-level `(USING? sampleClause)?` slots (HogQLParser.g4:75/79) are
+            # DuckDB's `USING SAMPLE` (added with the duck/postgres syntax in #50353), distinct
+            # from ClickHouse's table-level `SAMPLE` (`JoinExprTable`, the only form that lands on
+            # `JoinExpr.sample`). HogQL has no AST representation for statement-level sampling, so
+            # every backend rejects it rather than silently dropping the sampling directive.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)):
+                self._select(query)
 
         def test_select_with_columns(self):
             self.assertEqual(
