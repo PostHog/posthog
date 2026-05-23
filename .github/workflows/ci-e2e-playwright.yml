@@ -86,11 +86,24 @@ jobs:
             # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
             # (PR branch tip) is reachable for the merge-base step below without the
             # cost of fetching blobs.
+            #
+            # sparse-checkout limits worktree materialization to the one file the
+            # "Read ClickHouse versions from JSON" step below actually reads. Without
+            # this, the post-fetch `git checkout` triggered by actions/checkout@v6.0.2
+            # lazy-fetches every blob in HEAD from the promisor remote and
+            # intermittently fails with "fatal: could not read Username for
+            # 'https://github.com'" — a v6.0.2 regression in how creds are scoped
+            # across child fetches. The failure blocks merge until the job is
+            # retried (e.g. PR #59779 on 2026-05-23). Materializing one file makes
+            # the lazy fetch a single-blob operation that no longer needs the
+            # post-checkout credential helper at all.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
+                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token

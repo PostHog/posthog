@@ -2,6 +2,10 @@ name: Container Images CI
 
 on:
     pull_request:
+        # `labeled`/`unlabeled` lets `hobby-preview` retroactively trigger
+        # an image build (ci-hobby.yml uses the same trigger types so the
+        # two stay in lock-step).
+        types: [opened, synchronize, reopened, labeled, unlabeled]
     merge_group:
 
 concurrency:
@@ -19,7 +23,22 @@ jobs:
             pull-requests: read
         # Set job outputs to values from filter step
         outputs:
-            docker_files: ${{ steps.filter.outputs.docker_files }}
+            # `posthog_build` below is consumed only by ci-hobby.yml's
+            # `wait-for-docker-image` job (it polls this workflow by check
+            # name "Build Docker image"). When ci-hobby would skip, the
+            # build is wasted work — ~15-25 min on depot-ubuntu-latest-4
+            # with nothing waiting for the result.
+            #
+            # Trigger the build whenever:
+            # - ci-hobby would actually consume it (hobby:/hobby-preview)
+            # - the build itself or its action changed (build_self:),
+            #   so workflow edits get exercised pre-merge
+            should_build: >-
+                ${{
+                    steps.filter.outputs.hobby == 'true'
+                    || steps.filter.outputs.build_self == 'true'
+                    || contains(github.event.pull_request.labels.*.name, 'hobby-preview')
+                }}
         steps:
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -31,12 +50,35 @@ jobs:
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: 'every'
                   filters: |
-                      docker_files:
-                        - '**'
-                        - '!rust/**'
-                        - '!livestream/**'
+                      # KEEP IN SYNC with `hobby:` in .github/workflows/ci-hobby.yml.
+                      # Drift means hobby will wait for an image we never build (timeout)
+                      # or we build an image nothing waits for (waste).
+                      hobby:
+                        - Dockerfile
+                        - docker-compose.base.yml
+                        - docker-compose.hobby.yml
+                        - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci.py'
+                        - 'bin/upgrade-hobby'
+                        - 'bin/migrate-*-hobby'
+                        - 'bin/docker'
+                        - 'bin/docker-worker'
+                        - 'bin/docker-worker-beat'
+                        - 'bin/docker-worker-celery'
+                        - 'bin/docker-server'
+                        - 'bin/docker-server-unit'
+                        - 'bin/celery-queues.env'
+                        - 'bin/migrate'
+                        - 'bin/migrate-check'
+                        - 'bin/posthog-node'
+                        - 'bin/hobby-installer/**'
+                        - 'docker/**'
+                        - uv.lock
+                        - .github/workflows/ci-hobby.yml
+                      build_self:
+                        - .github/workflows/container-images-ci.yml
+                        - .github/actions/build-n-cache-image/**
 
     posthog_build:
         needs: changes
@@ -48,7 +90,7 @@ jobs:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
         # Only on PostHog/posthog, as there's no docker login on forks
-        if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name  == github.repository && needs.changes.outputs.docker_files == 'true') || github.event_name == 'merge_group' }}
+        if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name  == github.repository && needs.changes.outputs.should_build == 'true') || github.event_name == 'merge_group' }}
 
         outputs:
             digest: ${{ steps.build.outputs.digest }}
