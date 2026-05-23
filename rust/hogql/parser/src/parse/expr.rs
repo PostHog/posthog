@@ -2550,9 +2550,9 @@ impl<'a> Parser<'a> {
                 } else {
                     let tok = self.bump()?;
                     let id = match tok.kind {
-                        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
-                            identifier_text(self.text(tok), tok.kind)
-                        }
+                        TokenKind::Ident | TokenKind::QuotedIdent => identifier_text(self.text(tok), tok.kind),
+                        // A window name is an `identifier`, which admits only `kw_valid_as_identifier` keywords — the Hog-statement keywords (try / catch / finally / …) are not valid window names.
+                        TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => identifier_text(self.text(tok), tok.kind),
                         _ => {
                             return Err(self.err(format!(
                                 "expected window name or `(` after OVER, got {:?}",
@@ -2820,9 +2820,9 @@ impl<'a> Parser<'a> {
             } else {
                 let tok = self.bump()?;
                 let id = match tok.kind {
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
-                        identifier_text(self.text(tok), tok.kind)
-                    }
+                    TokenKind::Ident | TokenKind::QuotedIdent => identifier_text(self.text(tok), tok.kind),
+                    // A window name is an `identifier`, which admits only `kw_valid_as_identifier` keywords — the Hog-statement keywords (try / catch / finally / …) are not valid window names.
+                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => identifier_text(self.text(tok), tok.kind),
                     _ => {
                         return Err(self.err(format!(
                             "expected window name or `(` after OVER, got {:?}",

@@ -146,3 +146,17 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
         for query in valid:
             for backend in ("cpp-json", "rust-json"):
                 parse_program(query, backend=backend)
+
+    def test_over_window_name_rejects_hog_statement_keywords(self):
+        # A named-window reference (`<call> OVER <name>`) is an `identifier`,
+        # which admits only the keywords in cpp's `keyword` rule. The
+        # Hog-statement keywords are excluded, so they are not valid window
+        # names. rust accepted any keyword there; both backends must reject the
+        # excluded ones while still accepting an ordinary keyword or identifier.
+        for name in ("finally", "try", "catch", "while", "let", "fn", "fun", "throw"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(f"f() over {name}", backend=backend)
+        for name in ("select", "from", "with", "where", "w"):
+            for backend in ("cpp-json", "rust-json"):
+                parse_expr(f"f() over {name}", backend=backend)
