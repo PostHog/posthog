@@ -310,7 +310,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["summary"]["total_cost_usd"] == 1.0
 
     def test_date_window_passes_through_to_query_layer(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             response = self.client.get(f"{ENDPOINT}?date_from=-7d")
 
@@ -319,7 +319,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert mock_exec.call_count == 5
 
     def test_second_call_serves_from_cache(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             self.client.get(ENDPOINT)
             first = mock_exec.call_count
@@ -327,7 +327,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             assert mock_exec.call_count == first
 
     def test_refresh_bypasses_cache(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             self.client.get(ENDPOINT)
             first = mock_exec.call_count
@@ -335,7 +335,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             assert mock_exec.call_count == first * 2
 
     def test_cache_key_includes_date_from(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             self.client.get(f"{ENDPOINT}?date_from=-7d")
             first = mock_exec.call_count
@@ -343,7 +343,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             assert mock_exec.call_count == first * 2
 
     def test_cache_key_includes_product(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             self.client.get(ENDPOINT)
             first = mock_exec.call_count
@@ -351,7 +351,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             assert mock_exec.call_count == first * 2
 
     def test_cache_key_includes_limit(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             self.client.get(f"{ENDPOINT}?limit=10")
             first = mock_exec.call_count
