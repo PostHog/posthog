@@ -331,6 +331,12 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
                 expected: { id: 5, name: 'fb' },
             },
             {
+                description: 'uses fallback value when name is null (matches the original ?? value semantics)',
+                input: { id: 5, name: null },
+                fallback: 'fb',
+                expected: { id: 5, name: 'fb' },
+            },
+            {
                 description: 'handles non-object input by returning just the fallback name',
                 input: null,
                 fallback: 'only-name',

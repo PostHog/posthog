@@ -56,7 +56,7 @@ export function pickMinimalPinnedItem(item: unknown, fallbackValue: TaxonomicFil
         }
         picked[field] = fieldValue
     }
-    if (picked.name === undefined) {
+    if (picked.name == null) {
         picked.name = fallbackValue
     }
     return picked
