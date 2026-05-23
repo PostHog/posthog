@@ -2,7 +2,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { messageSignature } from './messageSignature'
 import { CompatMessage } from './types'
-import { formatAiErrorForDisplay, normalizeMessage, normalizeMessages } from './utils'
+import { formatAiErrorForDisplay, getToolNamesCalled, normalizeMessage, normalizeMessages } from './utils'
 
 // Heuristic mirrors the LLMA skill script `print_summary.py` at
 // `products/llm_analytics/skills/exploring-llm-traces/scripts/` — keep in sync.
@@ -93,87 +93,9 @@ export interface SessionTurn {
     errors: SessionTurnError[]
 }
 
-/**
- * Pulls tool names out of an `$ai_output_choices` payload. Covers two shapes:
- * - OpenAI: `[{tool_calls: [{function: {name}}]}]` (and Chat Completions
- *   `{choices: [...]}`, LiteLLM `{message: {tool_calls: [...]}}`).
- * - Anthropic: typed content parts `[{type: 'tool_use', name, input}]`.
- *
- * Unrecognised shapes are skipped silently — we surface what we can and degrade
- * gracefully on the rest.
- */
-function extractToolNamesFromOutput(rawOutput: unknown): string[] {
-    const names: string[] = []
-    const messages: unknown[] = Array.isArray(rawOutput)
-        ? rawOutput
-        : typeof rawOutput === 'object' &&
-            rawOutput !== null &&
-            'choices' in rawOutput &&
-            Array.isArray((rawOutput as { choices: unknown[] }).choices)
-          ? (rawOutput as { choices: unknown[] }).choices
-          : []
-    for (const raw of messages) {
-        if (!raw || typeof raw !== 'object') {
-            continue
-        }
-        const msg = 'message' in raw ? (raw as { message: unknown }).message : raw
-        if (!msg || typeof msg !== 'object') {
-            continue
-        }
-        const toolCalls = (msg as { tool_calls?: unknown }).tool_calls
-        if (Array.isArray(toolCalls)) {
-            for (const call of toolCalls) {
-                const name = (call as { function?: { name?: unknown } })?.function?.name
-                if (typeof name === 'string' && name) {
-                    names.push(name)
-                }
-            }
-        }
-        const content = (msg as { content?: unknown }).content
-        if (Array.isArray(content)) {
-            for (const part of content) {
-                if (part && typeof part === 'object' && (part as { type?: unknown }).type === 'tool_use') {
-                    const name = (part as { name?: unknown }).name
-                    if (typeof name === 'string' && name) {
-                        names.push(name)
-                    }
-                }
-            }
-        }
-    }
-    return names
-}
-
-/**
- * Distinct tool names in chronological first-appearance order. Pulled from
- * `$ai_span_name` on instrumented `$ai_span` events plus `tool_calls` /
- * `tool_use` parts in `$ai_generation` outputs.
- */
-function collectToolsCalled(events: LLMTraceEvent[]): string[] {
-    // Sort chronologically so "first-appearance order" is deterministic regardless
-    // of whatever order ClickHouse returned the events in.
-    const sorted = [...events].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-    const seen = new Set<string>()
-    const ordered: string[] = []
-    const add = (name: string): void => {
-        if (!seen.has(name)) {
-            seen.add(name)
-            ordered.push(name)
-        }
-    }
-    for (const event of sorted) {
-        if (event.event === '$ai_span') {
-            const spanName = event.properties.$ai_span_name
-            if (typeof spanName === 'string' && spanName) {
-                add(spanName)
-            }
-        } else if (event.event === '$ai_generation') {
-            for (const name of extractToolNamesFromOutput(event.properties.$ai_output_choices)) {
-                add(name)
-            }
-        }
-    }
-    return ordered
+function getToolNamesCalledUnique(events: LLMTraceEvent[]): string[] {
+    // `Set` insertion order preserves first-appearance
+    return Array.from(new Set(getToolNamesCalled(events)))
 }
 
 /**
@@ -244,7 +166,7 @@ export function extractSessionTurns(traces: LLMTrace[], fullTraces: Record<strin
                 errors: [],
             }
         }
-        const tools = collectToolsCalled(fullTrace.events ?? [])
+        const tools = getToolNamesCalledUnique(fullTrace.events ?? [])
         const errors = collectDistinctErrors(fullTrace.events ?? [])
         const userVisibleTurn = pickUserVisibleTurn(fullTrace)
         if (!userVisibleTurn) {

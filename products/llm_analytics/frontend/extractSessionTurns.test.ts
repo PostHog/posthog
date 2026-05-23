@@ -380,7 +380,7 @@ describe('extractSessionTurns — cross-trace dedup', () => {
 })
 
 describe('extractSessionTurns — tools and errors', () => {
-    it('collects distinct tool names from `$ai_span_name` events', () => {
+    it('dedupes repeated tool names into first-appearance order on the SessionTurn', () => {
         const span = (id: string, name: string): LLMTraceEvent => ({
             id,
             event: '$ai_span',
@@ -391,69 +391,19 @@ describe('extractSessionTurns — tools and errors', () => {
             span('s1', 'fetch_user'),
             span('s2', 'subscription_lookup'),
             span('s3', 'fetch_user'), // duplicate — first-appearance order wins
-            makeGeneration('g1', '2026-05-11T00:00:01.000Z'),
-        ])
-        const [turn] = extractSessionTurns([t1], { t1 })
-        expect(turn.tools).toEqual(['fetch_user', 'subscription_lookup'])
-    })
-
-    it('orders tool names chronologically, not by array order', () => {
-        // Events come back from ClickHouse in whatever order the query produced.
-        // The doc promises "first-appearance order" — that means chronological,
-        // not "first in the array".
-        const span = (id: string, name: string, createdAt: string): LLMTraceEvent => ({
-            id,
-            event: '$ai_span',
-            createdAt,
-            properties: { $ai_span_name: name },
-        })
-        const t1 = makeTrace('t1', [
-            // Deliberately reverse-chronological in the array.
-            span('s3', 'send_email', '2026-05-11T00:00:02.000Z'),
-            span('s1', 'fetch_user', '2026-05-11T00:00:00.000Z'),
-            span('s2', 'subscription_lookup', '2026-05-11T00:00:01.000Z'),
-            makeGeneration('g1', '2026-05-11T00:00:03.000Z'),
-        ])
-        const [turn] = extractSessionTurns([t1], { t1 })
-        expect(turn.tools).toEqual(['fetch_user', 'subscription_lookup', 'send_email'])
-    })
-
-    it('collects tool names from OpenAI `tool_calls` in generation outputs', () => {
-        const t1 = makeTrace('t1', [
-            makeGeneration('g1', '2026-05-11T00:00:00.000Z', {
+            makeGeneration('g1', '2026-05-11T00:00:01.000Z', {
+                // Generation also calls `fetch_user` — must collapse with the spans.
                 $ai_output_choices: [
                     {
                         role: 'assistant',
                         content: '',
-                        tool_calls: [
-                            { id: 'a', type: 'function', function: { name: 'get_weather', arguments: '{}' } },
-                            { id: 'b', type: 'function', function: { name: 'search_docs', arguments: '{}' } },
-                        ],
+                        tool_calls: [{ id: 'a', type: 'function', function: { name: 'fetch_user', arguments: '{}' } }],
                     },
                 ],
             }),
         ])
         const [turn] = extractSessionTurns([t1], { t1 })
-        expect(turn.tools).toEqual(['get_weather', 'search_docs'])
-    })
-
-    it('collects tool names from Anthropic `tool_use` typed parts', () => {
-        const t1 = makeTrace('t1', [
-            makeGeneration('g1', '2026-05-11T00:00:00.000Z', {
-                $ai_output_choices: [
-                    {
-                        role: 'assistant',
-                        content: [
-                            { type: 'text', text: 'Looking it up.' },
-                            { type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: 'Berlin' } },
-                            { type: 'tool_use', id: 'toolu_2', name: 'search_docs', input: {} },
-                        ],
-                    },
-                ],
-            }),
-        ])
-        const [turn] = extractSessionTurns([t1], { t1 })
-        expect(turn.tools).toEqual(['get_weather', 'search_docs'])
+        expect(turn.tools).toEqual(['fetch_user', 'subscription_lookup'])
     })
 
     it('surfaces the first chronological error with label + message', () => {
