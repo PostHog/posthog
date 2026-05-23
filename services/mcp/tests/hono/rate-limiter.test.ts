@@ -138,11 +138,9 @@ describe('RateLimiter', () => {
         expect(redis.expire).toHaveBeenCalledWith('mcp:rl:burst:user-a', 60)
     })
 
-    it('ships defaults above the highest PostHog REST endpoint limits', () => {
-        expect(DEFAULT_BURST_LIMIT.limit).toBeGreaterThan(1200)
-        expect(DEFAULT_BURST_LIMIT.windowSeconds).toBe(60)
-        expect(DEFAULT_SUSTAINED_LIMIT.limit).toBeGreaterThan(12000)
-        expect(DEFAULT_SUSTAINED_LIMIT.windowSeconds).toBe(3600)
+    it('matches PostHog REST API default throttle (480/min, 4800/hour)', () => {
+        expect(DEFAULT_BURST_LIMIT).toEqual({ scope: 'mcp_burst', limit: 480, windowSeconds: 60 })
+        expect(DEFAULT_SUSTAINED_LIMIT).toEqual({ scope: 'mcp_sustained', limit: 4800, windowSeconds: 3600 })
     })
 })
 

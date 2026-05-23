@@ -20,18 +20,17 @@ export interface RateLimitResult {
     resetSeconds: number
 }
 
-// Defaults sit above the highest PostHog REST endpoint limits (1200/min
-// symbol-set uploads, 12000/hour sustained) so agent workflows get headroom
-// while a runaway client is still capped.
+// Match PostHog's default REST API throttle (BurstRateThrottle /
+// SustainedRateThrottle in posthog/rate_limit.py).
 export const DEFAULT_BURST_LIMIT: RateLimitConfig = {
     scope: 'mcp_burst',
-    limit: 1500,
+    limit: 480,
     windowSeconds: 60,
 }
 
 export const DEFAULT_SUSTAINED_LIMIT: RateLimitConfig = {
     scope: 'mcp_sustained',
-    limit: 15000,
+    limit: 4800,
     windowSeconds: 3600,
 }
 
