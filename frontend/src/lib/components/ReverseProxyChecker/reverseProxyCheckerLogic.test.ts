@@ -118,14 +118,11 @@ describe('reverseProxyCheckerLogic', () => {
     })
 
     it('should not report read-only mode blocks to error tracking', async () => {
-        // Regression test: if loadHasReverseProxy ever encounters a ReadOnlyModeError,
-        // it must be swallowed silently — afterMount fires on every scene mount, so
-        // reporting these would flood error tracking with expected failures.
+        // Regression: ReadOnlyModeError from loadHasReverseProxy must be swallowed,
+        // otherwise every scene mount would spam error tracking via afterMount.
         //
-        // We spy on api.queryHogQL directly rather than going through the read-only
-        // guard because /query is in readOnlyGuard's READ_ONLY_ALLOWED_PATTERNS
-        // (queries are reads despite being POSTs), so setReadOnlyGetter alone never
-        // triggers the error path on this endpoint.
+        // We mock api.queryHogQL directly because /query is allow-listed in
+        // readOnlyGuard, so setReadOnlyGetter wouldn't fire here.
         const queryHogQLSpy = jest.spyOn(api, 'queryHogQL').mockRejectedValue(new ReadOnlyModeError())
 
         const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
