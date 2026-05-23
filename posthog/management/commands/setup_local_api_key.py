@@ -72,6 +72,12 @@ class Command(BaseCommand):
 
         existing_key = PersonalAPIKey.objects.filter(secure_value=secure_value).first()
         if existing_key:
+            # Idempotent rerun: stamp credentials_reviewed_at on the owner if it's
+            # still null. Without this, local DBs that already have the dev key from
+            # before this fix landed will still trip the review interstitial.
+            if existing_key.user.credentials_reviewed_at is None:
+                existing_key.user.credentials_reviewed_at = timezone.now()
+                existing_key.user.save(update_fields=["credentials_reviewed_at"])
             if add_scopes:
                 current = set(existing_key.scopes)
                 merged = sorted(current | set(add_scopes))

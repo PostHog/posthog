@@ -159,16 +159,20 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             user=user, secure_value=secure_value, mask_value=mask_value, **validated_data
         )
         personal_api_key._value = value  # type: ignore
-        # User created this PAT themselves through a session, so it counts as
-        # already-acknowledged for the credential review interstitial. Gated to
-        # SessionAuthentication on purpose: accepting PersonalAPIKeyAuthentication
-        # here would let an attacker holding a partner-issued PAT mint another PAT
-        # to silently stamp credentials_reviewed_at and bypass the review screen
-        # the legit account owner is supposed to see. Same constraint as the
-        # credentials_review_complete endpoint (posthog/api/user.py).
+        # User created their FIRST PAT themselves through a session, so the credential
+        # review interstitial has nothing partner-issued to surface for them - mark it
+        # acknowledged. Three gates, all load-bearing:
+        #   - count == 0: don't dismiss pre-existing PATs (incl. partner-issued ones)
+        #     that the user hasn't yet been shown for review.
+        #   - SessionAuthentication: PAT-bearer auth would let an attacker holding a
+        #     partner-issued PAT mint another PAT to silently dismiss the victim's
+        #     review screen. Same constraint as credentials_review_complete.
+        #   - credentials_reviewed_at IS NULL: don't clobber a real review timestamp.
         request = self.context["request"]
-        if user.credentials_reviewed_at is None and isinstance(
-            request.successful_authenticator, SessionAuthentication
+        if (
+            count == 0
+            and user.credentials_reviewed_at is None
+            and isinstance(request.successful_authenticator, SessionAuthentication)
         ):
             user.credentials_reviewed_at = timezone.now()
             user.save(update_fields=["credentials_reviewed_at"])
