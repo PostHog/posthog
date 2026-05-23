@@ -23,12 +23,13 @@ jobs:
             pull-requests: read
         outputs:
             # The image is only consumed by ci-hobby.yml. Skip the ~20 min build
-            # when ci-hobby would also skip; still build on workflow self-edits
-            # so changes here are exercised pre-merge.
+            # when ci-hobby would also skip, plus on changes to inputs that can
+            # only break inside the Docker build (workflow self-edits, frontend
+            # lockfile bumps that ci-hobby's filter ignores).
             should_build: >-
                 ${{
                     steps.filter.outputs.hobby == 'true'
-                    || steps.filter.outputs.build_self == 'true'
+                    || steps.filter.outputs.build_inputs == 'true'
                     || contains(github.event.pull_request.labels.*.name, 'hobby-preview')
                 }}
         steps:
@@ -67,9 +68,14 @@ jobs:
                         - 'docker/**'
                         - uv.lock
                         - .github/workflows/ci-hobby.yml
-                      build_self:
+                      # Inputs that can break inside the Docker build but aren't covered
+                      # by the `hobby:` filter — workflow self-edits, and `pnpm-lock.yaml`
+                      # so Renovate-style dep bumps are exercised on PR (otherwise they'd
+                      # only fail at merge_group / master push).
+                      build_inputs:
                         - .github/workflows/container-images-ci.yml
                         - .github/actions/build-n-cache-image/**
+                        - pnpm-lock.yaml
 
     posthog_build:
         needs: changes
