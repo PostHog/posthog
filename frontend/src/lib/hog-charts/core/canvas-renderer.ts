@@ -495,6 +495,14 @@ const BAR_TRACK_HATCH_ALPHA = 0.18
  *  hover callback can match the resting track's tuning. */
 export const BAR_TRACK_HOVER_ALPHA = 0.2
 
+function fillTrackRects(ctx: CanvasRenderingContext2D, tracks: BarRect[], cornerRadius: number): void {
+    for (const track of tracks) {
+        ctx.beginPath()
+        traceRoundedBarPath(ctx, track.x, track.y, track.width, track.height, cornerRadius, track.corners)
+        ctx.fill()
+    }
+}
+
 /** Paints each track rect as a tinted base under hatched stripes. Takes laid-out rects
  *  from `computeBarTrackRect`, mirroring `drawBars`. */
 export function drawBarTracks(
@@ -503,33 +511,20 @@ export function drawBarTracks(
     tracks: BarRect[],
     cornerRadius: number
 ): void {
-    const { ctx } = drawCtx
-    if (tracks.length === 0) {
+    const renderableTracks = tracks.filter((t) => t.width > 0 && t.height > 0)
+    if (renderableTracks.length === 0) {
         return
     }
+    const { ctx } = drawCtx
     ctx.save()
     // Solid base fill — what makes the region differ from the background, even between stripes.
     ctx.globalAlpha = BAR_TRACK_BASE_ALPHA
     ctx.fillStyle = series.color
-    for (const track of tracks) {
-        if (track.width <= 0 || track.height <= 0) {
-            continue
-        }
-        ctx.beginPath()
-        traceRoundedBarPath(ctx, track.x, track.y, track.width, track.height, cornerRadius, track.corners)
-        ctx.fill()
-    }
+    fillTrackRects(ctx, renderableTracks, cornerRadius)
     // Hatched stripes on top.
     ctx.globalAlpha = BAR_TRACK_HATCH_ALPHA
     ctx.fillStyle = getHatchPattern(ctx, series.color)
-    for (const track of tracks) {
-        if (track.width <= 0 || track.height <= 0) {
-            continue
-        }
-        ctx.beginPath()
-        traceRoundedBarPath(ctx, track.x, track.y, track.width, track.height, cornerRadius, track.corners)
-        ctx.fill()
-    }
+    fillTrackRects(ctx, renderableTracks, cornerRadius)
     ctx.restore()
 }
 
