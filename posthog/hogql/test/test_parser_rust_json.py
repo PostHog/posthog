@@ -188,3 +188,29 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
         ):
             for backend in ("cpp-json", "rust-json"):
                 parse_select(query, backend=backend)
+
+    @no_memory_leak_check
+    def test_bare_star_replace_rejected_outside_wrapper(self):
+        # `* REPLACE(...)` is a columnExpr only inside the paren forms
+        # `(* REPLACE(...))` / `(* EXCLUDE(...) REPLACE(...))` or `COLUMNS(* REPLACE(...))`.
+        # rust accepted a bare `* replace(...)` whenever a `)` followed (e.g. as a
+        # function argument or tuple element), since its guard couldn't tell a wrapper
+        # paren from a borrowed function-call one. Both must reject the bare form.
+        for query in ("full(* replace(a as b))", "* replace(a as b)", "(a, * replace(b as c))"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+        for backend in ("cpp-json", "rust-json"):
+            with self.assertRaises(BaseHogQLError):
+                parse_select("select * replace(a as b) from t", backend=backend)
+        # Wrapped REPLACE forms (including nested) and a bare `* EXCLUDE` still parse.
+        valid = [
+            "(* replace(a as b))",
+            "(* exclude(x) replace(a as b))",
+            "columns(* replace(a as b))",
+            "((* replace(a as b)))",
+            "* exclude(a)",
+        ]
+        for query in valid:
+            for backend in ("cpp-json", "rust-json"):
+                parse_expr(query, backend=backend)

@@ -1574,27 +1574,25 @@ impl<'a> Parser<'a> {
                 Err(_) => self.restore(cp)?,
             }
         }
-        // `ColumnExprAsterisk` (grammar line 289) admits ONLY an
-        // optional trailing EXCLUDE on a bare `*`. `REPLACE` after `*`
-        // is valid only inside the paren-wrapped forms (lines 220-225)
-        // — `(* REPLACE (…))`, `(* EXCLUDE (…) REPLACE (…))`, and the
-        // `COLUMNS(* … REPLACE …)` family. We detect the paren-wrapped
-        // case by looking at what follows the REPLACE-list's closing
-        // `)`: if it's `)` we're inside a wrapping paren (cpp's
-        // ColumnExprColumnsReplace alt); anything else means the bare-
-        // `*` REPLACE attempted at top level, which cpp rejects.
+        // `ColumnExprAsterisk` (grammar line 289) admits ONLY an optional trailing
+        // EXCLUDE on a bare `*`. `REPLACE` after `*` is valid only inside the
+        // paren-wrapped forms — `(* REPLACE (…))`, `(* EXCLUDE (…) REPLACE (…))`
+        // (parse_paren_or_tuple) and `COLUMNS(* … REPLACE …)` (parse_columns_expr),
+        // each of which consumes the `*` itself. So a `* … REPLACE` that reaches here is
+        // a bare top-level attempt (a function argument, a tuple element, …) — which cpp
+        // rejects, since bare `* … REPLACE` is not a columnExpr.
         let cp_before_decorators = self.checkpoint();
         let (exclude, replace) = self.parse_columns_decorators()?;
-        if replace.is_some() && self.peek() != TokenKind::RParen {
+        if replace.is_some() {
             self.restore(cp_before_decorators)?;
             return Err(self.err(
                 "REPLACE after a bare `*` is only valid inside `(* REPLACE …)` / `COLUMNS(* REPLACE …)`",
             ));
         }
-        if exclude.is_none() && replace.is_none() {
+        if exclude.is_none() {
             Ok(emit::field(vec![Value::String("*".into())]))
         } else {
-            Ok(emit::columns_expr(None, None, true, exclude, replace))
+            Ok(emit::columns_expr(None, None, true, exclude, None))
         }
     }
 
@@ -1943,6 +1941,24 @@ impl<'a> Parser<'a> {
         // Empty `()` isn't a valid expression form (lambdas use `() -> ...`).
         if self.peek() == TokenKind::RParen {
             return Err(self.err("empty parentheses are not a valid expression"));
+        }
+        // `(* [EXCLUDE(...)] REPLACE(...))` — ColumnExprColumns[Exclude]Replace. A bare
+        // `* … REPLACE(…)` is a columnExpr only inside this paren form (or
+        // `COLUMNS(* … REPLACE(…))`); the general asterisk path rejects REPLACE everywhere
+        // else (function arg, tuple element, …) as cpp does. Recognise it here, consuming
+        // the wrapping `)`, rather than via a peek-at-`)` heuristic that can't tell this
+        // wrapper paren from a borrowed function-call paren.
+        if self.peek() == TokenKind::Asterisk {
+            let cp = self.checkpoint();
+            self.bump()?;
+            if let Ok((exclude, replace)) = self.parse_columns_decorators() {
+                if replace.is_some() && self.peek() == TokenKind::RParen {
+                    self.bump()?;
+                    let node = emit::columns_expr(None, None, true, exclude, replace);
+                    return Ok(self.wrap_pos_to(node, outer_start, self.last_consumed_end));
+                }
+            }
+            self.restore(cp)?;
         }
         // Three competing grammar arms when the inner is non-empty:
         //   ColumnExprSubquery: LPAREN selectSetStmt RPAREN
