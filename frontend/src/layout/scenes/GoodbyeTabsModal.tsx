@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { IconCopy, IconPinFilled } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { goodbyeTabsModalLogic } from './goodbyeTabsModalLogic'
 
@@ -14,8 +16,8 @@ export function GoodbyeTabsModal(): JSX.Element {
         <LemonModal
             isOpen={isOpen}
             onClose={dismiss}
-            title="Goodbye posthog tabs 🪓"
-            description="They were fun, but they're a big papercut"
+            title="Goodbye tabs 🪓"
+            description="Tabs were a fun experiment, but they are extremely hard to get right."
             width="32rem"
             footer={
                 <LemonButton type="primary" onClick={dismiss} data-attr="goodbye-tabs-dismiss">
@@ -39,12 +41,24 @@ export function GoodbyeTabsModal(): JSX.Element {
                                     key={tab.url}
                                     className="flex items-center gap-2 border border-border rounded px-2 py-1.5 bg-surface-primary"
                                 >
-                                    {tab.pinned && (
-                                        <span className="text-xs uppercase tracking-wide text-tertiary">Pinned</span>
-                                    )}
-                                    <Link to={tab.url} className="truncate" onClick={dismiss}>
+                                    <Link to={tab.url} className="truncate flex-1 min-w-0" onClick={dismiss}>
                                         {tab.title}
                                     </Link>
+                                    {tab.pinned && (
+                                        <span className="flex items-center gap-1 text-xs uppercase tracking-wide text-tertiary shrink-0">
+                                            <IconPinFilled className="text-sm" />
+                                            Pinned
+                                        </span>
+                                    )}
+                                    <LemonButton
+                                        icon={<IconCopy />}
+                                        size="small"
+                                        onClick={() =>
+                                            void copyToClipboard(document.location.origin + tab.url, 'tab link')
+                                        }
+                                        tooltip="Copy link"
+                                        data-attr="goodbye-tabs-copy-link"
+                                    />
                                 </li>
                             ))}
                         </ul>
