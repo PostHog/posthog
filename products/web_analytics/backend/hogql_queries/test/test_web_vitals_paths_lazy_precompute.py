@@ -194,14 +194,20 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert self._job_count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_half_hour_offset_timezone_falls_through(self):
+    def test_half_hour_offset_timezone_matches_raw(self):
+        # Vitals buckets by team-tz day, so half-hour-offset timezones (IST +5:30
+        # here) align cleanly and don't fall through to raw.
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
         self._seed()
+
+        raw = self._paths_with_values(self._run(self._build_query()))
         with self._enable_lazy():
-            response = self._run(self._build_query())
-        assert response.usedLazyPrecompute is not True
-        assert self._job_count() == 0
+            lazy_response = self._run(self._build_query())
+        lazy = self._paths_with_values(lazy_response)
+
+        assert lazy_response.usedLazyPrecompute is True
+        assert raw == lazy, f"lazy/raw mismatch in IST: raw={raw}, lazy={lazy}"
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_query_optin_alone_falls_through_when_org_flag_disabled(self):

@@ -66,8 +66,17 @@ _METRIC_STATE_COLUMN: dict[WebVitalsMetric, str] = {
 
 def can_use_lazy_precompute(runner: "WebVitalsPathBreakdownQueryRunner") -> bool:
     """Return True iff the lazy precompute path is eligible for this web vitals
-    path-breakdown query. Web vitals has no checks beyond the shared gate."""
-    return _can_use_lazy_precompute_shared(runner, log_prefix="web_vitals_paths")
+    path-breakdown query.
+
+    Bucket key is computed in the team's timezone, so half-hour-offset timezones
+    (IST/Newfoundland/Nepal/Iran) are also supported — the integer-timezone gate
+    is opted out.
+    """
+    return _can_use_lazy_precompute_shared(
+        runner,
+        log_prefix="web_vitals_paths",
+        require_integer_timezone=False,
+    )
 
 
 # HogQL template for the precompute INSERT. The lazy_computation framework
@@ -76,14 +85,27 @@ def can_use_lazy_precompute(runner: "WebVitalsPathBreakdownQueryRunner") -> bool
 # `web_vitals_paths_preaggregated`. The framework automatically prepends
 # `team_id`, `job_id` and appends `expires_at` to the SELECT.
 #
+# Bucketing strategy: per-(team-tz-day, path), not per-hour. The path-breakdown
+# tile only consumes day-aligned date ranges from the dashboard filter, so a
+# daily bucket is sufficient and ~24× smaller than hourly. The bucket key is
+# `toStartOfDay(timestamp, team_tz)` — start of the team-local day, with the
+# underlying Unix timestamp being the UTC instant of that local midnight. This
+# aligns cleanly for every timezone (including half-hour offsets like IST),
+# which is why this runner opts out of the shared `is_integer_timezone` gate.
+#
+# Note that a UTC daily INSERT job typically writes into TWO team-tz day
+# buckets — events in the first hours of UTC day N belong to team-tz day N-1
+# for non-UTC teams. Reads merge both rows via the ReplacingMergeTree key
+# `(team_id, job_id, time_window_start, path)`.
+#
 # The raw vitals query has no session join, so no session-boundary pad on the
-# event scan is needed — each event lands in the hourly bucket of its own
-# `timestamp`. One state column per metric: ARRAY JOIN would fan one event into
-# four rows but the new analyzer rejects bare `events.properties` references
-# inside the ARRAY JOIN source array, so we collapse per-event into per-row.
+# event scan is needed — each event maps to one (team-tz day, path) bucket.
+# One state column per metric: ARRAY JOIN would fan one event into four rows
+# but the new analyzer rejects bare `events.properties` references inside the
+# ARRAY JOIN source array, so we collapse per-event into per-row.
 INSERT_QUERY_TEMPLATE = """
 SELECT
-    toStartOfHour(event_timestamp) AS time_window_start,
+    toStartOfDay(event_timestamp, {team_tz}) AS time_window_start,
     path AS path,
     quantilesStateIf(0.75, 0.90, 0.99)(assumeNotNull(inp_value), isNotNull(inp_value)) AS inp_quantiles_state,
     quantilesStateIf(0.75, 0.90, 0.99)(assumeNotNull(lcp_value), isNotNull(lcp_value)) AS lcp_quantiles_state,
@@ -129,6 +151,9 @@ def ensure_web_vitals_paths_precomputed(
         "breakdown_by": _breakdown_expr(runner),
         "user_filter": user_filter_expr(runner),
         "test_account_filter": test_account_filter_expr(runner),
+        # Team timezone goes into the cache key — a team that changes its
+        # timezone naturally invalidates existing jobs.
+        "team_tz": ast.Constant(value=runner.team.timezone),
     }
 
     return ensure_precomputed(
