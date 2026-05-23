@@ -41550,6 +41550,21 @@ export namespace Schemas {
     topic?: string;
     };
 
+    export type VisionObservationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Session recording id to return observations for.
+     */
+    session_id: string;
+    };
+
     export type VisionScannersListParams = {
     /**
      * Filter to scanners that emit Signals.
@@ -41664,21 +41679,6 @@ export namespace Schemas {
       OnDemand: 'on_demand',
       Schedule: 'schedule',
     } as const;
-
-    export type VisionObservationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Session recording id to return observations for.
-     */
-    session_id: string;
-    };
 
     export type WarehouseSavedQueryDraftsListParams = {
     /**
