@@ -7,9 +7,22 @@ import { renderHogChart } from './render'
 const THEME: ChartTheme = { colors: ['#000'], backgroundColor: '#ffffff', tooltipBackground: '#abcdef' }
 
 const TOOLTIP_CTX: TooltipContext = {
+    dataIndex: 0,
     label: 'Mon',
     seriesData: [{ series: { key: 'a', label: 'A', data: [1] }, color: '#f00', value: 1 }],
-    hoverIndex: 0,
+    position: { x: 0, y: 0 },
+    hoverPosition: null,
+    canvasBounds: {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        toJSON: () => ({}),
+    } as DOMRect,
     isPinned: false,
 }
 
