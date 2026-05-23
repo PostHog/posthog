@@ -15032,7 +15032,7 @@ export namespace Schemas {
     }
 
     /**
-     * Body of POST /vision/lenses/estimate/ — a proposed, unsaved scanner config.
+     * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
       /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings. */
