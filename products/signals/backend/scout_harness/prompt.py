@@ -159,7 +159,7 @@ That returns a deterministic snapshot of this team — products in use, connecte
 integrations, warehouse sources, signal source configs (split enabled/disabled),
 and counts of existing inbox reports. One call gives you the orientation that
 would otherwise take 4-5 discovery calls. Treat it as ground truth: it's
-computed from authoritative tables, distinct from the agent-inferred memories
-in `signals-scout-scratchpad-list`.
+computed from authoritative tables, distinct from the scout-inferred notes
+in `signals-scout-scratchpad-search`.
 
 {tail}"""
