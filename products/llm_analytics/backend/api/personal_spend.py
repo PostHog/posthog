@@ -34,6 +34,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
@@ -286,10 +287,11 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
 
 
 def _email_filter(email: str) -> ast.Expr:
-    # `person.properties.email` resolves via distinct_id → pdi → person, so it catches every
-    # event the user identified with (including historical distinct_ids merged into the same
-    # person). This is the same shape the LLM Analytics "Users" tab uses against the `events`
-    # table — see `products/llm_analytics/frontend/tabs/llmAnalyticsUsersLogic.ts`.
+    # With person-on-events, the event row carries `person_id` directly; HogQL then joins to
+    # `person` to read `properties.email`. The join is bounded to one person per event (not a
+    # full pdi walk), and on the main cluster the printer transparently uses the materialized
+    # `pmat_email` column when registered. Same shape the LLM Analytics "Users" tab uses
+    # against `events` -- see `products/llm_analytics/frontend/tabs/llmAnalyticsUsersLogic.ts`.
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["person", "properties", "email"]),
@@ -580,13 +582,18 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     callers cannot pivot to other users' data. Authorization model is "any
     authenticated PostHog user may read their own spend" via `user:read` (the
     same scope that covers `/api/users/@me/`). Queries the shared `events`
-    table directly — same pattern as the LLM Analytics "Users" tab and every
-    other person-property filter on AI events. The HogQL printer transparently
-    uses the materialized `pmat_email` column on the main cluster's `person`
-    table when it's registered, so there's no perf penalty vs the ai_events
-    satellite path; the WHERE clause hits the events table's sort key
-    (`team_id`, `event`, `timestamp`) before the person join fires. The
-    endpoint is also cached for 5 minutes per user. Optionally filter tool /
+    table directly -- same pattern as the LLM Analytics "Users" tab and every
+    other person-property filter on AI events. We don't route through
+    `execute_with_ai_events_fallback` because the satellite `ai_events`
+    cluster's Distributed `person` shim doesn't declare materialized columns
+    like `pmat_email`, and the helper's fallback only catches empty results,
+    not the unresolved-identifier exception that would fire there. The
+    `events`-table WHERE clauses lead with the sort-key columns (`team_id`,
+    `event`, `timestamp`) so the scan narrows before the person join fires,
+    and the HogQL printer uses `pmat_email` on the main cluster's `person`
+    when registered -- so this path should be comparable to what the
+    satellite would have served. The endpoint is cached for 5 minutes per
+    user (see `CACHE_TIMEOUT_SECONDS`). Optionally filter tool /
     model / trace breakdowns to a single
     `ai_product` via the `product` query param; `by_product` always returns
     the full cross-product breakdown. The endpoint is only registered on US
@@ -665,22 +672,26 @@ class PersonalSpendViewSet(viewsets.ViewSet):
             logger.exception("personal_spend.team_missing", team_id=team_id)
             raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
 
-        summary = _fetch_summary(team, email, from_dt, to_dt, product)
-        by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
-        scoped = summary["scoped_cost_usd"] or 0.0
-        # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
-        # contribute to every tool. `share_of_scoped` is independent per row, so agents can
-        # present headline percentages directly without reconciling sums.
-        for row in by_tool["items"]:
-            row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
+        # Tag the underlying ClickHouse reads with the LLM_ANALYTICS product so they show up
+        # in the existing per-product Prometheus + cost-attribution dashboards alongside the
+        # rest of AI observability traffic. Wraps every call into `_fetch_*` -> HogQL.
+        with tags_context(product=Product.LLM_ANALYTICS):
+            summary = _fetch_summary(team, email, from_dt, to_dt, product)
+            by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
+            scoped = summary["scoped_cost_usd"] or 0.0
+            # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
+            # contribute to every tool. `share_of_scoped` is independent per row, so agents can
+            # present headline percentages directly without reconciling sums.
+            for row in by_tool["items"]:
+                row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
 
-        payload = {
-            "summary": summary,
-            "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
-            "by_tool": by_tool,
-            "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
-            "top_traces": _fetch_top_traces(team, email, from_dt, to_dt, product, limit),
-        }
+            payload = {
+                "summary": summary,
+                "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
+                "by_tool": by_tool,
+                "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
+                "top_traces": _fetch_top_traces(team, email, from_dt, to_dt, product, limit),
+            }
 
         response_data = PersonalSpendAnalysisResponseSerializer(payload).data
         cache.set(cache_key, response_data, timeout=CACHE_TIMEOUT_SECONDS)
