@@ -149,10 +149,73 @@ Roughly:
 
 Roadmap order in `~/notes/work/posthog/web-analytics/investigations/2026-05-19-lazy-computation-candidates.md`: `web_overview_query` (shipped, this doc), `stats_table_main_query` (next), `stats_table_path_bounce_query` (after that), then `web_goals_query` deferred for custom-goal-definition complexity.
 
+## Lazy computation for the web vitals path-breakdown tile
+
+`WebVitalsPathBreakdownQueryRunner._calculate` follows the same gate-then-fallthrough shape as web overview:
+
+1. **Lazy precompute** (`can_use_lazy_precompute` + `execute_lazy_precomputed_read`) — short-circuits when eligible and returns immediately.
+2. **Raw events scan** — the original `quantile(p)(toFloat(properties.$web_vitals_*_value))` per path.
+
+### Schema
+
+`web_vitals_paths_preaggregated` (sharded by `sipHash64(job_id)`, partitioned by `toYYYYMMDD(expires_at)`, `ReplicatedReplacingMergeTree` with `computed_at` as the version column). One row per `(team, job, hour, path)`, four state columns — one per Web Vitals metric:
+
+- `inp_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64)`
+- `lcp_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64)`
+- `cls_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64)`
+- `fcp_quantiles_state AggregateFunction(quantiles(0.75, 0.90, 0.99), Float64)`
+
+Each state holds one reservoir covering all three percentiles. Reads pick the queried percentile via `arrayElement(quantilesMergeIf(0.75, 0.90, 0.99)(state, range_filter), pct_index)`. Same reservoir algorithm as the raw `quantile(p)` — exact when unsaturated, within sampling noise once it is.
+
+Four columns vs. a metric discriminator: ARRAY JOIN would fan one event into four rows, but the new ClickHouse analyzer rejects bare `events.properties` references inside the ARRAY JOIN source array (the source array is resolved before the FROM alias scope). Four columns let the INSERT stay a single `FROM events GROUP BY (hour, path)`, no fan-out, and each metric tab reads exactly one column.
+
+### Bucketing and timezones
+
+Same UTC-hourly bucketing as web overview / web stats. Same `is_integer_timezone` gate for sub-hour timezones. No session join in the raw query, so no `SESSION_FORWARD_PAD_MINUTES` — each event lands in `toStartOfHour(timestamp)` directly.
+
+### Read
+
+Mirrors the raw query's outer shape:
+
+```sql
+SELECT multiIf(value <= good, 'good', value <= needs_improvements, 'needs_improvements', 'poor') AS band, path, value
+FROM (
+    SELECT path,
+           arrayElement(quantilesMergeIf(0.75, 0.90, 0.99)(<metric>_quantiles_state, time_filter), pct_index) AS value
+    FROM posthog.web_vitals_paths_preaggregated
+    WHERE team_id = ? AND job_id IN (...)
+    GROUP BY path HAVING value >= 0
+)
+ORDER BY value ASC, path ASC
+LIMIT 20 BY band
+```
+
+The runner re-partitions the resulting `(band, path, value)` tuples into the `good` / `needs_improvements` / `poor` arrays the response expects.
+
+### Eligibility gate
+
+`can_use_lazy_precompute` in `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` delegates entirely to the shared gate — no vitals-specific extras. The shared gate rejects: org feature flag off, per-query opt-in not set, half-hour-offset timezone, conversion goal, sampling enabled, `sessionsV2JoinMode=uuid`, more than one property filter, anything other than a `$host` exact-equals filter, missing date range, and date range over 90 days.
+
+### Observability
+
+- **Read query**: tagged `query_type="web_vitals_paths_lazy_query"`.
+- **INSERT query**: tagged `query_type="web_vitals_paths_lazy_insert"`.
+- **Failures**: `web_vitals_paths_lazy_precompute_failed_total{error_type}` Prometheus counter.
+- **Cache warmer**: `web_vitals_paths_lazy_query` is in the warmer DAG allowlist in `products/web_analytics/dags/cache_warming.py`.
+
+### Known limitations
+
+1. **`WebVitalsQuery` (line-chart tile) is not covered.** That query wraps a `TrendsQuery` and dispatches through `TrendsQueryRunner`; lazy precompute for it would need a different shape and is deferred.
+2. **Adding a metric** (e.g. TTFB) is a schema change — add the column to `web_vitals_paths_preaggregated`, the HogQL table registration, the INSERT template, and the `_METRIC_STATE_COLUMN` map.
+3. **Bands are computed in ClickHouse from the runtime thresholds**, not stored — so a threshold change is free on the read side.
+
 ## Related code
 
 - `posthog/hogql_queries/web_analytics/web_overview.py` — runner
 - `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py` — lazy path implementation
 - `posthog/hogql_queries/web_analytics/web_overview_pre_aggregated.py` — v2 path
 - `posthog/clickhouse/preaggregation/web_overview_preaggregated_sql.py` — schema
+- `products/web_analytics/backend/hogql_queries/web_vitals_path_breakdown.py` — vitals runner
+- `products/web_analytics/backend/hogql_queries/web_vitals_paths_lazy_precompute.py` — vitals lazy path
+- `posthog/clickhouse/preaggregation/web_vitals_paths_preaggregated_sql.py` — vitals schema
 - `products/analytics_platform/backend/lazy_computation/` — framework + CONSISTENCY.md + README

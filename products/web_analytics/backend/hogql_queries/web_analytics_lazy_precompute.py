@@ -15,7 +15,13 @@ from typing import Optional, Protocol, Union
 import structlog
 import posthoganalytics
 
-from posthog.schema import EventPropertyFilter, PropertyOperator, WebOverviewQuery, WebStatsTableQuery
+from posthog.schema import (
+    EventPropertyFilter,
+    PropertyOperator,
+    WebOverviewQuery,
+    WebStatsTableQuery,
+    WebVitalsPathBreakdownQuery,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
@@ -65,13 +71,14 @@ SESSION_FORWARD_PAD_MINUTES = 24 * 60
 class LazyPrecomputeRunner(Protocol):
     """Structural type for the attributes the shared helpers read off a runner.
 
-    Both `WebOverviewQueryRunner` and `WebStatsTableQueryRunner` satisfy this.
+    `WebOverviewQueryRunner`, `WebStatsTableQueryRunner` and
+    `WebVitalsPathBreakdownQueryRunner` all satisfy this.
     """
 
     team: Team
 
     @property
-    def query(self) -> Union[WebOverviewQuery, WebStatsTableQuery]: ...
+    def query(self) -> Union[WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBreakdownQuery]: ...
 
     @property
     def query_date_range(self) -> object: ...

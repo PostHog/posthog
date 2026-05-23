@@ -12845,6 +12845,7 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class CalendarHeatmapResponse(BaseModel):
@@ -13433,6 +13434,7 @@ class Response8(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class Response9(BaseModel):
@@ -16324,6 +16326,7 @@ class QueryResponseAlternative27(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class QueryResponseAlternative28(BaseModel):
@@ -16859,6 +16862,7 @@ class QueryResponseAlternative47(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class QueryResponseAlternative48(BaseModel):
@@ -18900,6 +18904,7 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    usedLazyPrecompute: bool | None = None
 
 
 class WebVitalsQueryResponse(BaseModel):
@@ -20514,6 +20519,14 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     tags: QueryLogTags | None = None
     thresholds: list[float] = Field(..., max_length=2, min_length=2)
     useSessionsTable: bool | None = None
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            "Opt this specific query into the web vitals path breakdown precompute"
+            " path. Requires the `web-analytics-precompute-toggle` PostHog feature flag"
+            " to be on for the team's organization for the gate to pass. *"
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

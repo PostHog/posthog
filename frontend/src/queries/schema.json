@@ -10183,6 +10183,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
                 }
             },
             "required": [
@@ -12112,6 +12115,9 @@
                                         "$ref": "#/definitions/QueryTiming"
                                     },
                                     "type": "array"
+                                },
+                                "usedLazyPrecompute": {
+                                    "type": "boolean"
                                 }
                             },
                             "required": ["results"],
@@ -29421,6 +29427,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -30461,6 +30470,9 @@
                                 "$ref": "#/definitions/QueryTiming"
                             },
                             "type": "array"
+                        },
+                        "usedLazyPrecompute": {
+                            "type": "boolean"
                         }
                     },
                     "required": ["results"],
@@ -40893,6 +40905,10 @@
                     "deprecated": "ignored, always treated as enabled *",
                     "type": "boolean"
                 },
+                "useWebAnalyticsPrecompute": {
+                    "description": "Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. *",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -40938,6 +40954,9 @@
                         "$ref": "#/definitions/QueryTiming"
                     },
                     "type": "array"
+                },
+                "usedLazyPrecompute": {
+                    "type": "boolean"
                 }
             },
             "required": ["results"],
