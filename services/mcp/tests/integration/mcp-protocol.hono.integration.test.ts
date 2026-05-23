@@ -4,6 +4,7 @@ import { startHonoHarness } from './harness/hono'
 import { loadIntegrationEnv, type IntegrationEnv, type IntegrationHarness } from './harness/types'
 import {
     defineAuthTests,
+    defineCatalogFilterTests,
     defineHttpRouteTests,
     defineJsonRpcEdgeCaseTests,
     defineMcpProtocolTests,
@@ -34,6 +35,7 @@ import {
 //   - `defineSessionLifecycleTests`   — initialize negotiation + repeated init
 //   - `defineResourceCatalogTests`    — both UI and context-mill resources present and readable
 //   - `defineToolBehaviorTests`       — real PostHog tool calls and multi-step interactions
+//   - `defineCatalogFilterTests`      — ?features= and ?tools= query-param filtering
 
 let env: IntegrationEnv
 let harness: IntegrationHarness
@@ -68,3 +70,4 @@ defineJsonRpcEdgeCaseTests('Hono (real stack)', harnessFor)
 defineSessionLifecycleTests('Hono (real stack)', harnessFor)
 defineResourceCatalogTests('Hono (real stack)', harnessFor)
 defineToolBehaviorTests('Hono (real stack)', harnessFor)
+defineCatalogFilterTests('Hono (real stack)', harnessFor)

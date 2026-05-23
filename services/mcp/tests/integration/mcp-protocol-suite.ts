@@ -1057,6 +1057,213 @@ export function defineToolBehaviorTests(
             const meta = (result as { _meta?: { ui?: { resourceUri?: string } } })._meta
             expect(meta?.ui?.resourceUri).toBeTruthy()
         })
+
+        // switch-organization is symmetric with switch-project — same cache-
+        // write pattern, same expected flow. Worth its own test because the
+        // two go through different code paths (different cache keys, different
+        // upstream endpoints) and could regress independently.
+        it('switch-organization succeeds for the configured org id', async ({ skip }) => {
+            if (!harness.orgId) {
+                skip('Set TEST_ORG_ID to run the switch-organization behavior test.')
+                return
+            }
+            const result = await client.callTool({
+                name: 'switch-organization',
+                arguments: { orgId: harness.orgId },
+            })
+            expect(result.isError).toBeFalsy()
+            const text = decodeText(result.content)
+            expect(text.toLowerCase()).toContain('switched')
+            expect(text).toContain(harness.orgId)
+        })
+
+        it('organization-get reflects a fresh switch-organization', async ({ skip }) => {
+            if (!harness.orgId) {
+                skip('Set TEST_ORG_ID to run the org-context multi-step test.')
+                return
+            }
+            const switchResult = await client.callTool({
+                name: 'switch-organization',
+                arguments: { orgId: harness.orgId },
+            })
+            expect(switchResult.isError).toBeFalsy()
+            const orgResult = await client.callTool({ name: 'organization-get', arguments: {} })
+            expect(orgResult.isError).toBeFalsy()
+            expect(decodeText(orgResult.content)).toContain(harness.orgId)
+        })
+
+        // ?projectId=N in the URL pins the active project for the whole
+        // session — agents pass this to avoid needing a switch-project
+        // tool call first. The state resolver writes it to the cache on
+        // every request, so a project-scoped tool should resolve it
+        // without an explicit switch.
+        it('reads the active project pinned via ?projectId= URL param', async ({ skip }) => {
+            if (!harness.projectId) {
+                skip('Set TEST_PROJECT_ID to run the pinned-project URL-param test.')
+                return
+            }
+            // Open a fresh client targeted at `/mcp?projectId=<id>` so the
+            // pin is set before the first tool call.
+            const url = new URL('/mcp', harness.baseUrl)
+            url.searchParams.set('projectId', String(harness.projectId))
+            const transport = new StreamableHTTPClientTransport(url, {
+                fetch: harness.fetch,
+                requestInit: { headers: { Authorization: `Bearer ${harness.token}` } },
+            })
+            const pinnedClient = new Client(
+                { name: 'pinned-project-test', version: '0.0.0' },
+                { capabilities: {} }
+            )
+            try {
+                await pinnedClient.connect(transport as ConnectableTransport)
+                const result = await pinnedClient.callTool({ name: 'feature-flag-get-all', arguments: {} })
+                if (result.isError) {
+                    throw new Error(
+                        `feature-flag-get-all errored with pinned projectId: ${decodeText(result.content)}`
+                    )
+                }
+            } finally {
+                await safeClose(pinnedClient)
+            }
+        })
+
+        // execute-sql is the heaviest upstream call surface in the MCP server:
+        // it crosses the API client, the PostHog `/api/environments/<id>/mcp_tools/execute_sql/`
+        // endpoint, and ClickHouse via HogQL. If this works end-to-end, the
+        // whole query path is wired up.
+        //
+        // `SELECT 1 AS one` doesn't depend on any ingested data, so it works
+        // against a freshly-booted local stack with no seed data.
+        it('execute-sql runs a trivial HogQL query against the upstream', async ({ skip }) => {
+            if (!harness.projectId) {
+                skip('Set TEST_PROJECT_ID to run the execute-sql roundtrip test.')
+                return
+            }
+            await client.callTool({
+                name: 'switch-project',
+                arguments: { projectId: Number(harness.projectId) },
+            })
+            const result = await client.callTool({
+                name: 'execute-sql',
+                arguments: { query: 'SELECT 1 AS one' },
+            })
+            if (result.isError) {
+                throw new Error(`execute-sql errored: ${decodeText(result.content)}`)
+            }
+            // The exact serialization is at the upstream's discretion (CSV,
+            // markdown, etc.) so we don't pin to a specific format. We just
+            // check the query output landed in the response body.
+            const text = decodeText(result.content)
+            expect(text.length).toBeGreaterThan(0)
+        })
+    })
+}
+
+// Catalog filtering by query-param. The MCP server reads `?features=` and
+// `?tools=` from the URL to let agents pin themselves to a narrower set of
+// capabilities — this is how the OpenAI marketplace, Cursor, and Claude
+// Desktop pre-select a vertical (analytics, flags, etc.) rather than serving
+// the whole 392-tool catalog.
+//
+// A regression that dropped the filter would silently inflate every
+// agent's available toolset, which is hard to spot without an integration
+// test. We use a single `?features=flags` request and assert that the
+// returned `tools/list` is (a) non-empty, and (b) a strict subset of the
+// unfiltered list.
+export function defineCatalogFilterTests(
+    label: string,
+    getHarness: () => Promise<ProtocolTestHarness> | ProtocolTestHarness
+): void {
+    describe(`MCP catalog filtering (${label})`, () => {
+        async function listToolsWithQuery(
+            harness: ProtocolTestHarness,
+            search: string
+        ): Promise<{ tools: Array<{ name: string }> }> {
+            const url = new URL('/mcp', harness.baseUrl)
+            url.search = search
+            const transport = new StreamableHTTPClientTransport(url, {
+                fetch: harness.fetch,
+                requestInit: { headers: { Authorization: `Bearer ${harness.token}` } },
+            })
+            const client = new Client({ name: 'filter-test', version: '0.0.0' }, { capabilities: {} })
+            try {
+                await client.connect(transport as ConnectableTransport)
+                const result = await client.listTools()
+                return result
+            } finally {
+                await safeClose(client)
+            }
+        }
+
+        it('returns the full catalog when no filter is set', async () => {
+            const harness = await getHarness()
+            const { tools } = await listToolsWithQuery(harness, '')
+            expect(tools.length).toBeGreaterThan(10)
+            // organization-get is part of the platform-features catalog and
+            // doesn't get filtered out by any feature flag — it's a stable
+            // anchor for "this is the full set".
+            expect(tools.map((t) => t.name)).toContain('organization-get')
+        })
+
+        it('narrows the catalog when ?features= is set', async () => {
+            const harness = await getHarness()
+            const { tools: full } = await listToolsWithQuery(harness, '')
+            const { tools: filtered } = await listToolsWithQuery(harness, '?features=flags')
+            expect(filtered.length).toBeGreaterThan(0)
+            expect(filtered.length).toBeLessThan(full.length)
+            // Every filtered tool must also appear in the full list — the
+            // filter is a subset operation, never a superset / replacement.
+            const fullNames = new Set(full.map((t) => t.name))
+            for (const t of filtered) {
+                expect(fullNames.has(t.name)).toBe(true)
+            }
+            // The `flags` feature group must include the flag tools by name.
+            expect(filtered.map((t) => t.name)).toContain('feature-flag-get-all')
+        })
+
+        it('pins the catalog to specific tools when ?tools= is set', async () => {
+            const harness = await getHarness()
+            const { tools } = await listToolsWithQuery(
+                harness,
+                '?tools=organization-get,projects-get'
+            )
+            expect(tools.length).toBeGreaterThan(0)
+            const names = tools.map((t) => t.name)
+            // Pinned tools must appear; non-pinned ones must not.
+            expect(names).toContain('organization-get')
+            expect(names).toContain('projects-get')
+            expect(names).not.toContain('feature-flag-get-all')
+        })
+
+        it('returns an empty (but well-formed) list for an unknown feature', async () => {
+            const harness = await getHarness()
+            const { tools } = await listToolsWithQuery(harness, '?features=this-feature-does-not-exist')
+            // The filter is "intersect with the known features"; an unknown
+            // feature yields no tools. The result must still be a valid
+            // tools/list response.
+            expect(Array.isArray(tools)).toBe(true)
+            expect(tools.length).toBe(0)
+        })
+
+        // Read-only mode is the safety toggle agents flip when they want
+        // to expose the catalog to a read-only chat persona. The filter
+        // is at the tool-definition level (`annotations.readOnlyHint`)
+        // and any tool without that hint must be dropped. Without this
+        // test, a write tool that loses its annotation would still ship
+        // to read-only consumers.
+        it('drops write tools when ?readonly=true is set', async () => {
+            const harness = await getHarness()
+            const { tools: full } = await listToolsWithQuery(harness, '')
+            const { tools: readonly } = await listToolsWithQuery(harness, '?readonly=true')
+            expect(readonly.length).toBeGreaterThan(0)
+            expect(readonly.length).toBeLessThan(full.length)
+            const readonlyNames = new Set(readonly.map((t) => t.name))
+            // The CRUD-y get variants stay; the create / delete / update
+            // variants must be gone.
+            expect(readonlyNames.has('feature-flag-get-all')).toBe(true)
+            expect(readonlyNames.has('create-feature-flag')).toBe(false)
+            expect(readonlyNames.has('dashboard-create')).toBe(false)
+        })
     })
 }
 
