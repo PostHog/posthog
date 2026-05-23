@@ -1588,11 +1588,11 @@ class TestGitHubTeamIntegrationComplete:
             refresh_token_expires_in=None,
         )
 
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "query,must_not_contain",
         [
-            ("team_install", {"installation_id": "12345", "code": "abc", "setup_action": "install"}, []),
+            ({"installation_id": "12345", "code": "abc", "setup_action": "install"}, []),
             (
-                "personal_install_with_state",
                 {
                     "installation_id": "12345",
                     "code": "abc",
@@ -1600,9 +1600,9 @@ class TestGitHubTeamIntegrationComplete:
                 },
                 ["/complete/github-link"],
             ),
-        ]
+        ],
     )
-    def test_unauthenticated_redirects_to_login(self, _name, query, must_not_contain, client: HttpClient):
+    def test_unauthenticated_redirects_to_login(self, query, must_not_contain, client: HttpClient):
         response = client.get("/integrations/github/callback/", query)
         assert response.status_code == status.HTTP_302_FOUND
         location = response["Location"]
@@ -1907,6 +1907,58 @@ class TestGitHubTeamIntegrationComplete:
 
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_setup_error=invalid_team" in response["Location"]
+
+    def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
+        # State tokens are bound to a user via the pending-pointer cache key.
+        # Another admin in the same team must not be able to finish a callback
+        # by submitting the victim's state token.
+        attacker = User.objects.create_and_join(
+            self.organization, "attacker@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        next_path = f"/project/{self.team.pk}/settings/project-integrations"
+        state_token = "victim-token"
+        store_github_authorize_state(self.user.id, state_token, next_path, self.team.pk)
+
+        client.force_login(attacker)
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "code": "oauth-code-abc",
+                "setup_action": "install",
+                "state": urlencode({"next": next_path, "token": state_token}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error=invalid_state" in response["Location"]
+
+    @pytest.mark.parametrize("stored_installation_id", [12345, "12345"])
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_team_update_heuristic_finds_existing_integration_regardless_of_jsonb_id_type(
+        self, mock_refresh, stored_installation_id, client: HttpClient
+    ):
+        # ``config.installation_id`` has historically been written as either a
+        # JSONB number or string; the update-without-state heuristic must match
+        # either (it previously raised ``MultipleObjectsReturned`` when mixed).
+        client.force_login(self.user)
+        existing = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": stored_installation_id},
+            sensitive_config={"access_token": "ghs_test"},
+        )
+        mock_refresh.return_value = existing
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"installation_id": "12345", "setup_action": "update"},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error" not in response["Location"]
+        assert f"integration_id={existing.id}" in response["Location"]
 
 
 class TestStripeIntegration:

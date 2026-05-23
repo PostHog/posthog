@@ -1,4 +1,5 @@
 import time
+from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -311,7 +312,6 @@ class TestUserIntegrationEndpoints(APIBaseTest):
                 installation_id="12345",
             ),
         )
-        from urllib.parse import urlencode
 
         state_q = urlencode({"token": state, "source": "user_integration"})
 
@@ -328,6 +328,65 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
         integration = UserIntegration.objects.get(user=self.user, kind="github")
         self.assertEqual(integration.integration_id, "12345")
+
+    @override_settings(
+        GITHUB_APP_CLIENT_ID="client_id",
+        GITHUB_APP_CLIENT_SECRET="client_secret",
+        SITE_URL="https://us.posthog.com",
+    )
+    @patch("posthog.api.user_integration.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
+    def test_github_link_oauth_callback_ignores_query_installation_id_when_state_binds_one(
+        self, mock_user_from_code, mock_client_request, mock_verify_get
+    ):
+        # PERSONAL_OAUTH binds ``installation_id`` in the authorize cache. A
+        # tampered ``installation_id`` query param must not steer the resulting
+        # UserIntegration to a different installation.
+        mock_verify_get.return_value = MagicMock(status_code=200)
+        mock_user_from_code.return_value = _authorization()
+        mock_install_info = MagicMock()
+        mock_install_info.json.return_value = {"account": {"type": "User", "login": "octocat"}}
+        mock_access_token = MagicMock()
+        mock_access_token.json.return_value = {
+            "token": "ghs_install_token",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "repository_selection": "selected",
+        }
+        mock_client_request.side_effect = [mock_install_info, mock_access_token]
+
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={},
+            sensitive_config={},
+            created_by=self.user,
+        )
+        state = "tok_oauth_mismatch"
+        store_personal_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.PERSONAL_OAUTH,
+                user_id=self.user.id,
+                installation_id="12345",
+            ),
+        )
+        state_q = urlencode({"token": state, "source": "user_integration"})
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"code": "test_code", "state": state_q, "installation_id": "999"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("github_link_success=1", response["Location"])
+        self.assertTrue(UserIntegration.objects.filter(user=self.user, integration_id="12345").exists())
+        self.assertFalse(UserIntegration.objects.filter(integration_id="999").exists())
+        # The installation-access check went against the cached id, not the query one.
+        verify_url = mock_verify_get.call_args[0][0]
+        self.assertIn("/installations/12345/repositories", verify_url)
+        self.assertNotIn("/installations/999/repositories", verify_url)
 
     @override_settings(
         GITHUB_APP_CLIENT_ID="client_id",
