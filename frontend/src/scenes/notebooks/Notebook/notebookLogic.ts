@@ -25,6 +25,7 @@ import api from 'lib/api'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ReadOnlyModeError, isReadOnly } from 'lib/readOnlyGuard'
 import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
@@ -488,6 +489,9 @@ export const notebookLogic = kea<notebookLogicType>([
                                 })
                                 return values.notebook
                             }
+                            if (error instanceof ReadOnlyModeError || error?.cause instanceof ReadOnlyModeError) {
+                                return values.notebook
+                            }
                             throw error
                         }
                     }
@@ -526,6 +530,9 @@ export const notebookLogic = kea<notebookLogicType>([
                             actions.clearLocalContent()
                             actions.showConflictWarning()
                             return null
+                        }
+                        if (error instanceof ReadOnlyModeError || error?.cause instanceof ReadOnlyModeError) {
+                            return values.notebook
                         }
                         throw error
                     }
@@ -1017,7 +1024,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 })
             }
 
-            if (!values.isLocalOnly && values.content && !values.notebookLoading) {
+            if (!values.isLocalOnly && values.content && !values.notebookLoading && !isReadOnly()) {
                 actions.saveNotebook({
                     content: values.content,
                     title: values.title,
