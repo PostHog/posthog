@@ -12,6 +12,8 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     PropertyOperator,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
     WebAnalyticsSampling,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -483,3 +485,110 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert len(raw_fill) == len(lazy_fill) and len(raw_fill) > 0
         for raw_value, lazy_value in zip(raw_fill, lazy_fill):
             assert abs(raw_value - lazy_value) < 1e-9, f"ui_fill_fraction mismatch: raw={raw_fill}, lazy={lazy_fill}"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_views_desc_orderby_lazy_matches_raw(self):
+        # Forwarding the user's orderBy through to ClickHouse: sorting by views
+        # must beat the silent visitors fallback the original PR relied on.
+        self._seed()
+        query = self._build_query(breakdown_by=WebStatsBreakdown.BROWSER)
+        query.orderBy = [WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.DESC]
+
+        raw = self._metrics(self._run(query))
+        with self._enable_lazy():
+            lazy = self._metrics(self._run(query))
+
+        assert lazy == raw, f"views-desc parity broken: raw={raw}, lazy={lazy}"
+        views = [row[2][0] for row in lazy]
+        assert views == sorted(views, reverse=True), f"lazy not actually sorted by views desc: {views}"
+
+    @parameterized.expand(
+        [
+            ("bounce_rate", WebAnalyticsOrderByFields.BOUNCE_RATE),
+            ("conversion_rate", WebAnalyticsOrderByFields.CONVERSION_RATE),
+            ("average_scroll", WebAnalyticsOrderByFields.AVERAGE_SCROLL_PERCENTAGE),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_unsupported_orderby_falls_through(self, _name: str, field: WebAnalyticsOrderByFields):
+        # Fields the precompute schema can't serve must skip lazy entirely, not
+        # silently rewrite the sort to visitors.
+        self._seed()
+        query = self._build_query(breakdown_by=WebStatsBreakdown.BROWSER)
+        query.orderBy = [field, WebAnalyticsOrderByDirection.DESC]
+        with self._enable_lazy():
+            response = self._run(query)
+
+        assert self._job_count() == 0
+        # Raw path leaves `usedLazyPrecompute` unset; the failure mode we're
+        # guarding against is the lazy path silently serving with a rewritten sort.
+        assert response.usedLazyPrecompute is not True
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_pagination_page_two_lazy_matches_raw(self):
+        # The PR's original code sorted + sliced in Python from an arbitrary
+        # `LIMIT 100` cut. With SQL pagination, page 2 must be a contiguous
+        # extension of page 1 — assert by comparing limit=1/offset=N pages.
+        self._seed()
+        base = self._build_query(breakdown_by=WebStatsBreakdown.BROWSER)
+
+        responses_raw, responses_lazy = [], []
+        for offset in range(3):
+            query = self._build_query(breakdown_by=WebStatsBreakdown.BROWSER)
+            query.limit = 1
+            query.offset = offset
+            responses_raw.append(self._run(query))
+            with self._enable_lazy():
+                responses_lazy.append(self._run(query))
+
+        raw_full = self._metrics(self._run(base))
+        for offset, (raw_resp, lazy_resp) in enumerate(zip(responses_raw, responses_lazy)):
+            assert self._metrics(lazy_resp) == self._metrics(raw_resp), (
+                f"offset={offset}: lazy/raw mismatch raw={self._metrics(raw_resp)} lazy={self._metrics(lazy_resp)}"
+            )
+            assert lazy_resp.hasMore == raw_resp.hasMore
+            if offset < len(raw_full):
+                assert self._metrics(lazy_resp)[0] == raw_full[offset], "lazy page row must match unpaginated position"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_high_cardinality_utm_source_orders_in_sql(self):
+        # Veria's concern: with N>>page_size distinct UTM values, the read used
+        # to materialize all rows + paginate in Python. With SQL pagination the
+        # first page must come back ordered by the requested metric and the
+        # `hasMore` flag must accurately reflect the long tail.
+        _create_person(team_id=self.team.pk, distinct_ids=["bot"], properties={"name": "bot"})
+        for i in range(40):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="bot",
+                timestamp=f"2024-01-02T10:{i % 60:02d}:00Z",
+                properties=self._props(
+                    **{
+                        "$session_id": str(uuid7("2024-01-02")),
+                        "$host": "example.com",
+                        "$current_url": "https://example.com/x",
+                        "$pathname": "/x",
+                        # Skew so source_0 has the most visitors, then source_1, etc.
+                        "utm_source": f"source_{i % 8}",
+                    }
+                ),
+            )
+
+        query = self._build_query(
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+            date_from="2024-01-01",
+            date_to="2024-01-03",
+        )
+        query.limit = 3
+
+        with self._enable_lazy():
+            lazy_response = self._run(query)
+
+        lazy_metrics = self._metrics(lazy_response)
+        assert lazy_response.usedLazyPrecompute is True
+        assert lazy_response.hasMore is True, "should report more rows past the requested page"
+        assert len(lazy_metrics) == 3
+        # Visitors are monotonically non-increasing on the returned page.
+        visitors = [row[1][0] for row in lazy_metrics]
+        assert visitors == sorted(visitors, reverse=True), f"first page not ordered by visitors desc: {visitors}"
