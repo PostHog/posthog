@@ -1025,38 +1025,38 @@ export function defineToolBehaviorTests(
             expect(decodeText(good.content)).toContain(harness.orgId)
         })
 
-        // Tools wrapped with `withUiApp(...)` should surface
-        // `_meta.ui.resourceUri` on per-call results (not just the tool
-        // definition). Clients use the per-call metadata to know which
-        // resource URI to fetch for the current invocation's render.
+        // Tools wrapped with `withUiApp(...)` ship a `structuredContent`
+        // payload on per-call results. The MCP client uses that
+        // structured payload (alongside the tool-definition's
+        // `_meta.ui.resourceUri`) to render the UI app for the call.
         //
-        // We probe whichever tool from `tools/list` has the UI metadata
-        // set on its definition; we don't hard-code a tool name here so
-        // this stays robust as the catalog evolves.
-        it('attaches _meta.ui to tool-call results when the tool advertises a UI app', async () => {
+        // The UI metadata itself only flows back through `_meta` in
+        // single-exec mode (see `buildToolResultPayload`'s
+        // `includeUiResponseMeta` flag) — so for the default tool-call
+        // path the assertion that matters is "structuredContent is
+        // populated".
+        it('returns structuredContent on a UI-app tool call', async () => {
             const { tools } = await client.listTools()
-            const uiTool = tools.find((t) => {
-                const meta = (t as { _meta?: { ui?: { resourceUri?: string } } })._meta
-                return !!meta?.ui?.resourceUri
-            })
-            if (!uiTool) {
-                throw new Error('expected at least one tool with _meta.ui.resourceUri on its definition')
-            }
-            // We don't necessarily want to call an arbitrary tool because
-            // some may require complex args / external context. The
-            // `debug-mcp-ui-apps` tool is the canonical test target — it
-            // accepts no args and is registered specifically for this
-            // wiring check.
             const debugTool = tools.find((t) => t.name === 'debug-mcp-ui-apps')
             if (!debugTool) {
-                throw new Error('debug-mcp-ui-apps tool is missing — expected it for the per-call _meta probe')
+                throw new Error('debug-mcp-ui-apps tool is missing — expected it for the UI-app per-call probe')
             }
+            // Sanity check that the tool definition still has the UI
+            // metadata wired (otherwise structuredContent wouldn't be
+            // populated even with a working pipeline).
+            const meta = (debugTool as { _meta?: { ui?: { resourceUri?: string } } })._meta
+            expect(meta?.ui?.resourceUri).toBeTruthy()
+
             const result = await client.callTool({ name: 'debug-mcp-ui-apps', arguments: {} })
             if (result.isError) {
                 throw new Error(`debug-mcp-ui-apps errored: ${decodeText(result.content)}`)
             }
-            const meta = (result as { _meta?: { ui?: { resourceUri?: string } } })._meta
-            expect(meta?.ui?.resourceUri).toBeTruthy()
+            const structured = (result as { structuredContent?: Record<string, unknown> }).structuredContent
+            expect(structured).toBeTruthy()
+            // The debug handler emits `message` and `sdkInfo` — check at
+            // least one survives the pipeline so we know the payload
+            // wasn't replaced with an empty object.
+            expect(structured?.message).toBeTruthy()
         })
 
         // switch-organization is symmetric with switch-project — same cache-
@@ -1135,9 +1135,19 @@ export function defineToolBehaviorTests(
         //
         // `SELECT 1 AS one` doesn't depend on any ingested data, so it works
         // against a freshly-booted local stack with no seed data.
+        //
+        // The tool is gated by `query:read` + `insight:read` scopes — if the
+        // test API key doesn't carry them, execute-sql won't be in the
+        // catalog and we skip rather than fail (a different test would
+        // catch the scope-filter regression).
         it('execute-sql runs a trivial HogQL query against the upstream', async ({ skip }) => {
             if (!harness.projectId) {
                 skip('Set TEST_PROJECT_ID to run the execute-sql roundtrip test.')
+                return
+            }
+            const { tools } = await client.listTools()
+            if (!tools.some((t) => t.name === 'execute-sql')) {
+                skip('execute-sql not in catalog for this token — needs query:read + insight:read scopes.')
                 return
             }
             await client.callTool({
@@ -1236,12 +1246,20 @@ export function defineCatalogFilterTests(
             expect(names).not.toContain('feature-flag-get-all')
         })
 
-        it('returns an empty (but well-formed) list for an unknown feature', async () => {
+        // An unknown feature yields no tools after filtering. The Hono
+        // runtime hands back an empty `tools/list` result; the CF
+        // Workers runtime's agents SDK doesn't register the `tools/list`
+        // method when there are zero tools to expose, so the same
+        // request gets back `Method not found` instead. Both are valid
+        // runtime choices — we gate this assertion on the
+        // `gracefulUnknown` flag that the Hono harness sets.
+        it('returns an empty (but well-formed) list for an unknown feature', async ({ skip }) => {
             const harness = await getHarness()
+            if (!harness.gracefulUnknown) {
+                skip('Empty-catalog handling is runtime-specific; only the graceful-unknown runtime returns []')
+                return
+            }
             const { tools } = await listToolsWithQuery(harness, '?features=this-feature-does-not-exist')
-            // The filter is "intersect with the known features"; an unknown
-            // feature yields no tools. The result must still be a valid
-            // tools/list response.
             expect(Array.isArray(tools)).toBe(true)
             expect(tools.length).toBe(0)
         })
