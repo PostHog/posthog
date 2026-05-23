@@ -152,19 +152,25 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_program(query, backend=backend)
 
     @no_memory_leak_check
-    def test_over_window_name_rejects_hog_statement_keywords(self):
-        # A named-window reference (`<call> OVER <name>`) is an `identifier`,
-        # which admits only the keywords in cpp's `keyword` rule. The
-        # Hog-statement keywords are excluded, so they are not valid window
-        # names. rust accepted any keyword there; both backends must reject the
-        # excluded ones while still accepting an ordinary keyword or identifier.
-        for name in ("finally", "try", "catch", "while", "let", "fn", "fun", "throw"):
+    def test_window_name_rejects_hog_statement_keywords(self):
+        # A window name is an `identifier`, which admits only the keywords in
+        # cpp's `keyword` rule; the Hog-statement keywords are excluded, so they
+        # are not valid window names. rust accepted any keyword there. Both
+        # window-name positions are the same `identifier` rule: the `OVER <name>`
+        # target and the `WINDOW <name> AS (...)` clause. Both must reject the
+        # excluded keywords while still accepting an ordinary keyword/identifier.
+        excluded = ("finally", "try", "catch", "while", "let", "fn", "fun", "throw")
+        valid = ("select", "from", "with", "where", "w")
+        for name in excluded:
             for backend in ("cpp-json", "rust-json"):
                 with self.assertRaises(BaseHogQLError):
                     parse_expr(f"f() over {name}", backend=backend)
-        for name in ("select", "from", "with", "where", "w"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(f"select 1 from t window {name} as (order by x)", backend=backend)
+        for name in valid:
             for backend in ("cpp-json", "rust-json"):
                 parse_expr(f"f() over {name}", backend=backend)
+                parse_select(f"select 1 from t window {name} as (order by x)", backend=backend)
 
     @no_memory_leak_check
     def test_materialized_keyword_rejected_as_identifier(self):

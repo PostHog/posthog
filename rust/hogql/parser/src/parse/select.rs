@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use super::expr::is_bare_field;
 use super::{
     check_alias_not_reserved, format_set_op, identifier_text, inject_ctes_into_select,
-    kw_allowed_as_implicit_alias, merge_select_decorators, Parser, BP_MULT,
+    kw_allowed_as_implicit_alias, kw_valid_as_identifier, merge_select_decorators, Parser, BP_MULT,
 };
 use crate::emit;
 use crate::error::ParseError;
@@ -693,7 +693,11 @@ impl<'a> Parser<'a> {
             loop {
                 let name_tok = self.bump()?;
                 let name = match name_tok.kind {
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+                    TokenKind::Ident | TokenKind::QuotedIdent => {
+                        identifier_text(self.text(name_tok), name_tok.kind)
+                    }
+                    // A WINDOW-clause name is an `identifier`, so only `kw_valid_as_identifier` keywords qualify — the Hog-statement keywords (try / catch / finally / …) do not.
+                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                         identifier_text(self.text(name_tok), name_tok.kind)
                     }
                     _ => {
