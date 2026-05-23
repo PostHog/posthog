@@ -158,6 +158,8 @@ export type TopMatchItem = TaxonomicDefinitionTypes & { group: TaxonomicFilterGr
 
 export const SKELETON_ROWS_PER_GROUP = 3
 
+export const REVEAL_BARRIER_TIMEOUT_MS = 5000
+
 export { isSkeletonItem, type SkeletonItem } from 'lib/components/TaxonomicFilter/types'
 
 export function redistributeTopMatches(
@@ -1766,7 +1768,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         // listener doesn't run on mount because no action was dispatched.
         if ((props.initialSearchQuery ?? '').trim()) {
             cache.disposables.add(() => {
-                const timerId = window.setTimeout(() => actions.openRevealBarrier(), 5000)
+                const timerId = window.setTimeout(() => actions.openRevealBarrier(), REVEAL_BARRIER_TIMEOUT_MS)
                 return () => window.clearTimeout(timerId)
             }, 'revealBarrierTimer')
         }
@@ -1939,7 +1941,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             // the query clears (no fresh timer to schedule).
             if ((searchQuery ?? '').trim()) {
                 cache.disposables.add(() => {
-                    const timerId = window.setTimeout(() => actions.openRevealBarrier(), 5000)
+                    const timerId = window.setTimeout(() => actions.openRevealBarrier(), REVEAL_BARRIER_TIMEOUT_MS)
                     return () => window.clearTimeout(timerId)
                 }, 'revealBarrierTimer')
             } else {

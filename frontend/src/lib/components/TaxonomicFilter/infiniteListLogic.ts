@@ -832,8 +832,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 suggestedPinnedMatches.forEach(addPinnedKey)
 
                 const rawTopMatches = isSuggested ? topMatchItemsWithSkeletons : []
+                const groupsByType = dedupeKeys.size === 0 ? null : new Map(taxonomicGroups.map((g) => [g.type, g]))
                 const topMatches =
-                    dedupeKeys.size === 0
+                    groupsByType === null
                         ? rawTopMatches
                         : rawTopMatches.filter((item) => {
                               if (isSkeletonItem(item)) {
@@ -844,8 +845,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                               if (!group) {
                                   return true
                               }
-                              const sourceGroup = taxonomicGroups.find((g) => g.type === group)
-                              const value = sourceGroup?.getValue?.(item as TaxonomicDefinitionTypes)
+                              const value = groupsByType.get(group)?.getValue?.(item as TaxonomicDefinitionTypes)
                               if (value == null) {
                                   return true
                               }
