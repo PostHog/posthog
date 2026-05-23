@@ -1,11 +1,14 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { IconGear } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { ButtonGroupPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 interface NavLinkProps {
     to: string
@@ -18,6 +21,7 @@ interface NavLinkProps {
 
 export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, onClick }: NavLinkProps): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
+    const { showConfigureHomeModal } = useActions(navigationLogic)
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
@@ -34,6 +38,7 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
                     iconOnly: isCollapsed,
                     className: 'group -outline-offset-2',
                     active: isActive,
+                    hasSideActionRight: isHomePage && !isCollapsed,
                 }}
                 to={to}
                 data-attr={dataAttr}
@@ -60,6 +65,22 @@ export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, o
                     </span>
                 )}
             </Link>
+            {isHomePage && !isCollapsed && (
+                <ButtonPrimitive
+                    className="group -outline-offset-2"
+                    iconOnly
+                    isSideActionRight
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        showConfigureHomeModal()
+                    }}
+                    tooltip="Configure home"
+                    tooltipPlacement="right"
+                    data-attr="nav-configure-home"
+                >
+                    <IconGear className="size-3 text-tertiary opacity-70 group-hover:text-primary group-hover:opacity-100" />
+                </ButtonPrimitive>
+            )}
         </ButtonGroupPrimitive>
     )
 }
