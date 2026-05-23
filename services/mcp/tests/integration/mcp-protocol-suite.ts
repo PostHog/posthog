@@ -901,13 +901,14 @@ export function defineToolBehaviorTests(
             expect(text.toLowerCase()).toContain('invalid')
         })
 
-        it('returns an isError payload for a non-existent project id on switch-project', async () => {
-            // Pick an id that almost certainly doesn't exist in the dev stack.
-            // The tool sets the cache regardless (it's a soft switch) but the
-            // PostHog API call to fetch project metadata will fail — the tool
-            // still returns success because the cache write is what matters.
-            // We assert the call resolves cleanly (no JSON-RPC error) and the
-            // content references the requested id.
+        it('switch-project does a soft switch: a non-existent project id still resolves', async () => {
+            // switch-project writes the requested id to the cache before
+            // calling PostHog to fetch project metadata. When the project
+            // doesn't exist the metadata fetch fails, but the cache write
+            // has already landed — so the tool returns success and the
+            // content references the requested id. This is the documented
+            // soft-switch contract: agents pinning to an id they don't
+            // strictly own won't get a hard error.
             const result = await client.callTool({
                 name: 'switch-project',
                 arguments: { projectId: 999_999_999 },
@@ -1417,14 +1418,17 @@ export function defineResourceCatalogTests(
             expect(cmRead.contents[0]?.uri).toBe(cm.uri)
         })
 
-        it('returns at least one prompt with name and description fields', async ({ skip }) => {
+        // The prompts list may be empty on some manifest revisions (the
+        // context-mill manifest doesn't always ship prompts), so this is a
+        // shape check rather than a content check — we don't assert
+        // length > 0. What we DO require: anything that comes back has
+        // a non-empty `name`.
+        it('lists prompts as a well-formed array where every entry has a name', async ({ skip }) => {
             if (!harness.gracefulUnknown) {
                 skip('Prompts endpoint is wired only on the graceful-unknown runtime.')
                 return
             }
             const { prompts } = await client.listPrompts()
-            // The prompts list may be empty on some manifest revisions — we
-            // assert on the shape only when it isn't.
             expect(Array.isArray(prompts)).toBe(true)
             const unnamed = prompts.filter((p) => !p.name)
             expect(unnamed).toEqual([])
