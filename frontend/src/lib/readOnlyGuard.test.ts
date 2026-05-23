@@ -84,6 +84,9 @@ describe('readOnlyGuard', () => {
                 ['delete on query path', 'DELETE', '/api/environments/2/query/abc-123/'],
                 ['file system log view', 'POST', '/api/environments/2/file_system/log_view/'],
                 ['log view with query string', 'POST', '/api/environments/2/file_system/log_view/?foo=bar'],
+                ['insights viewed', 'POST', '/api/environments/2/insights/viewed'],
+                ['insights viewed trailing slash', 'POST', '/api/environments/2/insights/viewed/'],
+                ['insights viewed with query string', 'POST', '/api/environments/2/insights/viewed?foo=bar'],
             ] as const)('lets %s through (%s %s)', (_label, method, url) => {
                 const notifier = jest.fn()
                 setReadOnlyNotifier(notifier)
@@ -96,6 +99,9 @@ describe('readOnlyGuard', () => {
                 ['similar prefix without slash', 'POST', '/api/environments/2/queryteam/'],
                 ['file system entity write blocked', 'POST', '/api/environments/2/file_system/'],
                 ['file system non-log_view blocked', 'POST', '/api/environments/2/file_system/abc-123/move'],
+                ['insight create blocked', 'POST', '/api/environments/2/insights/'],
+                ['insight update blocked', 'PATCH', '/api/environments/2/insights/123/'],
+                ['insights similar prefix blocked', 'POST', '/api/environments/2/insights/viewedless/'],
             ] as const)('still blocks %s (%s %s) — only allowlisted paths pass', (_l, method, url) => {
                 expect(() => assertNotReadOnly(method, url)).toThrow(ReadOnlyModeError)
             })
