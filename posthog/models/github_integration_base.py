@@ -720,8 +720,14 @@ class GitHubIntegrationBase:
                 status_code=response.status_code,
                 error=body if isinstance(body, dict) else None,
             )
-            raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
-        raise GitHubIntegrationError("GitHubIntegration: failed to list repositories after retries")
+            raise GitHubIntegrationError(
+                "GitHubIntegration: failed to list repositories",
+                status_code=response.status_code,
+            )
+        raise GitHubIntegrationError(
+            "GitHubIntegration: failed to list repositories after retries",
+            status_code=response.status_code,
+        )
 
     def list_all_repositories(self) -> list[dict]:
         """Fetch all accessible repositories, paginating through GitHub's API."""

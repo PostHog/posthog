@@ -1356,10 +1356,31 @@ class TestGitHubIntegrationModel(BaseTest):
         # Page-1 succeeds. Page-2 fetch is retried once after transient 502.
         mock_get.side_effect = [first_page, second_page, second_page]
 
-        with pytest.raises(GitHubIntegrationError, match="failed to list repositories"):
+        with pytest.raises(GitHubIntegrationError, match="failed to list repositories") as exc_info:
             GitHubIntegration(integration).list_all_repositories()
 
+        assert exc_info.value.status_code == 502
         assert mock_get.call_count == 3
+
+    @patch("posthog.models.github_integration_base.requests.get")
+    @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
+    def test_list_repositories_attaches_status_code_on_non_transient_failure(self, _mock_expired, mock_get):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+
+        forbidden = MagicMock()
+        forbidden.status_code = 403
+        forbidden.json.return_value = {"message": "Resource not accessible by integration"}
+
+        mock_get.side_effect = [forbidden]
+
+        with pytest.raises(GitHubIntegrationError, match="failed to list repositories") as exc_info:
+            GitHubIntegration(integration).list_repositories()
+
+        assert exc_info.value.status_code == 403
+        assert mock_get.call_count == 1
 
     @patch("posthog.models.integration.GitHubIntegration.list_repositories")
     def test_list_all_repositories_fetches_all_pages(self, mock_list):
