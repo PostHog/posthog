@@ -1,12 +1,16 @@
-import { afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
 import {
+    getUserInterviewTopicsLinksCsvCreateUrl,
     userInterviewTopicsGenerateLinksCreate,
     userInterviewTopicsIntervieweesList,
     userInterviewTopicsRetrieve,
@@ -82,6 +86,10 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
             },
         },
     })),
+    actions({
+        exportLinksCsv: true,
+        exportLinksCsvDone: true,
+    }),
     reducers({
         linksLoadFailed: [
             false,
@@ -90,7 +98,41 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                 loadLinksFailure: () => true,
             },
         ],
+        linksCsvExporting: [
+            false,
+            {
+                exportLinksCsv: () => true,
+                exportLinksCsvDone: () => false,
+            },
+        ],
     }),
+    listeners(({ props, values, actions }) => ({
+        exportLinksCsv: async () => {
+            const projectId = String(teamLogic.values.currentTeamId)
+            try {
+                const response = await api.createResponse(getUserInterviewTopicsLinksCsvCreateUrl(projectId, props.id))
+                if (!response.ok) {
+                    throw new Error(`Export failed (${response.status})`)
+                }
+                const blob = await response.blob()
+                const filename = `${(values.topic?.topic || 'user-interview')
+                    .replace(/[^\w-]+/g, '-')
+                    .toLowerCase()}-links.csv`
+                const url = URL.createObjectURL(blob)
+                const anchor = document.createElement('a')
+                anchor.href = url
+                anchor.download = filename
+                document.body.appendChild(anchor)
+                anchor.click()
+                document.body.removeChild(anchor)
+                URL.revokeObjectURL(url)
+            } catch {
+                lemonToast.error('Could not export interview links as CSV')
+            } finally {
+                actions.exportLinksCsvDone()
+            }
+        },
+    })),
     selectors(({ props }) => ({
         topicInterviews: [
             (s) => [s.interviews],
