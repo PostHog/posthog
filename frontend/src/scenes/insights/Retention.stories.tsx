@@ -2,6 +2,7 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -83,6 +84,7 @@ const retentionBarInsight: QueryBasedInsightModel = { ...retentionInsight, query
 
 export const RetentionBar: Story = createInsightStory(retentionBarInsight)
 RetentionBar.parameters = {
+    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_BAR],
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
