@@ -1326,6 +1326,28 @@ describe('TaxonomicFilter', () => {
 
         beforeEach(() => {
             localStorage.clear()
+            // Slow the events endpoint so the barrier-closed state survives at least one paint
+            // — the default mock resolves synchronously, which collapses the close-then-open
+            // cycle inside a single React batch, making the transient skeleton state invisible
+            // to the DOM in CI. Production latency exceeds this comfortably.
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': async (req) => {
+                        await new Promise((resolve) => setTimeout(resolve, 100))
+                        return mockGetEventDefinitions(req)
+                    },
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/projects/:team/actions': { results: [mockActionDefinition] },
+                    '/api/environments/:team/persons/properties': [
+                        { id: 1, name: 'location', count: 1 },
+                        { id: 2, name: 'role', count: 2 },
+                        { id: 3, name: 'height', count: 3 },
+                    ],
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
             const recentLogic = recentTaxonomicFiltersLogic.build()
             recentLogic.mount()
             recentLogic.actions.clearRecentFilters()
