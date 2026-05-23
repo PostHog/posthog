@@ -2,8 +2,8 @@
     "name": "@posthog/storybook",
     "scripts": {
         "build:products": "pnpm --filter=@posthog/frontend build:products",
-        "build": "pnpm build:products && DEBUG=0 storybook build -o dist",
-        "start": "pnpm build:products && DEBUG=0 storybook dev -p 6006",
+        "build": "pnpm build:products && DEBUG=0 NODE_OPTIONS=--max-old-space-size=16384 storybook build -o dist",
+        "start": "pnpm build:products && DEBUG=0 NODE_OPTIONS=--max-old-space-size=16384 storybook dev -p 6006",
         "test:visual:ci:update": "test-storybook -u --junit --no-index-json --maxWorkers=1",
         "test:visual:ci:verify": "test-storybook --ci --junit --no-index-json --maxWorkers=1",
         "test:visual:debug": "pnpm build:products && PWDEBUG=1 NODE_OPTIONS=--max-old-space-size=16384 test-storybook --browsers chromium webkit --no-index-json",
