@@ -13,10 +13,17 @@ operations = [
         node_roles=[NodeRole.AUX],
         sharded=True,
     ),
-    # Distributed read table on DATA — queries fan out from data nodes and
-    # resolve to AUX shards via the Distributed engine's `cluster=AUX` setting.
+    # Distributed read table on DATA — production query path fans out from data
+    # nodes and resolves to AUX shards via the Distributed engine's `cluster=AUX`.
     run_sql_with_exceptions(
         DISTRIBUTED_WEB_STATS_PREAGGREGATED_TABLE_SQL(),
         node_roles=[NodeRole.DATA],
+    ),
+    # Same distributed table also on AUX for ad-hoc debugging — lets operators
+    # `SELECT … FROM web_stats_preaggregated` directly from an AUX node instead
+    # of bouncing through DATA. Same DDL, no production cost.
+    run_sql_with_exceptions(
+        DISTRIBUTED_WEB_STATS_PREAGGREGATED_TABLE_SQL(),
+        node_roles=[NodeRole.AUX],
     ),
 ]
