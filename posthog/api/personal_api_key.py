@@ -159,6 +159,13 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             user=user, secure_value=secure_value, mask_value=mask_value, **validated_data
         )
         personal_api_key._value = value  # type: ignore
+        # User created this PAT themselves, so it counts as already-acknowledged for the
+        # credential review interstitial. The interstitial is meant to surface partner-
+        # provisioned credentials the user didn't create - those use
+        # PersonalAPIKey.objects.create directly and bypass this serializer.
+        if user.credentials_reviewed_at is None:
+            user.credentials_reviewed_at = timezone.now()
+            user.save(update_fields=["credentials_reviewed_at"])
         return personal_api_key
 
     def roll(self, personal_api_key: PersonalAPIKey) -> PersonalAPIKey:
