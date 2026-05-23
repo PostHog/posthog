@@ -578,9 +578,9 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     (settings.LLM_ANALYTICS_INTERNAL_TEAM_ID) and are strictly scoped to the
     authenticated user's email (read off the events row via person-on-events) —
     callers cannot pivot to other users' data. Authorization model is "any
-    authenticated PostHog user may read their own spend"; the `llm_analytics:read`
-    scope on the MCP tool is decorative since no project-level scope check
-    applies. Routes through `execute_with_ai_events_fallback` so reads hit the
+    authenticated PostHog user may read their own spend" via `user:read` (the
+    same scope that covers `/api/users/@me/`). Routes through
+    `execute_with_ai_events_fallback` so reads hit the
     dedicated `ai_events` table when enabled, with the shared `events` table as
     a fallback. Optionally filter tool / model / trace breakdowns to a single
     `ai_product` via the `product` query param; `by_product` always returns
@@ -591,18 +591,16 @@ class PersonalSpendViewSet(viewsets.ViewSet):
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [permissions.IsAuthenticated, APIScopePermission]
-    # Identity-scoped: the caller reads their own spend, not data nested under
-    # a team or project. `scope_object = "INTERNAL"` + `dangerously_skip_scoped_team_enforcement`
-    # opt out of team/org enforcement in APIScopePermission — valid here because
-    # this viewset filters strictly by the authenticated user's email (see
-    # `_email_filter` in `list` below). The required scope is overridden to the
-    # purpose-built `personal_spend:read` — narrower than the broad `user:read`
-    # cluster — and the frontend (scopes.tsx) marks its `:write` as disabled.
-    scope_object = "INTERNAL"
-    dangerously_skip_scoped_team_enforcement = True
-
-    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
-        return ["personal_spend:read"]
+    # Identity-scoped (`/@me/...`): the caller reads their own spend, not data
+    # nested under a team or project. `scope_object = "user"` matches the shape
+    # of `/api/users/@me/` — APIScopePermission already exempts the `user`
+    # bucket from team/org scoping, so we don't need
+    # `dangerously_skip_scoped_team_enforcement` here. `user:read` is a clean
+    # superset of "read your own spend": anyone trusted with `user:read`
+    # already learns the more sensitive identity facts on `/api/users/@me/`,
+    # and the wildcard `*` plus OAuth identity tokens (MCP) inherit access
+    # the same way they do for every other `user`-scoped endpoint.
+    scope_object = "user"
 
     def get_throttles(self):
         return [
