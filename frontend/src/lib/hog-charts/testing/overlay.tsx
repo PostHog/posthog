@@ -6,7 +6,8 @@ import type { BaseChartContext, ChartLayoutContextValue } from '../core/chart-co
 import type { ChartScales, ChartTheme, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { dimensions as DEFAULT_DIMENSIONS } from './jsdom'
 
-const DEFAULT_THEME: ChartTheme = { colors: ['#000'], backgroundColor: '#ffffff' }
+export const DEFAULT_THEME: ChartTheme = { colors: ['#000'], backgroundColor: '#ffffff' }
+export const NOOP_SCALES: ChartScales = { x: () => 0, y: () => 0, yTicks: () => [] }
 const DEFAULT_RESOLVE: ResolveValueFn = (s, i) => s.data[i] ?? 0
 
 export interface OverlayContextOverrides {

@@ -73,15 +73,16 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
 
             sizeCanvas(canvas, rect, dpr)
             const overlayCanvas = overlayCanvasRef.current
+            let overlayContext: CanvasRenderingContext2D | null = null
             if (overlayCanvas) {
                 sizeCanvas(overlayCanvas, rect, dpr)
+                overlayContext = overlayCanvas.getContext('2d')
             }
 
             const context = canvas.getContext('2d')
             if (!context) {
                 return
             }
-            const overlayContext = overlayCanvas ? overlayCanvas.getContext('2d') : null
 
             setCanvasState({
                 ctx: context,
