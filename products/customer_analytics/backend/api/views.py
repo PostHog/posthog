@@ -1,7 +1,12 @@
-from drf_spectacular.utils import extend_schema
+import json
+
+from django.db.models import Q
+
+from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import log_activity_from_viewset
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
@@ -60,13 +65,134 @@ class CustomerJourneyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
 
 
 @extend_schema(tags=["customer_analytics"])
-class AccountViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "account"
     queryset = Account.objects.unscoped().order_by("-created_at")
     serializer_class = AccountSerializer
+    bulk_update_tags = None  # Mixin action assumes integer PKs; Account uses UUIDs.
+
+    ALLOWED_ORDERING = frozenset({"name", "-name", "created_at", "-created_at", "updated_at", "-updated_at"})
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive substring search across account name and external ID.",
+            ),
+            OpenApiParameter(
+                name="tags",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. '
+                    "Returns accounts that have any of the listed tags."
+                ),
+            ),
+            OpenApiParameter(
+                name="csm",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=("Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id."),
+            ),
+            OpenApiParameter(
+                name="account_executive",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by account executive. Use 'unassigned' or an integer user id.",
+            ),
+            OpenApiParameter(
+                name="account_owner",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by account owner. Use 'unassigned' or an integer user id.",
+            ),
+            OpenApiParameter(
+                name="all_roles_unassigned",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true, returns only accounts where CSM, account executive, and account owner are all unset."
+                ),
+            ),
+            OpenApiParameter(
+                name="ordering",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["name", "-name", "created_at", "-created_at", "updated_at", "-updated_at"],
+                description="Sort order. Defaults to '-created_at'.",
+            ),
+        ],
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team.id)
+        queryset = queryset.filter(team_id=self.team.id)
+
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search) | Q(external_id__icontains=search))
+
+        tags_param = self.request.query_params.get("tags")
+        if tags_param:
+            try:
+                tags_list = json.loads(tags_param)
+                if isinstance(tags_list, list) and tags_list:
+                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
+            except json.JSONDecodeError:
+                pass
+
+        # An unset role is serialized as JSON null, which `_properties__role__isnull`
+        # does not match; probing the nested `id` matches every unassigned
+        # representation (missing key, null value, or empty object).
+        if self.request.query_params.get("all_roles_unassigned", "").lower() == "true":
+            queryset = queryset.filter(
+                _properties__csm__id__isnull=True,
+                _properties__account_executive__id__isnull=True,
+                _properties__account_owner__id__isnull=True,
+            )
+
+        csm_value = self.request.query_params.get("csm")
+        if csm_value == "unassigned":
+            queryset = queryset.filter(_properties__csm__id__isnull=True)
+        elif csm_value:
+            try:
+                queryset = queryset.filter(_properties__csm__id=int(csm_value))
+            except ValueError:
+                pass
+
+        ae_value = self.request.query_params.get("account_executive")
+        if ae_value == "unassigned":
+            queryset = queryset.filter(_properties__account_executive__id__isnull=True)
+        elif ae_value:
+            try:
+                queryset = queryset.filter(_properties__account_executive__id=int(ae_value))
+            except ValueError:
+                pass
+
+        owner_value = self.request.query_params.get("account_owner")
+        if owner_value == "unassigned":
+            queryset = queryset.filter(_properties__account_owner__id__isnull=True)
+        elif owner_value:
+            try:
+                queryset = queryset.filter(_properties__account_owner__id=int(owner_value))
+            except ValueError:
+                pass
+
+        ordering = self.request.query_params.get("ordering")
+        if ordering in self.ALLOWED_ORDERING:
+            queryset = queryset.order_by(ordering)
+
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save()

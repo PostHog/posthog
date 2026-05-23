@@ -44,6 +44,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { AIObservabilityRenameBanner } from '../AIObservabilityRenameBanner'
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '../ModelPicker'
@@ -126,6 +127,7 @@ export function LLMAnalyticsPlaygroundScene({ tabId }: { tabId?: string }): JSX.
                             }}
                             actions={<PlaygroundHeaderActions />}
                         />
+                        <AIObservabilityRenameBanner />
                         <div className="flex h-full flex-1 flex-col min-h-0">
                             <PlaygroundLayout />
                         </div>
@@ -206,7 +208,7 @@ function RateLimitBanner(): JSX.Element | null {
             {!hasByokKeys && (
                 <>
                     {' '}
-                    <Link to={urls.settings('environment-llm-analytics', 'llm-analytics-byok')}>
+                    <Link to={urls.settings('project-ai-observability', 'ai-observability-byok')}>
                         Add your own API key
                     </Link>{' '}
                     to get higher rate limits.

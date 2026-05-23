@@ -1,6 +1,6 @@
 {
     "accounts-create": {
-        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), and optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`).",
+        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account",
@@ -32,7 +32,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), and creation/update metadata. Use `accounts-retrieve` for a single account by id.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",
@@ -48,7 +48,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-partial-update": {
-        "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged.",
+        "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged. Pass `tags` to replace the full set of tags on the account.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Update account",
@@ -64,7 +64,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers).",
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get account",
@@ -1436,6 +1436,21 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-grouping-rules-update": {
+        "description": "Update an error tracking grouping rule's `filters` by ID. Omit `filters` to leave them unchanged. Editing the rule also clears any auto-disable state so the rule is re-enabled.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking grouping rule",
+        "title": "Update error tracking grouping rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-merge-create": {
         "description": "Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and the issues to merge into it as `ids`.",
         "category": "Error tracking",
@@ -1482,7 +1497,7 @@
         }
     },
     "error-tracking-suppression-rules-create": {
-        "description": "Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted. Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and cause data loss that is hard to detect after the fact. Prefer `sampling_rate` to dampen noisy issues rather than fully suppressing when uncertain. Confirm with the user before creating any rule that could match more than one distinct error.",
+        "description": "Create an error tracking suppression rule for the current project. WARNING: matching errors are suppressed indefinitely — dropped at ingestion and will not appear as issues until the rule is disabled or deleted. Scope `filters` tightly to the exact exception type, message, URL, or properties you want gone. Do NOT create match-all rules (omitting `filters`) or broad rules — they silently swallow unrelated errors and cause data loss that is hard to detect after the fact. If unsure, set `sampling_rate` below `1.0` so only a fraction of matches are dropped (e.g. `0.5` drops half) rather than all of them. Confirm with the user before creating any rule that could match more than one distinct error.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Create error tracking suppression rule",
@@ -1490,7 +1505,7 @@
         "required_scopes": ["error_tracking:write"],
         "new_mcp": true,
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -1509,6 +1524,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "error-tracking-suppression-rules-update": {
+        "description": "Update an error tracking suppression rule by ID. Only the fields you include in the request body are applied; omitted fields keep their existing values. Supports updating `filters` and `sampling_rate`. WARNING: broadening `filters` will start dropping additional events at ingestion silently. Keep filters tightly scoped to the exact errors you want gone. Prefer raising `sampling_rate` to dampen volume over widening the match. Confirm with the user before changing a rule's filters in a way that could match more than one distinct error.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking suppression rule",
+        "title": "Update error tracking suppression rule",
+        "required_scopes": ["error_tracking:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "error-tracking-symbol-sets-download-retrieve": {
@@ -1557,8 +1587,8 @@
         }
     },
     "evaluation-create": {
-        "description": "Create a new LLM analytics evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
-        "category": "LLM analytics",
+        "description": "Create a new AI observability evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create a new evaluation.",
         "title": "Create evaluation",
@@ -1572,8 +1602,8 @@
         }
     },
     "evaluation-delete": {
-        "description": "Delete an LLM analytics evaluation (soft delete). The evaluation will be marked as deleted and will no longer run.",
-        "category": "LLM analytics",
+        "description": "Delete an AI observability evaluation (soft delete). The evaluation will be marked as deleted and will no longer run.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete an evaluation.",
         "title": "Delete evaluation",
@@ -1587,8 +1617,8 @@
         }
     },
     "evaluation-get": {
-        "description": "Get a specific LLM analytics evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
-        "category": "LLM analytics",
+        "description": "Get a specific AI observability evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get a specific evaluation by ID.",
         "title": "Get evaluation",
@@ -1603,7 +1633,7 @@
     },
     "evaluation-run": {
         "description": "Trigger an evaluation run on a specific $ai_generation event. This executes the evaluation (either LLM judge or Hog code) against the target event asynchronously via a background workflow. The run is async — it returns a workflow_id and status 'started'. Results are written as '$ai_evaluation' events once complete. To check results after triggering a run, query events with: SELECT properties.$ai_evaluation_result as result, properties.$ai_evaluation_reasoning as reasoning FROM events WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<evaluation_uuid>' AND properties.$ai_target_event_id = '<generation_event_uuid>' ORDER BY timestamp DESC LIMIT 1.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Run an evaluation on a specific event.",
         "title": "Run evaluation",
@@ -1618,7 +1648,7 @@
     },
     "evaluation-test-hog": {
         "description": "Test Hog evaluation code against recent $ai_generation events without persisting results. Compiles the provided Hog source code and runs it against a sample of recent events (up to 10 from the last 7 days). Returns per-event results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Dry-run Hog evaluation code against sample events.",
         "title": "Test Hog evaluation",
@@ -1632,8 +1662,8 @@
         }
     },
     "evaluation-update": {
-        "description": "Update an existing LLM analytics evaluation. You can change the name, description, enabled status, evaluation config (prompt or source code), and output config. Use this to enable/disable evaluations or modify their scoring logic.",
-        "category": "LLM analytics",
+        "description": "Update an existing AI observability evaluation. You can change the name, description, enabled status, evaluation config (prompt or source code), and output config. Use this to enable/disable evaluations or modify their scoring logic.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update an evaluation.",
         "title": "Update evaluation",
@@ -1647,10 +1677,10 @@
         }
     },
     "evaluations-get": {
-        "description": "List LLM analytics evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
-        "category": "LLM analytics",
+        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
+        "category": "AI observability",
         "feature": "llm_analytics",
-        "summary": "List LLM analytics evaluations.",
+        "summary": "List AI observability evaluations.",
         "title": "List evaluations",
         "required_scopes": ["evaluation:read"],
         "new_mcp": true,
@@ -1871,10 +1901,10 @@
         }
     },
     "experiment-results-get": {
-        "description": "Get comprehensive experiment results including all metrics data (primary and secondary) and exposure data. This tool fetches the experiment details and executes the necessary queries to get complete experiment results. Only works with new experiments (not legacy experiments).",
+        "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` — `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs — check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself — the result rows already merge inline and shared. UI-only bulk fields are stripped from each `data` payload: `clickhouse_sql`, `hogql`, the legacy `insight` visualization payload, and the per-funnel-step session samples — `step_sessions` is removed from `baseline`, each `variant_results` entry, and from `baseline` / `variants[]` inside every `breakdown_results` entry. Statistical fields (`sum`, `sum_squares`, `step_counts`, `number_of_samples`, `credible_intervals`, per-breakdown stats, etc.) are preserved. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
         "category": "Experiments",
         "feature": "experiments",
-        "summary": "Get comprehensive experiment results including metrics and exposure data.",
+        "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
         "title": "Get experiment results",
         "required_scopes": ["experiment:read"],
         "new_mcp": true,
@@ -2453,6 +2483,51 @@
             "readOnlyHint": true
         }
     },
+    "feature-flags-bulk-delete-create": {
+        "description": "Soft-delete multiple feature flags in one call. Provide either `ids` (explicit list of flag IDs) OR `filters` (same shape as the list endpoint, e.g., search, active, type, tags), but not both. WARNING: `filters` can match an unbounded number of flags. Preview matches via the list endpoint before calling this with `filters`, and prefer explicit `ids` whenever the user has named specific flags. Flags linked to active experiments, early access features, or that other flags depend on are skipped and reported in `errors`. Returns `deleted` (with each flag's rollout state at deletion time) and `errors` arrays.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Bulk delete feature flags",
+        "title": "Bulk delete feature flags",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "feature-flags-bulk-keys-create": {
+        "description": "Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Look up feature flag keys by ID",
+        "title": "Look up feature flag keys by ID",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-bulk-update-tags-create": {
+        "description": "Add, remove, or replace tags on multiple feature flags in one call. Provide `ids` (up to 500), an `action` ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-flag final tag list) and `skipped` (flags missing or without edit permission, with reason).",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Bulk update tags on feature flags",
+        "title": "Bulk update tags on feature flags",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "feature-flags-copy-flags-create": {
         "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.",
         "category": "Feature flags",
@@ -2560,7 +2635,7 @@
     },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
         "title": "Get LLM costs",
@@ -2875,7 +2950,7 @@
     },
     "llma-clustering-job-get": {
         "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or generation), event filters, enabled status, and timestamps.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get clustering job",
         "title": "Get clustering job",
@@ -2890,7 +2965,7 @@
     },
     "llma-clustering-job-list": {
         "description": "List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis level (trace or generation) and event filters that scope which traces are included in clustering runs. Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or execute-sql to query them.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List clustering jobs",
         "title": "List clustering jobs",
@@ -2905,7 +2980,7 @@
     },
     "llma-evaluation-config-get": {
         "description": "Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the team has either trial credits available or an active provider key configured — without one, llm_judge runs will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get evaluation config",
         "title": "Get evaluation config",
@@ -2920,7 +2995,7 @@
     },
     "llma-evaluation-config-set-active-key": {
         "description": "Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't pin its own key. The key must already be in the 'ok' state — if it isn't, ask the user to validate it from the PostHog UI before retrying.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Set active evaluation provider key",
         "title": "Set active evaluation provider key",
@@ -2935,7 +3010,7 @@
     },
     "llma-evaluation-create": {
         "description": "Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
         "title": "Create evaluation",
@@ -2950,7 +3025,7 @@
     },
     "llma-evaluation-delete": {
         "description": "Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical evaluation results ($ai_evaluation events) are preserved.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete evaluation",
         "title": "Delete evaluation",
@@ -2965,7 +3040,7 @@
     },
     "llma-evaluation-get": {
         "description": "Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config, output type, enabled status, and model configuration.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get evaluation",
         "title": "Get evaluation",
@@ -2980,7 +3055,7 @@
     },
     "llma-evaluation-judge-models": {
         "description": "List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry returns the model id and whether it is available on PostHog trial credits. Call this before creating an llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is chosen.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
         "title": "List supported llm_judge models",
@@ -2995,7 +3070,7 @@
     },
     "llma-evaluation-list": {
         "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List evaluations",
         "title": "List evaluations",
@@ -3010,7 +3085,7 @@
     },
     "llma-evaluation-report-create": {
         "description": "Create an evaluation report configuration. Reports summarize recent evaluation runs (using AI)\nand are delivered to email or Slack targets. `frequency` selects the trigger mode and defaults\nto 'every_n' if omitted:\n\n- 'every_n' (count-based): a report fires once `trigger_threshold` new evaluation results have\naccumulated, but no more often than `cooldown_minutes` apart and capped by `daily_run_cap` per\nUTC day. `trigger_threshold` is required in this mode (10–10000); `cooldown_minutes` (60–1440)\nand `daily_run_cap` are optional.\n- 'scheduled' (time-based): reports fire on the cadence defined by `rrule` (RFC 5545, e.g.\n'FREQ=WEEKLY;BYDAY=MO') anchored at `starts_at` and expanded in `timezone_name` so local clock\ntimes survive DST transitions. `rrule` and `starts_at` are required in this mode;\n`timezone_name` defaults to 'UTC'.\n\n`delivery_targets` is a list of {type: 'email', value: '<addr>'} or {type: 'slack',\nintegration_id: <int>, channel: '<channel>'} entries. Slack integrations must belong to the\nsame team. Use `report_prompt_guidance` to steer the AI report's focus.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation report config",
         "title": "Create evaluation report config",
@@ -3025,7 +3100,7 @@
     },
     "llma-evaluation-report-delete": {
         "description": "Soft-delete an evaluation report configuration. The report stops firing and is hidden from list views; historical report runs are preserved. Equivalent to calling llma-evaluation-report-update with deleted=true — that update path is the canonical way to soft-delete and is the only option when you also want to change other fields in the same call.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete evaluation report config",
         "title": "Delete evaluation report config",
@@ -3040,7 +3115,7 @@
     },
     "llma-evaluation-report-generate": {
         "description": "Immediately trigger an AI-generated evaluation report for this report config. Enqueues a Temporal workflow that analyzes recent evaluation runs and delivers the report to configured targets (email or Slack). Returns 202 on success. Duplicate requests within the same minute are coalesced — only one report is generated. Rate-limited by daily_run_cap.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Trigger evaluation report generation",
         "title": "Trigger evaluation report generation",
@@ -3055,7 +3130,7 @@
     },
     "llma-evaluation-report-get": {
         "description": "Get a specific evaluation report configuration by UUID. Returns the full config including frequency, delivery targets, trigger thresholds, and schedule settings.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get evaluation report config",
         "title": "Get evaluation report config",
@@ -3070,7 +3145,7 @@
     },
     "llma-evaluation-report-list": {
         "description": "List all evaluation report configurations for the current project. Optionally filter by evaluation UUID using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are generated and delivered (email or Slack).",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List evaluation report configs",
         "title": "List evaluation report configs",
@@ -3085,7 +3160,7 @@
     },
     "llma-evaluation-report-run-list": {
         "description": "List the run history for a specific evaluation report config. Each run record includes the generated report content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery error details.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List evaluation report runs",
         "title": "List evaluation report runs",
@@ -3100,7 +3175,7 @@
     },
     "llma-evaluation-report-update": {
         "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), or switch frequency between 'every_n' and 'scheduled'. For 'every_n' mode set trigger_threshold (10–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule and starts_at. Set deleted=true to soft-delete the config.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation report config",
         "title": "Update evaluation report config",
@@ -3115,7 +3190,7 @@
     },
     "llma-evaluation-run": {
         "description": "Manually trigger an evaluation run for a specific $ai_generation event. Enqueues a Temporal workflow that asynchronously executes the evaluation and stores the result as a '$ai_evaluation' event. Returns a workflow_id and status \"started\". Pair with execute-sql to query results: SELECT * FROM events WHERE event = '$ai_evaluation'.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Run evaluation",
         "title": "Run evaluation",
@@ -3130,7 +3205,7 @@
     },
     "llma-evaluation-summary-create": {
         "description": "Generate an AI-powered summary of LLM evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Summarize evaluation results",
         "title": "Summarize evaluation results",
@@ -3146,7 +3221,7 @@
     },
     "llma-evaluation-test-hog": {
         "description": "Test Hog evaluation source code against a sample of recent $ai_generation events without saving. Returns per-event results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code before creating or updating a 'hog' type evaluation.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Test Hog evaluation code",
         "title": "Test Hog evaluation code",
@@ -3161,7 +3236,7 @@
     },
     "llma-evaluation-update": {
         "description": "Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt or Hog source), or change the model configuration.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation",
         "title": "Update evaluation",
@@ -3174,9 +3249,24 @@
             "readOnlyHint": false
         }
     },
+    "llma-personal-spend": {
+        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. Pass `product` (e.g. `posthog_code`, `background_agents`) to scope the tool / model / trace breakdowns to a single product; `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get my LLM spend analysis",
+        "title": "Get my LLM spend analysis",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "llma-prompt-create": {
         "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object).",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create prompt",
         "title": "Create prompt",
@@ -3191,7 +3281,7 @@
     },
     "llma-prompt-duplicate": {
         "description": "Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after creation.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Duplicate prompt",
         "title": "Duplicate prompt",
@@ -3206,7 +3296,7 @@
     },
     "llma-prompt-get": {
         "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get prompt",
         "title": "Get prompt",
@@ -3221,7 +3311,7 @@
     },
     "llma-prompt-list": {
         "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List prompts",
         "title": "List prompts",
@@ -3236,7 +3326,7 @@
     },
     "llma-prompt-update": {
         "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update prompt",
         "title": "Update prompt",
@@ -3251,7 +3341,7 @@
     },
     "llma-review-queue-create": {
         "description": "Create a review queue for routing traces that still need review. Queue names must be unique among active queues in the current project.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create review queue",
         "title": "Create review queue",
@@ -3266,7 +3356,7 @@
     },
     "llma-review-queue-delete": {
         "description": "Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments that still belong to it.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete review queue",
         "title": "Delete review queue",
@@ -3281,7 +3371,7 @@
     },
     "llma-review-queue-get": {
         "description": "Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get review queue",
         "title": "Get review queue",
@@ -3296,7 +3386,7 @@
     },
     "llma-review-queue-item-create": {
         "description": "Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if the trace already has an active review or is already pending in any review queue.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create review queue item",
         "title": "Create review queue item",
@@ -3311,7 +3401,7 @@
     },
     "llma-review-queue-item-delete": {
         "description": "Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the trace can be queued again later if needed.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete review queue item",
         "title": "Delete review queue item",
@@ -3326,7 +3416,7 @@
     },
     "llma-review-queue-item-get": {
         "description": "Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and timestamps for the pending review task.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get review queue item",
         "title": "Get review queue item",
@@ -3341,7 +3431,7 @@
     },
     "llma-review-queue-item-list": {
         "description": "List pending trace review assignments across review queues. Supports filtering by queue_id, trace_id, trace_id__in, search, and ordering so agents can find traces that are still queued for review.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List review queue items",
         "title": "List review queue items",
@@ -3356,7 +3446,7 @@
     },
     "llma-review-queue-item-update": {
         "description": "Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace has already been reviewed and can no longer stay queued.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update review queue item",
         "title": "Update review queue item",
@@ -3371,7 +3461,7 @@
     },
     "llma-review-queue-list": {
         "description": "List review queues used for trace reviews. Returns queue names, pending_item_count, creator info, and timestamps. Supports queue-name search and ordering.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List review queues",
         "title": "List review queues",
@@ -3386,7 +3476,7 @@
     },
     "llma-review-queue-update": {
         "description": "Rename an existing review queue. The updated name must stay unique among active queues in the project.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update review queue",
         "title": "Update review queue",
@@ -3401,7 +3491,7 @@
     },
     "llma-score-definition-create": {
         "description": "Create a new scorer (a.k.a. score definition) used by trace reviews. Pass `name`, `kind` (`categorical`, `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical scorers need an `options` array with unique keys and optional `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`, `step`. Boolean scorers can override `true_label`/`false_label`. Scorers always start active (not archived) and at version 1.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create scorer",
         "title": "Create scorer",
@@ -3416,7 +3506,7 @@
     },
     "llma-score-definition-get": {
         "description": "Retrieve a scorer by ID, including its current immutable `config` payload, `current_version` number, kind, archived state, and timestamps.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get scorer",
         "title": "Get scorer",
@@ -3431,7 +3521,7 @@
     },
     "llma-score-definition-list": {
         "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description. Returns metadata plus the current config snapshot.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List scorers",
         "title": "List scorers",
@@ -3446,7 +3536,7 @@
     },
     "llma-score-definition-new-version": {
         "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds, rename boolean labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Bump scorer to a new version",
         "title": "Bump scorer to a new version",
@@ -3461,7 +3551,7 @@
     },
     "llma-score-definition-update": {
         "description": "Update a scorer's metadata: rename via `name`, edit `description`, or toggle `archived` to hide (`true`) or restore (`false`). Archiving is reversible — there is no destroy endpoint. To change the scoring rules instead, call `llma-score-definition-new-version`. `kind` cannot be changed.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update scorer metadata",
         "title": "Update scorer metadata",
@@ -3476,7 +3566,7 @@
     },
     "llma-sentiment-create": {
         "description": "Classify sentiment of LLM trace or generation user messages as positive, neutral, or negative. Pass a list of trace or generation IDs and an analysis_level (\"trace\" or \"generation\"). Returns per-ID sentiment labels with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute. Rate-limited.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Analyze sentiment",
         "title": "Analyze sentiment",
@@ -3491,7 +3581,7 @@
     },
     "llma-skill-archive": {
         "description": "Archive every active version of an agent skill by name. This hides the skill from default lists and cannot be undone. Use llma-skill-get first if you need to inspect the skill before archiving it.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Archive skill",
         "title": "Archive skill",
@@ -3506,7 +3596,7 @@
     },
     "llma-skill-create": {
         "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create skill",
         "title": "Create skill",
@@ -3521,7 +3611,7 @@
     },
     "llma-skill-duplicate": {
         "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Duplicate skill",
         "title": "Duplicate skill",
@@ -3536,7 +3626,7 @@
     },
     "llma-skill-file-create": {
         "description": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use llma-skill-update with files to replace, or llma-skill-file-delete followed by llma-skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create skill file",
         "title": "Create skill file",
@@ -3551,7 +3641,7 @@
     },
     "llma-skill-file-delete": {
         "description": "Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version. Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version' field to chain further edits via base_version. Supply base_version for optimistic concurrency.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete skill file",
         "title": "Delete skill file",
@@ -3566,7 +3656,7 @@
     },
     "llma-skill-file-get": {
         "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from llma-skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get skill file",
         "title": "Get skill file",
@@ -3581,7 +3671,7 @@
     },
     "llma-skill-file-rename": {
         "description": "Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Rename skill file",
         "title": "Rename skill file",
@@ -3596,7 +3686,7 @@
     },
     "llma-skill-get": {
         "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io).",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get skill",
         "title": "Get skill",
@@ -3611,7 +3701,7 @@
     },
     "llma-skill-list": {
         "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use llma-skill-get to fetch full content).",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List skills",
         "title": "List skills",
@@ -3626,7 +3716,7 @@
     },
     "llma-skill-update": {
         "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nllma-skill-file-create / llma-skill-file-delete / llma-skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update skill",
         "title": "Update skill",
@@ -3641,7 +3731,7 @@
     },
     "llma-summarization-create": {
         "description": "Generate an AI-powered summary of an LLM trace or generation. Pass a trace_id or generation_id with a date_from — the backend fetches the data and returns a structured summary with title, flow diagram, summary bullets, and interesting notes. Results are cached. Use mode \"minimal\" (default) for 3-5 points or \"detailed\" for 5-10 points. Rate-limited; requires AI data processing approval for the organization.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Summarize trace or generation",
         "title": "Summarize trace or generation",
@@ -3656,8 +3746,8 @@
         "requires_ai_consent": true
     },
     "llma-tagger-create": {
-        "description": "Create an LLM analytics tagger that automatically adds custom tags to $ai_generation events. For tagger_type \"llm\", provide tagger_config.prompt plus tagger_config.tags (each with name and optional description); optionally set min_tags and max_tags. For tagger_type \"hog\", provide tagger_config.source Hog code that returns a tag name string, a list of tag name strings, or null; optionally provide tagger_config.tags as a whitelist. Use enabled=false while drafting, then update the tagger from the UI.",
-        "category": "LLM analytics",
+        "description": "Create an AI observability tagger that automatically adds custom tags to $ai_generation events. For tagger_type \"llm\", provide tagger_config.prompt plus tagger_config.tags (each with name and optional description); optionally set min_tags and max_tags. For tagger_type \"hog\", provide tagger_config.source Hog code that returns a tag name string, a list of tag name strings, or null; optionally provide tagger_config.tags as a whitelist. Use enabled=false while drafting, then update the tagger from the UI.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create tagger",
         "title": "Create tagger",
@@ -3671,8 +3761,8 @@
         }
     },
     "llma-tagger-list": {
-        "description": "List LLM analytics taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps.",
-        "category": "LLM analytics",
+        "description": "List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps.",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List taggers",
         "title": "List taggers",
@@ -3687,7 +3777,7 @@
     },
     "llma-tagger-test-hog": {
         "description": "Test Hog tagger source code against recent $ai_generation events without saving a tagger. The source should return a tag name string, a list of tag name strings, or null. Optionally pass tags as a whitelist; returned tags outside the whitelist are filtered out. Results include input/output previews, selected tags, stdout reasoning, and any execution error for each sampled event.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Test Hog tagger code",
         "title": "Test Hog tagger code",
@@ -3702,7 +3792,7 @@
     },
     "llma-trace-review-create": {
         "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create trace review",
         "title": "Create trace review",
@@ -3717,7 +3807,7 @@
     },
     "llma-trace-review-delete": {
         "description": "Delete a trace review by ID. This soft-deletes the review so the same trace can be reviewed again later if needed.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Delete trace review",
         "title": "Delete trace review",
@@ -3732,7 +3822,7 @@
     },
     "llma-trace-review-get": {
         "description": "Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and timestamps.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get trace review",
         "title": "Get trace review",
@@ -3747,7 +3837,7 @@
     },
     "llma-trace-review-list": {
         "description": "List saved trace reviews. Supports filtering by trace_id, definition_id, search, and ordering. Returns comments, scores, reviewers, and timestamps.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List trace reviews",
         "title": "List trace reviews",
@@ -3762,7 +3852,7 @@
     },
     "llma-trace-review-update": {
         "description": "Update a trace review. Pass comment and/or the full desired scores array. You can also pass queue_id to clear only a matching pending queue item after the review is saved.",
-        "category": "LLM analytics",
+        "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update trace review",
         "title": "Update trace review",
@@ -4623,7 +4713,7 @@
         }
     },
     "query-session-recordings-list": {
-        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, console errors, start URL, and interaction metrics. Use this tool to find, filter, and explore session recordings.\n\nUse 'read-data-schema' to discover available person, session, and event properties for filtering.\n\nExamples of use cases include:\n\n- Find recordings with console errors in the last week\n- Show me recordings from users in a specific country\n- List the longest recordings from today\n- Find recordings where users visited a specific page\n- Show recordings with high activity scores\n- Find recordings for a specific person\n\nCRITICAL: Be minimalist. Only include filters and settings essential to answer the user's question. Default settings are usually sufficient.\n\n# Property filters\n\nUse property filters to narrow results. Only include filters directly relevant to the user's question.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the user's query.**\n- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`, `cohort`.\n- **Use `read-data-schema` to discover property names and values** before creating filters.\n\n## Common properties\n\n**Recording** (type: `recording`): `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. These are built-in metrics, not events.\n\n**Session** (type: `session`): `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`.\n\n**Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.\n\n**Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.\n\n**Cohort** (type: `cohort`): scope recordings to persons belonging to a cohort. `key` is always `\"id\"`, `value` is the cohort ID, operator is `in` (or `not_in` to exclude). Example: `{ \"type\": \"cohort\", \"key\": \"id\", \"value\": 42, \"operator\": \"in\" }`. Use `cohorts-list` to find cohort IDs.\n\n## Operators\n\n**String**: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`\n**Numeric**: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`\n**DateTime**: `is_date_exact`, `is_date_before`, `is_date_after`, `is_set`, `is_not_set`\n**Boolean**: `exact`, `is_not`, `is_set`, `is_not_set`\n\n`exact` and `is_not` accept arrays of values. Use `icontains` for URLs, `exact` for enumerated values, `gt`/`lt` for counts.\n\n# Ordering\n\nSort recordings by: `start_time` (default), `duration`, `activity_score`, `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `active_seconds`, `inactive_seconds`.\n\nDefault direction is `DESC` (newest/highest first).\n\n# Date range\n\n- `date_from`: Relative (`-7d`, `-24h`) or absolute (`2025-01-15`). Default: `-3d`.\n- `date_to`: Relative or absolute. Default: now.\n\nDo not use property filters for time-based filtering. Use the `date_from`/`date_to` fields instead.\n\n# Pagination\n\nUse `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.\n\n# Response shape\n\nEach recording in results contains:\n\n- `id` — session recording ID\n- `distinct_id` — the person's distinct ID\n- `start_time` / `end_time` — recording time range (ISO 8601)\n- `recording_duration` — length in seconds\n- `active_seconds` / `inactive_seconds` — activity breakdown\n- `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts\n- `console_log_count`, `console_warn_count`, `console_error_count` — console output counts\n- `start_url` — first page URL visited\n- `activity_score` — engagement score (higher = more active)\n- `ongoing` — whether the session is still active\n\n# Examples\n\n## Recent recordings with console errors\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"console_error_count\", \"operator\": \"gt\", \"type\": \"recording\", \"value\": 0 }],\n  \"order\": \"console_error_count\"\n}\n```\n\n## Longest recordings today\n\n```json\n{\n  \"date_from\": \"-1d\",\n  \"filter_test_accounts\": true,\n  \"order\": \"duration\",\n  \"limit\": 10\n}\n```\n\n## Recordings for a specific person\n\n```json\n{\n  \"date_from\": \"-30d\",\n  \"person_uuid\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filter_test_accounts\": true\n}\n```\n\n## Recordings from mobile users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"$device_type\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Mobile\"] }]\n}\n```\n\n## Recordings from a cohort of users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"id\", \"operator\": \"in\", \"type\": \"cohort\", \"value\": 42 }]\n}\n```\n\n## Fetch specific recordings by session ID\n\nWhen you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly:\n\n```json\n{\n  \"session_ids\": [\"session-id-1\", \"session-id-2\", \"session-id-3\"]\n}\n```\n\n# Reminders\n\n- Use `filter_test_accounts: true` by default to exclude internal users.\n- Only include property filters directly relevant to the user's question.\n- Default time range is last 3 days. Adjust based on the user's needs.\n- For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.\n- **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.",
+        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, console errors, start URL, and interaction metrics. Use this tool to find, filter, and explore session recordings.\n\nUse 'read-data-schema' to discover available person, session, and event properties for filtering.\n\nExamples of use cases include:\n\n- Find recordings with console errors in the last week\n- Show me recordings from users in a specific country\n- List the longest recordings from today\n- Find recordings where users visited a specific page\n- Show recordings with high activity scores\n- Find recordings for a specific person\n\nCRITICAL: Be minimalist. Only include filters and settings essential to answer the user's question. Default settings are usually sufficient.\n\n# Property filters\n\nUse property filters to narrow results. Only include filters directly relevant to the user's question.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the user's query.**\n- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`, `cohort`.\n- **Use `read-data-schema` to discover property names and values** before creating filters.\n\n## Common properties\n\n**Recording** (type: `recording`): `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. These are built-in metrics, not events.\n\n**Session** (type: `session`): `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`.\n\n**Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.\n\n**Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.\n\n**Cohort** (type: `cohort`): scope recordings to persons belonging to a cohort. `key` is always `\"id\"`, `value` is the cohort ID, operator is `in` (or `not_in` to exclude). Example: `{ \"type\": \"cohort\", \"key\": \"id\", \"value\": 42, \"operator\": \"in\" }`. Use `cohorts-list` to find cohort IDs.\n\n## Operators\n\n**String**: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`\n**Numeric**: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`\n**DateTime**: `is_date_exact`, `is_date_before`, `is_date_after`, `is_set`, `is_not_set`\n**Boolean**: `exact`, `is_not`, `is_set`, `is_not_set`\n\n`exact` and `is_not` accept arrays of values. Use `icontains` for URLs, `exact` for enumerated values, `gt`/`lt` for counts.\n\n# Ordering\n\nSort recordings by: `start_time` (default), `duration`, `activity_score`, `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `active_seconds`, `inactive_seconds`.\n\nDefault direction is `DESC` (newest/highest first).\n\n# Date range\n\n- `date_from`: Relative (`-7d`, `-24h`) or absolute (`2025-01-15`). Default: `-3d`.\n- `date_to`: Relative or absolute. Default: now.\n\nDo not use property filters for time-based filtering. Use the `date_from`/`date_to` fields instead.\n\n# Pagination\n\nUse `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.\n\n# Response shape\n\nEach recording in results contains:\n\n- `id` — session recording ID\n- `distinct_id` — the person's distinct ID\n- `start_time` / `end_time` — recording time range (ISO 8601)\n- `recording_duration` — length in seconds\n- `active_seconds` / `inactive_seconds` — activity breakdown\n- `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts\n- `console_log_count`, `console_warn_count`, `console_error_count` — console output counts\n- `start_url` — first page URL visited\n- `activity_score` — engagement score (higher = more active)\n- `ongoing` — whether the session is still active\n\n# Deep links to specific recordings\n\nTo link a user to a specific recording, build the URL as `{posthog_base_url}/replay/{id}` using the `id` returned in each result row.\n\nDo not use `/replay/home?sessionRecordingId={id}` — that path takes the user to the replay list with the default filter applied and does not open the recording.\n\n# Examples\n\n## Recent recordings with console errors\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"console_error_count\", \"operator\": \"gt\", \"type\": \"recording\", \"value\": 0 }],\n  \"order\": \"console_error_count\"\n}\n```\n\n## Longest recordings today\n\n```json\n{\n  \"date_from\": \"-1d\",\n  \"filter_test_accounts\": true,\n  \"order\": \"duration\",\n  \"limit\": 10\n}\n```\n\n## Recordings for a specific person\n\n```json\n{\n  \"date_from\": \"-30d\",\n  \"person_uuid\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filter_test_accounts\": true\n}\n```\n\n## Recordings from mobile users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"$device_type\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Mobile\"] }]\n}\n```\n\n## Recordings from a cohort of users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"id\", \"operator\": \"in\", \"type\": \"cohort\", \"value\": 42 }]\n}\n```\n\n## Fetch specific recordings by session ID\n\nWhen you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly:\n\n```json\n{\n  \"session_ids\": [\"session-id-1\", \"session-id-2\", \"session-id-3\"]\n}\n```\n\n# Reminders\n\n- Use `filter_test_accounts: true` by default to exclude internal users.\n- Only include property filters directly relevant to the user's question.\n- Default time range is last 3 days. Adjust based on the user's needs.\n- Deep-link to a specific recording as `{posthog_base_url}/replay/{id}`, never `/replay/home?sessionRecordingId={id}`.\n- For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.\n- **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "List session recordings",
@@ -5229,10 +5319,10 @@
         }
     },
     "switch-organization": {
-        "description": "Change the active organization from the default organization. You should only use this tool if the user asks you to change the organization - otherwise, the default organization will be used.",
+        "description": "Switch the active PostHog organization for subsequent tool calls. Call this proactively whenever the user names an organization they want to operate on. Use `organizations-list` to resolve an organization name to an id. Default to the active organization when no specific organization is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
-        "summary": "Change the active organization from the default organization.",
+        "summary": "Switch the active PostHog organization for subsequent tool calls.",
         "title": "Switch active organization",
         "required_scopes": ["organization:read"],
         "new_mcp": true,
@@ -5244,10 +5334,10 @@
         }
     },
     "switch-project": {
-        "description": "Change the active project from the default project. You should only use this tool if the user asks you to change the project - otherwise, the default project will be used.",
+        "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-list` and `switch-organization` first, then retry `projects-get`. Default to the active project when no specific project is mentioned.",
         "category": "Organization & project management",
         "feature": "workspace",
-        "summary": "Change the active project from the default project.",
+        "summary": "Switch the active PostHog project for subsequent tool calls.",
         "title": "Switch active project",
         "required_scopes": ["project:read"],
         "new_mcp": true,
@@ -5511,6 +5601,22 @@
         "feature": "user_interviews",
         "summary": "Update a per-interviewee context row",
         "title": "Update a per-interviewee context row",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-links-csv": {
+        "description": "Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`. Use this when the human plans to mail-merge the links into their own email tooling rather than letting PostHog send the invites.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Export interview links for a topic as CSV",
+        "title": "Export interview links for a topic as CSV",
         "required_scopes": ["user_interview:write"],
         "new_mcp": true,
         "annotations": {

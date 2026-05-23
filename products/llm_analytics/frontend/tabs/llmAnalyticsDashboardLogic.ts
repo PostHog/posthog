@@ -144,7 +144,7 @@ export const llmAnalyticsDashboardLogic = kea<llmAnalyticsDashboardLogicType>([
                         await breakpoint(100)
                         actions.loadLLMDashboards()
                     } else {
-                        console.error('Failed to create default LLM Analytics dashboard:', error)
+                        console.error('Failed to create default AI observability dashboard:', error)
                     }
                 }
             }

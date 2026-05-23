@@ -14,10 +14,7 @@ function ReactEnvVarsSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[
-                `VITE_PUBLIC_POSTHOG_PROJECT_TOKEN=${currentTeam?.api_token}`,
-                `VITE_PUBLIC_POSTHOG_HOST=${apiHostOrigin()}`,
-            ].join('\n')}
+            {[`VITE_POSTHOG_TOKEN=${currentTeam?.api_token}`, `VITE_POSTHOG_HOST=${apiHostOrigin()}`].join('\n')}
         </CodeSnippet>
     )
 }
@@ -32,13 +29,13 @@ import App from './App.jsx'
 import { PostHogProvider } from '@posthog/react'
 
 const options = {
-  api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
+  api_host: import.meta.env.VITE_POSTHOG_HOST,
   defaults: '${SDK_DEFAULTS_DATE}',
 } as const
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN} options={options}>
+    <PostHogProvider apiKey={import.meta.env.VITE_POSTHOG_TOKEN} options={options}>
       <App />
     </PostHogProvider>
   </StrictMode>

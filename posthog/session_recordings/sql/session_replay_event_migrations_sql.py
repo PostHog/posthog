@@ -379,11 +379,8 @@ ADD_AI_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSI
 
 # =========================
 # MIGRATION: Add surfacing_score column for the surfacing scoring sweep
-# Nullable(Float32) so we can distinguish "not scored yet" (NULL) from "scored as 0".
-# SimpleAggregateFunction(max, ...) is NULL-safe on merges: when the events MV's NULL
-# row merges with a scorer-written value, the scored value wins. Write-once is enforced
-# in the scoring pipeline (filter on `max(surfacing_score) IS NULL`), not by ClickHouse.
-# See posthog/temporal/session_replay/surfacing_scoring_sweep.
+# Nullable so NULL = "not scored yet" is distinct from "scored as 0". SimpleAggregateFunction(max)
+# is NULL-safe on merge, so the scorer's value wins over the events MV's NULL row.
 # =========================
 
 ALTER_SESSION_REPLAY_ADD_SURFACING_SCORE_COLUMN = """

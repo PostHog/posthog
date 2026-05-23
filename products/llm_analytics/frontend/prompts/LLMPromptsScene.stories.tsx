@@ -72,7 +72,7 @@ const MOCK_PROMPTS: LLMPrompt[] = [
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/LLM Analytics/Prompts',
+    title: 'Scenes-App/AI observability/Prompts',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

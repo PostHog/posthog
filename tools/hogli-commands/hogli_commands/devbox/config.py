@@ -71,3 +71,20 @@ def save_dotfiles_uri(dotfiles_uri: str) -> DevboxConfig:
     config["dotfiles_uri"] = dotfiles_uri
     save_config(config)
     return config
+
+
+def clear_dotfiles_uri() -> DevboxConfig:
+    """Remove any saved dotfiles repo URL so new workspaces don't clone one."""
+    config = load_config()
+    config.pop("dotfiles_uri", None)
+    save_config(config)
+    return config
+
+
+def clear_git_identity() -> DevboxConfig:
+    """Remove any saved Git identity defaults for new workspaces."""
+    config = load_config()
+    config.pop("git_name", None)
+    config.pop("git_email", None)
+    save_config(config)
+    return config

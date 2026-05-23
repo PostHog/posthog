@@ -4,8 +4,9 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
-from posthog.models import Insight
+from posthog.models import Insight, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -638,6 +639,289 @@ class TestAccountViewSet(APIBaseTest):
             with self.subTest(method=method, url=url):
                 response = getattr(self.client, method.lower())(url, format="json")
                 self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_create_with_tags(self):
+        response = self.client.post(
+            self.endpoint_base,
+            {"name": "Tagged Account", "tags": ["enterprise", "priority"]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        self.assertEqual(sorted(response.json()["tags"]), ["enterprise", "priority"])
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        account = Account.objects.unscoped().get(id=response.json()["id"])
+        self.assertEqual(
+            sorted(Tag.objects.filter(team=self.team).values_list("name", flat=True)),
+            ["enterprise", "priority"],
+        )
+        self.assertEqual(
+            sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)),
+            ["enterprise", "priority"],
+        )
+
+    def test_retrieve_returns_tags(self):
+        account = self._create_account()
+        tag = Tag.objects.create(name="vip", team=self.team)
+        account.tagged_items.create(tag=tag)
+
+        response = self.client.get(f"{self.endpoint_base}{account.id}/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["tags"], ["vip"])
+
+    def test_list_returns_tags(self):
+        account = self._create_account()
+        for name in ("alpha", "beta"):
+            account.tagged_items.create(tag=Tag.objects.create(name=name, team=self.team))
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        results = {r["id"]: r for r in response.json()["results"]}
+        self.assertEqual(sorted(results[str(account.id)]["tags"]), ["alpha", "beta"])
+
+    def test_update_replaces_tags(self):
+        account = self._create_account()
+        account.tagged_items.create(tag=Tag.objects.create(name="old", team=self.team))
+
+        response = self.client.patch(
+            f"{self.endpoint_base}{account.id}/",
+            {"tags": ["new"]},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["tags"], ["new"])
+        self.assertEqual(list(account.tagged_items.values_list("tag__name", flat=True)), ["new"])
+
+    def test_update_with_empty_tags_clears_them(self):
+        account = self._create_account()
+        account.tagged_items.create(tag=Tag.objects.create(name="stale", team=self.team))
+
+        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"tags": []}, format="json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["tags"], [])
+        self.assertFalse(account.tagged_items.exists())
+
+    def test_list_filters_by_tags(self):
+        billing_tag = Tag.objects.create(name="billing", team=self.team)
+        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
+        churn_tag = Tag.objects.create(name="churn", team=self.team)
+
+        billing = self._create_account(name="Billing Co")
+        billing.tagged_items.create(tag=billing_tag)
+        urgent = self._create_account(name="Urgent Co")
+        urgent.tagged_items.create(tag=urgent_tag)
+        churn = self._create_account(name="Churn Co")
+        churn.tagged_items.create(tag=churn_tag)
+        self._create_account(name="Untagged Co")
+
+        response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        names = {r["name"] for r in response.json()["results"]}
+        self.assertEqual(names, {"Billing Co", "Urgent Co"})
+
+    def test_list_tags_filter_returns_each_account_once_when_multiple_tags_match(self):
+        billing_tag = Tag.objects.create(name="billing", team=self.team)
+        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
+        account = self._create_account(name="Double Tagged")
+        account.tagged_items.create(tag=billing_tag)
+        account.tagged_items.create(tag=urgent_tag)
+
+        response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 1)
+
+    def test_list_ignores_malformed_tags_param(self):
+        Tag.objects.create(name="billing", team=self.team)
+        self._create_account(name="Account A")
+        self._create_account(name="Account B")
+
+        response = self.client.get(f"{self.endpoint_base}?tags=not-json")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_list_ignores_empty_tags_array(self):
+        self._create_account(name="Account A")
+        self._create_account(name="Account B")
+
+        response = self.client.get(f"{self.endpoint_base}?tags=[]")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 2)
+
+    def test_list_with_tags_filter_does_not_n_plus_one(self):
+        billing_tag = Tag.objects.create(name="billing", team=self.team)
+        urgent_tag = Tag.objects.create(name="urgent", team=self.team)
+        for i in range(10):
+            account = self._create_account(name=f"Acct {i}")
+            account.tagged_items.create(tag=billing_tag)
+            account.tagged_items.create(tag=urgent_tag)
+
+        with self.assertNumQueries(11):
+            # Query budget for a tag-filtered account list. Constant regardless of result count
+            # because tagged_items is prefetched once. If a query is added, please confirm it
+            # does not scale with the number of accounts before raising the limit:
+            # 1: load Django session
+            # 2: load authenticated user
+            # 3: load user's current organization
+            # 4: load team for the requested project
+            # 5: load org membership for permission checks
+            # 6: load RBAC access controls for customer_analytics
+            # 7: load org membership again for role inheritance
+            # 8: load constance instance setting (rate limit config)
+            # 9: COUNT(*) for pagination
+            # 10: SELECT page of accounts filtered by tag name
+            # 11: prefetch tagged_items + tag for the page (the prefetch that prevents N+1)
+            response = self.client.get(f'{self.endpoint_base}?tags=["billing","urgent"]')
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        self.assertEqual(response.json()["count"], 10)
+
+    def test_tag_change_logs_to_account_activity_stream(self):
+        account = self._create_account()
+        initial_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
+
+        response = self.client.patch(f"{self.endpoint_base}{account.id}/", {"tags": ["audit"]}, format="json")
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        new_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
+        self.assertGreater(new_logs, initial_logs)
+
+    def test_list_accounts_filter_by_csm_user_id(self):
+        self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="B", _properties={"csm": {"id": 9, "email": "b@x.com"}})
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=7")
+        names = [r["name"] for r in response.json()["results"]]
+        assert names == ["A"]
+
+    @parameterized.expand(
+        [
+            # `_properties` defaults to {} — every role key is absent.
+            ("absent_keys", {"_properties": {}}),
+            # The manager fills every role key with an explicit JSON null.
+            ("null_valued_keys", {"properties": {}}),
+        ]
+    )
+    def test_list_accounts_filter_by_csm_unassigned(self, _name, unassigned_kwargs):
+        self._create_account(name="Assigned", properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="Unassigned", **unassigned_kwargs)
+        response = self.client.get(f"{self.endpoint_base}?csm=unassigned")
+        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
+
+    def test_list_accounts_filter_by_account_executive_user_id(self):
+        self._create_account(name="A", _properties={"account_executive": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="B")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?account_executive=7")
+        assert [r["name"] for r in response.json()["results"]] == ["A"]
+
+    def test_list_accounts_filter_by_account_owner_user_id(self):
+        self._create_account(name="A", _properties={"account_owner": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="B")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?account_owner=7")
+        assert [r["name"] for r in response.json()["results"]] == ["A"]
+
+    @parameterized.expand(
+        [
+            # `_properties` defaults to {} — every role key is absent.
+            ("absent_keys", {"_properties": {}}),
+            # The manager fills every role key with an explicit JSON null.
+            ("null_valued_keys", {"properties": {}}),
+        ]
+    )
+    def test_list_accounts_filter_all_roles_unassigned(self, _name, unassigned_kwargs):
+        # Created through the manager, so every role key is present and csm has a real id.
+        self._create_account(name="Has CSM", properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="Unassigned", **unassigned_kwargs)
+        response = self.client.get(f"{self.endpoint_base}?all_roles_unassigned=true")
+        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
+
+    def test_list_accounts_filter_combined_role_and_tags(self):
+        account_a = self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        account_b = self._create_account(name="B", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        account_c = self._create_account(name="C", _properties={"csm": {"id": 8, "email": "c@x.com"}})
+        set_tags_on_object(["enterprise"], account_a)
+        set_tags_on_object(["startup"], account_b)
+        set_tags_on_object(["enterprise"], account_c)
+        response = self.client.get(f'/api/environments/{self.team.id}/accounts/?csm=7&tags=["enterprise"]')
+        assert [r["name"] for r in response.json()["results"]] == ["A"]
+
+    def test_list_accounts_invalid_csm_value_is_ignored(self):
+        # Malformed user id should be a no-op (return both accounts), not "match nothing".
+        self._create_account(name="A")
+        self._create_account(name="B", _properties={"csm": {"id": 7, "email": "b@x.com"}})
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=not-a-user")
+        assert response.status_code == status.HTTP_200_OK
+        names = sorted(r["name"] for r in response.json()["results"])
+        assert names == ["A", "B"]
+
+    def test_list_accounts_ordering_by_name_asc(self):
+        # Create in alphabetical order so default `-created_at` order is [Banana, Apple];
+        # ordering=name only matches if the filter actually flips the order.
+        self._create_account(name="Apple")
+        self._create_account(name="Banana")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?ordering=name")
+        assert [r["name"] for r in response.json()["results"]] == ["Apple", "Banana"]
+
+    def test_list_accounts_ordering_by_name_desc(self):
+        # Default `-created_at` order would be [Apple, Banana]; ordering=-name flips to [Banana, Apple].
+        self._create_account(name="Banana")
+        self._create_account(name="Apple")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?ordering=-name")
+        assert [r["name"] for r in response.json()["results"]] == ["Banana", "Apple"]
+
+    def test_list_accounts_invalid_ordering_is_ignored(self):
+        # Malformed ordering should fall back to default `-created_at` order.
+        self._create_account(name="Apple")
+        self._create_account(name="Banana")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?ordering=robert');drop")
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == ["Banana", "Apple"]
+
+    @parameterized.expand(
+        [
+            ("name_exact", "Acme Corp", ["Acme Corp"]),
+            ("name_partial_case_insensitive", "acme", ["Acme Corp"]),
+            ("external_id_partial", "glx-9", ["Globex"]),
+            ("matches_name_or_external_id", "1", ["Acme Corp"]),
+            ("no_match", "zzzz", []),
+        ]
+    )
+    def test_list_accounts_search(self, _name, search, expected):
+        self._create_account(name="Acme Corp", external_id="acme-1")
+        self._create_account(name="Globex", external_id="glx-99")
+        response = self.client.get(f"{self.endpoint_base}?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected)
+
+    def test_list_accounts_blank_search_returns_all(self):
+        self._create_account(name="Acme Corp")
+        self._create_account(name="Globex")
+        response = self.client.get(f"{self.endpoint_base}?search=")
+        assert sorted(r["name"] for r in response.json()["results"]) == ["Acme Corp", "Globex"]
+
+    def test_list_accounts_search_respects_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._create_account(team=other_team, name="Acme Corp")
+        self._create_account(name="Acme Corp")
+        response = self.client.get(f"{self.endpoint_base}?search=acme")
+        assert len(response.json()["results"]) == 1
+
+    def test_list_accounts_role_filter_respects_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._create_account(
+            team=other_team,
+            name="OtherTeamAccount",
+            _properties={"csm": {"id": 7, "email": "a@x.com"}},
+        )
+        self._create_account(name="MyAccount", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=7")
+        assert [r["name"] for r in response.json()["results"]] == ["MyAccount"]
 
 
 @pytest.mark.ee

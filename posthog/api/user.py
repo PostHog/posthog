@@ -82,6 +82,7 @@ from posthog.models import OrganizationInvite, Team, User, UserScenePersonalisat
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import (
     NOTIFICATION_DEFAULTS,
     ROLE_CHOICES,
@@ -216,6 +217,14 @@ class UserSerializer(serializers.ModelSerializer):
             "Drives the in-app notifications settings UI. Read-only."
         ),
     )
+    requires_credential_review = serializers.SerializerMethodField(
+        help_text=(
+            "True if the user has at least one Personal API Key and has not yet acknowledged "
+            "their existing credentials. Used to gate a one-shot review screen on first "
+            "post-provisioning login. Becomes False once the user POSTs to "
+            "`/api/users/@me/credentials_review_complete/`. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -268,6 +277,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_organization_first_user",
             "active_realtime_notification_types",
             "pending_invites",
+            "requires_credential_review",
         ]
 
         read_only_fields = [
@@ -296,6 +306,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_organization_first_user",
             "active_realtime_notification_types",
             "pending_invites",
+            "requires_credential_review",
         ]
 
         extra_kwargs = {
@@ -351,6 +362,12 @@ class UserSerializer(serializers.ModelSerializer):
     @tracer.start_as_current_span("user_serializer.has_social_auth")
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
+
+    @tracer.start_as_current_span("user_serializer.requires_credential_review")
+    def get_requires_credential_review(self, instance: User) -> bool:
+        if instance.credentials_reviewed_at is not None:
+            return False
+        return PersonalAPIKey.objects.filter(user=instance).exists()
 
     @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
@@ -1202,6 +1219,32 @@ class UserViewSet(
 
         return Response({"success": True})
 
+    @extend_schema(
+        request=None,
+        responses={204: None},
+        description=(
+            "Mark the user as having reviewed their existing credentials. Idempotent. "
+            "Flips `requires_credential_review` to False so the post-login interstitial "
+            "isn't shown again. Does not modify any credentials; the user revokes "
+            "individual Personal API Keys via the existing PAT endpoints from the same screen."
+        ),
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="credentials_review_complete",
+        authentication_classes=[SessionAuthentication],
+    )
+    def credentials_review_complete(self, request, **kwargs):
+        # Session-only auth: this endpoint dismisses the partner-issued-PAK review
+        # screen, so accepting PersonalAPIKeyAuthentication here would let the
+        # attacker who minted the PAK silently dismiss their own surfacing.
+        user = self.get_object()
+        if user.credentials_reviewed_at is None:
+            user.credentials_reviewed_at = django_timezone.now()
+            user.save(update_fields=["credentials_reviewed_at"])
+        return Response(status=204)
+
 
 ###
 # Toolbar
@@ -1435,11 +1478,14 @@ def prepare_toolbar_preloaded_flags(request):
             logger.warning("[Toolbar Flags] No team found")
             return JsonResponse({"error": "No team found"}, status=400)
 
-        # Use Rust flags service
+        # Use Rust flags service. Pass the internal token so this Django -> Rust
+        # call bypasses the team's billing limiter and isn't counted as customer
+        # SDK traffic — the toolbar launch is internal PostHog UI, not an SDK call.
         result = get_flags_from_service(
             token=team.api_token,
             distinct_id=distinct_id,
             groups={},
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
         flags = {
             flag_key: (

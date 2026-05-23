@@ -37,12 +37,12 @@ def mark_observation_failed_activity(inputs: MarkObservationFailedInputs) -> Non
 
 @activity.defn
 def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) -> None:
-    """Flip pending/running → succeeded and persist the lens result. Idempotent: SUCCEEDED is not in the source filter."""
+    """Flip pending/running → succeeded and persist the scanner result. Idempotent: SUCCEEDED is not in the source filter."""
     ReplayObservation.objects.filter(
         pk=inputs.observation_id,
         status__in=[ObservationStatus.PENDING, ObservationStatus.RUNNING],
     ).update(
         status=ObservationStatus.SUCCEEDED,
         completed_at=timezone.now(),
-        lens_result=inputs.lens_result.model_dump(mode="json"),
+        scanner_result=inputs.scanner_result.model_dump(mode="json"),
     )

@@ -90,7 +90,7 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const evaluationUrl = (id: string): string => combineUrl(urls.llmAnalyticsEvaluation(id), searchParams).url
-    const settingsUrl = urls.settings('environment-llm-analytics', 'llm-analytics-byok')
+    const settingsUrl = urls.settings('project-ai-observability', 'ai-observability-byok')
 
     const filteredEvaluationsWithMetrics = evaluationsWithMetrics.filter((evaluation: EvaluationConfig) =>
         filteredEvaluations.some((filtered) => filtered.id === evaluation.id)
@@ -314,14 +314,14 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
             )}
 
             <LemonBanner type="info" dismissKey="evals-billing-notice">
-                Each evaluation run counts as an LLM analytics event.
+                Each evaluation run counts as an AI observability event.
             </LemonBanner>
 
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Online evals</h2>
                     <p className="text-muted">
-                        Configure evaluation prompts and triggers to automatically assess your LLM generations.
+                        Configure evaluation prompts and triggers to automatically assess your AI generations.
                     </p>
                 </div>
                 <AccessControlAction
@@ -417,7 +417,7 @@ export function LLMAnalyticsEvaluationsScene({ tabId }: { tabId?: string }): JSX
         {
             key: 'settings',
             label: 'Settings',
-            link: urls.settings('environment-llm-analytics', 'llm-analytics-byok'),
+            link: urls.settings('project-ai-observability', 'ai-observability-byok'),
             content: <></>,
             'data-attr': 'settings-tab',
         },
@@ -435,7 +435,7 @@ export function LLMAnalyticsEvaluationsScene({ tabId }: { tabId?: string }): JSX
                         }}
                         actions={
                             <LemonButton
-                                to="https://posthog.com/docs/llm-analytics/evaluations"
+                                to="https://posthog.com/docs/ai-evals/evaluations"
                                 type="secondary"
                                 targetBlank
                                 size="small"

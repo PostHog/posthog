@@ -3,6 +3,8 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { setReadOnlyGetter } from 'lib/readOnlyGuard'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -112,5 +114,32 @@ describe('reverseProxyCheckerLogic', () => {
 
         toastErrorSpy.mockRestore()
         captureExceptionSpy.mockRestore()
+    })
+
+    it('should not report read-only mode blocks to error tracking', async () => {
+        // Regression test: the read-only guard throws ReadOnlyModeError on every POST,
+        // and afterMount fires loadHasReverseProxy on every scene mount, so reporting
+        // these floods error tracking with expected failures.
+        useMockedValues(hasReverseProxyValues)
+        setReadOnlyGetter(() => true)
+
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        try {
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadHasReverseProxy()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    hasReverseProxy: false,
+                })
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+        } finally {
+            captureExceptionSpy.mockRestore()
+            setReadOnlyGetter(null)
+        }
     })
 })

@@ -265,9 +265,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
 export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
