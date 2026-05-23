@@ -1,6 +1,11 @@
-import { NodeType, serializedNodeWithId } from '@posthog/rrweb-types'
+import { EventType, NodeType, serializedNodeWithId } from '@posthog/rrweb-types'
 
-import { CHROME_EXTENSION_DENY_LIST, stripChromeExtensionDataFromNode } from './chrome-extension-stripping'
+import { RecordingSnapshot } from '../types'
+import {
+    CHROME_EXTENSION_DENY_LIST,
+    stripChromeExtensionData,
+    stripChromeExtensionDataFromNode,
+} from './chrome-extension-stripping'
 
 describe('stripChromeExtensionDataFromNode', () => {
     const needles = Object.keys(CHROME_EXTENSION_DENY_LIST)
@@ -141,5 +146,29 @@ describe('stripChromeExtensionDataFromNode', () => {
         const matched = new Set<string>()
         expect(() => stripChromeExtensionDataFromNode(node, needles, matched)).not.toThrow()
         expect(matched.size).toBe(0)
+    })
+})
+
+describe('stripChromeExtensionData (snapshot list)', () => {
+    it('does not throw when a FullSnapshot has undefined data', () => {
+        const malformed = {
+            type: EventType.FullSnapshot,
+            timestamp: 1000,
+            windowId: 1,
+            data: undefined,
+        } as unknown as RecordingSnapshot
+
+        expect(() => stripChromeExtensionData([malformed])).not.toThrow()
+    })
+
+    it('does not throw when a FullSnapshot has undefined data.node', () => {
+        const malformed = {
+            type: EventType.FullSnapshot,
+            timestamp: 1000,
+            windowId: 1,
+            data: { initialOffset: { top: 0, left: 0 } },
+        } as unknown as RecordingSnapshot
+
+        expect(() => stripChromeExtensionData([malformed])).not.toThrow()
     })
 })

@@ -317,11 +317,21 @@ function processSnapshot(
     }
 
     if (snapshot.type === EventType.FullSnapshot) {
+        const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
+
+        if (!fullSnapshot.data?.node) {
+            throttleCapture(`${sessionRecordingId}-malformed-full-snapshot`, () => {
+                telemetry.capture('malformed full snapshot', {
+                    sessionRecordingId,
+                    sourceKey: sourceKey,
+                })
+            })
+            return
+        }
+
         context.seenFullByWindow[snapshot.windowId] = true
         pushPatchedMeta(snapshot.timestamp, snapshot.windowId, snapshot)
         context.hasSeenMeta = false
-
-        const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
 
         if (
             stripChromeExtensionDataFromNode(

@@ -187,6 +187,9 @@ export function stripChromeExtensionData(snapshots: RecordingSnapshot[]): Record
             continue
         }
         const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
+        if (!fullSnapshot.data?.node) {
+            continue
+        }
         if (
             stripChromeExtensionDataFromNode(
                 fullSnapshot.data.node,
