@@ -10,7 +10,7 @@ build-backend = "maturin"
 name = "hogql_parser_rs"
 # Mirrors `rust/hogql/parser/Cargo.toml` and `common/hogql_parser/setup.py`.
 # All three move in lockstep on every HogQL grammar change.
-version = "1.3.69"
+version = "1.3.71"
 description = "Hand-rolled Rust HogQL parser with C++-parity AST output"
 readme = "README.md"
 requires-python = ">=3.12"

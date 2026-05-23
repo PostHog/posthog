@@ -191,6 +191,11 @@ export interface BarChartConfig extends ChartConfig {
     barLayout?: 'stacked' | 'grouped' | 'percent'
     /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
+    /** Draw a faint hatched track behind each bar, spanning the full plot height — for
+     *  funnel-style charts where every bar is a share of a whole. Only honored when
+     *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
+     *  semantics don't apply when bars share a band). Defaults to `false`. */
+    barTrack?: boolean
 }
 
 export interface LineChartConfig extends ChartConfig {

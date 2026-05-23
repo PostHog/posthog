@@ -44,8 +44,26 @@ export function isReadOnly(): boolean {
     return getter?.() ?? false
 }
 
-export function assertNotReadOnly(method: 'PATCH' | 'PUT' | 'POST' | 'DELETE'): void {
+// Writes that should pass through in read-only mode. Two categories:
+//   1. Reads disguised as writes — /query serves HogQL / trends / funnels /
+//      retention via POST because the payload is too large for a query string.
+//      Block-listing it would make the entire app unusable.
+//   2. Passive telemetry — /file_system/log_view records that the user viewed
+//      a log, which happens automatically on mount and should not raise.
+const READ_ONLY_ALLOWED_PATTERNS = [
+    /\/query(?:\/|$|\?)/, // /api/environments/:team_id/query, /api/environments/:team_id/query/:queryId/log, etc.
+    /\/file_system\/log_view(?:\/|$|\?)/, // /api/environments/:team_id/file_system/log_view
+]
+
+function isReadDisguisedAsWrite(url: string): boolean {
+    return READ_ONLY_ALLOWED_PATTERNS.some((pattern) => pattern.test(url))
+}
+
+export function assertNotReadOnly(method: 'PATCH' | 'PUT' | 'POST' | 'DELETE', url: string): void {
     if (!isReadOnly()) {
+        return
+    }
+    if (isReadDisguisedAsWrite(url)) {
         return
     }
     notifier?.(method)
