@@ -205,14 +205,16 @@ impl<'a> Parser<'a> {
             // through to the Block arm, and `{1: 2}` (whose body isn't
             // a valid `declaration*`) falls through to the exprStmt arm.
             TokenKind::LBrace => {
-                // cpp's ANTLR ALL(*) prefers the exprStmt alt when a
-                // postfix `(` or `.` follows the matching `}` — `{1}()`
-                // and `{1}.x` are `Placeholder(1)` extended by a
-                // postfix call / property access, not a Block followed
-                // by stray tokens. Other postfixes (`[…]`, `+`, …) keep
-                // the Block interpretation, matching cpp. Probe the
-                // matching `}` to decide.
-                if self.brace_followed_by_postfix_call_or_dot() {
+                // cpp's ALL(*) prefers the exprStmt alt only for a postfix the
+                // Block parse can't strand onto a following statement: a `.`
+                // (`{1}.x`) or an EMPTY `()` (`{1}()`). A non-empty `(expr)` is
+                // itself a valid next statement, so cpp keeps the Block and
+                // parses it separately (`{1} (a)` → Block + exprStmt). Other
+                // postfixes (`[…]`, `+`, …) already keep the Block. The
+                // block-vs-Dict split for the rest is left to `try_alt`: the
+                // block arm fails on a non-`declaration*` body like `{1: 2}`,
+                // falling through to the exprStmt arm.
+                if self.brace_followed_by_dot_or_empty_call() {
                     self.parse_expr_or_assignment_stmt()
                 } else {
                     self.try_alt(&[
@@ -697,13 +699,14 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// `self.peek()` is `{` — scan to its matching `}` and report
-    /// whether the next token is `(` or `.`. Used at statement start
-    /// to choose between the Block alt (`{ decls }`) and the exprStmt
-    /// alt (`{expr} <postfix>`) — cpp's ANTLR prefers exprStmt for the
-    /// two postfixes that can extend a placeholder expression but
-    /// keeps Block for everything else.
-    fn brace_followed_by_postfix_call_or_dot(&self) -> bool {
+    /// `self.peek()` is `{` — scan to its matching `}` and report whether the
+    /// following postfix forces the exprStmt parse over the Block parse. Only a
+    /// postfix the Block parse can't strand onto a following statement does: a
+    /// `.` (`{1}.x` — a leading `.` is never a statement) or an EMPTY `()`
+    /// (`{1}()` — empty parens is never a statement). A non-empty `(expr)`
+    /// returns false: `(expr)` is itself a valid following statement, so cpp
+    /// keeps the Block (`{1} (a)` → Block + exprStmt, not a call).
+    fn brace_followed_by_dot_or_empty_call(&self) -> bool {
         let mut probe = Lexer::with_pos(self.src, self.peek0.end);
         let mut depth: i32 = 1;
         while depth > 0 {
@@ -718,10 +721,11 @@ impl<'a> Parser<'a> {
                 _ => {}
             }
         }
-        matches!(
-            probe.next_token().map(|t| t.kind),
-            Ok(TokenKind::LParen | TokenKind::Dot)
-        )
+        match probe.next_token().map(|t| t.kind) {
+            Ok(TokenKind::Dot) => true,
+            Ok(TokenKind::LParen) => matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::RParen)),
+            _ => false,
+        }
     }
 
     pub(crate) fn parse_block(&mut self) -> Result<Value, ParseError> {

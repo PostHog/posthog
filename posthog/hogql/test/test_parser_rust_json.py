@@ -220,3 +220,32 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
         for query in valid:
             for backend in ("cpp-json", "rust-json"):
                 parse_expr(query, backend=backend)
+
+    @no_memory_leak_check
+    def test_statement_leading_brace_block_vs_call(self):
+        # A statement-leading `{...}` is a Block, except when a postfix that
+        # cannot itself begin a statement follows the matching `}`: a `.` or an
+        # EMPTY `()` make the whole thing one called / accessed expression
+        # (`{1}.x`, `{1}()`). A non-empty `(expr)` IS a valid next statement, so
+        # the brace stays a Block and the `(expr)` is parsed separately
+        # (`{1} (a)` -> Block + ExprStatement). rust merged `{block} (expr)` into
+        # a single call. Both accept here, so assert full AST parity (positions
+        # included, no clear_locations) rather than just accept/reject.
+        for query in (
+            "{1} (a)",
+            "{} ('b')",
+            "{x} ('b')",
+            "{1}(a, b)",
+            "{1} ('b') ('c')",
+            "{1}(a).b",
+            "{1}()",
+            "{}()",
+            "{1}.x",
+            "{1:2} ('b')",
+            "{1}[1]",
+        ):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )
