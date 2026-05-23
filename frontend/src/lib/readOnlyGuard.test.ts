@@ -87,6 +87,10 @@ describe('readOnlyGuard', () => {
                 ['insights viewed (no trailing slash)', 'POST', '/api/environments/2/insights/viewed'],
                 ['insights viewed with trailing slash', 'POST', '/api/environments/2/insights/viewed/'],
                 ['insights viewed with query string', 'POST', '/api/environments/2/insights/viewed/?foo=bar'],
+                ['insights timing (no trailing slash)', 'POST', '/api/projects/2/insights/timing'],
+                ['insights timing with trailing slash', 'POST', '/api/projects/2/insights/timing/'],
+                ['metalytics (no trailing slash)', 'POST', '/api/projects/2/metalytics'],
+                ['metalytics with trailing slash', 'POST', '/api/projects/2/metalytics/'],
             ] as const)('lets %s through (%s %s)', (_label, method, url) => {
                 const notifier = jest.fn()
                 setReadOnlyNotifier(notifier)
@@ -101,6 +105,8 @@ describe('readOnlyGuard', () => {
                 ['file system non-log_view blocked', 'POST', '/api/environments/2/file_system/abc-123/move'],
                 ['insight create blocked', 'POST', '/api/environments/2/insights/'],
                 ['insight non-viewed sub-action blocked', 'POST', '/api/environments/2/insights/123/viewed_by'],
+                ['insight non-timing sub-action blocked', 'POST', '/api/environments/2/insights/123/timing_breakdown'],
+                ['metalytics-like prefix blocked', 'POST', '/api/projects/2/metalyticsfoo/'],
             ] as const)('still blocks %s (%s %s) — only allowlisted paths pass', (_l, method, url) => {
                 expect(() => assertNotReadOnly(method, url)).toThrow(ReadOnlyModeError)
             })
