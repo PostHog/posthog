@@ -2,9 +2,8 @@ name: Container Images CI
 
 on:
     pull_request:
-        # `labeled`/`unlabeled` lets `hobby-preview` retroactively trigger
-        # an image build (ci-hobby.yml uses the same trigger types so the
-        # two stay in lock-step).
+        # Mirror ci-hobby.yml's trigger types so the `hobby-preview` label can
+        # retroactively kick off a build.
         types: [opened, synchronize, reopened, labeled, unlabeled]
     merge_group:
 
@@ -21,18 +20,10 @@ jobs:
         permissions:
             contents: read
             pull-requests: read
-        # Set job outputs to values from filter step
         outputs:
-            # `posthog_build` below is consumed only by ci-hobby.yml's
-            # `wait-for-docker-image` job (it polls this workflow by check
-            # name "Build Docker image"). When ci-hobby would skip, the
-            # build is wasted work — ~15-25 min on depot-ubuntu-latest-4
-            # with nothing waiting for the result.
-            #
-            # Trigger the build whenever:
-            # - ci-hobby would actually consume it (hobby:/hobby-preview)
-            # - the build itself or its action changed (build_self:),
-            #   so workflow edits get exercised pre-merge
+            # The image is only consumed by ci-hobby.yml. Skip the ~20 min build
+            # when ci-hobby would also skip; still build on workflow self-edits
+            # so changes here are exercised pre-merge.
             should_build: >-
                 ${{
                     steps.filter.outputs.hobby == 'true'
@@ -51,9 +42,8 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
-                      # KEEP IN SYNC with `hobby:` in .github/workflows/ci-hobby.yml.
-                      # Drift means hobby will wait for an image we never build (timeout)
-                      # or we build an image nothing waits for (waste).
+                      # Keep `hobby:` in sync with the same-named filter in ci-hobby.yml —
+                      # drift means hobby waits for an image we never build (or vice versa).
                       hobby:
                         - Dockerfile
                         - docker-compose.base.yml
