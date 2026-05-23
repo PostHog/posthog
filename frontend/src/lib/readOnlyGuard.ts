@@ -50,6 +50,7 @@ export function isReadOnly(): boolean {
 // the entire app unusable in read-only mode.
 const READ_ONLY_ALLOWED_PATTERNS = [
     /\/query(?:\/|$|\?)/, // /api/environments/:team_id/query, /api/environments/:team_id/query/:queryId/log, etc.
+    /\/insights\/timing(?:\/|$|\?)/,
 ]
 
 function isReadDisguisedAsWrite(url: string): boolean {

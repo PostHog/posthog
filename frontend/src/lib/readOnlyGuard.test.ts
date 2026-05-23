@@ -82,6 +82,9 @@ describe('readOnlyGuard', () => {
                 ['query log', 'POST', '/api/environments/2/query/abc-123/log'],
                 ['query with trailing query string', 'POST', '/api/environments/2/query/?refresh=true'],
                 ['delete on query path', 'DELETE', '/api/environments/2/query/abc-123/'],
+                ['insights timing telemetry', 'POST', '/api/projects/2/insights/timing'],
+                ['insights timing with trailing slash', 'POST', '/api/projects/2/insights/timing/'],
+                ['insights timing with query string', 'POST', '/api/projects/2/insights/timing?foo=bar'],
             ] as const)('lets %s through (%s %s)', (_label, method, url) => {
                 const notifier = jest.fn()
                 setReadOnlyNotifier(notifier)
@@ -92,7 +95,9 @@ describe('readOnlyGuard', () => {
             it.each([
                 ['endpoint that just contains the word query in a name', 'POST', '/api/environments/2/queryless/'],
                 ['similar prefix without slash', 'POST', '/api/environments/2/queryteam/'],
-            ] as const)('still blocks %s (%s %s) — only paths with /query/ segment are allowed', (_l, method, url) => {
+                ['insights endpoint that is not timing', 'POST', '/api/projects/2/insights/'],
+                ['insights timing prefix match without slash', 'POST', '/api/projects/2/insights/timings/'],
+            ] as const)('still blocks %s (%s %s) — only exact allow-list paths pass through', (_l, method, url) => {
                 expect(() => assertNotReadOnly(method, url)).toThrow(ReadOnlyModeError)
             })
         })
