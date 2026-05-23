@@ -2,7 +2,8 @@ import type { GoalLineConfig, Series, TimeSeriesLineChartConfig, TooltipConfig, 
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 
-import { schemaGoalLinesToConfigs } from '../trends/viz/shared/goalLinesAdapter'
+import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
+
 import type { RetentionTrendPayload } from './types'
 
 // `retentionGraphLogic.trendSeries` spreads `cohortRetention` onto each entry, so the

@@ -1,5 +1,6 @@
-import { datasetToActorsQuery } from '../datasetToActorsQuery'
-import type { TrendsChartClickDeps } from '../handleTrendsChartClick'
+import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
+
+import type { TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
 
 // Sparse-stacked: resolve by dataIndex, not series.key — buildPointClickData would otherwise
 // dispatch the first non-excluded series regardless of which band was clicked.
