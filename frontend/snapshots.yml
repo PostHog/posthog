@@ -4345,7 +4345,7 @@ snapshots:
     scenes-app-experiments--experiment-with-legacy-funnels-query--dark:
         hash: v1.k794b7964.0ef2f435002d144343a7ce5f640b833f4e566ce98e83eab68b4e42ee96acbb98.a8N5vGoJ6bAyXTmJX2iVTRKtTMeNxQaV3wMc45DKfMo
     scenes-app-experiments--experiment-with-legacy-funnels-query--light:
-        hash: v1.k794b7964.29131edaad502de99617847c74a29df00c7fa2a1f1b30fd677e606037ff41dee.U85PQBuTNTIx_ynJNrB8ih2b1yOX-_KOthyKsPn6sWE
+        hash: v1.k794b7964.8e5e9331bf5095ac3dac44152379e324897179bedb0e891f8c6259441bccf3db.aNPy2Nd-ukNjoaBb67IUFukt0ExvNnz1DRVpchChdeg
     scenes-app-experiments--experiment-with-legacy-trends-query--dark:
         hash: v1.k794b7964.1acc9602a3d12492e72edeb70152d2f9de89949e1147ef959bee9c3575aef370.jboMbYWg2AwJStHKYLwp9y9qw_V-2RAFTmj_xWXGxh0
     scenes-app-experiments--experiment-with-legacy-trends-query--light:
@@ -4603,11 +4603,11 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--light:
         hash: v1.k794b7964.39c531480ac09a585d44dc77debc1de29c1c16624a2ac2a833d773b9a965b304.cCY0VJA9FAt484n9ehqjKR_A3AFsJ5NrkEC5bnmr3to
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--superwide--dark:
-        hash: v1.k794b7964.15485960e856e95dffbacff48294d7dead91e99395b408f00894d5b72aff096b.cmf3b-I-_0OvVrM25IVRZlon5h2hVk9BywjTQME-Bnk
+        hash: v1.k794b7964.a13eac5097422ff7ec654211b082a08e3485f00baf0f77c89300678699094714.L4zaR-V1HctKsFlqCt9UWcHOZ7ytheQ_0oXtN1HEKAU
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--superwide--light:
         hash: v1.k794b7964.26ff36a61a6cfdabfc95e7c45cdcf7d56b98db68e691495b6624afcdf4cd38dd.JlYx2NiLnbrphm6vTNch194or3BgrT-MWgEm8RAjB3o
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--dark:
-        hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.O7SwG4Drfr3z02hcLNC1LsLsGWddouhybBp4xZaUE-A
+        hash: v1.k794b7964.c47bdb853ef9b6becfb675e2ca0bdbdb0c1b4385cf2442d50dd92752d90f7906.URrKOLP9uUjbKWcui2yOA7hm_JsXsbkAlOcWJshoQrI
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--light:
         hash: v1.k794b7964.1a564a7e326dd6ce74422aeec8cc336763529a54aac381e2c3039c950f73e0b9.pQOeGG7_eD40sEsh7BApyC7wiUAQx9-TXPHrzC_seWI
     scenes-app-insights-funnels--funnel-time-to-convert--dark:
