@@ -7,11 +7,11 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { ChartParams, FunnelVizType } from '~/types'
+
 import { FunnelHistogramChart } from 'products/product_analytics/frontend/insights/funnels/FunnelHistogramChart/FunnelHistogramChart'
 import { FunnelLineChart } from 'products/product_analytics/frontend/insights/funnels/FunnelLineChart/FunnelLineChart'
 import { FunnelStepsBarChart } from 'products/product_analytics/frontend/insights/funnels/FunnelStepsBarChart/FunnelStepsBarChart'
-
-import { ChartParams, FunnelVizType } from '~/types'
 
 import { FunnelBarHorizontal } from './FunnelBarHorizontal/FunnelBarHorizontal'
 import { FunnelBarVertical } from './FunnelBarVertical/FunnelBarVertical'

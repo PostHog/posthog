@@ -4,10 +4,7 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import type { GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithNestedBreakdown, IntervalType } from '~/types'
 
-import {
-    buildTrendsLineTimeSeriesConfig,
-    buildTrendsSeries,
-} from '../../trends/TrendsLineChart/trendsChartTransforms'
+import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from '../../trends/TrendsLineChart/trendsChartTransforms'
 import type { FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 
 export type IndexedFunnelStep = FunnelStepWithNestedBreakdown & { id: number; seriesIndex: number }
