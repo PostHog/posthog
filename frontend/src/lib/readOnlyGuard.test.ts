@@ -82,6 +82,8 @@ describe('readOnlyGuard', () => {
                 ['query log', 'POST', '/api/environments/2/query/abc-123/log'],
                 ['query with trailing query string', 'POST', '/api/environments/2/query/?refresh=true'],
                 ['delete on query path', 'DELETE', '/api/environments/2/query/abc-123/'],
+                ['file system log view', 'POST', '/api/environments/2/file_system/log_view/'],
+                ['log view with query string', 'POST', '/api/environments/2/file_system/log_view/?foo=bar'],
             ] as const)('lets %s through (%s %s)', (_label, method, url) => {
                 const notifier = jest.fn()
                 setReadOnlyNotifier(notifier)
@@ -92,7 +94,9 @@ describe('readOnlyGuard', () => {
             it.each([
                 ['endpoint that just contains the word query in a name', 'POST', '/api/environments/2/queryless/'],
                 ['similar prefix without slash', 'POST', '/api/environments/2/queryteam/'],
-            ] as const)('still blocks %s (%s %s) — only paths with /query/ segment are allowed', (_l, method, url) => {
+                ['file system entity write blocked', 'POST', '/api/environments/2/file_system/'],
+                ['file system non-log_view blocked', 'POST', '/api/environments/2/file_system/abc-123/move'],
+            ] as const)('still blocks %s (%s %s) — only allowlisted paths pass', (_l, method, url) => {
                 expect(() => assertNotReadOnly(method, url)).toThrow(ReadOnlyModeError)
             })
         })
