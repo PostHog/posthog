@@ -1,11 +1,17 @@
 import { cleanup, render, type RenderResult } from '@testing-library/react'
 import React, { type ReactElement, type ReactNode } from 'react'
 
+import { PieTooltip } from '../charts/PieChart/PieTooltip'
+import type { PieTooltipContext } from '../charts/PieChart/PieChart'
 import type { TooltipContext } from '../core/types'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { getHogChart, type HogChart } from './accessor'
 import { ensureJsdom } from './jsdom'
 import { HOG_CHARTS_TOOLTIP_SELECTOR } from './tooltip'
+
+function isPieTooltipContext(ctx: unknown): ctx is PieTooltipContext {
+    return typeof ctx === 'object' && ctx !== null && 'slice' in ctx && 'percent' in ctx
+}
 
 /** Render a hog-charts component and return Testing Library's `RenderResult` with a `chart`
  *  accessor attached. Throws if the rendered tree doesn't contain a hog-charts canvas.
@@ -23,11 +29,16 @@ export function renderHogChart<Meta = unknown>(ui: ReactElement): RenderResult &
     // we still call it for the rendered DOM; otherwise we fall through to DefaultTooltip,
     // matching the chart's natural default.
     let lastTooltipContext: TooltipContext<Meta> | null = null
-    const props = ui.props as { tooltip?: (ctx: TooltipContext<Meta>) => ReactNode; labels?: string[] }
+    const props = ui.props as { tooltip?: (ctx: unknown) => ReactNode; labels?: string[] }
     const userTooltip = props.tooltip
-    const captureTooltip = (ctx: TooltipContext<Meta>): ReactNode => {
-        lastTooltipContext = ctx
-        return userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx as TooltipContext)
+    const captureTooltip = (ctx: unknown): ReactNode => {
+        if (!isPieTooltipContext(ctx)) {
+            lastTooltipContext = ctx as TooltipContext<Meta>
+        }
+        if (userTooltip) {
+            return userTooltip(ctx)
+        }
+        return isPieTooltipContext(ctx) ? PieTooltip({ ctx }) : DefaultTooltip(ctx as TooltipContext)
     }
     const wrapped = React.cloneElement(ui, { tooltip: captureTooltip })
     const result = render(wrapped)

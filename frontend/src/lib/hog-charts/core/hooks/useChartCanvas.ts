@@ -10,7 +10,7 @@ interface UseChartCanvasOptions {
 interface CanvasState {
     dimensions: ChartDimensions
     ctx: CanvasRenderingContext2D
-    overlayCtx: CanvasRenderingContext2D
+    overlayCtx: CanvasRenderingContext2D | null
 }
 
 interface UseChartCanvasResult {
@@ -63,8 +63,7 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
 
         const updateSize = (): void => {
             const canvas = canvasRef.current
-            const overlayCanvas = overlayCanvasRef.current
-            if (!canvas || !overlayCanvas) {
+            if (!canvas) {
                 return
             }
 
@@ -73,13 +72,16 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             const dpr = window.devicePixelRatio || 1
 
             sizeCanvas(canvas, rect, dpr)
-            sizeCanvas(overlayCanvas, rect, dpr)
+            const overlayCanvas = overlayCanvasRef.current
+            if (overlayCanvas) {
+                sizeCanvas(overlayCanvas, rect, dpr)
+            }
 
             const context = canvas.getContext('2d')
-            const overlayContext = overlayCanvas.getContext('2d')
-            if (!context || !overlayContext) {
+            if (!context) {
                 return
             }
+            const overlayContext = overlayCanvas ? overlayCanvas.getContext('2d') : null
 
             setCanvasState({
                 ctx: context,

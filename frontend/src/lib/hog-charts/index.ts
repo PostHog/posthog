@@ -3,6 +3,15 @@ export { BarChart } from './charts/BarChart/BarChart'
 export type { BarChartProps } from './charts/BarChart/BarChart'
 export { LineChart } from './charts/LineChart'
 export type { LineChartProps } from './charts/LineChart'
+export { PieChart } from './charts/PieChart/PieChart'
+export type {
+    PieChartConfig,
+    PieChartProps,
+    PieSlice,
+    PieSliceClickData,
+    PieTooltipContext,
+} from './charts/PieChart/PieChart'
+export { PieTooltip } from './charts/PieChart/PieTooltip'
 export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type {
     ConfidenceIntervalConfig,
