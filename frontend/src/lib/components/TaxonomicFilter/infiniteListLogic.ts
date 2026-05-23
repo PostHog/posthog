@@ -792,6 +792,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 s.suggestedPinnedMatches,
                 s.suggestedRecentMatches,
                 s.keywordShortcutItems,
+                s.taxonomicGroups,
             ],
             (
                 remoteItems,
@@ -803,12 +804,54 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 contextFilteredPinnedItems,
                 suggestedPinnedMatches,
                 suggestedRecentMatches,
-                keywordShortcutItems
+                keywordShortcutItems,
+                taxonomicGroups
             ) => {
                 const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
-                const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
                 const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
                 const pinnedPrefix = isSuggested && !searchQuery ? (contextFilteredPinnedItems || []).slice(0, 3) : []
+
+                // Keep recents/pinned as the canonical row for an underlying value: when a search
+                // surfaces the same `{ groupType, value }` from a per-group top-match, drop the
+                // per-group row so the user doesn't see e.g. "Recent · pageview" stacked above
+                // "Events · pageview".
+                const dedupeKeys = new Set<string>()
+                const addRecentKey = (item: TaxonomicDefinitionTypes): void => {
+                    if (hasRecentContext(item) && item._recentContext.sourceValue != null) {
+                        dedupeKeys.add(`${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue}`)
+                    }
+                }
+                const addPinnedKey = (item: TaxonomicDefinitionTypes): void => {
+                    if (hasPinnedContext(item) && item._pinnedContext.value != null) {
+                        dedupeKeys.add(`${item._pinnedContext.sourceGroupType}::${item._pinnedContext.value}`)
+                    }
+                }
+                recentPrefix.forEach(addRecentKey)
+                pinnedPrefix.forEach(addPinnedKey)
+                suggestedRecentMatches.forEach(addRecentKey)
+                suggestedPinnedMatches.forEach(addPinnedKey)
+
+                const rawTopMatches = isSuggested ? topMatchItemsWithSkeletons : []
+                const topMatches =
+                    dedupeKeys.size === 0
+                        ? rawTopMatches
+                        : rawTopMatches.filter((item) => {
+                              if (isSkeletonItem(item)) {
+                                  return true
+                              }
+                              const group = (item as TaxonomicDefinitionTypes & { group?: TaxonomicFilterGroupType })
+                                  .group
+                              if (!group) {
+                                  return true
+                              }
+                              const sourceGroup = taxonomicGroups.find((g) => g.type === group)
+                              const value = sourceGroup?.getValue?.(item as TaxonomicDefinitionTypes)
+                              if (value == null) {
+                                  return true
+                              }
+                              return !dedupeKeys.has(`${group}::${value}`)
+                          })
+
                 // Shortcuts lead the list so users searching for the verb they mean (e.g. "click")
                 // see the autocapture/event-type shortcut prominently and pressing Enter picks it.
                 // Real events with the same name remain accessible below the shortcut.

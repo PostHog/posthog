@@ -596,6 +596,63 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('SuggestedFilters dedupe between recents and per-group top matches', () => {
+        // When the same underlying item appears as a Recent (because the user picked it before)
+        // and as a per-group top match (because the search hit the Events group), the recents
+        // row wins — otherwise the user sees "$pageview" stacked twice in the suggested list.
+        let dedupeLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'event1',
+                item: { id: 'uuid-0-foobar', name: 'event1' },
+                teamId: MOCK_TEAM_ID,
+            })
+
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testSuggestedDedupe',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            }
+            dedupeLogic = taxonomicFilterLogic(logicProps)
+            dedupeLogic.mount()
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+        })
+
+        afterEach(() => {
+            dedupeLogic.unmount()
+        })
+
+        it('drops the events top match when a recent already surfaces the same value', async () => {
+            await expectLogic(dedupeLogic, () => {
+                dedupeLogic.actions.setSearchQuery('event1')
+            })
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches', 'openRevealBarrier'])
+                .delay(1)
+
+            const suggestedListLogic = infiniteListLogic({
+                ...dedupeLogic.props,
+                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+            })
+
+            const results = suggestedListLogic.values.items.results
+            const event1Rows = results.filter((item: any) => item && item.name === 'event1')
+            expect(event1Rows).toHaveLength(1)
+            expect(event1Rows[0]).toEqual(
+                expect.objectContaining({
+                    _recentContext: expect.objectContaining({
+                        sourceGroupType: TaxonomicFilterGroupType.Events,
+                        sourceValue: 'event1',
+                    }),
+                })
+            )
+        })
+    })
+
     describe('WorkflowVariables in SuggestedFilters', () => {
         // The All/Suggestions tab is always prepended to the workflow scene's filter via
         // `TaxonomicPropertyFilter`, and is the default landing tab. Surfacing workflow variables
