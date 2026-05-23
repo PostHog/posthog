@@ -4,6 +4,7 @@ import { startCfHarness } from './harness/cf'
 import { loadIntegrationEnv, type IntegrationEnv, type IntegrationHarness } from './harness/types'
 import {
     defineAuthTests,
+    defineCatalogFilterTests,
     defineMcpProtocolTests,
     defineResilienceTests,
     defineResourceCatalogTests,
@@ -60,3 +61,4 @@ defineUiAppProtocolTests('Cloudflare Workers (real stack)', harnessFor)
 defineAuthTests('Cloudflare Workers (real stack)', harnessFor)
 defineResourceCatalogTests('Cloudflare Workers (real stack)', harnessFor)
 defineToolBehaviorTests('Cloudflare Workers (real stack)', harnessFor)
+defineCatalogFilterTests('Cloudflare Workers (real stack)', harnessFor)

@@ -1374,9 +1374,10 @@ export function defineResourceCatalogTests(
 ): void {
     describe(`MCP resource catalog (${label})`, () => {
         let client: Client
+        let harness: ProtocolTestHarness
 
         beforeEach(async () => {
-            const harness = await getHarness()
+            harness = await getHarness()
             const built = buildStreamableClient(harness)
             client = built.client
             await client.connect(built.transport as ConnectableTransport)
@@ -1417,7 +1418,6 @@ export function defineResourceCatalogTests(
         })
 
         it('returns at least one prompt with name and description fields', async ({ skip }) => {
-            const harness = await getHarness()
             if (!harness.gracefulUnknown) {
                 skip('Prompts endpoint is wired only on the graceful-unknown runtime.')
                 return
