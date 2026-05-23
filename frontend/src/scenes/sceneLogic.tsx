@@ -6,7 +6,6 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -15,7 +14,6 @@ import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
-import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
 import {
@@ -38,7 +36,6 @@ import {
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { isSharedView } from '~/exporter/exporterViewLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel } from '~/types'
@@ -98,17 +95,6 @@ export const getTabsSnapshotForHistory = (tabs: SceneTab[]): SceneTab[] => tabs.
 const sanitizeTabForPersistence = (tab: SceneTab): SceneTab => {
     return tabToPersistableSnapshot(tab, { pinned: true, active: false })
 }
-
-const normalizeStoredPinnedTabs = (tabs: SceneTab[]): SceneTab[] =>
-    tabs.map((tab) => {
-        const sanitized: SceneTab = {
-            ...tab,
-            id: tab.id || generateTabId(),
-            pinned: true,
-            active: false,
-        }
-        return sanitized
-    })
 
 const persistTabs = (_tabs: SceneTab[], _homepage: SceneTab | null): void => {
     // PostHog tabs were removed — no longer persist tab state to storage.
@@ -181,14 +167,6 @@ export const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallb
             sceneParams: fallback?.sceneParams ?? tab.sceneParams,
         }
     })
-}
-
-const composeTabsFromStorage = (storedPinned: PersistedPinnedState | null, baseTabs: SceneTab[]): SceneTab[] => {
-    const { pinned: basePinned, unpinned } = partitionTabs(baseTabs)
-    const mergedPinned = mergePinnedTabs(storedPinned, basePinned)
-    const unpinnedIds = new Set(unpinned.map((tab) => tab.id))
-    const filteredPinned = mergedPinned.filter((tab) => !tab.id || !unpinnedIds.has(tab.id))
-    return ensureActiveTab([...filteredPinned, ...unpinned.map((tab) => ({ ...tab, pinned: false }))])
 }
 
 const pathPrefixesOnboardingNotRequiredFor = [
@@ -340,8 +318,6 @@ export const sceneLogic = kea<sceneLogicType>([
             title,
             iconType,
         }),
-        loadPinnedTabsFromBackend: true,
-        setPinnedStateFromBackend: (pinnedState: PersistedPinnedState) => ({ pinnedState }),
         setHomepage: (tab: SceneTab | null) => ({ tab }),
         closeTabId: (tabId: string, options?: { source?: TabCloseSource }) => ({ tabId, options }),
         removeTab: (tab: SceneTab, options?: { source?: TabCloseSource }) => ({ tab, options }),
@@ -366,9 +342,6 @@ export const sceneLogic = kea<sceneLogicType>([
             [] as SceneTab[],
             {
                 setTabs: (_, { tabs }) => ensureActiveTab(sortTabsPinnedFirst(tabs)),
-                setPinnedStateFromBackend: (state, { pinnedState }) => {
-                    return composeTabsFromStorage(pinnedState, state)
-                },
                 newTab: (state, { href, options, tabId }) => {
                     const activate = options?.activate ?? true
                     const { pathname, search, hash } = combineUrl(href || '/new')
@@ -621,7 +594,6 @@ export const sceneLogic = kea<sceneLogicType>([
         homepage: [
             null as SceneTab | null,
             {
-                setPinnedStateFromBackend: (_, { pinnedState }) => pinnedState.homepage ?? null,
                 setHomepage: (_, { tab }) => (tab ? sanitizeTabForPersistence(tab) : null),
             },
         ],
@@ -845,9 +817,6 @@ export const sceneLogic = kea<sceneLogicType>([
             })
             actions.setFrozenWidths(widths)
         },
-        [NEW_INTERNAL_TAB]: (payload) => {
-            actions.newTab(payload.path, { source: payload?.source ?? 'internal_link' })
-        },
         newTab: ({ href, options, tabId }) => {
             const newTab = values.tabs.find((tab) => tab.id === tabId)
             const fallbackUrl = combineUrl(href || '/new')
@@ -887,30 +856,6 @@ export const sceneLogic = kea<sceneLogicType>([
             } else {
                 persistTabs(values.tabs, values.homepage)
             }
-        },
-        loadPinnedTabsFromBackend: async () => {
-            if (isSharedView()) {
-                return
-            }
-            try {
-                const response = await api.get<{
-                    tabs?: SceneTab[]
-                    homepage?: SceneTab | null
-                }>('api/user_home_settings/@me/')
-                const tabs = response?.tabs ?? []
-                const homepage = response?.homepage ?? null
-                cache.skipNextPinnedSync = true
-                const pinnedState: PersistedPinnedState = {
-                    tabs: normalizeStoredPinnedTabs(tabs),
-                    homepage: homepage ? sanitizeTabForPersistence(homepage) : null,
-                }
-                actions.setPinnedStateFromBackend(pinnedState)
-            } catch (error) {
-                console.error('Failed to load pinned scene tabs', error)
-            }
-        },
-        setPinnedStateFromBackend: () => {
-            persistTabs(values.tabs, values.homepage)
         },
         setHomepage: () => {
             persistTabs(values.tabs, values.homepage)

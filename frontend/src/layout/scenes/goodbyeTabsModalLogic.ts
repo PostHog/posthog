@@ -112,6 +112,23 @@ const sortPinnedFirst = (tabs: FarewellTab[]): FarewellTab[] => {
     return [...pinned, ...rest]
 }
 
+const backendResponseToTabs = (response: BackendResponse | null): FarewellTab[] => {
+    const out: FarewellTab[] = []
+    if (response?.homepage) {
+        const f = toFarewellTab(response.homepage, true)
+        if (f) {
+            out.push(f)
+        }
+    }
+    for (const t of response?.tabs ?? []) {
+        const f = toFarewellTab(t, true)
+        if (f) {
+            out.push(f)
+        }
+    }
+    return out
+}
+
 export const goodbyeTabsModalLogic = kea<goodbyeTabsModalLogicType>([
     path(['layout', 'scenes', 'goodbyeTabsModalLogic']),
     actions({
@@ -141,20 +158,7 @@ export const goodbyeTabsModalLogic = kea<goodbyeTabsModalLogicType>([
                 loadBackendTabs: async () => {
                     try {
                         const response = await api.get<BackendResponse>('api/user_home_settings/@me/')
-                        const out: FarewellTab[] = []
-                        if (response?.homepage) {
-                            const f = toFarewellTab(response.homepage, true)
-                            if (f) {
-                                out.push(f)
-                            }
-                        }
-                        for (const t of response?.tabs ?? []) {
-                            const f = toFarewellTab(t, true)
-                            if (f) {
-                                out.push(f)
-                            }
-                        }
-                        return out
+                        return backendResponseToTabs(response)
                     } catch {
                         return []
                     }
@@ -176,7 +180,7 @@ export const goodbyeTabsModalLogic = kea<goodbyeTabsModalLogicType>([
             (backendTabs, localTabs): FarewellTab[] => sortPinnedFirst(dedupe([...backendTabs, ...localTabs])),
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(() => ({
         dismiss: () => {
             try {
                 localStorage.removeItem(getStorageKey(PINNED_TAB_STATE_KEY))
@@ -184,9 +188,6 @@ export const goodbyeTabsModalLogic = kea<goodbyeTabsModalLogicType>([
             } catch {
                 // ignore
             }
-        },
-        open: () => {
-            actions.loadBackendTabs()
         },
     })),
     afterMount(({ actions, values }) => {
@@ -196,14 +197,17 @@ export const goodbyeTabsModalLogic = kea<goodbyeTabsModalLogicType>([
         const local = collectLocal()
         if (local.length > 0) {
             actions.open()
+            actions.loadBackendTabs()
             return
         }
-        // Backend may still have pins from another browser; fetch lazily.
+        // Backend may still have pins from another browser; fetch once and reuse the
+        // payload to seed `backendTabs` so the loader doesn't repeat the request.
         ;(async () => {
             try {
                 const response = await api.get<BackendResponse>('api/user_home_settings/@me/')
-                const hasAny = (response?.tabs?.length ?? 0) > 0 || !!response?.homepage
-                if (hasAny) {
+                const backendTabs = backendResponseToTabs(response)
+                if (backendTabs.length > 0) {
+                    actions.loadBackendTabsSuccess(backendTabs)
                     actions.open()
                 }
             } catch {

@@ -328,22 +328,6 @@ describe('sceneLogic', () => {
             ]),
         })
 
-        const stalePinnedState = {
-            tabs: logic.values.tabs
-                .filter((tab) => tab.pinned)
-                .map((tab) => ({
-                    id: tab.id,
-                    pathname: tab.pathname,
-                    search: tab.search,
-                    hash: tab.hash,
-                    title: tab.title,
-                    active: false,
-                    iconType: tab.iconType,
-                    pinned: true,
-                })),
-            homepage: null,
-        }
-
         logic.actions.unpinTab('tab-3')
 
         await expectLogic(logic).toMatchValues({
@@ -353,8 +337,6 @@ describe('sceneLogic', () => {
                 expect.objectContaining({ id: 'tab-3', pinned: false }),
             ]),
         })
-
-        logic.actions.setPinnedStateFromBackend(stalePinnedState)
 
         const tab3Instances = logic.values.tabs.filter((tab) => tab.id === 'tab-3')
         const pinnedTabs = logic.values.tabs.filter((tab) => tab.pinned)

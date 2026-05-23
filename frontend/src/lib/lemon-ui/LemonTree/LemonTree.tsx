@@ -424,19 +424,21 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             </Link>
         )
 
+        const folderLine = depth !== 0 && size !== 'narrow' && (
+            <div
+                className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ width: `${folderLinesOffset}px` }}
+            />
+        )
+
         let button = contextMenuContent ? (
             <ContextMenu
                 onOpenChange={(open) => {
                     handleContextMenuOpen(open, item.id)
                 }}
             >
-                {depth !== 0 && size !== 'narrow' && (
-                    <div
-                        className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: `${folderLinesOffset}px` }}
-                    />
-                )}
+                {folderLine}
                 <ContextMenuTrigger asChild>{linkEl}</ContextMenuTrigger>
                 <ContextMenuContent loop className="max-w-[250px]">
                     {contextMenuContent}
@@ -444,13 +446,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             </ContextMenu>
         ) : (
             <>
-                {depth !== 0 && size !== 'narrow' && (
-                    <div
-                        className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: `${folderLinesOffset}px` }}
-                    />
-                )}
+                {folderLine}
                 {linkEl}
             </>
         )
