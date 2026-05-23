@@ -37,11 +37,15 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `attributes_map_float` Map(LowCardinality(String), Float64) CODEC(ZSTD(1)),
     `time_minute` DateTime ALIAS toStartOfMinute(timestamp),
     `attributes` Map(String, String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
+    `posthog_session_id` String MATERIALIZED attributes_map_str['posthog.session_id__str'] CODEC(ZSTD(1)),
+    `posthog_distinct_id` String MATERIALIZED attributes_map_str['posthog.distinct_id__str'] CODEC(ZSTD(1)),
     INDEX idx_metric_name_set metric_name TYPE set(100) GRANULARITY 1,
     INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
     INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
     INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
+    INDEX idx_posthog_session_id posthog_session_id TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_posthog_distinct_id posthog_distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
     PROJECTION projection_aggregate_counts
     (
         SELECT

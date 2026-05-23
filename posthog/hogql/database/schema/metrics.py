@@ -41,6 +41,8 @@ class MetricsTable(Table):
         "resource_fingerprint": IntegerDatabaseField(name="resource_fingerprint", nullable=False),
         "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
         "attributes": StringJSONDatabaseField(name="attributes", nullable=False),
+        "posthog_session_id": StringDatabaseField(name="posthog_session_id", nullable=False),
+        "posthog_distinct_id": StringDatabaseField(name="posthog_distinct_id", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):
