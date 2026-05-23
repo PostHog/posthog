@@ -52,6 +52,39 @@ mod tests {
 
         assert!(error.has_api_error_code("release_id_mismatch"));
     }
+
+    #[test]
+    fn request_error_display_includes_underlying_cause() {
+        // Build a reqwest::Error that has a known source chain. We aim at a
+        // localhost port where nothing is listening so the connection-refused
+        // path produces the same shape of error the user would hit when they
+        // typo their POSTHOG_CLI_HOST and DNS fails.
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(2))
+            .build()
+            .unwrap();
+        let Err(err) = client.get("http://127.0.0.1:1").send() else {
+            // If something is listening on port 1 we can't run this assertion;
+            // skip rather than fail the suite.
+            return;
+        };
+
+        let top_only = err.to_string();
+        let client_error = ClientError::from(err);
+        let rendered = format!("{client_error}");
+
+        assert!(
+            rendered.starts_with("Request error:"),
+            "unexpected prefix: {rendered}",
+        );
+        // The Display impl must walk the source chain so users can tell a
+        // typoed host from an outage. If the chain was walked the rendered
+        // string is strictly longer than just the top-level reqwest message.
+        assert!(
+            rendered.len() > format!("Request error: {top_only}").len(),
+            "expected source chain in output, got only top-level: {rendered}",
+        );
+    }
 }
 
 #[derive(Error, Debug)]
@@ -65,7 +98,19 @@ pub enum ClientError {
 impl Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ClientError::RequestError(err) => write!(f, "Request error: {err}"),
+            ClientError::RequestError(err) => {
+                // reqwest::Error's Display only prints the top-level message (e.g.
+                // "error sending request for url (...)") and hides the underlying
+                // cause (DNS failure, connection refused, TLS error, ...). Walk the
+                // source chain so the user can tell a typoed host from an outage.
+                write!(f, "Request error: {err}")?;
+                let mut source = std::error::Error::source(err);
+                while let Some(cause) = source {
+                    write!(f, ": {cause}")?;
+                    source = cause.source();
+                }
+                Ok(())
+            }
             ClientError::InvalidUrl(msg) => {
                 write!(f, "Failed to build URL: {msg}")
             }

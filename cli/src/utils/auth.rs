@@ -97,6 +97,43 @@ pub fn host_validator(host: &str) -> Result<Validation, CustomUserError> {
     Ok(Validation::Valid)
 }
 
+/// Returns true if the host is recognizably a PostHog host or a local/self-hosted
+/// setup we should not warn about. The goal is to catch host typos like
+/// `eu.posthog.co` (missing the `m`) without spamming self-hosters.
+pub fn is_known_posthog_host(host: &str) -> bool {
+    let Ok(url) = Url::parse(host) else {
+        return false;
+    };
+    let Some(host_str) = url.host_str() else {
+        return false;
+    };
+
+    if host_str == "localhost" || host_str.parse::<std::net::IpAddr>().is_ok() {
+        return true;
+    }
+
+    host_str == "posthog.com"
+        || host_str == "posthog.dev"
+        || host_str.ends_with(".posthog.com")
+        || host_str.ends_with(".posthog.dev")
+}
+
+/// Heuristic that flags hosts which clearly meant to be a PostHog host but
+/// don't quite match (e.g. `eu.posthog.co`). Anything that doesn't mention
+/// `posthog` at all is assumed to be a self-hosted deployment and left alone.
+pub fn looks_like_posthog_typo(host: &str) -> bool {
+    if is_known_posthog_host(host) {
+        return false;
+    }
+    let Ok(url) = Url::parse(host) else {
+        return false;
+    };
+    let Some(host_str) = url.host_str() else {
+        return false;
+    };
+    host_str.contains("posthog")
+}
+
 pub fn token_validator(token: &str) -> Result<Validation, CustomUserError> {
     if token.is_empty() {
         return Ok(Validation::Invalid("Token cannot be empty".into()));
@@ -154,4 +191,50 @@ pub fn get_token() -> Result<Token, Error> {
             .context(env_err)
             .context(dir_err),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_known_posthog_hosts() {
+        assert!(is_known_posthog_host("https://us.posthog.com"));
+        assert!(is_known_posthog_host("https://eu.posthog.com"));
+        assert!(is_known_posthog_host("https://app.posthog.com"));
+        assert!(is_known_posthog_host("https://us.posthog.dev"));
+        assert!(is_known_posthog_host("https://posthog.com"));
+        assert!(is_known_posthog_host("http://localhost:8000"));
+        assert!(is_known_posthog_host("http://127.0.0.1:8010"));
+    }
+
+    #[test]
+    fn does_not_recognize_typoed_or_self_hosted() {
+        assert!(!is_known_posthog_host("https://eu.posthog.co"));
+        assert!(!is_known_posthog_host("https://us.posthog.con"));
+        assert!(!is_known_posthog_host("https://posthog.example.com"));
+        assert!(!is_known_posthog_host("not a url"));
+        assert!(!is_known_posthog_host(""));
+    }
+
+    #[test]
+    fn flags_typos_that_mention_posthog() {
+        assert!(looks_like_posthog_typo("https://eu.posthog.co"));
+        assert!(looks_like_posthog_typo("https://us.posthog.con"));
+        assert!(looks_like_posthog_typo("https://posthog.co"));
+    }
+
+    #[test]
+    fn does_not_flag_known_or_unrelated_hosts() {
+        // Known hosts must never trigger the warning.
+        assert!(!looks_like_posthog_typo("https://us.posthog.com"));
+        assert!(!looks_like_posthog_typo("https://eu.posthog.com"));
+        assert!(!looks_like_posthog_typo("http://localhost:8000"));
+        // Self-hosted on an unrelated domain must not be warned about.
+        assert!(!looks_like_posthog_typo("https://analytics.example.com"));
+        assert!(!looks_like_posthog_typo("https://mycompany.internal"));
+        // Anything unparseable is treated as not-a-typo (host_validator already
+        // rejects these before we get here).
+        assert!(!looks_like_posthog_typo("not a url"));
+    }
 }

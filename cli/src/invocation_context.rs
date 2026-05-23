@@ -15,7 +15,9 @@ use tracing::{debug, info, warn};
 
 use crate::{
     api::client::PHClient,
-    utils::auth::{env_id_validator, get_token, host_validator, token_validator},
+    utils::auth::{
+        env_id_validator, get_token, host_validator, looks_like_posthog_typo, token_validator,
+    },
 };
 
 // I've decided in my infinite wisdom that global state is fine, actually.
@@ -89,6 +91,16 @@ impl InvocationConfig {
         handle_validation(token_validator(&self.api_key), "Invalid Personal API key")?;
         handle_validation(host_validator(&self.host), "Invalid Host")?;
         handle_validation(env_id_validator(&self.env_id), "Invalid Environment ID")?;
+
+        if looks_like_posthog_typo(&self.host) {
+            warn!(
+                "Host '{}' looks like a typo of a PostHog host. Known hosts are \
+                 https://us.posthog.com and https://eu.posthog.com. If you are \
+                 self-hosting, you can ignore this warning.",
+                self.host
+            );
+        }
+
         Ok(())
     }
 }
