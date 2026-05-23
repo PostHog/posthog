@@ -127,6 +127,10 @@ from products.visual_review.backend.presentation.views import (
     RunViewSet as VisualReviewRunViewSet,
     SnapshotViewSet as VisualReviewSnapshotViewSet,
 )
+from products.social_signals.backend.presentation.views import (
+    MentionSourceViewSet as SocialSignalsMentionSourceViewSet,
+    MentionViewSet as SocialSignalsMentionViewSet,
+)
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
@@ -1381,6 +1385,19 @@ projects_router.register(
     r"visual_review/runs",
     VisualReviewRunViewSet,
     "project_visual_review_runs",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"social_signals/mentions",
+    SocialSignalsMentionViewSet,
+    "project_social_signals_mentions",
+    ["project_id"],
+)
+projects_router.register(
+    r"social_signals/sources",
+    SocialSignalsMentionSourceViewSet,
+    "project_social_signals_sources",
     ["project_id"],
 )
 

@@ -77,6 +77,7 @@ PRODUCTS_APPS = [
     "products.deployments.backend.apps.DeploymentsConfig",
     "products.alerts.backend.apps.AlertsConfig",
     "products.actions.backend.apps.ActionsConfig",
+    "products.social_signals.backend.apps.SocialSignalsConfig",
 ]
 
 INSTALLED_APPS = [

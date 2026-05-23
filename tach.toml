@@ -463,6 +463,13 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.social_signals"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.surveys"
 depends_on = [
     "ee",
@@ -540,7 +547,7 @@ expose = [
     "backend\\.presentation\\.views.*",
 ]
 from = [
-    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
+    "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|social_signals|tracing|user_interviews|visual_review)",
 ]
 
 # TODO: Experiments-specific temporary interface

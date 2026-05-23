@@ -57,6 +57,7 @@ from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
+from products.social_signals.backend.presentation.webhook import ingest_webhook as social_signals_ingest_webhook
 from products.surveys.backend.api.survey import public_survey_page
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
@@ -250,6 +251,11 @@ urlpatterns = [
         "api/legal_documents/pandadoc",
         csrf_exempt(legal_document_pandadoc_webhook),
         name="legal_document_pandadoc_webhook",
+    ),
+    path(
+        "api/social_signals/webhook/<str:ingest_token>/",
+        csrf_exempt(social_signals_ingest_webhook),
+        name="social_signals_ingest_webhook",
     ),
     path(
         "api/users/<str:user_id>/signal_autonomy/",

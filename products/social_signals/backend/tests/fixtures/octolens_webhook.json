@@ -1,0 +1,37 @@
+{
+    "mentions": [
+        {
+            "id": "octolens-mention-1",
+            "platform": "twitter",
+            "url": "https://twitter.com/jane/status/1234567890",
+            "content": "PostHog's session replay is honestly the best DX I've tried this year.",
+            "author": {
+                "name": "Jane Developer",
+                "handle": "janedev",
+                "profile_url": "https://twitter.com/janedev",
+                "followers": 4200
+            },
+            "posted_at": "2026-05-21T12:34:56Z",
+            "engagement": {
+                "likes": 42,
+                "retweets": 5,
+                "comments": 3
+            }
+        },
+        {
+            "id": "octolens-mention-2",
+            "platform": "reddit",
+            "url": "https://www.reddit.com/r/webdev/comments/abc123/",
+            "content": "Anyone else hitting issues with PostHog's feature flag SDK on Next.js 15?",
+            "author": {
+                "name": "throwaway_dev",
+                "handle": "throwaway_dev"
+            },
+            "posted_at": "2026-05-20T08:00:00Z",
+            "engagement": {
+                "upvotes": 12,
+                "comments": 7
+            }
+        }
+    ]
+}
