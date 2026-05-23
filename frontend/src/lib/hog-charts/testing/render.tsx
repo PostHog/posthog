@@ -8,11 +8,7 @@ import { getHogChart, type HogChart } from './accessor'
 import { ensureJsdom } from './jsdom'
 import { HOG_CHARTS_TOOLTIP_SELECTOR } from './tooltip'
 
-// Charts that wrap themselves in `ChartLayoutContext.Provider` (BarChart, LineChart, TimeSeries*)
-// override this in their render tree, so this fallback only kicks in for charts that don't
-// emit a layout context — like PieChart — so the substituted `DefaultTooltip` can still call
-// `useChartLayout()` for theme. The non-`theme` fields are stubs no overlay reads on the pie path.
-function buildFallbackLayoutContext(theme: ChartTheme): ChartLayoutContextValue {
+function buildDefaultLayoutContext(theme: ChartTheme): ChartLayoutContextValue {
     return {
         dimensions: { width: 0, height: 0, plotLeft: 0, plotTop: 0, plotWidth: 0, plotHeight: 0 },
         labels: [],
@@ -52,7 +48,7 @@ export function renderHogChart<Meta = unknown>(ui: ReactElement): RenderResult &
         return userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx as TooltipContext)
     }
     const wrapped = (
-        <ChartLayoutContext.Provider value={buildFallbackLayoutContext(props.theme)}>
+        <ChartLayoutContext.Provider value={buildDefaultLayoutContext(props.theme)}>
             {React.cloneElement(ui, { tooltip: captureTooltip })}
         </ChartLayoutContext.Provider>
     )
