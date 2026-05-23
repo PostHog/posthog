@@ -325,7 +325,13 @@ class TestWebAnalyticsMetrics(TestCase):
             == 1.0
         )
 
-    def test_lazy_precompute_per_query_opt_in_not_set_rejection(self):
+    @parameterized.expand(
+        [
+            ("web_overview", "web_overview"),
+            ("web_stats", "web_stats"),
+        ]
+    )
+    def test_lazy_precompute_per_query_opt_in_not_set_rejection(self, _name, family):
         runner = MagicMock()
         runner.team = MagicMock(pk=42, uuid="00000000-0000-0000-0000-000000000000", organization_id=7, id=42)
         runner.query = MagicMock(useWebAnalyticsPrecompute=False)
@@ -334,12 +340,12 @@ class TestWebAnalyticsMetrics(TestCase):
             "products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute.posthoganalytics.feature_enabled",
             return_value=True,
         ):
-            assert can_use_lazy_precompute(runner, log_prefix="web_overview") is False
+            assert can_use_lazy_precompute(runner, log_prefix=family) is False
 
         assert (
             _get_counter_value(
                 WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED,
-                {"family": "web_overview", "reason": "PerQueryOptInNotSet"},
+                {"family": family, "reason": "PerQueryOptInNotSet"},
             )
             == 1.0
         )
