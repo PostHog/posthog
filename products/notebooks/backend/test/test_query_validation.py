@@ -1,23 +1,25 @@
+from typing import Any
+
 import pytest
 
 from parameterized import parameterized
 
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
 
-HOGQL_SOURCE = {"kind": "HogQLQuery", "query": "SELECT 1"}
-VALID_DATA_VIZ = {
+HOGQL_SOURCE: dict[str, Any] = {"kind": "HogQLQuery", "query": "SELECT 1"}
+VALID_DATA_VIZ: dict[str, Any] = {
     "kind": "DataVisualizationNode",
     "source": HOGQL_SOURCE,
     "display": "ActionsBar",
 }
-VALID_INSIGHT_VIZ = {
+VALID_INSIGHT_VIZ: dict[str, Any] = {
     "kind": "InsightVizNode",
     "source": {"kind": "TrendsQuery", "series": []},
 }
 
 
-def _wrap(query: dict | None) -> dict:
-    attrs = {"nodeId": "n1"}
+def _wrap(query: dict | None) -> dict[str, Any]:
+    attrs: dict[str, Any] = {"nodeId": "n1"}
     if query is not None:
         attrs["query"] = query
     return {
@@ -26,7 +28,7 @@ def _wrap(query: dict | None) -> dict:
     }
 
 
-def _extract_query(doc: dict) -> dict | None:
+def _extract_query(doc: dict[str, Any]) -> dict | None:
     return doc["content"][0]["attrs"].get("query")
 
 
