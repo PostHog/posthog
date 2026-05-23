@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { roundToDecimal } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -12,8 +14,23 @@ import { InsightEmptyState } from '../insights/EmptyStates'
 import { LineGraph } from '../insights/views/LineGraph/LineGraph'
 import { retentionGraphLogic } from './retentionGraphLogic'
 import { retentionModalLogic } from './retentionModalLogic'
-import { RetentionBarChart } from './viz/retention-bar-chart/RetentionBarChart'
-import { RetentionLineChart } from './viz/retention-line-chart/RetentionLineChart'
+
+const RetentionBarChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/retention/RetentionBarChart/RetentionBarChart').then((m) => ({
+        default: m.RetentionBarChart,
+    }))
+)
+const RetentionLineChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/retention/RetentionLineChart/RetentionLineChart').then(
+        (m) => ({ default: m.RetentionLineChart })
+    )
+)
+
+const LazyFallback = (
+    <WrappingLoadingSkeleton fullWidth>
+        <span className="block w-full h-72" />
+    </WrappingLoadingSkeleton>
+)
 
 interface RetentionGraphProps {
     inSharedMode?: boolean
@@ -50,10 +67,18 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
 
     const isBarDisplay = retentionFilter?.display === ChartDisplayType.ActionsBar
     if (isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_BAR]) {
-        return <RetentionBarChart inSharedMode={inSharedMode} />
+        return (
+            <Suspense fallback={LazyFallback}>
+                <RetentionBarChart inSharedMode={inSharedMode} />
+            </Suspense>
+        )
     }
     if (!isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_LINE]) {
-        return <RetentionLineChart inSharedMode={inSharedMode} />
+        return (
+            <Suspense fallback={LazyFallback}>
+                <RetentionLineChart inSharedMode={inSharedMode} />
+            </Suspense>
+        )
     }
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

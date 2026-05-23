@@ -7,14 +7,14 @@ import { TimeSeriesBarChart } from 'lib/hog-charts'
 import type { PointClickData, TooltipConfig, TooltipContext } from 'lib/hog-charts'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { retentionGraphLogic } from 'scenes/retention/retentionGraphLogic'
+import { retentionModalLogic } from 'scenes/retention/retentionModalLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
-import { retentionGraphLogic } from '../../retentionGraphLogic'
-import { retentionModalLogic } from '../../retentionModalLogic'
 import {
     buildRetentionBarChartConfig,
     buildRetentionSeries,
