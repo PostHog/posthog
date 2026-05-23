@@ -98,7 +98,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <ActionsPie {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
-            if (showHogChartsBar) {
+            if (hogChartsTrendsEnabled) {
                 return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
             }
             return <ActionsHorizontalBar {...commonProps} />
