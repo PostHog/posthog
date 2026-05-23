@@ -617,9 +617,9 @@ export function defineHttpRouteTests(
         })
 
         // /readyz piggy-backs on Redis health. With Redis up we expect 200;
-        // with Redis down we expect a 5xx. We assert success against the live
-        // harness (which guarantees a healthy Redis) so a regression that
-        // started ignoring Redis would show up.
+        // with Redis down we expect a 5xx. The harness boots a healthy
+        // Redis, so we assert success here — a regression that started
+        // ignoring the Redis ping would surface as the wrong status code.
         it('returns 200 on /readyz when the stack is healthy', async () => {
             const harness = await getHarness()
             const res = await harness.fetch(new URL('/readyz', harness.baseUrl))
@@ -933,6 +933,129 @@ export function defineToolBehaviorTests(
             }
             const text = decodeText(result.content)
             expect(text).toContain(harness.orgId)
+        })
+
+        // Multi-step flow: switch-project sets the active project in the
+        // per-user cache, and a subsequent project-scoped tool reads from
+        // that cache. If the cache write doesn't land before the next
+        // request resolves state (e.g. a Redis write that didn't await),
+        // the second call would either error out with "missing project
+        // context" or read from a stale project.
+        //
+        // We assert the second call succeeds without error — that's enough
+        // to know the active-project context flowed across the two
+        // requests on the same MCP session.
+        it('switch-project then a project-scoped tool call resolves the active project', async ({ skip }) => {
+            if (!harness.projectId) {
+                skip('Set TEST_PROJECT_ID to run the multi-step context test.')
+                return
+            }
+            const switchResult = await client.callTool({
+                name: 'switch-project',
+                arguments: { projectId: Number(harness.projectId) },
+            })
+            expect(switchResult.isError).toBeFalsy()
+            // feature-flag-get-all needs an active project context. It
+            // doesn't take a projectId argument — it reads from the cache
+            // populated by switch-project.
+            const listResult = await client.callTool({
+                name: 'feature-flag-get-all',
+                arguments: {},
+            })
+            if (listResult.isError) {
+                throw new Error(`feature-flag-get-all errored after switch-project: ${decodeText(listResult.content)}`)
+            }
+        })
+
+        // Multiple sequential calls on the same session should each see a
+        // fresh per-request context but the same cached active project.
+        // A regression that started rebuilding the API client per call
+        // (dropping the cached org/project) would surface as either
+        // missing-context errors or differing org ids across calls.
+        it('reads the same active context across multiple sequential calls', async ({ skip }) => {
+            if (!harness.orgId) {
+                skip('Set TEST_ORG_ID to run the sequential-context test.')
+                return
+            }
+            const a = await client.callTool({ name: 'organization-get', arguments: {} })
+            const b = await client.callTool({ name: 'organization-get', arguments: {} })
+            expect(a.isError).toBeFalsy()
+            expect(b.isError).toBeFalsy()
+            expect(decodeText(a.content)).toContain(harness.orgId)
+            expect(decodeText(b.content)).toContain(harness.orgId)
+        })
+
+        // Concurrent tool calls on the same session must not interfere with
+        // each other. The SDK transport multiplexes them over one HTTP
+        // connection; the dispatcher must keep their per-call state
+        // independent (no shared mutable buffers, no cross-talk between
+        // tool args).
+        it('handles concurrent tool calls on the same session without cross-talk', async ({ skip }) => {
+            if (!harness.orgId || !harness.projectId) {
+                skip('Set TEST_ORG_ID and TEST_PROJECT_ID to run the concurrent-call test.')
+                return
+            }
+            const [orgRes, projectsRes] = await Promise.all([
+                client.callTool({ name: 'organization-get', arguments: {} }),
+                client.callTool({ name: 'projects-get', arguments: {} }),
+            ])
+            expect(orgRes.isError).toBeFalsy()
+            expect(projectsRes.isError).toBeFalsy()
+            expect(decodeText(orgRes.content)).toContain(harness.orgId)
+            expect(decodeText(projectsRes.content)).toContain(harness.projectId)
+        })
+
+        // A tool error (validation or upstream 4xx) must come back as an
+        // in-band `isError: true` result. The session must remain usable
+        // for the next call — otherwise an agent that hits one bad arg
+        // would lose its whole session.
+        it('recovers cleanly: a valid tool call works after an isError result', async ({ skip }) => {
+            if (!harness.orgId) {
+                skip('Set TEST_ORG_ID to run the error-recovery test.')
+                return
+            }
+            const bad = await client.callTool({
+                name: 'switch-project',
+                arguments: { projectId: 'definitely-not-a-number' as unknown as number },
+            })
+            expect(bad.isError).toBe(true)
+            const good = await client.callTool({ name: 'organization-get', arguments: {} })
+            expect(good.isError).toBeFalsy()
+            expect(decodeText(good.content)).toContain(harness.orgId)
+        })
+
+        // Tools wrapped with `withUiApp(...)` should surface
+        // `_meta.ui.resourceUri` on per-call results (not just the tool
+        // definition). Clients use the per-call metadata to know which
+        // resource URI to fetch for the current invocation's render.
+        //
+        // We probe whichever tool from `tools/list` has the UI metadata
+        // set on its definition; we don't hard-code a tool name here so
+        // this stays robust as the catalog evolves.
+        it('attaches _meta.ui to tool-call results when the tool advertises a UI app', async () => {
+            const { tools } = await client.listTools()
+            const uiTool = tools.find((t) => {
+                const meta = (t as { _meta?: { ui?: { resourceUri?: string } } })._meta
+                return !!meta?.ui?.resourceUri
+            })
+            if (!uiTool) {
+                throw new Error('expected at least one tool with _meta.ui.resourceUri on its definition')
+            }
+            // We don't necessarily want to call an arbitrary tool because
+            // some may require complex args / external context. The
+            // `debug-mcp-ui-apps` tool is the canonical test target — it
+            // accepts no args and is registered specifically for this
+            // wiring check.
+            const debugTool = tools.find((t) => t.name === 'debug-mcp-ui-apps')
+            if (!debugTool) {
+                throw new Error('debug-mcp-ui-apps tool is missing — expected it for the per-call _meta probe')
+            }
+            const result = await client.callTool({ name: 'debug-mcp-ui-apps', arguments: {} })
+            if (result.isError) {
+                throw new Error(`debug-mcp-ui-apps errored: ${decodeText(result.content)}`)
+            }
+            const meta = (result as { _meta?: { ui?: { resourceUri?: string } } })._meta
+            expect(meta?.ui?.resourceUri).toBeTruthy()
         })
     })
 }

@@ -24,7 +24,7 @@ import {
 // Ensure `.env.test` defines TEST_POSTHOG_PERSONAL_API_KEY / TEST_ORG_ID /
 // TEST_PROJECT_ID — matching the existing `tests/tools/*.integration.test.ts`.
 //
-// What's covered here so that a green run means "the MCP server works":
+// Suites wired here, each focused on a slice of MCP server behavior:
 //   - `defineMcpProtocolTests`        — SDK-level initialize / list / call / read
 //   - `defineResilienceTests`         — /sse redirects, unknown Mcp-Session-Id behavior
 //   - `defineUiAppProtocolTests`      — ext-app metadata, HTML stub, static asset serving
@@ -33,8 +33,7 @@ import {
 //   - `defineJsonRpcEdgeCaseTests`    — raw JSON-RPC (parse errors, batches, notifications, ping)
 //   - `defineSessionLifecycleTests`   — initialize negotiation + repeated init
 //   - `defineResourceCatalogTests`    — both UI and context-mill resources present and readable
-//   - `defineToolBehaviorTests`       — real PostHog tool calls (projects-get, switch-project,
-//                                       organization-get) with response-shape assertions
+//   - `defineToolBehaviorTests`       — real PostHog tool calls and multi-step interactions
 
 let env: IntegrationEnv
 let harness: IntegrationHarness
