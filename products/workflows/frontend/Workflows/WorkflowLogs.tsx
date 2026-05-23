@@ -80,6 +80,7 @@ function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
                 groupByInstanceId
                 instanceLabel="workflow job"
                 renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
+                syncToUrl={false}
             />
         </div>
     )

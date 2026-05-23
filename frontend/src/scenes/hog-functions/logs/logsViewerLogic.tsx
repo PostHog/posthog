@@ -38,6 +38,9 @@ export type LogsViewerLogicProps = {
     groupByInstanceId?: boolean
     searchGroups?: string[]
     defaultFilters?: Partial<LogEntryParams>
+    /** When false, filter state is not synced to URL params. Use when LogsViewer is embedded inside
+     * another component (e.g. a collapsible panel) to prevent URL changes from resetting parent state. */
+    syncToUrl?: boolean
 }
 
 export type LogsViewerFilters = {
@@ -573,7 +576,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
     beforeUnmount(() => {
         // Disposables handle cleanup automatically
     }),
-    actionToUrl(({ values }) => {
+    actionToUrl(({ values, props }) => {
         const syncProperties = (
             properties: Record<string, any>
         ): [string, Record<string, any>, Record<string, any>] => {
@@ -587,12 +590,15 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         }
 
         return {
-            setFilters: ({ filters }) => syncProperties(filters),
-            setIsGrouped: () => syncProperties({ grouped: values.isGrouped }),
+            setFilters: ({ filters }) => (props.syncToUrl === false ? undefined : syncProperties(filters)),
+            setIsGrouped: () => (props.syncToUrl === false ? undefined : syncProperties({ grouped: values.isGrouped })),
         }
     }),
-    urlToAction(({ actions, values }) => {
-        const reactToTabChange = (_: any, search: Record<string, any>): void => {
+    urlToAction(({ actions, values, props }) => ({
+        '*': (_: any, search: Record<string, any>): void => {
+            if (props.syncToUrl === false) {
+                return
+            }
             Object.keys(search).forEach((key) => {
                 if (key in values.filters && search[key] !== values.filters[key as keyof LogsViewerFilters]) {
                     actions.setFilters({ [key]: search[key] })
@@ -602,10 +608,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             if (typeof search.grouped === 'boolean' && search.grouped !== values.isGrouped) {
                 actions.setIsGrouped(search.grouped)
             }
-        }
-
-        return {
-            '*': reactToTabChange,
-        }
-    }),
+        },
+    })),
 ])
