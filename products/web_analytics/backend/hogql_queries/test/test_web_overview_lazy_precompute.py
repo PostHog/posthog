@@ -1,10 +1,12 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
 from django.test import override_settings
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
@@ -199,6 +201,75 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"pg_jobs=[{jobs_summary}]"
         )
 
+    def _execute_sync_lazy_insert(
+        self,
+        runner: "WebOverviewQueryRunner",
+        time_window_min: datetime,
+        time_window_max: datetime,
+        ttl_seconds: int = 7 * 24 * 60 * 60,
+    ) -> uuid.UUID:
+        # Synchronous twin of `ensure_web_overview_precomputed`. Builds the
+        # *real* INSERT_QUERY_TEMPLATE via `_build_manual_insert_sql` (same SQL
+        # the framework runs in prod) and executes it via `sync_execute`. No
+        # `PreaggregationJob` row is created — we own the synthetic `job_id`
+        # and feed it to `execute_read_query`.
+        #
+        # Removes the framework's async/orchestration surface (PG job
+        # lifecycle, missing-window chunking, cross-process state) from these
+        # tests so the round-trip assertion isolates "is the SQL correct?"
+        # from "does the framework wire it up?". The framework smoke test is
+        # `test_unfiltered_round_trip_creates_precompute_job`.
+        from dataclasses import dataclass
+
+        from posthog.hogql import ast
+
+        from posthog.clickhouse.client import sync_execute
+
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LazyComputationTable,
+            _build_manual_insert_sql,
+            _get_insert_settings,
+        )
+        from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
+            INSERT_QUERY_TEMPLATE,
+            SESSION_FORWARD_PAD_MINUTES,
+            _events_session_id_expr,
+            _test_account_filter_expr,
+            _user_filter_expr,
+        )
+
+        @dataclass
+        class _StubJob:
+            id: uuid.UUID
+            time_range_start: datetime
+            time_range_end: datetime
+            expires_at: datetime
+
+        job = _StubJob(
+            id=uuid.uuid4(),
+            time_range_start=time_window_min,
+            time_range_end=time_window_max,
+            expires_at=django_timezone.now() + timedelta(seconds=ttl_seconds),
+        )
+
+        base_placeholders: dict[str, ast.Expr] = {
+            "events_session_id": _events_session_id_expr(runner),
+            "event_type_filter": runner.event_type_expr,
+            "user_filter": _user_filter_expr(runner),
+            "test_account_filter": _test_account_filter_expr(runner),
+            "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+        }
+
+        sql, values = _build_manual_insert_sql(
+            team=self.team,
+            job=job,
+            insert_query=INSERT_QUERY_TEMPLATE,
+            table=LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED,
+            base_placeholders=base_placeholders,
+        )
+        sync_execute(sql, values, settings=_get_insert_settings(self.team.id))
+        return job.id
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_unfiltered_round_trip_creates_precompute_job(self):
         self._seed_two_sessions()
@@ -210,7 +281,14 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_lazy_result_matches_raw_result(self):
-        """Run the same query with and without the lazy path enabled, assert results match."""
+        """Run the same query through the raw events scan and the lazy precompute
+        path (synchronous twin) and assert the metrics match.
+
+        The lazy path here bypasses the `PreaggregationJob` orchestration via
+        `_execute_sync_lazy_insert`: same INSERT_QUERY_TEMPLATE, same
+        `execute_read_query`, no framework async surface."""
+        from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import execute_read_query
+
         self._seed_two_sessions()
 
         # Path A: raw events scan (no lazy gate).
@@ -219,19 +297,26 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         raw_views = raw_response.results[1].value
         raw_sessions = raw_response.results[2].value
 
-        # Path B: lazy precompute.
-        with self._enable_lazy():
-            lazy_response = self._run(self._build_query())
+        # Path B: synchronous lazy precompute INSERT-SELECT + READ.
+        runner = WebOverviewQueryRunner(team=self.team, query=self._build_query())
+        date_from = runner.query_date_range.date_from().astimezone(UTC)
+        date_to = runner.query_date_range.date_to().astimezone(UTC)
+        time_window_min = datetime(date_from.year, date_from.month, date_from.day, tzinfo=UTC)
+        time_window_max = datetime(date_to.year, date_to.month, date_to.day, tzinfo=UTC) + timedelta(days=1)
 
-        # Confirm we actually went through the lazy path.
-        ready_jobs = PreaggregationJob.objects.filter(
-            team_id=self.team.pk, status=PreaggregationJob.Status.READY
-        ).count()
-        assert ready_jobs > 0, "expected at least one READY precompute job"
+        job_id = self._execute_sync_lazy_insert(runner, time_window_min, time_window_max)
 
-        lazy_visitors = lazy_response.results[0].value
-        lazy_views = lazy_response.results[1].value
-        lazy_sessions = lazy_response.results[2].value
+        rows = execute_read_query(
+            team_id=self.team.pk,
+            job_ids=[str(job_id)],
+            current_start_utc=date_from,
+            current_end_utc=date_to,
+            previous_start_utc=None,
+            previous_end_utc=None,
+        )
+        # _READ_SQL returns one row: [unique_users, prev_unique_users, views, prev_views,
+        # sessions, prev_sessions, avg_duration, prev_avg_duration, bounce_rate, prev_bounce_rate]
+        lazy_visitors, _, lazy_views, _, lazy_sessions, *_ = rows[0]
 
         state = self._dump_lazy_state()
         assert lazy_visitors == raw_visitors, f"visitors mismatch: lazy={lazy_visitors}, raw={raw_visitors}{state}"
@@ -452,7 +537,12 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     )
     @freeze_time("2024-01-15T12:00:00Z")
     def test_lazy_result_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str) -> None:
-        """Whole-hour-offset teams must produce the same metrics through the lazy and raw paths."""
+        """Whole-hour-offset teams must produce the same metrics through the lazy and raw paths.
+
+        Lazy side uses `_execute_sync_lazy_insert` so the comparison isolates SQL
+        correctness from the framework's async orchestration."""
+        from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import execute_read_query
+
         self.team.timezone = team_tz
         self.team.save()
         self._seed_two_sessions()
@@ -460,15 +550,31 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         raw_response = self._run(self._build_query())
         raw_values = [(r.key, r.value) for r in raw_response.results]
 
-        with self._enable_lazy():
-            lazy_response = self._run(self._build_query())
+        runner = WebOverviewQueryRunner(team=self.team, query=self._build_query())
+        date_from = runner.query_date_range.date_from().astimezone(UTC)
+        date_to = runner.query_date_range.date_to().astimezone(UTC)
+        time_window_min = datetime(date_from.year, date_from.month, date_from.day, tzinfo=UTC)
+        time_window_max = datetime(date_to.year, date_to.month, date_to.day, tzinfo=UTC) + timedelta(days=1)
 
-        ready_jobs = PreaggregationJob.objects.filter(
-            team_id=self.team.pk, status=PreaggregationJob.Status.READY
-        ).count()
-        assert ready_jobs > 0, f"expected READY precompute job for {team_tz}, got 0"
+        job_id = self._execute_sync_lazy_insert(runner, time_window_min, time_window_max)
 
-        lazy_values = [(r.key, r.value) for r in lazy_response.results]
+        rows = execute_read_query(
+            team_id=self.team.pk,
+            job_ids=[str(job_id)],
+            current_start_utc=date_from,
+            current_end_utc=date_to,
+            previous_start_utc=None,
+            previous_end_utc=None,
+        )
+        # _READ_SQL returns one row; current-period metrics are at indices 0/2/4/6/8.
+        cur = rows[0]
+        lazy_values = [
+            (raw_values[0][0], cur[0]),  # visitors
+            (raw_values[1][0], cur[2]),  # views
+            (raw_values[2][0], cur[4]),  # sessions
+            (raw_values[3][0], cur[6]),  # session duration
+            (raw_values[4][0], cur[8] * 100 if cur[8] is not None else None),  # bounce rate (% to match raw)
+        ]
         assert lazy_values == raw_values, (
             f"lazy/raw mismatch for {team_tz}: raw={raw_values}, lazy={lazy_values}{self._dump_lazy_state()}"
         )
@@ -561,12 +667,37 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             )
         self._wait_for_raw_sessions(expected=1)
 
+        from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import execute_read_query
+
         raw_response = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
         raw_values = [(r.key, r.value) for r in raw_response.results]
 
-        with self._enable_lazy():
-            lazy_response = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
-        lazy_values = [(r.key, r.value) for r in lazy_response.results]
+        runner = WebOverviewQueryRunner(
+            team=self.team, query=self._build_query(date_from="2024-01-02", date_to="2024-01-02")
+        )
+        date_from = runner.query_date_range.date_from().astimezone(UTC)
+        date_to = runner.query_date_range.date_to().astimezone(UTC)
+        time_window_min = datetime(date_from.year, date_from.month, date_from.day, tzinfo=UTC)
+        time_window_max = datetime(date_to.year, date_to.month, date_to.day, tzinfo=UTC) + timedelta(days=1)
+
+        job_id = self._execute_sync_lazy_insert(runner, time_window_min, time_window_max)
+
+        rows = execute_read_query(
+            team_id=self.team.pk,
+            job_ids=[str(job_id)],
+            current_start_utc=date_from,
+            current_end_utc=date_to,
+            previous_start_utc=None,
+            previous_end_utc=None,
+        )
+        cur = rows[0]
+        lazy_values = [
+            (raw_values[0][0], cur[0]),  # visitors
+            (raw_values[1][0], cur[2]),  # views
+            (raw_values[2][0], cur[4]),  # sessions
+            (raw_values[3][0], cur[6]),  # session duration
+            (raw_values[4][0], cur[8] * 100 if cur[8] is not None else None),  # bounce rate (% to match raw)
+        ]
 
         assert lazy_values == raw_values, (
             f"forward-only pad parity broken: raw={raw_values}, lazy={lazy_values}{self._dump_lazy_state()}"
@@ -603,15 +734,18 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_recomputation_picks_up_late_events_changing_bounce_and_duration(self):
-        # After a late event arrives, the next precompute run (cache invalidated
-        # via job deletion = simulated TTL expiry) must reflect the new
-        # session-level state:
-        #   • bounce flips from 1.0 → 0.0 when a second pageview lands
-        #   • session_duration grows from 0 → non-zero
-        #   • views grows from 1 → 2
-        # The stale precomputed row stays in ClickHouse with the old job_id;
-        # the new read passes the new job_id, so ReplacingMergeTree partitioning
-        # by job_id naturally isolates the runs.
+        """After a late event arrives, re-running the lazy INSERT must reflect
+        the new session state:
+          • bounce flips from 100% → 0% when a second pageview lands
+          • session_duration grows from 0 → non-zero
+          • views grows from 1 → 2
+
+        Uses `_execute_sync_lazy_insert` with a fresh `job_id` for each run.
+        The stale precomputed row stays in ClickHouse with the old `job_id`;
+        the new read passes the new `job_id`, so the `job_id IN (...)` filter
+        in `_READ_SQL` naturally isolates the runs."""
+        from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import execute_read_query
+
         session_id = str(uuid7("2024-01-02"))
         _create_person(team_id=self.team.pk, distinct_ids=["recompute_p1"], properties={"name": "recompute_p1"})
         _create_event(
@@ -627,70 +761,86 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
         self._wait_for_raw_sessions(expected=1)
 
-        with self._enable_lazy():
-            first_resp = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
-            first_metrics = {r.key: r.value for r in first_resp.results}
-            first_job_ids = set(PreaggregationJob.objects.filter(team_id=self.team.pk).values_list("id", flat=True))
-
-            assert first_job_ids, "first run should have created at least one precompute job"
-
-            # Stale-state sanity: single pageview = bounce (100%), zero duration.
-            assert first_metrics["bounce rate"] == 100.0, f"first run bounce rate should be 100.0%, got {first_metrics}"
-            assert first_metrics["views"] == 1.0, f"first run views should be 1, got {first_metrics}"
-
-            # Late event arrives, extending the same session.
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="recompute_p1",
-                timestamp="2024-01-02T10:15:00Z",
-                properties={
-                    "$session_id": session_id,
-                    "$host": "example.com",
-                    "$current_url": "https://example.com/second",
-                },
-            )
-            # Force the late event into ClickHouse and wait for the sessions MV
-            # to materialize it as a second raw_sessions row (same session_id_v7,
-            # so distinct_session_ids stays at 1, but row count goes 1 → 2 as the
-            # MV emits a new row per event-batch before ReplacingMergeTree
-            # collapses them). Without this, the next `_run` triggers the lazy
-            # INSERT-SELECT before the MV has reflected the late event and the
-            # join only sees the first event — recomputed views=1 instead of 2.
-            flush_persons_and_events()
-            self._wait_for_raw_sessions_rows(expected=2)
-
-            # Invalidate the cache by deleting the READY job rows. This
-            # simulates TTL expiry; the next ensure_precomputed cycle will
-            # create fresh job_ids and re-INSERT with the updated session
-            # aggregates.
-            PreaggregationJob.objects.filter(id__in=first_job_ids).delete()
-
-            second_resp = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
-            second_metrics = {r.key: r.value for r in second_resp.results}
-            second_job_ids = set(PreaggregationJob.objects.filter(team_id=self.team.pk).values_list("id", flat=True))
-
-            assert second_job_ids, "second run should have created new precompute jobs after invalidation"
-            assert second_job_ids.isdisjoint(first_job_ids), (
-                "recomputation should produce fresh job_ids, not reuse deleted ones"
-            )
-
-        # Recomputed state must reflect the late event.
-        state = self._dump_lazy_state()
-        assert second_metrics["views"] == 2.0, f"recomputed views should be 2, got {second_metrics}{state}"
-        assert second_metrics["bounce rate"] == 0.0, (
-            f"recomputed bounce rate should flip to 0.0% after second pageview, got {second_metrics}{state}"
+        runner = WebOverviewQueryRunner(
+            team=self.team, query=self._build_query(date_from="2024-01-02", date_to="2024-01-02")
         )
-        assert second_metrics["session duration"] is not None and second_metrics["session duration"] > 0, (
-            f"recomputed session duration should be > 0, got {second_metrics}{state}"
+        date_from = runner.query_date_range.date_from().astimezone(UTC)
+        date_to = runner.query_date_range.date_to().astimezone(UTC)
+        time_window_min = datetime(date_from.year, date_from.month, date_from.day, tzinfo=UTC)
+        time_window_max = datetime(date_to.year, date_to.month, date_to.day, tzinfo=UTC) + timedelta(days=1)
+
+        # First run: single pageview = bounce (100%), zero duration.
+        first_job_id = self._execute_sync_lazy_insert(runner, time_window_min, time_window_max)
+        first_rows = execute_read_query(
+            team_id=self.team.pk,
+            job_ids=[str(first_job_id)],
+            current_start_utc=date_from,
+            current_end_utc=date_to,
+            previous_start_utc=None,
+            previous_end_utc=None,
+        )
+        first_cur = first_rows[0]
+        assert first_cur[2] == 1.0, f"first run views should be 1, got {first_cur[2]}"
+        # READ returns bounce as a 0..1 fraction; runner multiplies by 100 for the response.
+        assert first_cur[8] == 1.0, f"first run bounce rate should be 1.0 (= 100%), got {first_cur[8]}"
+
+        # Late event arrives, extending the same session.
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="recompute_p1",
+            timestamp="2024-01-02T10:15:00Z",
+            properties={
+                "$session_id": session_id,
+                "$host": "example.com",
+                "$current_url": "https://example.com/second",
+            },
+        )
+        # Force the late event into ClickHouse and wait for the sessions MV to
+        # materialize it as a second raw_sessions row (same session_id_v7, so
+        # distinct count stays at 1 — the MV emits a new row per event-batch
+        # before ReplacingMergeTree collapses them). Without this, the next
+        # INSERT-SELECT runs before the MV has reflected the late event and the
+        # join only sees the first event — recomputed views stays at 1.
+        flush_persons_and_events()
+        self._wait_for_raw_sessions_rows(expected=2)
+
+        # Second run: fresh job_id, same range. ReplacingMergeTree keeps the
+        # stale row at the old job_id; the new read filters by the new job_id.
+        second_job_id = self._execute_sync_lazy_insert(runner, time_window_min, time_window_max)
+        assert second_job_id != first_job_id, "recomputation should use a fresh job_id"
+
+        second_rows = execute_read_query(
+            team_id=self.team.pk,
+            job_ids=[str(second_job_id)],
+            current_start_utc=date_from,
+            current_end_utc=date_to,
+            previous_start_utc=None,
+            previous_end_utc=None,
+        )
+        second_cur = second_rows[0]
+        state = self._dump_lazy_state()
+        assert second_cur[2] == 2.0, f"recomputed views should be 2, got {second_cur[2]}{state}"
+        assert second_cur[8] == 0.0, f"recomputed bounce rate should flip to 0 (= 0%), got {second_cur[8]}{state}"
+        assert second_cur[6] is not None and second_cur[6] > 0, (
+            f"recomputed session duration should be > 0, got {second_cur[6]}{state}"
         )
 
         # Cross-check parity vs the raw events path after the late event.
+        # READ row indices: 0=visitors 2=views 4=sessions 6=duration 8=bounce (fraction);
+        # the runner multiplies bounce by 100 for the response, so do the same here.
         raw_resp = self._run(self._build_query(date_from="2024-01-02", date_to="2024-01-02"))
         raw_metrics = {r.key: r.value for r in raw_resp.results}
-        for metric in ("views", "bounce rate", "session duration", "visitors", "sessions"):
-            assert second_metrics[metric] == raw_metrics[metric], (
-                f"recomputed lazy != raw for {metric}: lazy={second_metrics[metric]}, raw={raw_metrics[metric]}"
+        bounce_lazy = second_cur[8] * 100 if second_cur[8] is not None else None
+        for metric, lazy_val in (
+            ("visitors", second_cur[0]),
+            ("views", second_cur[2]),
+            ("sessions", second_cur[4]),
+            ("session duration", second_cur[6]),
+            ("bounce rate", bounce_lazy),
+        ):
+            assert lazy_val == raw_metrics[metric], (
+                f"recomputed lazy != raw for {metric}: lazy={lazy_val}, raw={raw_metrics[metric]}"
             )
 
     @freeze_time("2024-01-15T12:00:00Z")
