@@ -958,14 +958,6 @@ class GitHubIntegrationBase:
 
     # --- Cached repository operations ---
 
-    def invalidate_repository_cache(self) -> None:
-        """Mark repository list cache stale for this installation (team + personal rows)."""
-        installation_id = self.github_installation_id
-        if installation_id:
-            from posthog.models.integration import invalidate_github_repository_caches_for_installation
-
-            invalidate_github_repository_caches_for_installation(installation_id)
-
     def _get_stored_repository_list(self) -> list[dict] | None:
         """Repositories persisted on the integration row."""
         cached = self.integration.repository_cache

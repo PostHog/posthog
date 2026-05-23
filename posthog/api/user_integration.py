@@ -30,8 +30,8 @@ from posthog.api.github_callback import (
     personal_state,
     state as github_callback_state,
 )
-from posthog.api.github_callback.redirects import APP_CONNECT_FROM_VALUES
-from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
+from posthog.api.github_callback.router import handle_oauth_redirect
+from posthog.api.github_callback.types import APP_CONNECT_FROM_VALUES, FlowKind, GitHubAuthorizeState
 from posthog.api.integration import (
     GitHubBranchesQuerySerializer,
     GitHubBranchesResponseSerializer,
@@ -48,8 +48,6 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle
 
 logger = structlog.get_logger(__name__)
-
-is_personal_github_setup_state = personal_state.is_personal_github_setup_state
 
 
 class UserGitHubAccountSerializer(serializers.Serializer):
@@ -378,8 +376,6 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 @require_http_methods(["GET"])
 def github_link_complete(request: HttpRequest):
     """GitHub User OAuth redirect_uri entrypoint — delegates to the shared callback router."""
-    from posthog.api.github_callback.router import handle_oauth_redirect
-
     return handle_oauth_redirect(request)
 
 

@@ -1,7 +1,3 @@
-"""Personal UserIntegration GitHub setup finish logic."""
-
-from __future__ import annotations
-
 from typing import cast
 
 from django.http import HttpRequest
@@ -9,9 +5,8 @@ from django.http import HttpRequest
 import requests
 import structlog
 
-from posthog.api.github_callback import oauth, personal_state, state
-from posthog.api.github_callback.types import FinishResult, FlowKind
-from posthog.api.github_callback.validation import is_valid_github_installation_id
+from posthog.api.github_callback import personal_state, router, state
+from posthog.api.github_callback.types import FinishResult, FlowKind, is_valid_github_installation_id
 from posthog.models import User
 from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration, Integration
 from posthog.models.user_integration import (
@@ -89,7 +84,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
         installation_ids = [installation_id]
 
     use_oauth_redirect = oauth_flow or oauth_discover_flow or team_oauth_flow
-    authorization = oauth.exchange_user_authorization(code, use_oauth_redirect_uri=use_oauth_redirect)
+    authorization = router.exchange_user_authorization(code, use_oauth_redirect_uri=use_oauth_redirect)
     if authorization is None:
         return _error("exchange_failed")
 
@@ -110,7 +105,9 @@ def finish_personal(request: HttpRequest) -> FinishResult:
         installation_id = str(installation_id)
         if not oauth_discover_flow:
             try:
-                oauth.verify_user_installation_access_or_raise(installation_id, authorization.access_token)
+                has_access = GitHubIntegration.verify_user_installation_access(
+                    installation_id, authorization.access_token
+                )
             except requests.RequestException:
                 logger.warning(
                     "github_link: installation ownership check failed",
@@ -119,7 +116,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                     exc_info=True,
                 )
                 return _error("installation_verify_failed")
-            except PermissionError:
+            if not has_access:
                 logger.warning(
                     "github_link: user does not have access to installation",
                     installation_id=installation_id,

@@ -1,4 +1,3 @@
-import re
 import hmac
 import json
 import time
@@ -17,6 +16,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.github_callback.state import store_github_authorize_state, store_personal_authorize_state
+from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationViewSet
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
@@ -37,6 +38,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 
@@ -1277,7 +1279,7 @@ class TestGitHubIntegrationStateValidation:
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
     def test_create_github_integration_with_invalid_state_rejected(self, mock_from_install, client: HttpClient):
         client.force_login(self.user)
-        cache.set(f"github_state:{self.user.id}", "correct-token", timeout=300)
+        store_github_authorize_state(self.user.id, "correct-token", "", self.team.pk)
 
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations/",
@@ -1317,10 +1319,12 @@ class TestGitHubIntegrationStateValidation:
         )
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        cached = cache.get(f"github_state:{self.user.id}")
+        pending_token = cache.get(f"github_authorize_pending:{self.user.id}")
+        assert pending_token
+        cached = cache.get(f"github_authorize:{pending_token}")
         assert cached is not None
         assert cached["next"] == next_path
-        assert cached["token"]
+        assert cached["token"] == pending_token
         assert cached["team_id"] == self.team.pk
 
     def test_github_authorize_rejects_absolute_next_url(self, client: HttpClient):
@@ -1345,7 +1349,7 @@ class TestGitHubIntegrationStateValidation:
 
         client.force_login(self.user)
         state_token = "valid-token-abc123"
-        cache.set(f"github_state:{self.user.id}", state_token, timeout=300)
+        store_github_authorize_state(self.user.id, state_token, "", self.team.pk)
 
         mock_from_code.return_value = GitHubUserAuthorization(
             gh_id=42,
@@ -1376,7 +1380,8 @@ class TestGitHubIntegrationStateValidation:
         mock_verify.assert_called_once_with("12345", "ghu_test")
         mock_from_install.assert_called_once_with("12345", self.team.pk, self.user)
         # Token consumed — cannot be reused
-        assert cache.get(f"github_state:{self.user.id}") is None
+        assert cache.get(f"github_authorize:{state_token}") is None
+        assert cache.get(f"github_authorize_pending:{self.user.id}") is None
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
@@ -1389,7 +1394,7 @@ class TestGitHubIntegrationStateValidation:
 
         client.force_login(self.user)
         state_token = "single-use-token"
-        cache.set(f"github_state:{self.user.id}", state_token, timeout=300)
+        store_github_authorize_state(self.user.id, state_token, "", self.team.pk)
 
         mock_from_code.return_value = GitHubUserAuthorization(
             gh_id=42,
@@ -1433,7 +1438,7 @@ class TestGitHubIntegrationStateValidation:
         )
         client.force_login(other_user)
         # Token belongs to self.user, not other_user
-        cache.set(f"github_state:{self.user.id}", "victim-token", timeout=300)
+        store_github_authorize_state(self.user.id, "victim-token", "", self.team.pk)
 
         response = client.post(
             f"/api/environments/{self.team.pk}/integrations/",
@@ -1452,7 +1457,7 @@ class TestGitHubIntegrationStateValidation:
     ):
         client.force_login(self.user)
         state_token = "valid-token"
-        cache.set(f"github_state:{self.user.id}", state_token, timeout=300)
+        store_github_authorize_state(self.user.id, state_token, "", self.team.pk)
 
         mock_from_code.return_value = None
 
@@ -1494,7 +1499,7 @@ class TestGitHubIntegrationStateValidation:
 
         client.force_login(self.user)
         state_token = "valid-attacker-state"
-        cache.set(f"github_state:{self.user.id}", state_token, timeout=300)
+        store_github_authorize_state(self.user.id, state_token, "", self.team.pk)
 
         # The App-JWT call in integration_from_installation_id succeeds for any of the
         # App's installations (this is intrinsic to GitHub Apps — the JWT is App-scoped,
@@ -1564,23 +1569,52 @@ class TestGitHubTeamIntegrationComplete:
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
 
-    def test_unauthenticated_redirects_to_login(self, client: HttpClient):
-        response = client.get(
-            "/integrations/github/callback/",
-            {"installation_id": "12345", "code": "abc", "setup_action": "install"},
+    def _team_github_integration(self, installation_id: str = "12345") -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id=installation_id,
+            config={"installation_id": installation_id},
+            sensitive_config={"access_token": "ghs_test"},
         )
+
+    def _github_user_authorization(self) -> GitHubUserAuthorization:
+        return GitHubUserAuthorization(
+            gh_id=42,
+            gh_login="testuser",
+            access_token="ghu_test",
+            refresh_token=None,
+            access_token_expires_in=None,
+            refresh_token_expires_in=None,
+        )
+
+    @parameterized.expand(
+        [
+            ("team_install", {"installation_id": "12345", "code": "abc", "setup_action": "install"}, []),
+            (
+                "personal_install_with_state",
+                {
+                    "installation_id": "12345",
+                    "code": "abc",
+                    "state": urlencode({"token": "personal-token", "source": "user_integration"}),
+                },
+                ["/complete/github-link"],
+            ),
+        ]
+    )
+    def test_unauthenticated_redirects_to_login(self, _name, query, must_not_contain, client: HttpClient):
+        response = client.get("/integrations/github/callback/", query)
         assert response.status_code == status.HTTP_302_FOUND
-        assert response["Location"].startswith("/login?next=")
-        assert "integrations%2Fgithub%2Fcallback" in response["Location"]
+        location = response["Location"]
+        assert location.startswith("/login?next=")
+        assert "integrations%2Fgithub%2Fcallback" in location
+        for forbidden in must_not_contain:
+            assert forbidden not in location
 
     def test_github_error_redirects_with_setup_error(self, client: HttpClient):
         client.force_login(self.user)
         next_path = f"/project/{self.team.pk}/settings/project-integrations"
-        cache.set(
-            f"github_state:{self.user.id}",
-            {"token": "t", "next": next_path, "team_id": self.team.pk},
-            timeout=300,
-        )
+        store_github_authorize_state(self.user.id, "t", next_path, self.team.pk)
 
         response = client.get("/integrations/github/callback/", {"error": "access_denied"})
 
@@ -1591,11 +1625,7 @@ class TestGitHubTeamIntegrationComplete:
     def test_missing_installation_id_redirects_pending(self, client: HttpClient):
         client.force_login(self.user)
         next_path = f"/project/{self.team.pk}/settings/project-integrations"
-        cache.set(
-            f"github_state:{self.user.id}",
-            {"token": "t", "next": next_path, "team_id": self.team.pk},
-            timeout=300,
-        )
+        store_github_authorize_state(self.user.id, "t", next_path, self.team.pk)
 
         response = client.get("/integrations/github/callback/")
 
@@ -1609,36 +1639,16 @@ class TestGitHubTeamIntegrationComplete:
     def test_success_redirects_to_next_with_integration_id(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):
-        from posthog.models.integration import GitHubUserAuthorization
-
         client.force_login(self.user)
         next_path = (
             f"/account-connected/github-integration?provider=github&project_id={self.team.pk}&connect_from=posthog_code"
         )
         state_token = "valid-token"
-        cache.set(
-            f"github_state:{self.user.id}",
-            {"token": state_token, "next": next_path, "team_id": self.team.pk},
-            timeout=300,
-        )
+        store_github_authorize_state(self.user.id, state_token, next_path, self.team.pk)
 
-        mock_from_code.return_value = GitHubUserAuthorization(
-            gh_id=42,
-            gh_login="testuser",
-            access_token="ghu_test",
-            refresh_token=None,
-            access_token_expires_in=None,
-            refresh_token_expires_in=None,
-        )
+        mock_from_code.return_value = self._github_user_authorization()
         mock_verify.return_value = True
-        mock_integration = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="12345",
-            config={"installation_id": "12345"},
-            sensitive_config={"access_token": "ghs_test"},
-        )
-        mock_from_install.return_value = mock_integration
+        mock_from_install.return_value = self._team_github_integration()
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1655,24 +1665,8 @@ class TestGitHubTeamIntegrationComplete:
         assert "account-connected/github-integration" in location
         assert "integration_id=" in location
         assert "installation_id=12345" in location
-        assert cache.get(f"github_state:{self.user.id}") is None
-
-    def test_legacy_cache_without_team_id_uses_project_id_from_next(self, client: HttpClient):
-        client.force_login(self.user)
-        next_path = (
-            f"/account-connected/github-integration?provider=github&project_id={self.team.pk}&connect_from=posthog_code"
-        )
-        cache.set(
-            f"github_state:{self.user.id}",
-            {"token": "legacy-token", "next": next_path},
-            timeout=300,
-        )
-
-        response = client.get("/integrations/github/callback/", {"error": "access_denied"})
-
-        assert response.status_code == status.HTTP_302_FOUND
-        assert "error=access_denied" in response["Location"]
-        assert "account-connected/github-integration" in response["Location"]
+        assert cache.get(f"github_authorize:{state_token}") is None
+        assert cache.get(f"github_authorize_pending:{self.user.id}") is None
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
@@ -1681,35 +1675,15 @@ class TestGitHubTeamIntegrationComplete:
     def test_environment_integrations_flow_uses_team_id_from_authorize_cache(
         self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, client: HttpClient
     ):
-        from posthog.models.integration import GitHubUserAuthorization
-
         client.force_login(self.user)
 
         next_path = f"/project/{self.team.pk}/settings/environment-integrations"
         state_token = "legacy-token"
-        cache.set(
-            f"github_state:{self.user.id}",
-            {"token": state_token, "next": next_path, "team_id": self.team.pk},
-            timeout=300,
-        )
+        store_github_authorize_state(self.user.id, state_token, next_path, self.team.pk)
 
-        mock_from_code.return_value = GitHubUserAuthorization(
-            gh_id=42,
-            gh_login="testuser",
-            access_token="ghu_test",
-            refresh_token=None,
-            access_token_expires_in=None,
-            refresh_token_expires_in=None,
-        )
+        mock_from_code.return_value = self._github_user_authorization()
         mock_verify.return_value = True
-        mock_integration = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="12345",
-            config={"installation_id": "12345"},
-            sensitive_config={"access_token": "ghs_test"},
-        )
-        mock_from_install.return_value = mock_integration
+        mock_from_install.return_value = self._team_github_integration()
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1734,10 +1708,8 @@ class TestGitHubTeamIntegrationComplete:
         client.force_login(self.user)
         state_token = "personal-install-token"
         state = urlencode({"token": state_token, "source": "user_integration"})
-        cache.set(
-            f"github_user_install_state:{state_token}",
-            {"user_id": self.user.id},
-            timeout=300,
+        store_personal_authorize_state(
+            GitHubAuthorizeState(token=state_token, flow=FlowKind.PERSONAL_INSTALL, user_id=self.user.id),
         )
 
         mock_user_from_code.return_value = GitHubUserAuthorization(
@@ -1777,8 +1749,6 @@ class TestGitHubTeamIntegrationComplete:
 
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     def test_personal_github_setup_update_redirects_to_personal_settings(self, mock_client_request, client: HttpClient):
-        from posthog.models.user_integration import UserIntegration
-
         client.force_login(self.user)
         UserIntegration.objects.create(
             user=self.user,
@@ -1820,14 +1790,7 @@ class TestGitHubTeamIntegrationComplete:
         self, mock_refresh, client: HttpClient
     ):
         client.force_login(self.user)
-        existing = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="12345",
-            config={"installation_id": "12345"},
-            sensitive_config={"access_token": "ghs_test"},
-        )
-        mock_refresh.return_value = existing
+        mock_refresh.return_value = self._team_github_integration()
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1840,38 +1803,13 @@ class TestGitHubTeamIntegrationComplete:
         assert "github_setup_error" not in response["Location"]
         mock_refresh.assert_called_once_with("12345", self.team.pk, self.user)
 
-    def test_personal_github_setup_unauthenticated_redirects_to_login_with_setup_url(self, client: HttpClient):
-        state = urlencode({"token": "personal-token", "source": "user_integration"})
-
-        response = client.get(
-            "/integrations/github/callback/",
-            {"installation_id": "12345", "code": "abc", "state": state},
-        )
-
-        assert response.status_code == status.HTTP_302_FOUND
-        location = response["Location"]
-        assert location.startswith("/login?next=")
-        assert "integrations%2Fgithub%2Fcallback" in location
-        assert "/complete/github-link" not in location
-
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
     def test_update_setup_action_via_callback_redirects_successfully(self, mock_refresh, client: HttpClient):
         client.force_login(self.user)
-        existing = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="98797544",
-            config={"installation_id": "98797544"},
-            sensitive_config={"access_token": "ghs_test"},
-        )
-        mock_refresh.return_value = existing
+        mock_refresh.return_value = self._team_github_integration(installation_id="98797544")
         next_path = f"/project/{self.team.pk}/settings/environment-integrations"
         state_token = "ad89fbef5ced409fa055f4918b4a06b664f938506ed7aa8007cdc6cfd819be1055"
-        cache.set(
-            f"github_state:{self.user.id}",
-            {"token": state_token, "next": next_path, "team_id": self.team.pk},
-            timeout=300,
-        )
+        store_github_authorize_state(self.user.id, state_token, next_path, self.team.pk)
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1893,22 +1831,11 @@ class TestGitHubTeamIntegrationComplete:
         self, mock_refresh, client: HttpClient
     ):
         client.force_login(self.user)
-        existing = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="12345",
-            config={"installation_id": "12345"},
-            sensitive_config={"access_token": "ghs_test"},
-        )
-        mock_refresh.return_value = existing
+        mock_refresh.return_value = self._team_github_integration()
         next_path = (
             f"/account-connected/github-integration?provider=github&project_id={self.team.pk}&connect_from=posthog_code"
         )
-        cache.set(
-            f"github_state:{self.user.id}",
-            {"token": "prepare-token", "next": next_path, "team_id": self.team.pk},
-            timeout=300,
-        )
+        store_github_authorize_state(self.user.id, "prepare-token", next_path, self.team.pk)
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1923,11 +1850,7 @@ class TestGitHubTeamIntegrationComplete:
     def test_install_callback_without_state_redirects_invalid_state(self, client: HttpClient):
         client.force_login(self.user)
         next_path = f"/project/{self.team.pk}/settings/project-integrations"
-        cache.set(
-            f"github_state:{self.user.id}",
-            {"token": "valid-token", "next": next_path, "team_id": self.team.pk},
-            timeout=300,
-        )
+        store_github_authorize_state(self.user.id, "valid-token", next_path, self.team.pk)
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1943,11 +1866,7 @@ class TestGitHubTeamIntegrationComplete:
         client.force_login(self.user)
         next_path = f"/project/{self.team.pk}/settings/project-integrations"
         state_token = "orphan-token"
-        cache.set(
-            f"github_state:{self.user.id}",
-            {"token": state_token, "next": next_path, "team_id": self.team.pk},
-            timeout=300,
-        )
+        store_github_authorize_state(self.user.id, state_token, next_path, self.team.pk)
 
         response = client.get(
             "/integrations/github/callback/",
@@ -1974,11 +1893,7 @@ class TestGitHubTeamIntegrationComplete:
         client.force_login(member)
         state_token = "member-token"
         next_path = f"/project/{self.team.pk}/settings/environment-integrations"
-        cache.set(
-            f"github_state:{member.id}",
-            {"token": state_token, "next": next_path, "team_id": self.team.pk},
-            timeout=300,
-        )
+        store_github_authorize_state(member.id, state_token, next_path, self.team.pk)
 
         response = client.get(
             "/integrations/github/callback/",
@@ -2756,463 +2671,6 @@ class TestGitHubBranches:
         assert first == "develop"
         assert second == "develop"
         assert mock_get.call_count == 1
-
-
-class TestGitHubLinkExisting:
-    """Tests for POST /integrations/github/link_existing/ — clones a GitHub Integration
-    row from another team in the same organization onto the current team without
-    going through the GitHub install flow.
-    """
-
-    @pytest.fixture(autouse=True)
-    def setup_environment(self, db):
-        from posthog.models.user_integration import UserIntegration
-
-        self.organization = Organization.objects.create(name="Test Org")
-        self.source_team = Team.objects.create(organization=self.organization, name="Source Team")
-        self.dest_team = Team.objects.create(organization=self.organization, name="Dest Team")
-        self.user = User.objects.create_and_join(
-            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
-        )
-
-        self.source_integration = Integration.objects.create(
-            team=self.source_team,
-            kind="github",
-            integration_id="12345",
-            config={
-                "installation_id": "12345",
-                "expires_in": 3600,
-                "refreshed_at": int(time.time()),
-                "repository_selection": "all",
-                "account": {"type": "Organization", "name": "acme"},
-                "connecting_user_github_login": "octocat",
-            },
-            sensitive_config={"access_token": "ghs_source"},
-            created_by=self.user,
-        )
-
-        # Personal GitHub integration that proves the requesting user has access to the
-        # GitHub installation — required by the link_existing security check.
-        self.user_github_integration = UserIntegration.objects.create(
-            user=self.user,
-            kind="github",
-            integration_id="12345",
-            config={"account": {"type": "Organization", "name": "acme"}},
-            sensitive_config={"access_token": "ghu_user"},
-        )
-
-    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_clones_integration_to_dest_team(self, mock_from_install, mock_verify, client: HttpClient):
-        client.force_login(self.user)
-
-        cloned = Integration.objects.create(
-            team=self.dest_team,
-            kind="github",
-            integration_id="12345",
-            config={
-                "installation_id": "12345",
-                "expires_in": 3600,
-                "refreshed_at": int(time.time()),
-                "repository_selection": "all",
-                "account": {"type": "Organization", "name": "acme"},
-            },
-            sensitive_config={"access_token": "ghs_cloned"},
-            created_by=self.user,
-        )
-        mock_from_install.return_value = cloned
-
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"source_team_id": self.source_team.id},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        mock_verify.assert_called_once_with("12345", "ghu_user")
-        mock_from_install.assert_called_once_with("12345", self.dest_team.pk, self.user)
-
-        cloned.refresh_from_db()
-        assert cloned.config.get("connecting_user_github_login") == "octocat"
-
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_rejects_cross_organization(self, mock_from_install, client: HttpClient):
-        other_org = Organization.objects.create(name="Other Org")
-        other_team = Team.objects.create(organization=other_org, name="Other Team")
-        Integration.objects.create(
-            team=other_team,
-            kind="github",
-            integration_id="99999",
-            config={"installation_id": "99999"},
-            sensitive_config={"access_token": "ghs_foreign"},
-        )
-
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"source_team_id": other_team.id},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Source team not found in your organization" in response.json()["detail"]
-        mock_from_install.assert_not_called()
-
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_rejects_team_without_github_integration(self, mock_from_install, client: HttpClient):
-        slack_only_team = Team.objects.create(organization=self.organization, name="Slack Only Team")
-        Integration.objects.create(
-            team=slack_only_team,
-            kind="slack",
-            config={"team_id": "T123"},
-            sensitive_config={"access_token": "xoxb_test"},
-        )
-
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"source_team_id": slack_only_team.id},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Source team does not have a GitHub integration" in response.json()["detail"]
-        mock_from_install.assert_not_called()
-
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_rejects_source_missing_installation_id(self, mock_from_install, client: HttpClient):
-        broken_team = Team.objects.create(organization=self.organization, name="Broken Team")
-        Integration.objects.create(
-            team=broken_team,
-            kind="github",
-            integration_id="broken",
-            config={},
-            sensitive_config={},
-        )
-
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"source_team_id": broken_team.id},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "missing installation_id" in response.json()["detail"]
-        mock_from_install.assert_not_called()
-
-    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_by_installation_id_links_to_dest_team(
-        self, mock_from_install, mock_verify, client: HttpClient
-    ):
-        client.force_login(self.user)
-
-        cloned = Integration.objects.create(
-            team=self.dest_team,
-            kind="github",
-            integration_id="12345",
-            config={"installation_id": "12345"},
-            sensitive_config={"access_token": "ghs_cloned"},
-            created_by=self.user,
-        )
-        mock_from_install.return_value = cloned
-
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"installation_id": "12345"},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        mock_verify.assert_called_once_with("12345", "ghu_user")
-        mock_from_install.assert_called_once_with("12345", self.dest_team.pk, self.user)
-
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_by_installation_id_rejects_unknown_installation(self, mock_from_install, client: HttpClient):
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"installation_id": "99999"},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "No team in your organization" in response.json()["detail"]
-        mock_from_install.assert_not_called()
-
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_by_installation_id_rejects_non_numeric(self, mock_from_install, client: HttpClient):
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"installation_id": "not-a-number"},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Invalid installation_id" in response.json()["detail"]
-        mock_from_install.assert_not_called()
-
-    def test_link_existing_requires_source_team_id_or_installation_id(self, client: HttpClient):
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "source_team_id or installation_id is required" in response.json()["detail"]
-
-    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access")
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_rejects_user_without_personal_github(
-        self, mock_from_install, mock_verify, client: HttpClient
-    ):
-        # Stranger from the same org has no personal GitHub UserIntegration; can't prove access.
-        stranger = User.objects.create_and_join(
-            self.organization, "stranger@posthog.com", "stranger", level=OrganizationMembership.Level.ADMIN
-        )
-        client.force_login(stranger)
-
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"source_team_id": self.source_team.id},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "connect your personal GitHub account" in response.json()["detail"]
-        mock_verify.assert_not_called()
-        mock_from_install.assert_not_called()
-
-    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=False)
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_rejects_user_without_installation_access(
-        self, mock_from_install, mock_verify, client: HttpClient
-    ):
-        # User has a personal GitHub integration but GitHub says they can't see this installation.
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"source_team_id": self.source_team.id},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "connect your personal GitHub account" in response.json()["detail"]
-        mock_verify.assert_called_once_with("12345", "ghu_user")
-        mock_from_install.assert_not_called()
-
-    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access")
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_surfaces_verify_network_failures(self, mock_from_install, mock_verify, client: HttpClient):
-        import requests as _requests
-
-        mock_verify.side_effect = _requests.RequestException("boom")
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"source_team_id": self.source_team.id},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Failed to verify installation access" in response.json()["detail"]
-        mock_from_install.assert_not_called()
-
-    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_disambiguates_multi_install_team_via_installation_id(
-        self, mock_from_install, mock_verify, client: HttpClient
-    ):
-        # Source team has multiple GitHub installations linked. Without installation_id
-        # the request was crashing on MultipleObjectsReturned; passing installation_id
-        # should pick exactly that row.
-        Integration.objects.create(
-            team=self.source_team,
-            kind="github",
-            integration_id="22222",
-            config={"installation_id": "22222", "account": {"type": "Organization", "name": "other"}},
-            sensitive_config={"access_token": "ghs_other"},
-            created_by=self.user,
-        )
-
-        cloned = Integration.objects.create(
-            team=self.dest_team,
-            kind="github",
-            integration_id="12345",
-            config={"installation_id": "12345"},
-            sensitive_config={"access_token": "ghs_cloned"},
-            created_by=self.user,
-        )
-        mock_from_install.return_value = cloned
-
-        client.force_login(self.user)
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"source_team_id": self.source_team.id, "installation_id": "12345"},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        mock_verify.assert_called_once_with("12345", "ghu_user")
-        mock_from_install.assert_called_once_with("12345", self.dest_team.pk, self.user)
-
-    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    def test_link_existing_matches_installation_id_stored_as_int(
-        self, mock_from_install, mock_verify, client: HttpClient
-    ):
-        # Some integrations have installation_id stored as a JSONB number rather than
-        # a string; the lookup must match either representation.
-        int_team = Team.objects.create(organization=self.organization, name="Int Team")
-        Integration.objects.create(
-            team=int_team,
-            kind="github",
-            integration_id="77777",
-            config={"installation_id": 77777, "account": {"type": "Organization", "name": "intacme"}},
-            sensitive_config={"access_token": "ghs_int"},
-            created_by=self.user,
-        )
-
-        cloned = Integration.objects.create(
-            team=self.dest_team,
-            kind="github",
-            integration_id="77777",
-            config={"installation_id": "77777"},
-            sensitive_config={"access_token": "ghs_cloned"},
-            created_by=self.user,
-        )
-        mock_from_install.return_value = cloned
-
-        client.force_login(self.user)
-        response = client.post(
-            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
-            {"installation_id": "77777"},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        mock_verify.assert_called_once_with("77777", "ghu_user")
-        mock_from_install.assert_called_once_with("77777", self.dest_team.pk, self.user)
-
-
-class TestGitHubOAuthAuthorize:
-    """Tests for POST /integrations/github/oauth_authorize/ — mints a User OAuth URL
-    so the frontend can recover from `setup_action=update` redirects (no code).
-    """
-
-    @pytest.fixture(autouse=True)
-    def setup_environment(self, db):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create_and_join(
-            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
-        )
-
-    def test_oauth_authorize_returns_github_url_with_state_in_cache(self, client: HttpClient):
-        client.force_login(self.user)
-
-        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", "test-client-id"):
-            response = client.post(
-                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
-                {"installation_id": "12345", "next": "/some/return/path"},
-                content_type="application/json",
-            )
-
-        assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert "oauth_url" in body
-        assert body["oauth_url"].startswith("https://github.com/login/oauth/authorize?")
-        assert "client_id=test-client-id" in body["oauth_url"]
-
-        # Pull the state token out of the URL and verify the cache entry is bound
-        # to user_id + team_id + installation_id.
-        token_match = re.search(r"state=token%3D([^&]+)", body["oauth_url"])
-        assert token_match is not None
-        token = token_match.group(1)
-        cached = cache.get(f"github_user_install_state:{token}")
-        assert cached is not None
-        assert cached["user_id"] == self.user.id
-        assert cached["team_id"] == self.team.pk
-        assert cached["installation_id"] == "12345"
-        assert cached["flow"] == "team_oauth_authorize"
-        assert cached["next"] == "/some/return/path"
-
-    def test_oauth_authorize_requires_installation_id(self, client: HttpClient):
-        client.force_login(self.user)
-
-        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", "test-client-id"):
-            response = client.post(
-                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
-                {},
-                content_type="application/json",
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "installation_id is required" in response.json()["detail"]
-
-    def test_oauth_authorize_rejects_non_numeric_installation_id(self, client: HttpClient):
-        client.force_login(self.user)
-
-        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", "test-client-id"):
-            response = client.post(
-                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
-                {"installation_id": "abc"},
-                content_type="application/json",
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Invalid installation_id" in response.json()["detail"]
-
-    def test_oauth_authorize_rejects_absolute_next_url(self, client: HttpClient):
-        client.force_login(self.user)
-
-        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", "test-client-id"):
-            response = client.post(
-                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
-                {"installation_id": "12345", "next": "https://evil.com/steal"},
-                content_type="application/json",
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "next must be a relative path" in response.json()["detail"]
-
-    def test_oauth_authorize_rejects_protocol_relative_next_url(self, client: HttpClient):
-        client.force_login(self.user)
-
-        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", "test-client-id"):
-            response = client.post(
-                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
-                {"installation_id": "12345", "next": "//evil.com/steal"},
-                content_type="application/json",
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "next must be a relative path" in response.json()["detail"]
-
-    def test_oauth_authorize_requires_client_id_configured(self, client: HttpClient):
-        client.force_login(self.user)
-
-        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", ""):
-            response = client.post(
-                f"/api/environments/{self.team.pk}/integrations/github/oauth_authorize/",
-                {"installation_id": "12345"},
-                content_type="application/json",
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "GitHub App client ID is not configured" in response.json()["detail"]
 
 
 class TestAnthropicIntegration:

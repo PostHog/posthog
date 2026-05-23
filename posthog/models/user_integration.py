@@ -304,8 +304,7 @@ def user_github_integration_from_installation(
     """
     now = int(time.time())
     try:
-        raw_expires = installation.token_expires_at
-        expires_in = int(datetime.fromisoformat(raw_expires.replace("Z", "+00:00")).timestamp() - now)
+        expires_in = int(datetime.fromisoformat(installation.token_expires_at).timestamp() - now)
     except (ValueError, AttributeError):
         expires_in = 3600
 
@@ -363,7 +362,7 @@ def refresh_user_github_installation_access(
     """Refresh installation token metadata without overwriting stored user OAuth credentials."""
     now = int(time.time())
     try:
-        expires_in = int(datetime.fromisoformat(installation.token_expires_at.replace("Z", "+00:00")).timestamp() - now)
+        expires_in = int(datetime.fromisoformat(installation.token_expires_at).timestamp() - now)
     except (ValueError, AttributeError):
         expires_in = 3600
 

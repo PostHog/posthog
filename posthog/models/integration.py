@@ -2334,15 +2334,12 @@ class GitHubInstallationAccess:
 
 
 class GitHubInstallationAccessFetchError(Exception):
-    """Failed to fetch GitHub App installation metadata or access token."""
-
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
 
 
 def invalidate_github_repository_caches_for_installation(installation_id: str | int) -> None:
-    """Mark repository list caches stale for every team/personal row sharing an installation."""
     from posthog.models.user_integration import UserIntegration
 
     installation_id_str = str(installation_id)
@@ -2387,12 +2384,7 @@ class GitHubIntegration(GitHubIntegrationBase):
     ) -> Integration:
         installation_access = cls.fetch_installation_access(installation_id)
         now = int(time.time())
-        try:
-            expires_in = int(
-                datetime.fromisoformat(installation_access.token_expires_at.replace("Z", "+00:00")).timestamp() - now
-            )
-        except (ValueError, AttributeError):
-            expires_in = int(datetime.fromisoformat(installation_access.token_expires_at).timestamp() - now)
+        expires_in = int(datetime.fromisoformat(installation_access.token_expires_at).timestamp() - now)
 
         config = {
             "installation_id": installation_id,

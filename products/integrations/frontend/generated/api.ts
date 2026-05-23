@@ -668,46 +668,6 @@ export const integrationsDomainConnectCheckRetrieve = async (
     })
 }
 
-export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/integrations/github/link_existing/`
-}
-
-/**
- * Reuse a GitHub installation already linked to a sibling team in the same organization.
- */
-export const integrationsGithubLinkExistingCreate = async (
-    projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
-    })
-}
-
-export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/integrations/github/oauth_authorize/`
-}
-
-/**
- * Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one.
- */
-export const integrationsGithubOauthAuthorizeCreate = async (
-    projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
-    })
-}
-
 export const getIntegrationsGithubPrepareCallbackCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/integrations/github/prepare_callback/`
 }

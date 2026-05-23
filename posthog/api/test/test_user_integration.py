@@ -3,12 +3,13 @@ import time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
 from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.github_callback.state import store_personal_authorize_state
+from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.models import User
 from posthog.models.integration import GitHubInstallationAccess, GitHubUserAuthorization, Integration
 from posthog.models.user_integration import (
@@ -302,14 +303,13 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             created_by=self.user,
         )
         state = "tok_oauth_123"
-        cache.set(
-            f"github_user_install_state:{state}",
-            {
-                "user_id": self.user.id,
-                "installation_id": "12345",
-                "flow": "oauth_authorize",
-            },
-            timeout=600,
+        store_personal_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.PERSONAL_OAUTH,
+                user_id=self.user.id,
+                installation_id="12345",
+            ),
         )
         from urllib.parse import urlencode
 
@@ -358,10 +358,13 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_client_request.side_effect = [mock_install_info, mock_access_token]
 
         state = "tok_oauth_discover_123"
-        cache.set(
-            f"github_user_install_state:{state}",
-            {"user_id": self.user.id, "connect_from": "posthog_code", "flow": "oauth_discover"},
-            timeout=600,
+        store_personal_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.OAUTH_DISCOVER,
+                user_id=self.user.id,
+                connect_from="posthog_code",
+            ),
         )
 
         response = self.client.get(
@@ -399,10 +402,13 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         )
 
         state = "tok_oauth_discover_empty"
-        cache.set(
-            f"github_user_install_state:{state}",
-            {"user_id": self.user.id, "connect_from": "posthog_code", "flow": "oauth_discover"},
-            timeout=600,
+        store_personal_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.OAUTH_DISCOVER,
+                user_id=self.user.id,
+                connect_from="posthog_code",
+            ),
         )
 
         response = self.client.get(
@@ -435,7 +441,9 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_client_request.side_effect = [mock_install_info, mock_access_token]
 
         state = "test_state_123"
-        cache.set(f"github_user_install_state:{state}", {"user_id": self.user.id}, timeout=600)
+        store_personal_authorize_state(
+            GitHubAuthorizeState(token=state, flow=FlowKind.PERSONAL_INSTALL, user_id=self.user.id),
+        )
 
         response = self.client.get(
             "/complete/github-link/",
@@ -485,10 +493,13 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_client_request.side_effect = [mock_install_info, mock_access_token]
 
         state = f"test_state_{connect_from}"
-        cache.set(
-            f"github_user_install_state:{state}",
-            {"user_id": self.user.id, "connect_from": connect_from},
-            timeout=600,
+        store_personal_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.PERSONAL_INSTALL,
+                user_id=self.user.id,
+                connect_from=connect_from,
+            ),
         )
 
         response = self.client.get(
@@ -505,10 +516,13 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     def test_github_link_redirects_to_mobile_deep_link_with_error(self):
         """When GitHub returns an error, the mobile deep link still carries provider + error."""
         state = "test_state_posthog_mobile_error"
-        cache.set(
-            f"github_user_install_state:{state}",
-            {"user_id": self.user.id, "connect_from": "posthog_mobile"},
-            timeout=600,
+        store_personal_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.PERSONAL_INSTALL,
+                user_id=self.user.id,
+                connect_from="posthog_mobile",
+            ),
         )
 
         response = self.client.get(
@@ -523,7 +537,9 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn("error=access_denied", loc)
 
     def test_github_link_callback_rejects_mismatched_state(self):
-        cache.set("github_user_install_state:valid_state", {"user_id": self.user.id}, timeout=600)
+        store_personal_authorize_state(
+            GitHubAuthorizeState(token="valid_state", flow=FlowKind.PERSONAL_INSTALL, user_id=self.user.id),
+        )
         response = self.client.get(
             "/complete/github-link/",
             {"installation_id": "123", "code": "test_code", "state": "wrong_state"},
@@ -572,16 +588,15 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         mock_integration_from_install.return_value = team_integration
 
         state = "tok_team_oauth_123"
-        cache.set(
-            f"github_user_install_state:{state}",
-            {
-                "user_id": self.user.id,
-                "team_id": self.team.pk,
-                "installation_id": "12345",
-                "flow": "team_oauth_authorize",
-                "next": "/project/{}/settings/project-integrations".format(self.team.pk),
-            },
-            timeout=600,
+        store_personal_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.TEAM_OAUTH,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                installation_id="12345",
+                next_url="/project/{}/settings/project-integrations".format(self.team.pk),
+            ),
         )
 
         response = self.client.get(
@@ -604,15 +619,14 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     def test_github_link_callback_team_oauth_authorize_rejects_user_outside_team(self):
         state = "tok_team_outside"
         # Random team_id that the user doesn't belong to.
-        cache.set(
-            f"github_user_install_state:{state}",
-            {
-                "user_id": self.user.id,
-                "team_id": 999_999,
-                "installation_id": "12345",
-                "flow": "team_oauth_authorize",
-            },
-            timeout=600,
+        store_personal_authorize_state(
+            GitHubAuthorizeState(
+                token=state,
+                flow=FlowKind.TEAM_OAUTH,
+                user_id=self.user.id,
+                team_id=999_999,
+                installation_id="12345",
+            ),
         )
 
         response = self.client.get(

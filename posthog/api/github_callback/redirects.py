@@ -1,7 +1,3 @@
-"""Unified redirect builders for GitHub setup callbacks."""
-
-from __future__ import annotations
-
 from urllib.parse import parse_qsl, urlencode, urlparse
 
 from django.http import HttpResponseRedirect
@@ -9,28 +5,12 @@ from django.shortcuts import redirect
 
 from posthog.api.github_callback.types import (
     ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH,
-    APP_CONNECT_FROM_VALUES,
     MOBILE_GITHUB_CALLBACK_URL,
     PERSONAL_INTEGRATIONS_SETTINGS_PATH,
     FinishResult,
     github_integrations_settings_path,
 )
 from posthog.utils import is_relative_url
-
-# Re-export for existing imports
-__all__ = [
-    "ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH",
-    "APP_CONNECT_FROM_VALUES",
-    "MOBILE_GITHUB_CALLBACK_URL",
-    "PERSONAL_INTEGRATIONS_SETTINGS_PATH",
-    "FinishResult",
-    "append_query_params",
-    "landing_url",
-    "redirect_from_finish_result",
-    "team_setup_redirect",
-    "personal_finish_redirect",
-    "team_oauth_success_redirect",
-]
 
 
 class _AppDeepLinkRedirect(HttpResponseRedirect):

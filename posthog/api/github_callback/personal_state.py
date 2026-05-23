@@ -1,7 +1,3 @@
-"""Personal GitHub install/OAuth state helpers shared by callback handlers."""
-
-from __future__ import annotations
-
 from urllib.parse import parse_qs, parse_qsl, urlencode
 
 from django.conf import settings
@@ -14,8 +10,12 @@ import structlog
 from rest_framework import exceptions
 
 from posthog.api.github_callback import state as github_callback_state
-from posthog.api.github_callback.redirects import APP_CONNECT_FROM_VALUES
-from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState, github_oauth_redirect_uri
+from posthog.api.github_callback.types import (
+    APP_CONNECT_FROM_VALUES,
+    FlowKind,
+    GitHubAuthorizeState,
+    github_oauth_redirect_uri,
+)
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 

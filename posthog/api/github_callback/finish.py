@@ -1,10 +1,6 @@
-"""Unified GitHub callback finish engine."""
-
-from __future__ import annotations
-
 from django.http import HttpRequest
 
-from posthog.api.github_callback import personal_finish, state, team_finish
+from posthog.api.github_callback import personal_finish, state, team_services
 from posthog.api.github_callback.personal_state import is_personal_github_setup_state
 from posthog.api.github_callback.types import CallbackContext, FinishResult, FlowKind, github_oauth_callback_error_code
 from posthog.models.user_integration import UserIntegration
@@ -35,11 +31,11 @@ def finish(http_request: HttpRequest, ctx: CallbackContext) -> FinishResult:
         if ctx.flow == FlowKind.PERSONAL_UPDATE:
             return personal_finish.finish_personal_setup_update(http_request)
         if ctx.flow == FlowKind.TEAM_UPDATE:
-            return team_finish.finish_team_setup(http_request)
+            return team_services.finish_team_setup(http_request)
         if state.has_pending_personal_setup_update(user, installation_id_str):
             return personal_finish.finish_personal_setup_update(http_request)
         if state.has_pending_team_setup_update(user, ctx.state_raw):
-            return team_finish.finish_team_setup(http_request)
+            return team_services.finish_team_setup(http_request)
         team_integration = state.team_integration_for_user_installation(user, installation_id_str)
         has_personal = UserIntegration.objects.filter(
             user=user,
@@ -49,6 +45,6 @@ def finish(http_request: HttpRequest, ctx: CallbackContext) -> FinishResult:
         if has_personal:
             return personal_finish.finish_personal_setup_update(http_request)
         if team_integration is not None:
-            return team_finish.finish_team_setup_update(http_request, team_integration)
+            return team_services.finish_team_setup_update(http_request, team_integration)
 
-    return team_finish.finish_team_setup(http_request)
+    return team_services.finish_team_setup(http_request)

@@ -57,13 +57,9 @@ const OAuthIntegration = ({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
-    const authorizeNext = useMemo(() => {
-        const baseNext = next ?? urls.settings('environment-integrations')
-        if (kind !== 'github' || !currentTeam?.id) {
-            return baseNext
-        }
-        return combineUrl(baseNext, { project_id: currentTeam.id }).url
-    }, [kind, next, currentTeam?.id])
+    const baseNext = next ?? urls.settings('environment-integrations')
+    const authorizeNext =
+        kind === 'github' && currentTeam?.id ? combineUrl(baseNext, { project_id: currentTeam.id }).url : baseNext
     const authorizationUrl = api.integrations.authorizeUrl({
         next: authorizeNext,
         kind,

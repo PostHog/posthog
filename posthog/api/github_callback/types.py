@@ -1,7 +1,4 @@
-"""Shared types and constants for GitHub setup callbacks."""
-
-from __future__ import annotations
-
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
@@ -9,8 +6,10 @@ from urllib.parse import parse_qsl, urlparse
 
 from django.conf import settings
 
-GITHUB_INSTALL_STATE_CACHE_PREFIX = "github_user_install_state:"
-GITHUB_INSTALL_STATE_TTL_SECONDS = 10 * 60
+from rest_framework.exceptions import ValidationError
+
+GITHUB_INSTALLATION_ID_PATTERN = re.compile(r"\d{1,20}")
+
 GITHUB_AUTHORIZE_STATE_CACHE_TTL_SECONDS = 60 * 5
 GITHUB_UNIFIED_AUTHORIZE_CACHE_PREFIX = "github_authorize:"
 GITHUB_UNIFIED_AUTHORIZE_PENDING_PREFIX = "github_authorize_pending:"
@@ -19,8 +18,6 @@ ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH = "/account-connected/github-integrati
 PERSONAL_INTEGRATIONS_SETTINGS_PATH = "/settings/user-personal-integrations"
 MOBILE_GITHUB_CALLBACK_URL = "posthog://github/callback"
 APP_CONNECT_FROM_VALUES = ("posthog_code", "posthog_mobile")
-
-CallbackEntry = Literal["setup_url", "oauth_redirect"]
 
 
 class FlowKind(StrEnum):
@@ -46,7 +43,7 @@ class GitHubAuthorizeState:
 
 @dataclass
 class CallbackContext:
-    entry: CallbackEntry
+    entry: Literal["setup_url", "oauth_redirect"]
     resume_path: str
     installation_id: str | None
     setup_action: str | None
@@ -81,13 +78,29 @@ def github_oauth_redirect_uri() -> str:
     return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
 
 
-def github_team_integration_setup_callback_uri() -> str:
-    return f"{settings.SITE_URL.rstrip('/')}/integrations/github/callback"
-
-
 def github_integrations_settings_path(team_id: int) -> str:
     return f"/project/{team_id}/settings/project-integrations"
 
 
 def github_oauth_callback_error_code(github_error: str) -> str:
     return "access_denied" if github_error == "access_denied" else "github_oauth_error"
+
+
+def is_valid_github_installation_id(installation_id: object | None) -> bool:
+    if installation_id is None:
+        return False
+    return bool(GITHUB_INSTALLATION_ID_PATTERN.fullmatch(str(installation_id)))
+
+
+def validation_error_code(exc: ValidationError) -> str | None:
+    codes = exc.get_codes()
+    if isinstance(codes, list) and codes:
+        return str(codes[0])
+    if isinstance(codes, dict) and codes:
+        first = next(iter(codes.values()))
+        if isinstance(first, list) and first:
+            return str(first[0])
+        return str(first)
+    if isinstance(codes, str):
+        return codes
+    return None
