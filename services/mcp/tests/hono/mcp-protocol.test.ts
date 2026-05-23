@@ -4,7 +4,16 @@ import { afterAll, beforeAll } from 'vitest'
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
 
-import { defineMcpProtocolTests, defineResilienceTests, type ProtocolTestHarness } from '../integration/mcp-protocol-suite'
+import {
+    defineAuthTests,
+    defineHttpRouteTests,
+    defineJsonRpcEdgeCaseTests,
+    defineMcpProtocolTests,
+    defineResilienceTests,
+    defineResourceCatalogTests,
+    defineSessionLifecycleTests,
+    type ProtocolTestHarness,
+} from '../integration/mcp-protocol-suite'
 import { handlers, contextMillHandler } from '../workers/fixtures/handlers'
 
 const mswServer = setupServer(...handlers, contextMillHandler)
@@ -59,7 +68,14 @@ const harness = (): ProtocolTestHarness => ({
     fetch: fetchViaApp,
     token: 'phx_integration_test_token',
     stateless: true,
+    gracefulUnknown: true,
+    publicRoutes: true,
 })
 
 defineMcpProtocolTests('Hono', harness)
 defineResilienceTests('Hono', harness)
+defineHttpRouteTests('Hono', harness)
+defineAuthTests('Hono', harness)
+defineJsonRpcEdgeCaseTests('Hono', harness)
+defineSessionLifecycleTests('Hono', harness)
+defineResourceCatalogTests('Hono', harness)

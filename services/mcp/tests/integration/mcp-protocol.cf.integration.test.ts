@@ -2,7 +2,16 @@ import { afterAll, beforeAll } from 'vitest'
 
 import { startCfHarness } from './harness/cf'
 import { loadIntegrationEnv, type IntegrationEnv, type IntegrationHarness } from './harness/types'
-import { defineMcpProtocolTests, defineResilienceTests, defineUiAppProtocolTests } from './mcp-protocol-suite'
+import {
+    defineAuthTests,
+    defineMcpProtocolTests,
+    defineResilienceTests,
+    defineResourceCatalogTests,
+    defineSessionLifecycleTests,
+    defineToolBehaviorTests,
+    defineUiAppProtocolTests,
+    type ProtocolTestHarness,
+} from './mcp-protocol-suite'
 
 // End-to-end MCP protocol test against the Cloudflare Workers runtime.
 //   - Real workerd via `wrangler unstable_dev` (DurableObjects, agents SDK,
@@ -11,6 +20,11 @@ import { defineMcpProtocolTests, defineResilienceTests, defineUiAppProtocolTests
 //   - Real personal API key from `TEST_POSTHOG_PERSONAL_API_KEY`
 //
 // Boot the local PostHog stack with `./bin/start` before running this suite.
+//
+// Note: the JSON-RPC edge-case and HTTP-route suites are Hono-specific (they
+// assert on dispatcher internals and public routes the CF SDK doesn't expose
+// in the same shape). The protocol / resilience / UI / session / resource /
+// auth / tool-behavior suites run against both runtimes.
 
 let env: IntegrationEnv
 let harness: IntegrationHarness
@@ -24,18 +38,20 @@ afterAll(async () => {
     await harness?.stop()
 })
 
-const harnessFor = (): {
-    baseUrl: URL
-    fetch: typeof fetch
-    token: string
-    token2: string | undefined
-} => ({
+const harnessFor = (): ProtocolTestHarness => ({
     baseUrl: harness.baseUrl,
     fetch: globalThis.fetch,
     token: env.apiToken,
     token2: env.apiToken2,
+    orgId: env.orgId,
+    projectId: env.projectId,
+    publicRoutes: false,
 })
 
 defineMcpProtocolTests('Cloudflare Workers (real stack)', harnessFor)
 defineResilienceTests('Cloudflare Workers (real stack)', harnessFor)
 defineUiAppProtocolTests('Cloudflare Workers (real stack)', harnessFor)
+defineAuthTests('Cloudflare Workers (real stack)', harnessFor)
+defineSessionLifecycleTests('Cloudflare Workers (real stack)', harnessFor)
+defineResourceCatalogTests('Cloudflare Workers (real stack)', harnessFor)
+defineToolBehaviorTests('Cloudflare Workers (real stack)', harnessFor)
