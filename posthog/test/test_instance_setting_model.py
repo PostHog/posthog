@@ -1,6 +1,9 @@
 from typing import cast
 
 import pytest
+from unittest.mock import patch
+
+from django.db.utils import OperationalError, ProgrammingError
 
 from posthog.models.instance_setting import (
     InstanceSetting,
@@ -138,3 +141,46 @@ def test_admin_save_model_wraps_bare_strings(db):
     admin.save_model(request, obj4, form=None, change=False)
     assert obj4.raw_value == "42"
     assert obj4.value == 42
+
+
+@pytest.mark.parametrize("exc", [ProgrammingError("relation does not exist"), OperationalError("connection refused")])
+def test_get_instance_setting_falls_back_when_table_missing(db, exc):
+    """During bootstrap the posthog_instancesetting table may not exist yet (or Postgres is
+    unreachable). Reads should fall back to the constance default instead of bubbling the error
+    up through migrate_clickhouse, preflight_check, and other bootstrap paths."""
+    get_instance_setting.cache_clear()
+    with patch(
+        "posthog.models.instance_setting.InstanceSetting.objects.filter",
+        side_effect=exc,
+    ):
+        assert get_instance_setting("MATERIALIZED_COLUMNS_ENABLED") is True
+        assert get_instance_setting("CLICKHOUSE_KILL_SWITCH") == "off"
+        assert get_instance_setting("SLACK_APP_CLIENT_ID") == ""
+
+
+def test_get_instance_setting_does_not_cache_fallback(db):
+    """If the table is missing on first read, the default must not be cached — the next read,
+    after the schema is in place, should hit the DB and return the persisted value."""
+    get_instance_setting.cache_clear()
+    with patch(
+        "posthog.models.instance_setting.InstanceSetting.objects.filter",
+        side_effect=ProgrammingError("relation does not exist"),
+    ):
+        assert get_instance_setting("MATERIALIZED_COLUMNS_ENABLED") is True
+
+    set_instance_setting("MATERIALIZED_COLUMNS_ENABLED", False)
+    assert get_instance_setting("MATERIALIZED_COLUMNS_ENABLED") is False
+
+
+@pytest.mark.parametrize("exc", [ProgrammingError("relation does not exist"), OperationalError("connection refused")])
+def test_get_instance_settings_falls_back_when_table_missing(db, exc):
+    with patch(
+        "posthog.models.instance_setting.InstanceSetting.objects.filter",
+        side_effect=exc,
+    ):
+        result = get_instance_settings(["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET"])
+        assert result == {
+            "SLACK_APP_CLIENT_ID": "",
+            "SLACK_APP_CLIENT_SECRET": "",
+            "SLACK_APP_SIGNING_SECRET": "",
+        }

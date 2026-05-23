@@ -4,8 +4,13 @@ from functools import lru_cache
 from typing import Any
 
 from django.db import models
+from django.db.utils import OperationalError, ProgrammingError
+
+import structlog
 
 from posthog.settings import CONSTANCE_CONFIG, CONSTANCE_DATABASE_PREFIX
+
+logger = structlog.get_logger(__name__)
 
 
 class InstanceSetting(models.Model):
@@ -33,22 +38,45 @@ class InstanceSetting(models.Model):
 
 
 @lru_cache
-def get_instance_setting(key: str) -> Any:
-    assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
-
+def _get_instance_setting_cached(key: str) -> Any:
     saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
     if saved_setting is not None:
         return saved_setting.value
-    else:
-        return CONSTANCE_CONFIG[key][0]  # Get the default value
+    return CONSTANCE_CONFIG[key][0]
+
+
+def get_instance_setting(key: str) -> Any:
+    assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
+
+    try:
+        return _get_instance_setting_cached(key)
+    except (ProgrammingError, OperationalError):
+        # The posthog_instancesetting table may not exist yet during bootstrap (e.g. running
+        # `migrate_clickhouse` before Django migrations have created the Postgres schema, or a
+        # cold pod serving the home view before initial migrations land). Fall back to the
+        # default without caching, so reads recover automatically once the table is available.
+        logger.warning("instance_setting_table_unavailable", key=key)
+        return CONSTANCE_CONFIG[key][0]
+
+
+# Preserve the existing `get_instance_setting.cache_clear()` interface used by `set_instance_setting`
+# and test setup.
+get_instance_setting.cache_clear = _get_instance_setting_cached.cache_clear  # type: ignore[attr-defined]
 
 
 def get_instance_settings(keys: list[str]) -> Any:
     for key in keys:
         assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
 
-    saved_settings = InstanceSetting.objects.filter(key__in=[CONSTANCE_DATABASE_PREFIX + key for key in keys]).all()
     response = {key: CONSTANCE_CONFIG[key][0] for key in keys}
+
+    try:
+        saved_settings = InstanceSetting.objects.filter(key__in=[CONSTANCE_DATABASE_PREFIX + key for key in keys]).all()
+        # Force evaluation of the lazy queryset inside the try so a missing table surfaces here.
+        saved_settings = list(saved_settings)
+    except (ProgrammingError, OperationalError):
+        logger.warning("instance_setting_table_unavailable", keys=keys)
+        return response
 
     for setting in saved_settings:
         key = setting.key.replace(CONSTANCE_DATABASE_PREFIX, "")
