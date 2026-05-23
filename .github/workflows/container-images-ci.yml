@@ -3,8 +3,9 @@ name: Container Images CI
 on:
     pull_request:
         # Mirror ci-hobby.yml's trigger types so the `hobby-preview` label can
-        # retroactively kick off a build.
-        types: [opened, synchronize, reopened, labeled, unlabeled]
+        # retroactively kick off a build. ci-hobby.yml omits `reopened`, so we
+        # do too — otherwise reopens would build an image with no consumer.
+        types: [opened, synchronize, labeled, unlabeled]
     merge_group:
 
 concurrency:
