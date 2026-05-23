@@ -99,6 +99,12 @@ def is_recording_property(p: AnyPropertyFilter) -> bool:
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
     prop_filters: list[AnyPropertyFilter] = []
     for prop in team.test_account_filters:
+        # Team.test_account_filters is a free-form JSONField, so a malformed write
+        # (legacy data, hand-edited setting) can land a non-dict entry here. Skip
+        # those rather than blow up the whole recordings request.
+        if not isinstance(prop, dict):
+            logger.warn("test account filter was not a dict", filter=prop, team_id=team.pk)
+            continue
         match prop.get("type", None):
             case "person":
                 prop_filters.append(PersonPropertyFilter(**prop))
