@@ -35,10 +35,8 @@ export class StreamableMcpHandler {
             return auth.error
         }
 
-        // Rate-limit after auth so the bucket is keyed per token, not per IP —
-        // a single user behind a corporate NAT shouldn't share a bucket with
-        // unrelated users on the same egress. Fails open on Redis errors (see
-        // RateLimiter.check) so a Redis hiccup doesn't take MCP down.
+        // After auth so the bucket is keyed per token, not per IP — corporate
+        // NATs shouldn't share buckets across unrelated users.
         const rateLimit = await this.rateLimiter.check(auth.props.userHash)
         if (rateLimit && !rateLimit.allowed) {
             return buildRateLimitResponse(rateLimit)

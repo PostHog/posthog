@@ -9,7 +9,6 @@ import {
 } from '@/hono/rate-limiter'
 
 interface MockRedis extends RedisRateLimitOps {
-    _counts: Map<string, number>
     _ttls: Map<string, number>
 }
 
@@ -27,7 +26,6 @@ function createMockRedis(): MockRedis {
             return 1
         }),
         ttl: vi.fn(async (key: string) => ttls.get(key) ?? -2),
-        _counts: counts,
         _ttls: ttls,
     }
 }
@@ -126,25 +124,21 @@ describe('RateLimiter', () => {
         }
         const limiter = new RateLimiter(broken, [{ scope: 'burst', limit: 1, windowSeconds: 60 }])
         const result = await limiter.check('user-a')
-        // No successful check → returns null → caller treats as allowed.
         expect(result).toBeNull()
     })
 
     it('re-sets TTL if it got lost on a blocked request', async () => {
         const limiter = new RateLimiter(redis, [{ scope: 'burst', limit: 1, windowSeconds: 60 }])
-        await limiter.check('user-a') // count=1, expire called
-        // Simulate the expire having failed: clear the TTL map but keep the count.
+        await limiter.check('user-a')
+        // Simulate the EXPIRE having failed: clear TTLs but keep the count.
         redis._ttls.clear()
-        const blocked = await limiter.check('user-a') // count=2, blocked
+        const blocked = await limiter.check('user-a')
         expect(blocked?.allowed).toBe(false)
         expect(blocked?.resetSeconds).toBe(60)
-        // Should have re-issued the EXPIRE so the bucket eventually drains.
         expect(redis.expire).toHaveBeenCalledWith('mcp:rl:burst:user-a', 60)
     })
 
-    it('ships sensible defaults: burst above PostHog API limits, sustained above 12k/hour', () => {
-        // Sanity-check the exported defaults so a future tweak doesn't silently
-        // lower them below the PostHog REST API ceiling we're meant to exceed.
+    it('ships defaults above the highest PostHog REST endpoint limits', () => {
         expect(DEFAULT_BURST_LIMIT.limit).toBeGreaterThan(1200)
         expect(DEFAULT_BURST_LIMIT.windowSeconds).toBe(60)
         expect(DEFAULT_SUSTAINED_LIMIT.limit).toBeGreaterThan(12000)
