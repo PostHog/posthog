@@ -243,6 +243,11 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             "{1}.x",
             "{1:2} ('b')",
             "{1}[1]",
+            # `.x` property access forces the call parse, but a leading-dot
+            # number `.5` is a valid next statement, so the brace stays a Block.
+            "{} .x",
+            "{ } .5",
+            "{ } .5.5",
         ):
             self.assertEqual(
                 parse_program(query, backend="cpp-json"),

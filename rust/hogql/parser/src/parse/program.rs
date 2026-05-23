@@ -701,11 +701,11 @@ impl<'a> Parser<'a> {
 
     /// `self.peek()` is `{` — scan to its matching `}` and report whether the
     /// following postfix forces the exprStmt parse over the Block parse. Only a
-    /// postfix the Block parse can't strand onto a following statement does: a
-    /// `.` (`{1}.x` — a leading `.` is never a statement) or an EMPTY `()`
-    /// (`{1}()` — empty parens is never a statement). A non-empty `(expr)`
-    /// returns false: `(expr)` is itself a valid following statement, so cpp
-    /// keeps the Block (`{1} (a)` → Block + exprStmt, not a call).
+    /// postfix that can't itself begin a statement does, so the Block parse
+    /// would strand it: a `.x` property access (`{1}.x`) or an EMPTY `()`
+    /// (`{1}()`). Postfixes that CAN begin a statement return false so the
+    /// Block stands: a non-empty `(expr)` (`{1} (a)` → Block + exprStmt) and a
+    /// leading-dot number `.5` (`{ } .5` → Block + `.5`, not `{}.5`).
     fn brace_followed_by_dot_or_empty_call(&self) -> bool {
         let mut probe = Lexer::with_pos(self.src, self.peek0.end);
         let mut depth: i32 = 1;
@@ -722,7 +722,10 @@ impl<'a> Parser<'a> {
             }
         }
         match probe.next_token().map(|t| t.kind) {
-            Ok(TokenKind::Dot) => true,
+            // `.x` (property access) can't begin a statement, so force the
+            // exprStmt parse; a leading-dot number (`.5`) IS a valid statement,
+            // so keep the Block (`{ } .5` → Block + `.5`, not `{}.5`).
+            Ok(TokenKind::Dot) => !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::Number)),
             Ok(TokenKind::LParen) => matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::RParen)),
             _ => false,
         }
