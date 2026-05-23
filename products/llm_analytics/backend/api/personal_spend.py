@@ -31,9 +31,9 @@ from rest_framework.response import Response
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
@@ -286,10 +286,10 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
 
 
 def _email_filter(email: str) -> ast.Expr:
-    # With person-on-events mode `person.properties.email` is a denormalized column on
-    # the events row, so this is a single column read rather than a join — it also catches
-    # every event the user identified with, including historical distinct_ids merged into
-    # the same person.
+    # `person.properties.email` resolves via distinct_id → pdi → person, so it catches every
+    # event the user identified with (including historical distinct_ids merged into the same
+    # person). This is the same shape the LLM Analytics "Users" tab uses against the `events`
+    # table — see `products/llm_analytics/frontend/tabs/llmAnalyticsUsersLogic.ts`.
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["person", "properties", "email"]),
@@ -354,11 +354,11 @@ def _fetch_summary(
             round(sumIf(toFloat(properties.$ai_total_cost_usd), {product_filter}), 6) AS scoped_cost_usd,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd
-        FROM posthog.ai_events
+        FROM events
         WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
@@ -390,14 +390,14 @@ def _fetch_by_product(
             properties.ai_product AS product,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd
-        FROM posthog.ai_events
+        FROM events
         WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         GROUP BY product
         ORDER BY cost_usd DESC
         LIMIT {limit}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
@@ -438,7 +438,7 @@ def _fetch_by_tool(
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             round(avg(toFloat(properties.$ai_input_tokens)), 0) AS avg_input_tokens
-        FROM posthog.ai_events
+        FROM events
         WHERE equals(event, '$ai_generation')
             AND {product_filter}
             AND {email_filter}
@@ -448,7 +448,7 @@ def _fetch_by_tool(
         LIMIT {limit}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
@@ -487,7 +487,7 @@ def _fetch_by_model(
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
             sum(toFloat(properties.$ai_output_tokens)) AS output_tokens
-        FROM posthog.ai_events
+        FROM events
         WHERE {event_in}
             AND {product_filter}
             AND {email_filter}
@@ -497,7 +497,7 @@ def _fetch_by_model(
         LIMIT {limit}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
@@ -537,7 +537,7 @@ def _fetch_top_traces(
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             min(timestamp) AS started_at
-        FROM posthog.ai_events
+        FROM events
         WHERE equals(event, '$ai_generation')
             AND {product_filter}
             AND {email_filter}
@@ -547,7 +547,7 @@ def _fetch_top_traces(
         LIMIT {limit}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
@@ -579,10 +579,15 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     authenticated user's email (read off the events row via person-on-events) —
     callers cannot pivot to other users' data. Authorization model is "any
     authenticated PostHog user may read their own spend" via `user:read` (the
-    same scope that covers `/api/users/@me/`). Routes through
-    `execute_with_ai_events_fallback` so reads hit the
-    dedicated `ai_events` table when enabled, with the shared `events` table as
-    a fallback. Optionally filter tool / model / trace breakdowns to a single
+    same scope that covers `/api/users/@me/`). Queries the shared `events`
+    table directly — same pattern as the LLM Analytics "Users" tab and every
+    other person-property filter on AI events. The HogQL printer transparently
+    uses the materialized `pmat_email` column on the main cluster's `person`
+    table when it's registered, so there's no perf penalty vs the ai_events
+    satellite path; the WHERE clause hits the events table's sort key
+    (`team_id`, `event`, `timestamp`) before the person join fires. The
+    endpoint is also cached for 5 minutes per user. Optionally filter tool /
+    model / trace breakdowns to a single
     `ai_product` via the `product` query param; `by_product` always returns
     the full cross-product breakdown. The endpoint is only registered on US
     Cloud + dev/test envs; hobby / self-hosted deploys never see this URL;
