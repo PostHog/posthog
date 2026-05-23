@@ -316,6 +316,15 @@ class IPThrottle(SimpleRateThrottle):
         ip = get_ip_address(request)
         return self.cache_format % {"scope": self.scope, "ident": ip}
 
+    def allow_request(self, request, view):
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            route = get_route_from_path(getattr(request, "path", None))
+            RATE_LIMIT_EXCEEDED_COUNTER.labels(
+                team_id="", scope=getattr(self, "scope", ""), path=route, route=route
+            ).inc()
+        return allowed
+
 
 class SignupIPThrottle(IPThrottle):
     """
