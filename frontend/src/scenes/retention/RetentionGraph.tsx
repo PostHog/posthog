@@ -10,9 +10,10 @@ import { ChartDisplayType, GraphDataset, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { LineGraph } from '../insights/views/LineGraph/LineGraph'
-import { RetentionGraphHogCharts } from './RetentionGraphHogCharts'
 import { retentionGraphLogic } from './retentionGraphLogic'
 import { retentionModalLogic } from './retentionModalLogic'
+import { RetentionBarChart } from './viz/retention-bar-chart/RetentionBarChart'
+import { RetentionLineChart } from './viz/retention-line-chart/RetentionLineChart'
 
 interface RetentionGraphProps {
     inSharedMode?: boolean
@@ -48,11 +49,11 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
 
     const isBarDisplay = retentionFilter?.display === ChartDisplayType.ActionsBar
-    const useHogCharts = isBarDisplay
-        ? featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_BAR]
-        : featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_LINE]
-    if (useHogCharts) {
-        return <RetentionGraphHogCharts inSharedMode={inSharedMode} />
+    if (isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_BAR]) {
+        return <RetentionBarChart inSharedMode={inSharedMode} />
+    }
+    if (!isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_LINE]) {
+        return <RetentionLineChart inSharedMode={inSharedMode} />
     }
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

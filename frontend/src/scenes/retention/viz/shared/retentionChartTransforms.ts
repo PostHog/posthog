@@ -11,7 +11,7 @@ import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general
 
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
-import type { RetentionTrendPayload } from './types'
+import type { RetentionTrendPayload } from '../../types'
 
 // `retentionGraphLogic.trendSeries` spreads `cohortRetention` onto each entry, so the
 // runtime shape includes a cohort `label` field that the declared type doesn't list.

@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { TimeSeriesBarChart, TimeSeriesLineChart } from 'lib/hog-charts'
+import { TimeSeriesBarChart } from 'lib/hog-charts'
 import type { PointClickData, TooltipConfig, TooltipContext } from 'lib/hog-charts'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -11,21 +11,19 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
+import { retentionGraphLogic } from '../../retentionGraphLogic'
+import { retentionModalLogic } from '../../retentionModalLogic'
 import {
     buildRetentionBarChartConfig,
-    buildRetentionLineChartConfig,
     buildRetentionSeries,
     type RetentionSeriesMeta,
     type RetentionTrendSeriesEntry,
-} from './retentionChartTransforms'
-import { retentionGraphLogic } from './retentionGraphLogic'
-import { retentionModalLogic } from './retentionModalLogic'
-import { RetentionTooltip } from './RetentionTooltip'
+} from '../shared/retentionChartTransforms'
+import { RetentionTooltip } from '../shared/RetentionTooltip'
 
-interface RetentionGraphHogChartsProps {
+interface RetentionBarChartProps {
     inSharedMode?: boolean
 }
 
@@ -52,7 +50,7 @@ function resolveGroupTypeLabel(
     return aggregationLabel(labelGroupType).plural
 }
 
-export function RetentionGraphHogCharts({ inSharedMode = false }: RetentionGraphHogChartsProps): JSX.Element | null {
+export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
@@ -64,7 +62,6 @@ export function RetentionGraphHogCharts({ inSharedMode = false }: RetentionGraph
         incompletenessOffsetFromEnd,
         labelGroupType,
         shouldShowMeanPerBreakdown,
-        showTrendLines,
         xAxisLabels,
     } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
@@ -73,7 +70,6 @@ export function RetentionGraphHogCharts({ inSharedMode = false }: RetentionGraph
     const selectedInterval = retentionFilter?.selectedInterval ?? null
     const period = retentionFilter?.period
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
-    const isBarDisplay = retentionFilter?.display === ChartDisplayType.ActionsBar
     const isIntervalView = selectedInterval !== null
     // Shared (public) views don't have the persons modal mounted — disable click-to-open there.
     const canClick = !shouldShowMeanPerBreakdown && !inSharedMode
@@ -94,7 +90,6 @@ export function RetentionGraphHogCharts({ inSharedMode = false }: RetentionGraph
             if (shouldShowMeanPerBreakdown) {
                 return
             }
-            // In interval view each x-position is a different cohort, otherwise each series is.
             const rowIndex = isIntervalView
                 ? datum.dataIndex
                 : (series[datum.datasetIndex]?.meta?.rowIndex ?? datum.datasetIndex)
@@ -151,11 +146,6 @@ export function RetentionGraphHogCharts({ inSharedMode = false }: RetentionGraph
         () => buildRetentionBarChartConfig({ isPercentage, goalLines, series, tooltip: TOOLTIP_CONFIG }),
         [isPercentage, goalLines, series]
     )
-    const lineConfig = useMemo(
-        () =>
-            buildRetentionLineChartConfig({ isPercentage, goalLines, showTrendLines, series, tooltip: TOOLTIP_CONFIG }),
-        [isPercentage, goalLines, showTrendLines, series]
-    )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
         return (
@@ -165,28 +155,12 @@ export function RetentionGraphHogCharts({ inSharedMode = false }: RetentionGraph
         )
     }
 
-    if (isBarDisplay) {
-        return (
-            <TimeSeriesBarChart<RetentionSeriesMeta>
-                series={series}
-                labels={xAxisLabels}
-                theme={theme}
-                config={barConfig}
-                tooltip={renderTooltip}
-                onPointClick={canClick ? onPointClick : undefined}
-                className="LineGraph"
-                dataAttr="trend-line-graph"
-                onError={handleChartError}
-            />
-        )
-    }
-
     return (
-        <TimeSeriesLineChart<RetentionSeriesMeta>
+        <TimeSeriesBarChart<RetentionSeriesMeta>
             series={series}
             labels={xAxisLabels}
             theme={theme}
-            config={lineConfig}
+            config={barConfig}
             tooltip={renderTooltip}
             onPointClick={canClick ? onPointClick : undefined}
             className="LineGraph"
