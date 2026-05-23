@@ -379,7 +379,7 @@ describe('taxonomicFilterLogic', () => {
             await expectLogic(quickLogic, () => {
                 quickLogic.actions.setSearchQuery('$pageview')
             })
-                .toDispatchActions(['setSearchQuery', 'infiniteListResultsReceived'])
+                .toDispatchActions(['setSearchQuery', 'appendTopMatches'])
                 .delay(1)
 
             expect(quickLogic.values.topMatchItems).toHaveLength(1)
