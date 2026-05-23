@@ -78,29 +78,23 @@ describe('RateLimiter', () => {
         expect(b1?.allowed).toBe(true)
     })
 
-    it('returns the first tripped limit when burst is exceeded but sustained is not', async () => {
-        const limiter = new RateLimiter(redis, [
-            { scope: 'burst', limit: 2, windowSeconds: 60 },
-            { scope: 'sustained', limit: 100, windowSeconds: 3600 },
-        ])
-        await limiter.check('user-a')
-        await limiter.check('user-a')
-        const result = await limiter.check('user-a')
-        expect(result?.allowed).toBe(false)
-        expect(result?.scope).toBe('burst')
-    })
-
-    it('returns the sustained limit when it trips before burst would', async () => {
-        const limiter = new RateLimiter(redis, [
-            { scope: 'burst', limit: 100, windowSeconds: 60 },
-            { scope: 'sustained', limit: 2, windowSeconds: 3600 },
-        ])
-        await limiter.check('user-a')
-        await limiter.check('user-a')
-        const result = await limiter.check('user-a')
-        expect(result?.allowed).toBe(false)
-        expect(result?.scope).toBe('sustained')
-    })
+    it.each([
+        { burstLimit: 2, sustainedLimit: 100, expectedScope: 'burst' },
+        { burstLimit: 100, sustainedLimit: 2, expectedScope: 'sustained' },
+    ])(
+        'blocks on whichever limit trips first (burst=$burstLimit, sustained=$sustainedLimit → $expectedScope)',
+        async ({ burstLimit, sustainedLimit, expectedScope }) => {
+            const limiter = new RateLimiter(redis, [
+                { scope: 'burst', limit: burstLimit, windowSeconds: 60 },
+                { scope: 'sustained', limit: sustainedLimit, windowSeconds: 3600 },
+            ])
+            await limiter.check('user-a')
+            await limiter.check('user-a')
+            const result = await limiter.check('user-a')
+            expect(result?.allowed).toBe(false)
+            expect(result?.scope).toBe(expectedScope)
+        }
+    )
 
     it('reports the tightest remaining when all limits pass', async () => {
         const limiter = new RateLimiter(redis, [

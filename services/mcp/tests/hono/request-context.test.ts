@@ -12,9 +12,10 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestContext } from '@/hono/request-context'
 import type { RequestProperties } from '@/lib/request-properties'
 
+import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+
 function fakeRedis(): RedisLike {
     const store = new Map<string, string>()
-    const counters = new Map<string, number>()
     return {
         get: async (key) => store.get(key) ?? null,
         set: async (key, value) => {
@@ -31,13 +32,7 @@ function fakeRedis(): RedisLike {
             return n
         },
         scan: async () => ['0', [...store.keys()]],
-        incr: async (key) => {
-            const next = (counters.get(key) ?? 0) + 1
-            counters.set(key, next)
-            return next
-        },
-        expire: async () => 1,
-        ttl: async () => 60,
+        ...makeRedisRateLimitStubs(),
     }
 }
 

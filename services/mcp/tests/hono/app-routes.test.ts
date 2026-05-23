@@ -4,6 +4,8 @@ import type { Mock } from 'vitest'
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
 
+import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+
 interface MockRedis extends RedisLike {
     ping: Mock<() => Promise<string>>
     _store: Map<string, string>
@@ -11,7 +13,6 @@ interface MockRedis extends RedisLike {
 
 function createMockRedis(): MockRedis {
     const store = new Map<string, string>()
-    const counters = new Map<string, number>()
     return {
         get: vi.fn(async (key: string) => store.get(key) ?? null),
         set: vi.fn(async (key: string, value: string) => {
@@ -20,13 +21,7 @@ function createMockRedis(): MockRedis {
         }),
         del: vi.fn(async (...keys: string[]) => keys.length),
         scan: vi.fn(async () => ['0', []] as [string, string[]]),
-        incr: vi.fn(async (key: string) => {
-            const next = (counters.get(key) ?? 0) + 1
-            counters.set(key, next)
-            return next
-        }),
-        expire: vi.fn(async () => 1),
-        ttl: vi.fn(async () => 60),
+        ...makeRedisRateLimitStubs(),
         ping: vi.fn(async () => 'PONG'),
         _store: store,
     }
