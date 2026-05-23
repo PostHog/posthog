@@ -20,6 +20,9 @@ const esmModules = [
     'lowlight',
     'devlop',
     'zwitch',
+    // posthog-js's rrweb subpath entries are shipped as ESM; the rest of posthog-js
+    // is CJS, so we scope the transform to just dist/rrweb* to avoid retranspiling main.js.
+    'posthog-js/dist/rrweb',
     // react-markdown and its ecosystem are all ESM-only
     'react-markdown',
     'remark-.*',
