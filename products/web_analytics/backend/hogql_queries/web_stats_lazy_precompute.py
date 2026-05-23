@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Optional
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import WebStatsBreakdown
+from posthog.schema import WebStatsBreakdown, WebStatsTableQuery
 
 from posthog.hogql import ast
 
@@ -24,6 +24,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
     LazyPrecomputeIneligible,
+    LazyPrecomputeRunner,
     can_use_lazy_precompute as _can_use_lazy_precompute_shared,
     ceil_utc_day,
     events_session_id_expr,
@@ -100,10 +101,17 @@ class UnsupportedBreakdown(LazyPrecomputeIneligible):
         super().__init__(f"breakdown={breakdown!r}")
 
 
-def _check_stats_eligible(runner: "WebStatsTableQueryRunner") -> None:
+def _check_stats_eligible(runner: LazyPrecomputeRunner) -> None:
     """Raise a `LazyPrecomputeIneligible` subclass for stats-table-specific
-    reasons the lazy path can't serve the query."""
+    reasons the lazy path can't serve the query.
+
+    Typed to the shared `LazyPrecomputeRunner` protocol so it satisfies
+    `can_use_lazy_precompute`'s `extra_check` parameter (Callable argument
+    types are contravariant). The isinstance narrows `query` from the
+    `Union[WebOverviewQuery, WebStatsTableQuery]` shape to the stats-table
+    fields we actually need."""
     query = runner.query
+    assert isinstance(query, WebStatsTableQuery), "_check_stats_eligible called on non-stats runner"
 
     # Bounce rate / avg time / scroll depth are extra metrics the precompute
     # table does not store. `includeScrollDepth` implicitly turns on bounce rate.
