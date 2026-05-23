@@ -362,77 +362,21 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return None
         return execute_lazy_precomputed_read(self)
 
-    def _lazy_breakdown_passes_filter(self, value: object) -> bool:
-        """Python equivalent of `outer_where_breakdown()` for the lazy path —
-        the precompute read returns every breakdown value, so the same HAVING
-        the raw query applies must be reproduced here."""
-        match self.query.breakdownBy:
-            case WebStatsBreakdown.REGION | WebStatsBreakdown.CITY:
-                return isinstance(value, tuple) and len(value) >= 2 and value[1] is not None
-            case WebStatsBreakdown.VIEWPORT:
-                return (
-                    isinstance(value, tuple)
-                    and len(value) >= 2
-                    and value[0] not in (None, 0)
-                    and value[1] not in (None, 0)
-                )
-            case (
-                WebStatsBreakdown.INITIAL_UTM_SOURCE
-                | WebStatsBreakdown.INITIAL_UTM_CAMPAIGN
-                | WebStatsBreakdown.INITIAL_UTM_MEDIUM
-                | WebStatsBreakdown.INITIAL_UTM_TERM
-                | WebStatsBreakdown.INITIAL_UTM_CONTENT
-            ):
-                return True  # the raw query intentionally keeps null UTM values
-            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
-                return value is not None and value != ""
-            case _:
-                return value is not None
-
     def _build_response_from_lazy(self, result: LazyStatsResult) -> WebStatsTableQueryResponse:
         """Shape the precompute read into a `WebStatsTableQueryResponse` identical
         to the raw `SimpleBreakdownStrategy` path: breakdown value, visitors and
-        views tuples, the `ui_fill_fraction` bar value and a `cross_sell` column."""
+        views tuples, the `ui_fill_fraction` bar value and a `cross_sell` column.
+
+        Ordering, filtering, and pagination already happened in ClickHouse — see
+        `execute_read_query`. This function just shapes the rows."""
         include_previous = self.query_compare_to_date_range is not None
-        rows = [r for r in result.rows if self._lazy_breakdown_passes_filter(r.breakdown_value)]
-
-        # Resolve the sort metric. Only visitors/views orderBy is reachable here —
-        # bounce/scroll/conversion orderBy columns are gated out; an orderBy on an
-        # absent column falls back to the default, matching `_order_by`.
-        sort_metric = "visitors"
-        descending = True
-        if self.query.orderBy:
-            field = cast(WebAnalyticsOrderByFields, self.query.orderBy[0])
-            direction = cast(WebAnalyticsOrderByDirection, self.query.orderBy[1])
-            if field in (WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByFields.VIEWS):
-                sort_metric = "views" if field == WebAnalyticsOrderByFields.VIEWS else "visitors"
-                descending = direction != WebAnalyticsOrderByDirection.ASC
-
-        def current(row, metric: str) -> int:
-            return row.views_current if metric == "views" else row.visitors_current
-
-        # `ui_fill_fraction` denominator: the sort metric summed over ALL filtered
-        # rows — the raw query's `sum(...) OVER ()` runs before LIMIT.
-        fill_total = sum(current(r, sort_metric) for r in rows)
-
-        # Stable multi-key sort, least-significant first: breakdown value ascending
-        # is always the final tiebreaker; the non-primary metric then the primary
-        # metric carry the query direction.
-        secondary_metric = "views" if sort_metric == "visitors" else "visitors"
-        rows.sort(key=lambda r: _lazy_breakdown_sort_key(r.breakdown_value))
-        rows.sort(key=lambda r: current(r, secondary_metric), reverse=descending)
-        rows.sort(key=lambda r: current(r, sort_metric), reverse=descending)
-
-        offset = self.paginator.offset
-        limit = self.paginator.limit
-        has_more = len(rows) > offset + limit
-        page = rows[offset : offset + limit]
 
         results: list = []
-        for r in page:
+        for r in result.rows:
             visitors = (r.visitors_current, r.visitors_previous if include_previous else None)
             views = (r.views_current, r.views_previous if include_previous else None)
-            fill_fraction = current(r, sort_metric) / fill_total if fill_total else 0
+            current_metric = r.views_current if result.sort_metric == "views" else r.visitors_current
+            fill_fraction = current_metric / r.fill_total if r.fill_total else 0
             results.append([r.breakdown_value, visitors, views, fill_fraction, ""])
 
         return WebStatsTableQueryResponse(
@@ -446,9 +390,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             results=results,
             modifiers=self.modifiers,
             usedLazyPrecompute=True,
-            hasMore=has_more,
-            limit=limit,
-            offset=offset,
+            hasMore=result.has_more,
+            limit=self.paginator.limit,
+            offset=self.paginator.offset,
         )
 
     def _calculate(self):
@@ -737,14 +681,3 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
 def coalesce_with_null_display(*exprs: ast.Expr) -> ast.Expr:
     return ast.Call(name="coalesce", args=[*exprs, ast.Constant(value=BREAKDOWN_NULL_DISPLAY)])
-
-
-def _lazy_breakdown_sort_key(value: object):
-    """None-safe ordering key for the lazy path's breakdown tiebreaker. Within a
-    single query every breakdown value is the same type, so the comparison stays
-    consistent; tuple breakdowns get their null elements normalized to ''."""
-    if value is None:
-        return ""
-    if isinstance(value, tuple):
-        return tuple("" if x is None else x for x in value)
-    return value
