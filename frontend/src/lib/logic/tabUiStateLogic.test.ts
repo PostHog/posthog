@@ -1,5 +1,11 @@
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
+import {
+    TAB_UI_STATE_STORAGE_KEY,
+    TAB_UI_STATE_STORAGE_VERSION,
+    TAB_UI_STATE_TTL_MS,
+    readPersistedState,
+    tabUiStateLogic,
+} from 'lib/logic/tabUiStateLogic'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -19,6 +25,7 @@ const dataTableQuery: DataTableNode = setLatestVersionsOnQuery({
 
 describe('tabUiStateLogic', () => {
     beforeEach(() => {
+        window.localStorage.clear()
         initKeaTests()
         featureFlagLogic.mount()
         tabUiStateLogic.mount()
@@ -227,6 +234,109 @@ describe('tabUiStateLogic', () => {
 
             expect(tabUiStateLogic.values.chatDraftFor(TAB_A)).toBe('')
             expect(tabUiStateLogic.values.chatDraftFor(TAB_B)).toBe('two')
+        })
+    })
+
+    describe('localStorage persistence', () => {
+        function readEnvelope(): { version: number; updatedAt: number; state: Record<string, any> } | null {
+            const raw = window.localStorage.getItem(TAB_UI_STATE_STORAGE_KEY)
+            return raw ? JSON.parse(raw) : null
+        }
+
+        it('writes a versioned, timestamped envelope on each mutating action', () => {
+            const before = Date.now()
+            tabUiStateLogic.actions.setChatDraftForTab(TAB_A, 'rozepsano')
+            const after = Date.now()
+
+            const env = readEnvelope()
+            expect(env).not.toBeNull()
+            expect(env!.version).toBe(TAB_UI_STATE_STORAGE_VERSION)
+            expect(env!.updatedAt).toBeGreaterThanOrEqual(before)
+            expect(env!.updatedAt).toBeLessThanOrEqual(after)
+            expect(env!.state.chatDraftsByTab[TAB_A]).toBe('rozepsano')
+        })
+
+        it('refreshes updatedAt on every write', async () => {
+            tabUiStateLogic.actions.setChatDraftForTab(TAB_A, 'one')
+            const first = readEnvelope()!.updatedAt
+
+            await new Promise((r) => setTimeout(r, 5))
+            tabUiStateLogic.actions.setChatDraftForTab(TAB_A, 'two')
+            const second = readEnvelope()!.updatedAt
+
+            expect(second).toBeGreaterThan(first)
+        })
+
+        it('readPersistedState returns empty for missing payload', () => {
+            window.localStorage.clear()
+            expect(readPersistedState()).toEqual({
+                expandedRowsByTabAndVizKey: {},
+                savedQueriesByTabAndScene: {},
+                chatDraftsByTab: {},
+            })
+        })
+
+        it('readPersistedState ignores payloads with wrong version', () => {
+            window.localStorage.setItem(
+                TAB_UI_STATE_STORAGE_KEY,
+                JSON.stringify({
+                    version: TAB_UI_STATE_STORAGE_VERSION + 1,
+                    updatedAt: Date.now(),
+                    state: { chatDraftsByTab: { [TAB_A]: 'stale' } },
+                })
+            )
+            expect(readPersistedState().chatDraftsByTab).toEqual({})
+        })
+
+        it('readPersistedState ignores payloads older than the TTL', () => {
+            window.localStorage.setItem(
+                TAB_UI_STATE_STORAGE_KEY,
+                JSON.stringify({
+                    version: TAB_UI_STATE_STORAGE_VERSION,
+                    updatedAt: Date.now() - TAB_UI_STATE_TTL_MS - 1,
+                    state: { chatDraftsByTab: { [TAB_A]: 'expired' } },
+                })
+            )
+            expect(readPersistedState().chatDraftsByTab).toEqual({})
+        })
+
+        it('readPersistedState accepts fresh payloads within the TTL', () => {
+            window.localStorage.setItem(
+                TAB_UI_STATE_STORAGE_KEY,
+                JSON.stringify({
+                    version: TAB_UI_STATE_STORAGE_VERSION,
+                    updatedAt: Date.now() - 1000,
+                    state: {
+                        expandedRowsByTabAndVizKey: { [TAB_A]: { [VIZ_KEY]: [1, 2] } },
+                        savedQueriesByTabAndScene: {},
+                        chatDraftsByTab: { [TAB_A]: 'fresh' },
+                    },
+                })
+            )
+            const restored = readPersistedState()
+            expect(restored.chatDraftsByTab[TAB_A]).toBe('fresh')
+            expect(restored.expandedRowsByTabAndVizKey[TAB_A][VIZ_KEY]).toEqual([1, 2])
+        })
+
+        it('readPersistedState recovers from corrupt JSON', () => {
+            window.localStorage.setItem(TAB_UI_STATE_STORAGE_KEY, 'not-json{')
+            expect(readPersistedState().chatDraftsByTab).toEqual({})
+        })
+
+        it('does not crash when localStorage.setItem throws (quota guard)', () => {
+            const original = window.localStorage.setItem.bind(window.localStorage)
+            const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+                throw new Error('QuotaExceededError')
+            })
+            const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            try {
+                expect(() => tabUiStateLogic.actions.setChatDraftForTab(TAB_A, 'x')).not.toThrow()
+                expect(tabUiStateLogic.values.chatDraftFor(TAB_A)).toBe('x')
+            } finally {
+                spy.mockRestore()
+                warn.mockRestore()
+                window.localStorage.setItem = original
+            }
         })
     })
 })

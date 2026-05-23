@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 
 import type { Node } from '~/queries/schema/schema-general'
 
@@ -6,9 +6,109 @@ import type { tabUiStateLogicType } from './tabUiStateLogicType'
 
 const NO_TAB = '__no_tab__'
 
+export const TAB_UI_STATE_STORAGE_KEY = 'ph_tab_ui_state'
+// Bump when PersistedShape changes in a backwards-incompatible way (renamed/removed
+// key, changed value type). Old payloads are discarded on read — no migration needed.
+export const TAB_UI_STATE_STORAGE_VERSION = 1
+export const TAB_UI_STATE_TTL_MS = 30 * 24 * 60 * 60 * 1000
+
 export type ExpandedRowsByTabAndVizKey = Record<string, Record<string, number[]>>
 export type SavedQueriesByTabAndScene = Record<string, Record<string, Node>>
 export type ChatDraftsByTab = Record<string, string>
+
+// 🚨 Changing this shape (rename/remove key, change a value type) requires
+// bumping TAB_UI_STATE_STORAGE_VERSION so stale payloads in user browsers
+// are discarded on read instead of crashing consumers.
+type PersistedShape = {
+    expandedRowsByTabAndVizKey: ExpandedRowsByTabAndVizKey
+    savedQueriesByTabAndScene: SavedQueriesByTabAndScene
+    chatDraftsByTab: ChatDraftsByTab
+}
+
+type PersistedEnvelope = {
+    version: number
+    updatedAt: number
+    state: PersistedShape
+}
+
+const EMPTY_PERSISTED: PersistedShape = {
+    expandedRowsByTabAndVizKey: {},
+    savedQueriesByTabAndScene: {},
+    chatDraftsByTab: {},
+}
+
+function getStorage(): Storage | null {
+    try {
+        if (typeof window === 'undefined') {
+            return null
+        }
+        return window.localStorage
+    } catch {
+        return null
+    }
+}
+
+export function readPersistedState(): PersistedShape {
+    const storage = getStorage()
+    if (!storage) {
+        return EMPTY_PERSISTED
+    }
+    let raw: string | null
+    try {
+        raw = storage.getItem(TAB_UI_STATE_STORAGE_KEY)
+    } catch {
+        return EMPTY_PERSISTED
+    }
+    if (!raw) {
+        return EMPTY_PERSISTED
+    }
+    let parsed: PersistedEnvelope
+    try {
+        parsed = JSON.parse(raw) as PersistedEnvelope
+    } catch {
+        return EMPTY_PERSISTED
+    }
+    if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        parsed.version !== TAB_UI_STATE_STORAGE_VERSION ||
+        typeof parsed.updatedAt !== 'number' ||
+        Date.now() - parsed.updatedAt > TAB_UI_STATE_TTL_MS ||
+        !parsed.state ||
+        typeof parsed.state !== 'object'
+    ) {
+        return EMPTY_PERSISTED
+    }
+    return {
+        expandedRowsByTabAndVizKey: parsed.state.expandedRowsByTabAndVizKey ?? {},
+        savedQueriesByTabAndScene: parsed.state.savedQueriesByTabAndScene ?? {},
+        chatDraftsByTab: parsed.state.chatDraftsByTab ?? {},
+    }
+}
+
+let writeWarned = false
+
+function writePersistedState(state: PersistedShape): void {
+    const storage = getStorage()
+    if (!storage) {
+        return
+    }
+    const envelope: PersistedEnvelope = {
+        version: TAB_UI_STATE_STORAGE_VERSION,
+        updatedAt: Date.now(),
+        state,
+    }
+    try {
+        storage.setItem(TAB_UI_STATE_STORAGE_KEY, JSON.stringify(envelope))
+    } catch (error) {
+        if (!writeWarned) {
+            writeWarned = true
+            console.warn('[tabUiStateLogic] failed to persist tab UI state', error)
+        }
+    }
+}
+
+const INITIAL_PERSISTED = readPersistedState()
 
 export const tabUiStateLogic = kea<tabUiStateLogicType>([
     path(['lib', 'logic', 'tabUiStateLogic']),
@@ -31,7 +131,7 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
     }),
     reducers({
         expandedRowsByTabAndVizKey: [
-            {} as ExpandedRowsByTabAndVizKey,
+            INITIAL_PERSISTED.expandedRowsByTabAndVizKey as ExpandedRowsByTabAndVizKey,
             {
                 toggleExpandedRow: (state, { tabId, vizKey, rowIndex }) => {
                     const tabState = state[tabId] ?? {}
@@ -52,7 +152,7 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
             },
         ],
         savedQueriesByTabAndScene: [
-            {} as SavedQueriesByTabAndScene,
+            INITIAL_PERSISTED.savedQueriesByTabAndScene as SavedQueriesByTabAndScene,
             {
                 setSavedQueryForTab: (state, { tabId, sceneKey, query }) => {
                     if (query === null) {
@@ -86,7 +186,7 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
             },
         ],
         chatDraftsByTab: [
-            {} as ChatDraftsByTab,
+            INITIAL_PERSISTED.chatDraftsByTab as ChatDraftsByTab,
             {
                 setChatDraftForTab: (state, { tabId, draft }) => {
                     if (draft === '') {
@@ -109,6 +209,21 @@ export const tabUiStateLogic = kea<tabUiStateLogicType>([
                 },
             },
         ],
+    }),
+    listeners(({ values }) => {
+        const persist = (): void => {
+            writePersistedState({
+                expandedRowsByTabAndVizKey: values.expandedRowsByTabAndVizKey,
+                savedQueriesByTabAndScene: values.savedQueriesByTabAndScene,
+                chatDraftsByTab: values.chatDraftsByTab,
+            })
+        }
+        return {
+            toggleExpandedRow: persist,
+            clearTabUiState: persist,
+            setSavedQueryForTab: persist,
+            setChatDraftForTab: persist,
+        }
     }),
     selectors({
         expandedRowsFor: [
