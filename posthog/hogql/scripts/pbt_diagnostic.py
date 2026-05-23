@@ -81,7 +81,12 @@ from posthog.hogql.scripts._diagnostic_common import (
     _shape_for,
 )
 from posthog.hogql.test._generated_grammar_strategies import expr_strategy, program_strategy, select_strategy
-from posthog.hogql.test.test_parser_grammar_pbt import _PBT_SETTINGS, _apply_jiggle, _apply_mutation
+from posthog.hogql.test.test_parser_grammar_pbt import (
+    _PBT_SETTINGS,
+    _apply_grammar_mutation,
+    _apply_jiggle,
+    _apply_mutation,
+)
 
 # ---------------------------------------------------------------------------
 # Auto-shrinker
@@ -204,6 +209,17 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--grammar-mutate",
+        action="store_true",
+        help=(
+            "Perturb each generated query into a structurally-plausible invalid one "
+            "using grammar knowledge (empty a bracketed list, dictify a `{x}` "
+            "placeholder, swap/duplicate a keyword, retype a literal, mismatch a "
+            "bracket). Aimed at over-acceptance: near-miss shapes a parser is more "
+            "likely to wrongly accept than the lexical junk `--mutate` mostly yields."
+        ),
+    )
+    parser.add_argument(
         "--accepted-only",
         action="store_true",
         help=(
@@ -284,6 +300,10 @@ def main() -> int:
         "program": program_strategy,
     }[args.rule]()
     strategy = base_strategy
+    # Grammar-aware mutation runs first, on the clean space-separated query —
+    # the whitespace jiggle below would otherwise break its tokenisation.
+    if args.grammar_mutate:
+        strategy = strategy.flatmap(_apply_grammar_mutation)
     if args.jiggle:
         strategy = strategy.flatmap(_apply_jiggle)
     if args.mutate:
