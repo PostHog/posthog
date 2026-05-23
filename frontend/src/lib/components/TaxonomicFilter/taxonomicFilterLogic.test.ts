@@ -846,6 +846,47 @@ describe('taxonomicFilterLogic', () => {
             expect(new Set(values).size).toBe(values.length)
         })
     })
+
+    describe('Persons group getValue tolerates pinned items missing distinct_ids', () => {
+        let testLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'personsGetValueTest',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons],
+            })
+            testLogic.mount()
+        })
+
+        afterEach(() => {
+            testLogic.unmount()
+        })
+
+        it.each([
+            {
+                description: 'fresh person with distinct_ids returns the first id',
+                person: { name: 'Alice', distinct_ids: ['distinct-abc', 'distinct-old'] },
+                expected: 'distinct-abc',
+            },
+            {
+                description: 'pre-existing pinned entry shrunk to { name } returns undefined without throwing',
+                person: { name: 'distinct-abc' },
+                expected: undefined,
+            },
+            {
+                description: 'empty distinct_ids array returns undefined without throwing',
+                person: { name: 'Alice', distinct_ids: [] },
+                expected: undefined,
+            },
+        ])('$description', ({ person, expected }) => {
+            const personsGroup = testLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.Persons
+            )
+            expect(personsGroup?.getValue).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            expect(() => personsGroup?.getValue?.(person as any)).not.toThrow()
+            expect(personsGroup?.getValue?.(person as any)).toBe(expected)
+        })
+    })
 })
 
 describe('redistributeTopMatches', () => {
