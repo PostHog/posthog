@@ -2657,11 +2657,7 @@ def parser_test_factory(backend: HogQLParserBackend):
             ]
         )
         def test_statement_level_sample_rejected(self, _name: str, query: str):
-            # The selectStmt-level `(USING? sampleClause)?` slots (HogQLParser.g4:75/79) are
-            # DuckDB's `USING SAMPLE` (added with the duck/postgres syntax in #50353), distinct
-            # from ClickHouse's table-level `SAMPLE` (`JoinExprTable`, the only form that lands on
-            # `JoinExpr.sample`). HogQL has no AST representation for statement-level sampling, so
-            # every backend rejects it rather than silently dropping the sampling directive.
+            # Statement-level `(USING? sampleClause)?` (g4:75/79) is DuckDB's `USING SAMPLE`, which HogQL has no AST home for; every backend rejects rather than silently dropping it.
             with self.assertRaises((ExposedHogQLError, SyntaxError)):
                 self._select(query)
 

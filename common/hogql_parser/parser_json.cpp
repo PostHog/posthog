@@ -866,10 +866,7 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (ctx->settingsClause()) {
       throw NotImplementedError("Unsupported: SelectStmt.settingsClause()");
     }
-    // The statement-level `(USING? sampleClause)?` slots are DuckDB's `USING SAMPLE`
-    // (duck/postgres syntax, #50353). HogQL has no AST home for statement-level
-    // sampling — only the table-level `JoinExprTable` SAMPLE lands on `JoinExpr.sample`
-    // — so accepting it would silently drop the directive. Reject instead.
+    // Statement-level `(USING? sampleClause)?` (g4:75/79) is DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` SAMPLE lands on `JoinExpr.sample`); reject rather than silently drop.
     if (!ctx->sampleClause().empty()) {
       throw NotImplementedError("Unsupported: SelectStmt.sampleClause()");
     }

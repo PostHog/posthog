@@ -1037,11 +1037,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Unsupported: SelectStmt.topClause()")
         if ctx.settingsClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.settingsClause()")
-        # The statement-level `(USING? sampleClause)?` slots are DuckDB's
-        # `USING SAMPLE` (added with the duck/postgres syntax in #50353). HogQL
-        # has no AST representation for statement-level sampling — only the
-        # table-level `JoinExprTable` SAMPLE lands on `JoinExpr.sample` — so
-        # accepting it would silently drop the directive. Reject instead.
+        # Statement-level `(USING? sampleClause)?` (g4:75/79) is DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` SAMPLE lands on `JoinExpr.sample`); reject rather than silently drop.
         if ctx.sampleClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.sampleClause()")
 
