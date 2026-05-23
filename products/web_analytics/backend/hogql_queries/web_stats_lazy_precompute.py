@@ -7,11 +7,16 @@ from typing import TYPE_CHECKING, Optional
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import HogQLQueryModifiers, WebStatsBreakdown, WebStatsTableQuery
+from posthog.schema import (
+    HogQLQueryModifiers,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+)
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
@@ -101,6 +106,21 @@ class UnsupportedBreakdown(LazyPrecomputeIneligible):
         super().__init__(f"breakdown={breakdown!r}")
 
 
+class UnsupportedOrderBy(LazyPrecomputeIneligible):
+    def __init__(self, field: object):
+        self.field = field
+        super().__init__(f"field={field!r}")
+
+
+# orderBy fields the lazy read can serve directly. Anything outside this set
+# (bounce rate, scroll depth, conversion-rate, …) must fall through to the raw
+# path — the precompute table doesn't store those columns.
+SUPPORTED_ORDER_BY_FIELDS: set[WebAnalyticsOrderByFields] = {
+    WebAnalyticsOrderByFields.VISITORS,
+    WebAnalyticsOrderByFields.VIEWS,
+}
+
+
 def _check_stats_eligible(runner: LazyPrecomputeRunner) -> None:
     """Raise a `LazyPrecomputeIneligible` subclass for stats-table-specific
     reasons the lazy path can't serve the query.
@@ -124,6 +144,14 @@ def _check_stats_eligible(runner: LazyPrecomputeRunner) -> None:
 
     if query.breakdownBy not in SUPPORTED_BREAKDOWNS:
         raise UnsupportedBreakdown(query.breakdownBy)
+
+    # Reject orderBy fields we can't compute from the precompute schema. Falling
+    # back to visitors would silently change row ordering vs. the raw path; let
+    # the raw query handle these instead.
+    if query.orderBy:
+        field = query.orderBy[0]
+        if field not in SUPPORTED_ORDER_BY_FIELDS:
+            raise UnsupportedOrderBy(field)
 
 
 def can_use_lazy_precompute(runner: "WebStatsTableQueryRunner") -> bool:
@@ -231,13 +259,19 @@ def ensure_web_stats_precomputed(
 # `execute_read_query` so `time_window_start` (stored UTC) is compared directly
 # against the UTC bounds in `{cur_start}` / `{cur_end}` without the printer
 # wrapping them in `toTimeZone(..., team_tz)`.
+#
+# `sum({sort_metric}) OVER ()` runs after `GROUP BY` + `HAVING` and before the
+# `ORDER BY` + LIMIT/OFFSET injected via AST mutation in `execute_read_query`,
+# so the same denominator the raw query computes with `sum(...) OVER ()` makes
+# it onto every paginated row.
 _READ_SQL_TEMPLATE = """
 SELECT
     breakdown_value,
     uniqMergeIf(uniq_users_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS visitors,
     uniqMergeIf(uniq_users_state, and(time_window_start >= {prev_start}, time_window_start < {prev_end})) AS previous_visitors,
     sumMergeIf(sum_pageviews_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS views,
-    sumMergeIf(sum_pageviews_state, and(time_window_start >= {prev_start}, time_window_start < {prev_end})) AS previous_views
+    sumMergeIf(sum_pageviews_state, and(time_window_start >= {prev_start}, time_window_start < {prev_end})) AS previous_views,
+    sum({sort_metric}) OVER () AS fill_total
 FROM posthog.web_stats_preaggregated
 WHERE and(team_id = {team_id}, job_id IN {job_ids}, breakdown_by = {breakdown_by})
 GROUP BY breakdown_value
@@ -251,6 +285,9 @@ class LazyStatsRow:
     `breakdown_value` is decoded back to its native shape (str, tuple, float or
     None). `*_previous` are read from the precompute table unconditionally; the
     response builder discards them when the query has no compare period.
+
+    `fill_total` is the SQL-side `sum({sort_metric}) OVER ()` denominator for
+    `ui_fill_fraction`; identical across every row in a single page.
     """
 
     breakdown_value: object
@@ -258,11 +295,60 @@ class LazyStatsRow:
     visitors_previous: int
     views_current: int
     views_previous: int
+    fill_total: int
 
 
 @dataclass
 class LazyStatsResult:
     rows: list[LazyStatsRow]
+    has_more: bool
+    sort_metric: str
+
+
+def _resolve_sort_metric(query: WebStatsTableQuery) -> tuple[str, bool]:
+    """Pick the SQL column to ORDER BY plus direction. Mirrors what the raw path
+    would do; eligibility guarantees the field is `VISITORS` or `VIEWS`."""
+    sort_metric = "visitors"
+    descending = True
+    if query.orderBy:
+        field = query.orderBy[0]
+        direction = query.orderBy[1]
+        if field == WebAnalyticsOrderByFields.VIEWS:
+            sort_metric = "views"
+        descending = direction != WebAnalyticsOrderByDirection.ASC
+    return sort_metric, descending
+
+
+def _breakdown_having_expr(breakdown_by: WebStatsBreakdown) -> ast.Expr:
+    """HAVING-clause equivalent of the raw query's `outer_where_breakdown()` —
+    operates on the JSON-encoded `breakdown_value` column produced by the INSERT.
+
+    Index 2 / index 1 here are 1-based JSON array positions (`JSONExtractRaw`
+    follows ClickHouse's 1-based indexing). For tuples, the raw query rejects
+    rows whose second element (region within country, height within viewport)
+    is null or zero.
+    """
+    if breakdown_by in (WebStatsBreakdown.REGION, WebStatsBreakdown.CITY):
+        return parse_expr("JSONExtractRaw(breakdown_value, 2) != 'null'")
+    if breakdown_by == WebStatsBreakdown.VIEWPORT:
+        return parse_expr(
+            "JSONExtractRaw(breakdown_value, 1) NOT IN ('null', '0') "
+            "AND JSONExtractRaw(breakdown_value, 2) NOT IN ('null', '0')"
+        )
+    if breakdown_by in {
+        WebStatsBreakdown.INITIAL_UTM_SOURCE,
+        WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
+        WebStatsBreakdown.INITIAL_UTM_MEDIUM,
+        WebStatsBreakdown.INITIAL_UTM_TERM,
+        WebStatsBreakdown.INITIAL_UTM_CONTENT,
+    }:
+        # The raw query intentionally keeps null UTM values.
+        return ast.Constant(value=True)
+    if breakdown_by == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+        # JSON scalars: 'null' is genuine null, '""' is empty string.
+        return parse_expr("breakdown_value NOT IN ('null', '\"\"')")
+    # Default: reject only genuine null.
+    return parse_expr("breakdown_value != 'null'")
 
 
 def _decode_breakdown_value(breakdown_by: WebStatsBreakdown, raw: str) -> object:
@@ -289,17 +375,21 @@ def execute_read_query(
     current_end_utc: datetime,
     previous_start_utc: Optional[datetime],
     previous_end_utc: Optional[datetime],
-) -> list[LazyStatsRow]:
-    """Read the precomputed rows via HogQL and decode each row.
+) -> tuple[list[LazyStatsRow], bool, str]:
+    """Read the precomputed rows via HogQL with SQL-side filtering, ordering and
+    pagination. Returns `(rows, has_more, sort_metric)`.
 
-    Matches the paths/experiments pattern: `parse_select` + placeholders builds
-    the AST, `execute_hogql_query` runs it. Read-your-writes load balancing and
-    shard pruning come from `WebStatsPreaggregatedTable.top_level_settings`.
+    `parse_select` + placeholders build the column expressions; HAVING/ORDER BY
+    are attached via direct AST mutation so the user's `orderBy` flows into the
+    SQL (rather than a Python re-sort of an arbitrary slice). LIMIT/OFFSET come
+    from `runner.paginator` using the +1 trick to derive `has_more` accurately.
     """
     # Sentinel for the no-compare case: an unsatisfiable window so the *MergeIf
     # aggregates return 0 for the "previous" columns without changing shape.
     prev_start = previous_start_utc if previous_start_utc is not None else datetime(1970, 1, 1, tzinfo=UTC)
     prev_end = previous_end_utc if previous_end_utc is not None else datetime(1970, 1, 1, tzinfo=UTC)
+
+    sort_metric, descending = _resolve_sort_metric(runner.query)
 
     placeholders: dict[str, ast.Expr] = {
         "team_id": ast.Constant(value=runner.team.pk),
@@ -309,9 +399,25 @@ def execute_read_query(
         "cur_end": ast.Constant(value=current_end_utc),
         "prev_start": ast.Constant(value=prev_start),
         "prev_end": ast.Constant(value=prev_end),
+        "sort_metric": ast.Field(chain=[sort_metric]),
     }
 
     parsed = parse_select(_READ_SQL_TEMPLATE, placeholders=placeholders)
+    assert isinstance(parsed, ast.SelectQuery)
+
+    # Filter equivalent to the raw query's `outer_where_breakdown()`. Pushing
+    # this to HAVING means ORDER BY + LIMIT downstream see the same row set the
+    # raw path's pagination operates on.
+    parsed.having = _breakdown_having_expr(runner.query.breakdownBy)
+
+    direction = "DESC" if descending else "ASC"
+    secondary = "views" if sort_metric == "visitors" else "visitors"
+    parsed.order_by = [
+        ast.OrderExpr(expr=ast.Field(chain=[sort_metric]), order=direction),
+        ast.OrderExpr(expr=ast.Field(chain=[secondary]), order=direction),
+        # Stable tiebreaker so consecutive pages don't overlap on equal-metric ties.
+        ast.OrderExpr(expr=ast.Field(chain=["breakdown_value"]), order="ASC"),
+    ]
 
     # The precomputed `time_window_start` column is UTC; `convertToProjectTimezone`
     # would wrap it in `toTimeZone(..., team_tz)` and break the direct comparison
@@ -320,24 +426,26 @@ def execute_read_query(
     modifiers.convertToProjectTimezone = False
 
     tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY, query_type="web_stats_lazy_query")
-    response = execute_hogql_query(
+    runner.paginator.execute_hogql_query(
+        parsed,
         query_type="web_stats_lazy_query",
-        query=parsed,
         team=runner.team,
         timings=runner.timings,
         modifiers=modifiers,
-        limit_context=runner.limit_context,
     )
-    return [
+
+    rows = [
         LazyStatsRow(
             breakdown_value=_decode_breakdown_value(runner.query.breakdownBy, row[0]),
             visitors_current=row[1],
             visitors_previous=row[2],
             views_current=row[3],
             views_previous=row[4],
+            fill_total=row[5],
         )
-        for row in response.results or []
+        for row in runner.paginator.results
     ]
+    return rows, runner.paginator.has_more(), sort_metric
 
 
 def execute_lazy_precomputed_read(
@@ -447,7 +555,7 @@ def execute_lazy_precomputed_read(
 
                     job_ids.extend(str(jid) for jid in prev_result.job_ids)
 
-        rows = execute_read_query(
+        rows, has_more, sort_metric = execute_read_query(
             runner=runner,
             job_ids=job_ids,
             current_start_utc=current_start_utc,
@@ -462,9 +570,10 @@ def execute_lazy_precomputed_read(
             breakdown_by=runner.query.breakdownBy.value,
             job_count=len(result.job_ids),
             rows_returned=len(rows),
+            has_more=has_more,
             total_duration_ms=int((time.perf_counter() - overall_started) * 1000),
         )
-        return LazyStatsResult(rows=rows)
+        return LazyStatsResult(rows=rows, has_more=has_more, sort_metric=sort_metric)
     except Exception as exc:
         WEB_STATS_LAZY_FAILED.labels(error_type=type(exc).__name__).inc()
         logger.exception(
