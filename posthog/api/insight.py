@@ -5,10 +5,8 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
 
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery, Value
-from django.db.models.functions import Coalesce
+from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -69,13 +67,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
-from posthog.helpers.trigram_search import (
-    DESCRIPTION_SCORE_WEIGHT,
-    MAX_SEARCH_LENGTH,
-    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
-    MIN_NAME_TRIGRAM_SIMILARITY,
-    normalize_search_term,
-)
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, apply_trigram_search
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
     apply_dashboard_filters_to_dict,
@@ -1605,48 +1597,12 @@ class InsightViewSet(
     @staticmethod
     @tracer.start_as_current_span("InsightViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        span = trace.get_current_span()
-        span.set_attribute("insight.search.length", len(search))
-        if not search:
-            return queryset
-
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-        derived_name_word_score = Coalesce(TrigramWordSimilarity(search, "derived_name"), zero)
-        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
-
-        matching_tag_ids = queryset.filter(tagged_items__tag__name__icontains=search).values("id")
-
-        return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-                _derived_name_word=derived_name_word_score,
-                _description_word=description_word_score,
-            )
-            .filter(
-                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_derived_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
-                | Q(name__icontains=search)
-                | Q(derived_name__icontains=search)
-                | Q(description__icontains=search)
-                | Q(id__in=matching_tag_ids)
-            )
-            .annotate(
-                _name_match_score=F("_name_word") + F("_name_full"),
-                _derived_name_match_score=F("_derived_name_word"),
-                _description_match_score=F("_description_word"),
-            )
-            .annotate(
-                _search_score=F("_name_match_score")
-                + F("_derived_name_match_score")
-                + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT
-            )
-            .order_by("-_search_score", "name")
-            .distinct()
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="insight.search",
+            extra_word_fields=("derived_name",),
+            include_tag_search=True,
         )
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:

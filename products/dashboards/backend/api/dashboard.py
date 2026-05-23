@@ -6,13 +6,12 @@ from contextlib import nullcontext
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -49,13 +48,7 @@ from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
-from posthog.helpers.trigram_search import (
-    DESCRIPTION_SCORE_WEIGHT,
-    MAX_SEARCH_LENGTH,
-    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
-    MIN_NAME_TRIGRAM_SIMILARITY,
-    normalize_search_term,
-)
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, apply_trigram_search
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
@@ -1092,45 +1085,12 @@ class DashboardsViewSet(
     @staticmethod
     @tracer.start_as_current_span("DashboardViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        span = trace.get_current_span()
-        span.set_attribute("dashboard.search.length", len(search))
-        if not search:
-            return queryset
-
-        # Word similarity (`<%`) drives match/no-match — it's index-accelerated and handles
-        # prefix-as-you-type and substring matches. Full-string similarity is added as a
-        # tiebreak so an exact name match outranks rows that merely *contain* the search word.
-        # `Dashboard.name` is nullable; coalesce each component to 0.0 so a NULL-name row
-        # matched only on description doesn't end up with a NULL `_search_score` (which
-        # Postgres orders NULLS FIRST in DESC, putting unnamed rows wrongly at the top).
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
-
-        matching_tag_ids = queryset.filter(tagged_items__tag__name__icontains=search).values("id")
-
-        return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-                _description_word=description_word_score,
-            )
-            .filter(
-                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
-                | Q(name__icontains=search)
-                | Q(description__icontains=search)
-                | Q(id__in=matching_tag_ids)
-            )
-            .annotate(
-                _name_match_score=F("_name_word") + F("_name_full"),
-                _description_match_score=F("_description_word"),
-            )
-            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
-            .order_by("-_search_score", "-pinned", "name")
-            .distinct()
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="dashboard.search",
+            include_tag_search=True,
+            extra_tiebreakers=("-pinned",),
         )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")
