@@ -403,7 +403,7 @@ def user_is_team_admin(user: User, team: Team | int) -> bool:
             team = Team.objects.get(id=team)
         except Team.DoesNotExist:
             return False
-    level = UserPermissions(user).team(team).effective_membership_level
+    level = UserPermissions(user).team(cast(Team, team)).effective_membership_level
     return level is not None and level >= OrganizationMembership.Level.ADMIN
 
 
