@@ -7,8 +7,7 @@ import type { FunnelStepWithNestedBreakdown, IntervalType } from '~/types'
 import {
     buildTrendsLineTimeSeriesConfig,
     buildTrendsSeries,
-} from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
-
+} from '../../trends/TrendsLineChart/trendsChartTransforms'
 import type { FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 
 export type IndexedFunnelStep = FunnelStepWithNestedBreakdown & { id: number; seriesIndex: number }

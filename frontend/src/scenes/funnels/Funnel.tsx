@@ -1,9 +1,11 @@
 import './Funnel.scss'
 
 import { useValues } from 'kea'
+import { lazy, Suspense } from 'react'
 
 import { FunnelLayout } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -14,9 +16,23 @@ import { FunnelBarVertical } from './FunnelBarVertical/FunnelBarVertical'
 import { funnelDataLogic } from './funnelDataLogic'
 import { FunnelFlowGraph } from './FunnelFlowGraph/FunnelFlowGraph'
 import { FunnelHistogram } from './FunnelHistogram'
-import { FunnelHistogramChart } from './viz/funnel-histogram/FunnelHistogramChart'
-import { FunnelLineChart } from './viz/funnel-line-chart/FunnelLineChart'
-import { FunnelStepsBarChart } from './viz/funnel-steps-bar-chart/FunnelStepsBarChart'
+
+// Flag-gated — keep the hog-charts viz bundles out of the eager Funnel/Dashboard bundle
+const FunnelHistogramChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/funnels/FunnelHistogramChart/FunnelHistogramChart').then(
+        (m) => ({ default: m.FunnelHistogramChart })
+    )
+)
+const FunnelLineChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/funnels/FunnelLineChart/FunnelLineChart').then((m) => ({
+        default: m.FunnelLineChart,
+    }))
+)
+const FunnelStepsBarChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/funnels/FunnelStepsBarChart/FunnelStepsBarChart').then(
+        (m) => ({ default: m.FunnelStepsBarChart })
+    )
+)
 
 export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -43,7 +59,15 @@ export function Funnel(props: ChartParams): JSX.Element {
                 funnelVizType === FunnelVizType.Steps ? '-' + (layout ?? FunnelLayout.vertical) : ''
             }`}
         >
-            {viz}
+            <Suspense
+                fallback={
+                    <WrappingLoadingSkeleton fullWidth>
+                        <span className="block w-full h-72" />
+                    </WrappingLoadingSkeleton>
+                }
+            >
+                {viz}
+            </Suspense>
         </div>
     )
 }
