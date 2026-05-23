@@ -5,6 +5,9 @@ import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
+import trendsLineFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import trendsLineBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
+import trendsLineMultiFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -107,21 +110,14 @@ function renderTrendsLineChart(insightFixture: any): JSX.Element {
     )
 }
 
-/* eslint-disable @typescript-eslint/no-var-requires */
 export const Default: Story = {
-    render: () =>
-        renderTrendsLineChart(require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')),
+    render: () => renderTrendsLineChart(trendsLineMultiFixture),
 }
 
 export const SingleSeries: Story = {
-    render: () =>
-        renderTrendsLineChart(require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json')),
+    render: () => renderTrendsLineChart(trendsLineFixture),
 }
 
 export const Breakdown: Story = {
-    render: () =>
-        renderTrendsLineChart(
-            require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
-        ),
+    render: () => renderTrendsLineChart(trendsLineBreakdownFixture),
 }
-/* eslint-enable @typescript-eslint/no-var-requires */
