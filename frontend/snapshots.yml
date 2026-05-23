@@ -488,6 +488,10 @@ snapshots:
         hash: v1.k794b7964.78ae65df47f38a1591d7e7ea98143d1d52148505cc30d7aa15e41267ab7069ae.8ZZW5wd0CsmrQSjirpj1kpZjse2ii8F263u0owKxSWM
     components-hogcharts-barchart--stacked-mixed-sign--light:
         hash: v1.k794b7964.f85427c86ddf715de891c55aa499119ea88cbb161b2b37e8d4c943e07b6eeb27.UnBe38l0a2kG3Ney_67dJ5zTBSD-qHIUF3JWMBep2-k
+    components-hogcharts-barchart--with-bar-track--dark:
+        hash: v1.k794b7964.49e4f9e7974839dbbb64a6e5e7970eb2b271803e5e8b8146198bd12ad044503e.YL87xuLIFcqnRXLLqk_7gtCJGQyNcd76k2Kda0xhFZs
+    components-hogcharts-barchart--with-bar-track--light:
+        hash: v1.k794b7964.38ac4a98dead12b49e1727bdd93240f6ea0066adff611a97c6c5e3e307fc8e62.Fg389h17t2lWX9lR9CffIAX1jEZRri29prNfW7egOCE
     components-hogcharts-barchart--with-reference-line--dark:
         hash: v1.k794b7964.b0c3c06250da7f04cb51a3044d2f6f54c9d6508e7aed6473bfd3f86991c9c358.pJc_WoUpP1J_PwVo6h-h_cXVue1gUJnph4-m95Xsd0I
     components-hogcharts-barchart--with-reference-line--light:
