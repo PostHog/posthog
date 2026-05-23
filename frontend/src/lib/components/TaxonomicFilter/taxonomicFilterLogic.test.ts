@@ -563,37 +563,32 @@ describe('taxonomicFilterLogic', () => {
             recentLogic.unmount()
         })
 
-        it('matching recents appear immediately even while the reveal barrier is closed', async () => {
-            await expectLogic(recentLogic, () => {
-                recentLogic.actions.setSearchQuery('login')
-            }).toMatchValues({ revealBarrierOpen: false })
+        it.each<{ query: string; expectedCount: number; expectedItemName?: string }>([
+            { query: 'login', expectedCount: 1, expectedItemName: 'recent_login_event' },
+            { query: 'nothing_matches_this', expectedCount: 0 },
+        ])(
+            'suggestedRecentMatches has $expectedCount match(es) for query "$query"',
+            async ({ query, expectedCount, expectedItemName }) => {
+                await expectLogic(recentLogic, () => {
+                    recentLogic.actions.setSearchQuery(query)
+                }).toMatchValues({ revealBarrierOpen: false })
 
-            const suggestedListLogic = infiniteListLogic({
-                ...recentLogic.props,
-                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
-            })
+                const suggestedListLogic = infiniteListLogic({
+                    ...recentLogic.props,
+                    listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
+                })
 
-            const recentMatches = suggestedListLogic.values.suggestedRecentMatches
-            expect(recentMatches).toHaveLength(1)
-            expect(recentMatches[0]).toEqual(expect.objectContaining({ name: 'recent_login_event' }))
+                const recentMatches = suggestedListLogic.values.suggestedRecentMatches
+                expect(recentMatches).toHaveLength(expectedCount)
 
-            const results = suggestedListLogic.values.items.results
-            const realRecent = results.find((item: any) => item && item.name === 'recent_login_event')
-            expect(realRecent).not.toBeUndefined()
-        })
-
-        it('no recent matches when the search query does not hit any recent name', async () => {
-            await expectLogic(recentLogic, () => {
-                recentLogic.actions.setSearchQuery('nothing_matches_this')
-            }).toMatchValues({ revealBarrierOpen: false })
-
-            const suggestedListLogic = infiniteListLogic({
-                ...recentLogic.props,
-                listGroupType: TaxonomicFilterGroupType.SuggestedFilters,
-            })
-
-            expect(suggestedListLogic.values.suggestedRecentMatches).toHaveLength(0)
-        })
+                if (expectedItemName) {
+                    expect(recentMatches[0]).toEqual(expect.objectContaining({ name: expectedItemName }))
+                    const results = suggestedListLogic.values.items.results
+                    const realRecent = results.find((item: any) => item && item.name === expectedItemName)
+                    expect(realRecent).not.toBeUndefined()
+                }
+            }
+        )
     })
 
     describe('SuggestedFilters dedupe between recents and per-group top matches', () => {
