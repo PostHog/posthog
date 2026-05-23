@@ -7,7 +7,7 @@ parser does not yet match the C++ reference on.
 """
 
 from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_expr, parse_program, parse_select
 
 from ._test_parser import parser_test_factory
 
@@ -117,3 +117,32 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                     parse_select(query, backend=backend)
             for query in valid_placeholder:
                 parse_select(query, backend=backend)
+
+    def test_empty_columns_call_and_star_spread_rejected(self):
+        # Empty `columns()` matches no `ColumnExprColumns*` production. rust
+        # built an empty-list ColumnsExpr and accepted it; it must instead let
+        # bare `columns()` fall back to a function call (cpp's behaviour). The
+        # `* columns()` spread is then invalid as a single expression — a
+        # for-in iterable / if / while condition — where cpp rejects it too.
+        invalid_single_expr = [
+            "for (let y in * columns()) {}",
+            "while (* columns()) {}",
+            "if (* columns()) {}",
+        ]
+        for query in invalid_single_expr:
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_program(query, backend=backend)
+        # `* columns()` as two statements (`*` then a `columns()` call), bare
+        # `columns()` / regex / list, and a non-empty `* columns('re')` spread
+        # all still parse on both backends.
+        valid = [
+            "* columns()",
+            "columns()",
+            "columns('re')",
+            "columns(a, b)",
+            "for (let y in * columns('re')) {}",
+        ]
+        for query in valid:
+            for backend in ("cpp-json", "rust-json"):
+                parse_program(query, backend=backend)

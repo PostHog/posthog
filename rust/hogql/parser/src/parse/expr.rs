@@ -1255,6 +1255,10 @@ impl<'a> Parser<'a> {
     fn parse_columns_expr(&mut self) -> Result<Value, ParseError> {
         self.expect_kw(Kw::Columns, "COLUMNS")?;
         self.expect(TokenKind::LParen, "(")?;
+        // Empty `columns()` matches no `ColumnExprColumns*` production (regex needs a string, the list needs >=1 columnExpr, the all-form needs `*`), so reject it: a bare `columns()` then falls back to a function call and `* columns()` (spread) is rejected, both matching cpp.
+        if self.peek() == TokenKind::RParen {
+            return Err(self.err("empty COLUMNS() is not a columns expression"));
+        }
         // Three shapes inside the parens:
         //   1. `'regex'` → ColumnsRegex
         //   2. `*` [EXCLUDE (...)] [REPLACE (...)]
@@ -1559,8 +1563,13 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), TokenKind::Keyword(Kw::Columns))
             && self.peek_next() == TokenKind::LParen
         {
-            let inner = self.parse_columns_expr()?;
-            return Ok(emit::spread_expr(inner));
+            // cpp's ANTLR tries the `* COLUMNS(…)` spread (regex / list) and, when neither matches (e.g. an empty `columns()`), backs off to bare `*` (`ColumnExprAsterisk`), leaving COLUMNS(…) to the enclosing context (a later statement, or an error at the closing `)`). Mirror that fall-back on a non-fatal spread failure.
+            let cp = self.checkpoint();
+            match self.parse_columns_expr() {
+                Ok(inner) => return Ok(emit::spread_expr(inner)),
+                Err(e) if e.fatal => return Err(e),
+                Err(_) => self.restore(cp)?,
+            }
         }
         // `ColumnExprAsterisk` (grammar line 289) admits ONLY an
         // optional trailing EXCLUDE on a bare `*`. `REPLACE` after `*`
