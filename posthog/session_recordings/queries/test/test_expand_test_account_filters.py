@@ -1,3 +1,5 @@
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
 from parameterized import parameterized
 
 from posthog.schema import EventPropertyFilter, PersonPropertyFilter, RecordingsQuery
@@ -5,7 +7,6 @@ from posthog.schema import EventPropertyFilter, PersonPropertyFilter, Recordings
 from posthog.session_recordings.queries.recordings_query_runner import RecordingsQueryRunner
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.utils import expand_test_account_filters
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 class TestExpandTestAccountFilters(ClickhouseTestMixin, APIBaseTest):
