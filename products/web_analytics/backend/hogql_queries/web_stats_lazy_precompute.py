@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Optional
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import WebStatsBreakdown, WebStatsTableQuery
+from posthog.schema import HogQLQueryModifiers, WebStatsBreakdown, WebStatsTableQuery
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.preaggregation.web_stats_preaggregated_sql import DISTRIBUTED_WEB_STATS_PREAGGREGATED_TABLE
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -222,26 +222,26 @@ def ensure_web_stats_precomputed(
     )
 
 
-_READ_SQL = f"""
+# HogQL read template — substituted via `parse_select(..., placeholders=...)` so
+# arguments flow through the printer with proper escaping rather than driver-side
+# string formatting. Read-your-writes load balancing and shard pruning are
+# attached automatically via `WebStatsPreaggregatedTable.top_level_settings`.
+#
+# `convertToProjectTimezone=False` is forced on the modifiers in
+# `execute_read_query` so `time_window_start` (stored UTC) is compared directly
+# against the UTC bounds in `{cur_start}` / `{cur_end}` without the printer
+# wrapping them in `toTimeZone(..., team_tz)`.
+_READ_SQL_TEMPLATE = """
 SELECT
     breakdown_value,
-    uniqMergeIf(uniq_users_state, time_window_start >= %(cur_start)s AND time_window_start < %(cur_end)s) AS visitors,
-    uniqMergeIf(uniq_users_state, time_window_start >= %(prev_start)s AND time_window_start < %(prev_end)s) AS previous_visitors,
-    sumMergeIf(sum_pageviews_state, time_window_start >= %(cur_start)s AND time_window_start < %(cur_end)s) AS views,
-    sumMergeIf(sum_pageviews_state, time_window_start >= %(prev_start)s AND time_window_start < %(prev_end)s) AS previous_views
-FROM {DISTRIBUTED_WEB_STATS_PREAGGREGATED_TABLE()}
-WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s AND breakdown_by = %(breakdown_by)s
+    uniqMergeIf(uniq_users_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS visitors,
+    uniqMergeIf(uniq_users_state, and(time_window_start >= {prev_start}, time_window_start < {prev_end})) AS previous_visitors,
+    sumMergeIf(sum_pageviews_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS views,
+    sumMergeIf(sum_pageviews_state, and(time_window_start >= {prev_start}, time_window_start < {prev_end})) AS previous_views
+FROM posthog.web_stats_preaggregated
+WHERE and(team_id = {team_id}, job_id IN {job_ids}, breakdown_by = {breakdown_by})
 GROUP BY breakdown_value
 """
-
-
-_READ_SETTINGS = {
-    # Mirrors web overview: `in_order` load balancing makes the INSERT and SELECT
-    # deterministically prefer the same replica (read-your-writes), and shard
-    # pruning matches the `sipHash64(job_id)` sharding key against `job_id IN`.
-    "load_balancing": "in_order",
-    "optimize_skip_unused_shards": 1,
-}
 
 
 @dataclass
@@ -290,30 +290,43 @@ def execute_read_query(
     previous_start_utc: Optional[datetime],
     previous_end_utc: Optional[datetime],
 ) -> list[LazyStatsRow]:
-    """Run the precompute-read SQL via `sync_execute` and decode each row.
+    """Read the precomputed rows via HogQL and decode each row.
 
-    Bypasses HogQL so the read-your-writes load-balancing settings can be set —
-    the read query shape is stable enough that string parameterization is fine.
+    Matches the paths/experiments pattern: `parse_select` + placeholders builds
+    the AST, `execute_hogql_query` runs it. Read-your-writes load balancing and
+    shard pruning come from `WebStatsPreaggregatedTable.top_level_settings`.
     """
     # Sentinel for the no-compare case: an unsatisfiable window so the *MergeIf
     # aggregates return 0 for the "previous" columns without changing shape.
     prev_start = previous_start_utc if previous_start_utc is not None else datetime(1970, 1, 1, tzinfo=UTC)
     prev_end = previous_end_utc if previous_end_utc is not None else datetime(1970, 1, 1, tzinfo=UTC)
 
+    placeholders: dict[str, ast.Expr] = {
+        "team_id": ast.Constant(value=runner.team.pk),
+        "job_ids": ast.Constant(value=[str(jid) for jid in job_ids]),
+        "breakdown_by": ast.Constant(value=runner.query.breakdownBy.value),
+        "cur_start": ast.Constant(value=current_start_utc),
+        "cur_end": ast.Constant(value=current_end_utc),
+        "prev_start": ast.Constant(value=prev_start),
+        "prev_end": ast.Constant(value=prev_end),
+    }
+
+    parsed = parse_select(_READ_SQL_TEMPLATE, placeholders=placeholders)
+
+    # The precomputed `time_window_start` column is UTC; `convertToProjectTimezone`
+    # would wrap it in `toTimeZone(..., team_tz)` and break the direct comparison
+    # against our UTC `cur_start` / `cur_end` constants.
+    modifiers = runner.modifiers.model_copy() if runner.modifiers else HogQLQueryModifiers()
+    modifiers.convertToProjectTimezone = False
+
     tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY, query_type="web_stats_lazy_query")
-    rows = sync_execute(
-        _READ_SQL,
-        {
-            "team_id": runner.team.pk,
-            "job_ids": tuple(str(jid) for jid in job_ids),
-            "breakdown_by": runner.query.breakdownBy.value,
-            "cur_start": current_start_utc,
-            "cur_end": current_end_utc,
-            "prev_start": prev_start,
-            "prev_end": prev_end,
-        },
-        settings=_READ_SETTINGS,
-        team_id=runner.team.pk,
+    response = execute_hogql_query(
+        query_type="web_stats_lazy_query",
+        query=parsed,
+        team=runner.team,
+        timings=runner.timings,
+        modifiers=modifiers,
+        limit_context=runner.limit_context,
     )
     return [
         LazyStatsRow(
@@ -323,7 +336,7 @@ def execute_read_query(
             views_current=row[3],
             views_previous=row[4],
         )
-        for row in rows
+        for row in response.results or []
     ]
 
 
