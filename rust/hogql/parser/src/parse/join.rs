@@ -820,9 +820,9 @@ impl<'a> Parser<'a> {
                 &Self::parse_join_expr_parens_arm,
             ]);
         }
-        // `{name}` — placeholder table reference.
+        // `{name}` — placeholder table reference (a Dict `{}` / `{k: v}` is not a tableExpr).
         if self.peek() == TokenKind::LBrace {
-            return self.parse_brace_dict_or_placeholder();
+            return self.parse_brace_placeholder_only();
         }
         // Identifier-led: either a Field chain (plain table reference) or
         // a tableFunction (`name(args)`). Grammar's `tableIdentifier` →
@@ -1127,7 +1127,7 @@ impl<'a> Parser<'a> {
         // wraps in RatioExpr.
         let ratio_start = self.peek0.start;
         if self.peek() == TokenKind::LBrace {
-            return self.parse_brace_dict_or_placeholder();
+            return self.parse_brace_placeholder_only();
         }
         let left = self.consume_ratio_value()?;
         let right = if self.eat(TokenKind::Slash)? {

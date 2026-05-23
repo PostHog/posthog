@@ -88,3 +88,32 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
         for query in ("cast(1 as d())", "cast(1 as d(#1))", "cast(1 as d([1]))", "cast(1 as Array(Int))"):
             parse_expr(query, backend="cpp-json")
             parse_expr(query, backend="rust-json")
+
+    def test_brace_placeholder_only_positions_reject_dict(self):
+        # `tableExpr`, `ratioExpr` (SAMPLE) and the `selectStmtWithParens`
+        # placeholder arm all admit only a placeholder `{ columnExpr }`, never
+        # a Dict. rust shared one brace parser across these slots and the expr
+        # position, so it built a Dict for `{}` / `{k: v}` and accepted input
+        # cpp rejects. Each placeholder-only slot must reject the Dict while
+        # still accepting the `{x}` placeholder.
+        dict_in_placeholder_slot = [
+            "select 1 from {}",
+            "select 1 from {1: 2}",
+            "select 1 from t sample {}",
+            "select 1 from t sample {1: 2}",
+            "{}",
+            "{1: 2}",
+            "({})",
+        ]
+        valid_placeholder = [
+            "select 1 from {x}",
+            "select 1 from t sample {x}",
+            "{x}",
+            "({x})",
+        ]
+        for backend in ("cpp-json", "rust-json"):
+            for query in dict_in_placeholder_slot:
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
+            for query in valid_placeholder:
+                parse_select(query, backend=backend)

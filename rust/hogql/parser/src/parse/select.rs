@@ -369,7 +369,7 @@ impl<'a> Parser<'a> {
         // the bare-placeholder select body carries that position.
         if self.peek() == TokenKind::LBrace {
             let placeholder_start = self.peek0.start;
-            let placeholder = self.parse_brace_dict_or_placeholder()?;
+            let placeholder = self.parse_brace_placeholder_only()?;
             return Ok(self.wrap_pos(placeholder, placeholder_start));
         }
         self.parse_select_stmt()

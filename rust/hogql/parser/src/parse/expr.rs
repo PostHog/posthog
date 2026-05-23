@@ -1630,6 +1630,15 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse a placeholder-only `{ … }` slot (`tableExpr` / `ratioExpr` / `selectStmtWithParens`): only `{ columnExpr }` is valid, so reject the Dict that `{}` or `{k: v}` would otherwise produce.
+    pub(crate) fn parse_brace_placeholder_only(&mut self) -> Result<Value, ParseError> {
+        let node = self.parse_brace_dict_or_placeholder()?;
+        if node.get("node").and_then(Value::as_str) != Some("Placeholder") {
+            return Err(self.err("expected a placeholder `{name}` here, not a dict"));
+        }
+        Ok(node)
+    }
+
     fn parse_single_arg_arrow_lambda(&mut self) -> Result<Value, ParseError> {
         let ident = self.bump()?;
         let name = identifier_text(self.text(ident), ident.kind);
