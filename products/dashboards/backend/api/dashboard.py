@@ -1109,6 +1109,8 @@ class DashboardsViewSet(
         name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
         description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
 
+        matching_tag_ids = queryset.filter(tagged_items__tag__name__icontains=search).values("id")
+
         return (
             queryset.annotate(
                 _name_word=name_word_score,
@@ -1118,6 +1120,9 @@ class DashboardsViewSet(
             .filter(
                 Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
                 | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+                | Q(name__icontains=search)
+                | Q(description__icontains=search)
+                | Q(id__in=matching_tag_ids)
             )
             .annotate(
                 _name_match_score=F("_name_word") + F("_name_full"),
@@ -1125,6 +1130,7 @@ class DashboardsViewSet(
             )
             .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
             .order_by("-_search_score", "-pinned", "name")
+            .distinct()
         )
 
     @tracer.start_as_current_span("DashboardViewSet.dangerously_get_queryset")

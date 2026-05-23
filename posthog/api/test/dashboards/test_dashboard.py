@@ -230,6 +230,41 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             f"named match should rank above unnamed description match, got {result_ids}"
         )
 
+    @parameterized.expand(
+        [
+            ("email in name", "name", "user@example.com", "user@example.com"),
+            ("email in description", "description", "support contact: user@example.com", "user@example.com"),
+            ("dotted identifier", "name", "service.account.v2", "service.account.v2"),
+        ]
+    )
+    def test_list_filter_by_search_literal_substring_fallback(self, _name, field, value, search):
+        payload = {"name": value} if field == "name" else {"name": "Customer report", "description": value}
+        target_id, _ = self.dashboard_api.create_dashboard(payload)
+        self.dashboard_api.create_dashboard({"name": "Unrelated"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": search})
+        result_ids = [d["id"] for d in response["results"]]
+        assert target_id in result_ids, f"search={search!r} must match the row with {field}={value!r}"
+
+    def test_list_filter_by_search_matches_tag_content(self):
+        target_id, _ = self.dashboard_api.create_dashboard({"name": "Q4 review", "tags": ["user@example.com"]})
+        self.dashboard_api.create_dashboard({"name": "Unrelated"})
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "user@example.com"})
+        result_ids = [d["id"] for d in response["results"]]
+        assert target_id in result_ids
+
+    def test_list_filter_by_search_does_not_duplicate_dashboards_with_multiple_matching_tags(self):
+        target_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "needle", "tags": ["needle-tag-a", "needle-tag-b", "needle-tag-c"]}
+        )
+
+        response = self.dashboard_api.list_dashboards(query_params={"search": "needle"})
+        matching = [d["id"] for d in response["results"] if d["id"] == target_id]
+        assert len(matching) == 1, (
+            f"search=needle must return the dashboard once even though three tags + the name match it; got {len(matching)}"
+        )
+
     def test_list_filter_by_search_is_team_scoped(self):
         other_team = Team.objects.create(organization=self.organization)
         Dashboard.objects.create(team=other_team, name="Sales Funnel")

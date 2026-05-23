@@ -1798,6 +1798,26 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": "\x00\x00\x00"})
         assert response.status_code == status.HTTP_200_OK
 
+    @parameterized.expand(
+        [
+            ("email in name", "name", "user@example.com", "user@example.com"),
+            ("email in description", "description", "support contact: user@example.com", "user@example.com"),
+            ("dotted identifier", "name", "service.account.v2", "service.account.v2"),
+        ]
+    )
+    def test_list_filter_by_search_literal_substring_fallback(self, _name, field, value, search):
+        kwargs = {"team": self.team, "type": "destination", "hog": "return event"}
+        if field == "name":
+            target = HogFunction.objects.create(name=value, **kwargs)
+        else:
+            target = HogFunction.objects.create(name="Customer webhook", description=value, **kwargs)
+        HogFunction.objects.create(name="Unrelated", **kwargs)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+        assert str(target.id) in result_ids, f"search={search!r} must match the row with {field}={value!r}"
+
     def test_list_filter_by_search_handles_null_name_with_description_match(self):
         named_match = HogFunction.objects.create(
             team=self.team, name="Marketing webhook", type="destination", hog="return event"

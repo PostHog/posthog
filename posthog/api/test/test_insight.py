@@ -873,6 +873,46 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"search": "\x00\x00\x00"})
         assert response.status_code == status.HTTP_200_OK
 
+    @parameterized.expand(
+        [
+            ("email in name", "name", "user@example.com", "user@example.com"),
+            ("email in description", "description", "support contact: user@example.com", "user@example.com"),
+            (
+                "uuid in name",
+                "name",
+                "abc-def-12345678-9abc-def0-1234-56789abcdef0",
+                "12345678-9abc-def0-1234-56789abcdef0",
+            ),
+            ("dotted identifier", "name", "service.account.v2", "service.account.v2"),
+        ]
+    )
+    def test_list_filter_by_search_literal_substring_fallback(self, _name, field, value, search):
+        kwargs = {"team": self.team, "filters": {"events": [{"id": "$pageview"}]}}
+        if field == "name":
+            target = Insight.objects.create(name=value, **kwargs)
+        else:
+            target = Insight.objects.create(name="Customer report", description=value, **kwargs)
+        Insight.objects.create(name="Unrelated", **kwargs)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+        assert target.id in result_ids, f"search={search!r} must match the row with {field}={value!r}"
+
+    def test_list_filter_by_search_matches_derived_name_via_substring(self):
+        target = Insight.objects.create(
+            name=None,
+            derived_name="signup-flow-v2",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+        )
+        Insight.objects.create(name="Unrelated", team=self.team, filters={"events": [{"id": "$pageview"}]})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", {"search": "flow-v2"})
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+        assert target.id in result_ids
+
     def test_list_filter_by_search_explicit_order_overrides_relevance(self):
         older = Insight.objects.create(name="revenue funnel", team=self.team, filters={"events": [{"id": "$pageview"}]})
         newer = Insight.objects.create(name="revenue trends", team=self.team, filters={"events": [{"id": "$pageview"}]})

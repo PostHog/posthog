@@ -1630,6 +1630,9 @@ class InsightViewSet(
                 Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
                 | Q(_derived_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
                 | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+                | Q(name__icontains=search)
+                | Q(derived_name__icontains=search)
+                | Q(description__icontains=search)
                 | Q(id__in=matching_tag_ids)
             )
             .annotate(

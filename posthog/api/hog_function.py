@@ -524,6 +524,8 @@ class HogFunctionViewSet(
             .filter(
                 Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
                 | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+                | Q(name__icontains=search)
+                | Q(description__icontains=search)
             )
             .annotate(
                 _name_match_score=F("_name_word") + F("_name_full"),
