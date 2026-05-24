@@ -137,21 +137,12 @@ export class KeyedRateLimiterService {
     }
 
     /**
-     * Coalesced variant of rateLimitMany. Same input/output shape, but N inputs
-     * across M unique ids dispatch only M Redis calls — per-input decisions are
-     * fanned out client-side from each id's `tokensBefore`.
+     * Coalesced variant of rateLimitMany — N inputs across M unique ids → M Redis calls.
+     * Per-input decisions fan out client-side from each id's `tokensBefore`.
      *
-     * Diverges from rateLimitMany at the boundary case: when an input's cost
-     * exactly empties the local budget (`next == 0`), rateLimitGrouped marks it
-     * `isRateLimited: false` (the cost was paid, so the input is allowed),
-     * whereas rateLimitMany inherits V2's `tokensAfter <= 0` boundary and marks
-     * the same input as rate-limited. Required so the V3 lua's floor-drain of
-     * one token under sustained overload actually lets a single input through
-     * (otherwise the drained token leaks).
-     *
-     * Uses the V3 lua script (HMGET + multi-field HSET + conditional EXPIRE +
-     * floor-drain on overdraft). Per-id bucket params come from the first
-     * request seen for that id.
+     * Boundary differs from rateLimitMany: an input whose cost lands exactly on
+     * the local budget (`next === 0`) is allowed here, rate-limited there. Per-id
+     * bucket params come from the first request seen for that id.
      */
     public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
@@ -217,10 +208,8 @@ export class KeyedRateLimiterService {
         let limited = 0
         const out: [string, KeyedRateLimit][] = requests.map((req) => {
             const tokensBefore = budgetById.get(req.id) ?? 0
-            // Boundary is `next < 0`, not `<= 0`: when an input fits exactly (next=0)
-            // we still allow it. Required so the lua's floor-drain of 1 token actually
-            // lets a single input through under sustained overload — with <=0 the input
-            // would be flagged rate-limited and the drained token would leak.
+            // Boundary is `next < 0`, not `<= 0` — needed so the lua's floor-drain of
+            // one token under sustained overload actually lets that input through.
             if (tokensBefore >= req.cost) {
                 const next = tokensBefore - req.cost
                 budgetById.set(req.id, next)

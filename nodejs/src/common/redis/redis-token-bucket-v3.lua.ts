@@ -13,11 +13,9 @@ import { Redis } from 'ioredis'
 //      per call; we save ~95% of EXPIRE dispatches. Stale keys live 2x
 //      longer in exchange.
 //
-// Public return (tokensBefore, tokensAfter) matches V2 (tokensAfter=-1 on
-// denial). Stored-pool semantics on overdraft differ from V2: V3 floor-drains
-// available tokens and preserves the fractional remainder so refill accumulates
-// cross-batch (V2 preserved the full pre-overdraft balance, which over-allows
-// under sustained overload via JS-side fan-out from `tokensBefore`).
+// Public return matches V2 (tokensAfter=-1 on denial). Stored-pool on overdraft
+// differs: V3 floor-drains the available tokens and keeps the fractional remainder
+// so refill accumulates cross-batch (V2 preserved the full pre-overdraft balance).
 const LUA_TOKEN_BUCKET_V3 = `
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
@@ -53,12 +51,10 @@ else
   tokensBefore = currentTokens + (timeDiffSeconds * fillRate)
 end
 
--- On overdraft, drain by floor(max(0, tokensBefore)) so the fractional remainder
--- accumulates in the pool. Assumes per-input cost is an integer (≥1) — the
--- fractional part can never satisfy a per-input request, so we leave it for
--- cross-batch refill to top up. Without this, sustained-overload batches would
--- repeatedly drain the partial refill and the bucket would never recover above
--- zero (total starvation rather than the intended refill-rate throughput).
+-- On overdraft, drain floor(max(0, tokensBefore)) and keep the fractional remainder
+-- in the pool. Assumes per-input cost is an integer (≥1) — the fraction can never
+-- satisfy one input, so we let it accumulate cross-batch instead of getting wiped
+-- each call (which would starve everything under sustained overload).
 local tokensAfter
 local poolToStore
 if tokensBefore - cost >= 0 then

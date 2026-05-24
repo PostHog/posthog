@@ -56,9 +56,8 @@ describe('error tracking — sustained traffic e2e', () => {
         )
         await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-        // Simulate sustained 10 events/sec as one batch of 10 per second so we make
-        // ~900 Redis calls instead of 9000. The per-input fan-out inside the batch
-        // still exercises the floor-drain + boundary behavior we care about.
+        // Sustained 10 ev/sec as one batch of 10 per second — same fan-out as 10
+        // singleton calls but 10× fewer Redis round-trips.
         const eventsPerBatch = 10
         const totalSeconds = minutes * 60
         const batchIntervalMs = 1000
