@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 
 from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 
 

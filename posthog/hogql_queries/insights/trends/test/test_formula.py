@@ -15,7 +15,14 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import Breakdown, BreakdownFilter, MultipleBreakdownType, TrendsFilter, TrendsFormulaNode, TrendsQuery
+from posthog.schema import (
+    Breakdown,
+    BreakdownFilter,
+    MultipleBreakdownType,
+    TrendsFilter,
+    TrendsFormulaNode,
+    TrendsQuery,
+)
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -954,6 +961,4 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             {"data": None, "aggregated_value": 3},
         ]
         with self.assertRaises(ExposedHogQLError):
-            TrendsQueryRunner.apply_formula_to_results_group(
-                results_group, formula_node, aggregate_values=True
-            )
+            TrendsQueryRunner.apply_formula_to_results_group(results_group, formula_node, aggregate_values=True)

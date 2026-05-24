@@ -1111,8 +1111,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 if isinstance(value, int | float):
                     continue
                 raise ExposedHogQLError(
-                    f"Formula series {series_index} contains non-numeric value of type "
-                    f"{type(value).__name__}"
+                    f"Formula series {series_index} contains non-numeric value of type {type(value).__name__}"
                 )
 
     def _is_breakdown_filter_field_boolean(self):

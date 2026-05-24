@@ -100,6 +100,5 @@ class FormulaAST:
         if isinstance(value, int | float):
             return
         raise ExposedHogQLError(
-            f"Formula operator {op.__class__.__name__} requires numeric operands, "
-            f"got {type(value).__name__}"
+            f"Formula operator {op.__class__.__name__} requires numeric operands, got {type(value).__name__}"
         )
