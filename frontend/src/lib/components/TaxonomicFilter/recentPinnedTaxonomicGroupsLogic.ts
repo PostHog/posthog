@@ -12,42 +12,41 @@ import {
 
 import type { recentPinnedTaxonomicGroupsLogicType } from './recentPinnedTaxonomicGroupsLogicType'
 
+export const RECENT_PINNED_TAB_DEFINITIONS: TaxonomicFilterGroup[] = [
+    {
+        name: 'Recent',
+        searchPlaceholder: 'recent',
+        type: TaxonomicFilterGroupType.RecentFilters,
+        isLocalOnly: true,
+        isMetaGroup: true,
+        logic: recentTaxonomicFiltersLogic,
+        value: 'recentFilterItems',
+        getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
+        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
+            'name' in item ? (item.name ?? null) : null,
+        getPopoverHeader: () => 'Recent',
+    } as TaxonomicFilterGroup,
+    {
+        name: 'Pinned',
+        searchPlaceholder: 'pinned',
+        type: TaxonomicFilterGroupType.PinnedFilters,
+        isLocalOnly: true,
+        isMetaGroup: true,
+        logic: taxonomicFilterPinnedPropertiesLogic,
+        value: 'pinnedFilterItems',
+        getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
+        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
+            'name' in item ? (item.name ?? null) : null,
+        getPopoverHeader: () => 'Pinned',
+    } as TaxonomicFilterGroup,
+]
+
 export const recentPinnedTaxonomicGroupsLogic = kea<recentPinnedTaxonomicGroupsLogicType>([
     props({} as TaxonomicFilterLogicProps),
     key((props) => `${props.taxonomicFilterLogicKey}`),
     path((key) => ['lib', 'components', 'TaxonomicFilter', 'recentPinnedTaxonomicGroupsLogic', key]),
 
     selectors({
-        recentPinnedTaxonomicGroups: [
-            () => [],
-            (): TaxonomicFilterGroup[] => [
-                {
-                    name: 'Recent',
-                    searchPlaceholder: 'recent',
-                    type: TaxonomicFilterGroupType.RecentFilters,
-                    isLocalOnly: true,
-                    isMetaGroup: true,
-                    logic: recentTaxonomicFiltersLogic,
-                    value: 'recentFilterItems',
-                    getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-                    getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                        'name' in item ? (item.name ?? null) : null,
-                    getPopoverHeader: () => 'Recent',
-                } as TaxonomicFilterGroup,
-                {
-                    name: 'Pinned',
-                    searchPlaceholder: 'pinned',
-                    type: TaxonomicFilterGroupType.PinnedFilters,
-                    isLocalOnly: true,
-                    isMetaGroup: true,
-                    logic: taxonomicFilterPinnedPropertiesLogic,
-                    value: 'pinnedFilterItems',
-                    getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-                    getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                        'name' in item ? (item.name ?? null) : null,
-                    getPopoverHeader: () => 'Pinned',
-                } as TaxonomicFilterGroup,
-            ],
-        ],
+        recentPinnedTaxonomicGroups: [() => [], (): TaxonomicFilterGroup[] => RECENT_PINNED_TAB_DEFINITIONS],
     }),
 ])

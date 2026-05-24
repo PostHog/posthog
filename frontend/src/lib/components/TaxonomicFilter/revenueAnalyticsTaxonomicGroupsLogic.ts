@@ -52,7 +52,7 @@ export const revenueAnalyticsTaxonomicGroupsLogic = kea<revenueAnalyticsTaxonomi
                                     o.value
                                 )
                         ),
-                    getIcon: (option: PropertyDefinition): JSX.Element => getRevenueAnalyticsDefinitionIcon(option),
+                    getIcon: getRevenueAnalyticsDefinitionIcon,
                     getName: (option: PropertyDefinition) => {
                         const coreDefinition = getCoreFilterDefinition(
                             option.id,
