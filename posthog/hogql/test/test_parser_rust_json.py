@@ -254,3 +254,305 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_program(query, backend="rust-json"),
                 msg=query,
             )
+
+    @no_memory_leak_check
+    def test_columns_qualifier_rejects_invalid_identifier_keywords(self):
+        # The qualifier before `.*` inside `COLUMNS(...)` is the grammar's
+        # `identifier` (`COLUMNS LPAREN identifier DOT ASTERISK ...`), so only
+        # keywords admitted by `kw_valid_as_identifier` qualify. rust admitted any
+        # keyword there, accepting `columns(try.*)` where cpp rejects. The chain
+        # links (`columns(a.try.*)`) are `identifier` too and need the same gate.
+        excluded = (
+            "try",
+            "catch",
+            "finally",
+            "null",
+            "inf",
+            "nan",
+            "intersect",
+            "except",
+            "fn",
+            "fun",
+            "let",
+            "while",
+            "throw",
+            "materialized",
+        )
+        for name in excluded:
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(f"columns({name}.*)", backend=backend)
+        for query in ("columns(a.try.*)", "columns(a.b.catch.*)"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+        # `kw_valid_as_identifier` keywords (and `true`/`false`, plain
+        # idents, and multi-level chains) remain valid qualifiers.
+        for query in (
+            "columns(week.*)",
+            "columns(select.*)",
+            "columns(interval.*)",
+            "columns(true.*)",
+            "columns(false.*)",
+            "columns(x.*)",
+            "columns(a.b.*)",
+            "columns(a.b.c.*)",
+        ):
+            for backend in ("cpp-json", "rust-json"):
+                parse_expr(query, backend=backend)
+
+    @no_memory_leak_check
+    def test_bare_qualified_star_replace_rejected(self):
+        # A bare (unwrapped) `ColumnExprAsterisk` (grammar line 289) admits an
+        # optional trailing EXCLUDE but never REPLACE — REPLACE is a columnExpr
+        # only inside `columns(...)` / `(*...)`. rust consumed a trailing REPLACE
+        # in the bare qualified-asterisk postfix path and silently dropped it,
+        # accepting `a.* exclude(z) replace(1 as b)` where cpp rejects.
+        for query in (
+            "a.* replace(1 as b)",
+            "a.* exclude(z) replace(1 as b)",
+            "a.b.* exclude(z) replace(1 as b)",
+        ):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+        # Exclude-only bare forms and the wrapped REPLACE forms still parse.
+        for query in (
+            "a.* exclude(z)",
+            "a.b.* exclude(z)",
+            "a.*",
+            "columns(a.* replace(1 as b))",
+            "columns(a.* exclude(z) replace(1 as b))",
+            "(* exclude(z) replace(1 as b))",
+        ):
+            for backend in ("cpp-json", "rust-json"):
+                parse_expr(query, backend=backend)
+
+    @no_memory_leak_check
+    def test_columns_qualified_asterisk_continuation_positions(self):
+        # When a qualified asterisk (`a.*`) is the LHS of a postfix call or infix
+        # op inside `COLUMNS(...)`, the continuation node's span must start at the
+        # qualifier's start, not at the token after the asterisk. rust stamped the
+        # call/arith node start at the `(` / operator instead of at `a`, so both
+        # accepted but `columns[0].start` diverged. Assert full AST parity
+        # (positions included) rather than just accept/reject.
+        for query in (
+            "columns(a.*(b))",
+            "columns(a.b.*(c))",
+            "columns(a.* + 1)",
+            'columns("iei".*(a.b, c.d))',
+            "columns(a.* exclude(z) + 1)",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    @no_memory_leak_check
+    def test_within_keyword_rejected_as_identifier(self):
+        # WITHIN is a lexer keyword used only in the `within group (...)` clause;
+        # the grammar's `keyword` rule omits it, so it is not a valid identifier.
+        # rust admitted it via `kw_valid_as_identifier` / `kw_acts_as_ident_in_primary`,
+        # accepting `within`, `x.within`, `columns(within.*)` as Fields and, at
+        # statement level, `f() within ()` as `f(); within()`. All must reject.
+        for query in ("within", "within()", "within + 1", "x.within", "1 as within", "columns(within.*)"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+        for query in ("select within from t", "select 1 as within from t", "select x from t as within"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
+        for query in ("f() within ()", "within ()", "within"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_program(query, backend=backend)
+        # The legitimate `within group (...)` clause still parses.
+        for backend in ("cpp-json", "rust-json"):
+            parse_expr("f() within group (order by x)", backend=backend)
+            parse_select("select f() within group (order by x) from t", backend=backend)
+
+    @no_memory_leak_check
+    def test_positional_and_tuple_index_decimal_literal_parity(self):
+        # `#N` (positional ref) and `a.N` / `a?.N` (tuple access) all take a
+        # grammar DECIMAL_LITERAL index. rust's lexer folds hex / octal / float
+        # into one Number kind, so it diverged two ways: `#N` OVER-ACCEPTED
+        # hex/octal/float (`#0x6`, `#017`, `#1e3` became PositionalRef(0) via
+        # `parse().unwrap_or(0)`), while `.N` / `?.N` OVER-REJECTED leading-zero
+        # decimals (`a.08`, `a.019`) that cpp accepts because 8 and 9 are not
+        # octal digits, so the lexer reads them as DECIMAL not OCTAL. All three
+        # now share one `is_decimal_literal()` gate.
+        rejected = (
+            "#0x6",
+            "#0X6",
+            "#00",
+            "#06",
+            "#017",
+            "#007",
+            "#1e3",
+            "a.0x6",
+            "a.00",
+            "a.06",
+            "a.017",
+            "a.1e3",
+            "a?.06",
+            "a?.00",
+        )
+        for query in rejected:
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+        # Decimal indices parse on both, including leading-zero forms whose digits
+        # escape the octal range (`08`, `019`). Assert full AST parity (positions
+        # included) rather than just accept/reject.
+        accepted = (
+            "#0",
+            "#6",
+            "#08",
+            "#019",
+            "#10",
+            "a.0",
+            "a.8",
+            "a.08",
+            "a.019",
+            "a.10",
+            "a?.0",
+            "a?.08",
+            "a?.019",
+        )
+        for query in accepted:
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    @no_memory_leak_check
+    def test_nested_interval_reserves_unit_for_outer(self):
+        # `INTERVAL <value> <unit>`: cpp's ALL(*) reserves the trailing unit for
+        # the OUTER interval, so a nested INTERVAL in value position never takes
+        # the unit-consuming form — it is string-only (`interval '5 day'`) or a
+        # Field / call. rust used to let the inner interval eat the unit, which
+        # over-rejected `interval interval '5 day' month` / `interval interval -
+        # x second` (expr) and over-accepted `interval interval 'jihi' month`
+        # (program, split into `interval` + `interval 'jihi' month`). The
+        # parenthesised forms were already self-contained. Both accept here, so
+        # assert full AST parity (positions included).
+        for query in (
+            "interval interval second",
+            "interval interval - x second",
+            "interval interval '5 day' month",
+            "interval interval (1) second",
+            "interval (interval '5 day') month",
+            "interval (interval '5 day' month) second",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+        # A nested bad-string interval rejects on both: the inner
+        # ColumnExprIntervalString can't split into `<count> <unit>`. This must
+        # also reject at program level (rust no longer splits it into two
+        # statements once the inner string interval errors fatally).
+        for query in ("interval interval 'jihi' month", "interval interval x second"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+        for backend in ("cpp-json", "rust-json"):
+            with self.assertRaises(BaseHogQLError):
+                parse_program("interval interval 'jihi' month", backend=backend)
+
+    @no_memory_leak_check
+    def test_select_from_keyword_table_vs_invalid_from_column(self):
+        # `FROM implicitAlias # ColumnExprInvalidFromImplicitAlias` is a
+        # SELECT-COLUMN footgun only: a bare `from <ident>` in TABLE position is
+        # valid (`from b, from c` is table `from` aliased `c`). rust used to (1)
+        # over-reject explicit-FROM from-as-table cases via a misdiagnosed
+        # join.rs check, and (2) over-accept the trailing-comma `select a, from
+        # b, from (c)` because it broke the column list at the FIRST from. cpp's
+        # `selectColumnExprListBeforeFrom` makes every `from X` before the LAST
+        # one a column; only the final `from` opens the clause. Accepting cases
+        # assert full AST parity (positions included).
+        accept = (
+            # from-as-table in the FROM / join clause (explicit FROM):
+            "select a from b, from c",
+            "select * from from x",
+            "select 1 from a, from b, from(c)",
+            "select 1 from a join from b on 1",
+            "select 1 from from c",
+            "select x from t1, from t2, from t3",
+            "select 1 from b as from",
+            # the LAST `from` opens the clause; an earlier `from(...)` is a call column:
+            "select a, from (b), from (c)",
+            # single from / cross-join / subquery / union unaffected:
+            "select a, from b",
+            "select a, from b, c",
+            "select a, from (b), c",
+            "select a from b, c",
+            "select a, from (select 1 from t), c",
+            "select a, from b union all select c from d",
+        )
+        for query in accept:
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )
+        # Two+ top-level `from`s: every `from` before the last is a SELECT
+        # column, and a bare `from <ident>` column is the rejected footgun.
+        reject = (
+            "select from x",
+            "select a, from b, from c",
+            "select a, from b, from (c)",
+            "select a, from b, x, from (c)",
+            "select a, from b, from c, from d",
+        )
+        for query in reject:
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
+
+    @no_memory_leak_check
+    def test_from_trailing_comma_only_after_join_constraint(self):
+        # A trailing comma in the FROM clause is valid ONLY as the ON / USING
+        # `columnExprList`'s optional `COMMA?` (`a JOIN b ON 1,`); cpp's
+        # JoinConstraint span includes it. After a cross / plain / positional
+        # join the trailing comma is rejected. rust used to discard any
+        # post-join trailing comma (over-accepting `a, b,` / `a join b,`) and
+        # ended the constraint span before the comma (a position mismatch on the
+        # constrained cases). Accepting cases assert full AST parity (positions).
+        accept = (
+            "select x from a join b on 1,",
+            "select x from a left join b on 1,",
+            "select x from a join b using c,",
+            "select x from a join b using (c),",
+            "select x from (a join b on 1,)",
+            "select x from a join b using a, b,",
+            # controls (no trailing comma):
+            "select x from a, b",
+            "select x from a join b on 1",
+            "select x from a join b",
+            "select x from a, b, c",
+        )
+        for query in accept:
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )
+        # Trailing comma after a cross / plain / positional join (no constraint
+        # to own it) rejects on both.
+        reject = (
+            "select x from a, b,",
+            "select x from a cross join b,",
+            "select x from a join b,",
+            "select x from a positional join b,",
+            "select x from a join b on 1, c,",
+            "select x from a, from b,",
+        )
+        for query in reject:
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)

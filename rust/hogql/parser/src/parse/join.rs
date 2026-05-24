@@ -8,7 +8,6 @@
 
 use serde_json::{json, Value};
 
-use super::select::is_bare_from_field;
 use super::{
     chain_join, check_alias_not_reserved, identifier_text, kw_valid_as_identifier, Parser,
 };
@@ -46,18 +45,16 @@ impl<'a> Parser<'a> {
             {
                 break;
             }
-            // `,` cross join. cpp's ANTLR ALL(*) tolerates a trailing
-            // comma after a constrained JOIN chain (`a JOIN b ON 1,`)
-            // when nothing parseable follows — the comma is recovery-
-            // discarded. Mirror that: if peek_next isn't a token that
-            // can start a table atom, consume + discard the trailing
-            // comma so the outer SELECT parser keeps walking.
+            // `,` cross join. A trailing comma (peek_next can't start a table
+            // atom) is NOT a join-chain construct — cpp rejects it after a
+            // cross / plain / positional join (`a, b,`, `a join b,`). The only
+            // tolerated trailing comma is an ON / USING `columnExprList`'s
+            // optional `COMMA?` (`a JOIN b ON 1,`), which is consumed inside
+            // `parse_join_constraint_opt` so its span matches cpp's. So just
+            // leave any trailing comma here for the SELECT parser, which
+            // rejects it.
             if self.peek() == TokenKind::Comma {
                 if !self.peek_next_starts_table_atom() {
-                    if joined_any {
-                        // Trailing comma after at least one join — discard.
-                        self.bump()?;
-                    }
                     break;
                 }
                 self.bump()?;
@@ -225,14 +222,13 @@ impl<'a> Parser<'a> {
         let wrapped = self.try_consume_pivot_unpivot(pivot_input, table_start)?;
         // Wrap the PivotExpr/UnpivotExpr in an outer JoinExpr (the C++
         // visitor's JoinExprPivot does the same).
-        let table_is_bare_from = is_bare_from_field(&wrapped);
         let mut outer = serde_json::Map::new();
         outer.insert("node".into(), Value::String("JoinExpr".into()));
         outer.insert("table".into(), wrapped);
         // Grammar order: `TableExprAlias` (alias + columnAliases) binds
         // inside `tableExpr`, then `JoinExprTable` adds `FINAL?
         // sampleClause?`.
-        let (alias, column_aliases) = self.consume_table_alias_chain(table_is_bare_from)?;
+        let (alias, column_aliases) = self.consume_table_alias_chain()?;
         if let Some(a) = alias {
             outer.insert("alias".into(), Value::String(a));
         }
@@ -472,22 +468,27 @@ impl<'a> Parser<'a> {
             // to fall out and let the outer chain consume it as
             // cross-join, silently emitting a divergent JoinExpr.
             //
-            // A *trailing* comma (`FROM a JOIN b ON 1,` with nothing
-            // parseable after) is tolerated — cpp's ANTLR recovery
-            // discards it. Leave the outer JOIN loop to handle that.
-            if self.peek() == TokenKind::Comma
-                && !matches!(
+            // A *trailing* comma (`FROM a JOIN b ON 1,` with nothing parseable
+            // after) is the `columnExprList`'s optional `COMMA?` — valid, and
+            // cpp's JoinConstraint span covers it. Consume it here so the span
+            // matches (and so the outer JOIN loop doesn't have to special-case
+            // it). A comma with a real expression after is the unsupported
+            // multi-expression list.
+            if self.peek() == TokenKind::Comma {
+                if matches!(
                     self.peek_next(),
                     TokenKind::Eof | TokenKind::Semicolon | TokenKind::RParen
-                )
-            {
-                let start = self.peek0.start;
-                let end = self.peek0.end;
-                return Err(ParseError::not_implemented(
-                    "Unsupported: JOIN ... ON with multiple expressions",
-                    start,
-                    end,
-                ));
+                ) {
+                    self.bump()?;
+                } else {
+                    let start = self.peek0.start;
+                    let end = self.peek0.end;
+                    return Err(ParseError::not_implemented(
+                        "Unsupported: JOIN ... ON with multiple expressions",
+                        start,
+                        end,
+                    ));
+                }
             }
             return Ok(Some(self.wrap_pos(
                 json!({"node": "JoinConstraint", "expr": expr, "constraint_type": "ON"}),
@@ -515,6 +516,17 @@ impl<'a> Parser<'a> {
             } else {
                 emit::tuple_(exprs)
             };
+            // Trailing `COMMA?` of the columnExprList — the paren form leaves it
+            // after `)`; the no-paren list parse already absorbs it. Consume it
+            // so the JoinConstraint span matches cpp's (`USING (c),`).
+            if self.peek() == TokenKind::Comma
+                && matches!(
+                    self.peek_next(),
+                    TokenKind::Eof | TokenKind::Semicolon | TokenKind::RParen
+                )
+            {
+                self.bump()?;
+            }
             return Ok(Some(self.wrap_pos(
                 json!({"node": "JoinConstraint", "expr": expr, "constraint_type": "USING"}),
                 cons_start,
@@ -583,8 +595,7 @@ impl<'a> Parser<'a> {
         // first, FINAL and SAMPLE after. Parsing SAMPLE before the
         // alias (as this did) silently dropped the sample on an
         // aliased table — `t AS e SAMPLE 1` lost its `SampleExpr`.
-        let table_is_bare_from = is_bare_from_field(&table_expr);
-        let (alias, column_aliases) = self.consume_table_alias_chain(table_is_bare_from)?;
+        let (alias, column_aliases) = self.consume_table_alias_chain()?;
         let had_alias = alias.is_some() || column_aliases.is_some();
         // Snapshot end after alias / column_aliases — cpp's
         // `TableExprAlias` ctx covers `tableExpr alias columnAliases?` and
@@ -654,17 +665,12 @@ impl<'a> Parser<'a> {
     /// `(None, None)` when the table carries no alias at all.
     fn consume_table_alias_chain(
         &mut self,
-        table_is_bare_from: bool,
     ) -> Result<(Option<String>, Option<Vec<String>>), ParseError> {
-        // Grammar alt `FROM implicitAlias # ColumnExprInvalidFromImplicitAlias`:
-        // a bare `from` table carrying an *implicit* (no-`AS`) alias is the
-        // footgun cpp's visitor rejects (`select a, from b, from c` parses
-        // `from c` as table `from` aliased `c`). `from AS c` is fine — the `AS`
-        // form is consumed inside `try_consume_table_alias` and isn't an
-        // implicit alias. Mirrors the SELECT-column `is_bare_from_field` check.
-        if table_is_bare_from && self.peek_starts_implicit_table_alias() {
-            return Err(self.err("Cannot use \"from\" before an implicit alias"));
-        }
+        // NB: `from <implicitAlias>` as a *table* (`select a from b, from c` —
+        // table `from` aliased `c`) is valid; the grammar's
+        // `ColumnExprInvalidFromImplicitAlias` footgun is a SELECT-*column*
+        // form only, enforced in `parse_select_columns`. Do not reject a bare
+        // `from` table here.
         let mut alias: Option<String> = None;
         let mut column_aliases: Option<Vec<String>> = None;
         while let Some(a) = self.try_consume_table_alias()? {
@@ -720,19 +726,6 @@ impl<'a> Parser<'a> {
         }
         self.expect(TokenKind::RParen, ")")?;
         Ok(Some(cols))
-    }
-
-    /// Does the cursor sit on a token that `try_consume_table_alias` would take
-    /// as a *bare* (implicit, no-`AS`) table alias? Mirrors that function's
-    /// bare-branch token set. `AS` is deliberately excluded — the explicit-AS
-    /// form is not an implicit alias.
-    fn peek_starts_implicit_table_alias(&self) -> bool {
-        matches!(
-            self.peek(),
-            TokenKind::Ident
-                | TokenKind::QuotedIdent
-                | TokenKind::Keyword(Kw::Date | Kw::First | Kw::Id | Kw::Key)
-        )
     }
 
     fn try_consume_table_alias(&mut self) -> Result<Option<String>, ParseError> {

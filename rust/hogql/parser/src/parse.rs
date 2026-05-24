@@ -223,6 +223,15 @@ pub(crate) struct Parser<'a> {
     /// directly and re-seeks the lexer, so peek1's transient invalid
     /// state is recoverable.
     pub(crate) hogqlx_text_lookahead_depth: u32,
+    /// One-shot flag set just before `parse_interval_expr` parses its value
+    /// expression and consumed at the top of `parse_primary`. When the value's
+    /// leading primary is itself an `INTERVAL`, cpp's ALL(*) reserves the
+    /// trailing unit keyword for the OUTER interval, so the nested interval is
+    /// parsed string-only (`INTERVAL '5 day'`) or as a Field / call — never the
+    /// unit-consuming `INTERVAL columnExpr interval` form. The take-on-read
+    /// semantics auto-reset across parens / call-args, so a parenthesised nested
+    /// interval (`interval (interval '5 day' month) second`) keeps its own unit.
+    pub(crate) interval_value_pending: bool,
     /// Sorted byte offsets of each line start in `src` (line 1 starts at 0,
     /// line N starts at `line_starts[N-1]`). Built once at construction;
     /// `pos(offset)` binary-searches for line / column. Used to emit cpp's
@@ -271,6 +280,7 @@ impl<'a> Parser<'a> {
             limit_body_depth: 0,
             pivot_in_stop: None,
             hogqlx_text_lookahead_depth: 0,
+            interval_value_pending: false,
             line_starts,
             char_offsets: std::cell::OnceCell::new(),
             is_ascii_src,
@@ -952,6 +962,8 @@ pub(crate) fn kw_valid_as_identifier(kw: Kw) -> bool {
             | Kw::Finally
             // MATERIALIZED is a lexer keyword used only in `WITH x AS MATERIALIZED (…)`; the grammar's `keyword` rule omits it, so it is never a valid identifier.
             | Kw::Materialized
+            // WITHIN is a lexer keyword used only in the `within group (...)` clause; the grammar's `keyword` rule omits it, so it is never a valid identifier.
+            | Kw::Within
     )
 }
 
@@ -986,6 +998,8 @@ pub(crate) fn kw_acts_as_ident_in_primary(kw: Kw) -> bool {
         | Kw::Throw | Kw::Try | Kw::Catch | Kw::Finally
         // MATERIALIZED — keyword only in `WITH … AS MATERIALIZED (…)`, never a `keyword`-rule identifier.
         | Kw::Materialized
+        // WITHIN — keyword only in the `within group (...)` clause, never a `keyword`-rule identifier.
+        | Kw::Within
     )
 }
 

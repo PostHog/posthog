@@ -1590,9 +1590,19 @@ impl<'a> Parser<'a> {
             // `WINDOW <name> AS (` and arith-`*` carve-outs. The `:`
             // guard keeps the alias-before form (`select a, where : 1`)
             // out of this path.
+            // A `from` here normally opens the FROM clause and ends the column
+            // list. But cpp's `selectColumnExprListBeforeFrom` makes every
+            // `from X` BEFORE the last one a SELECT column (the
+            // `ColumnExprInvalidFromImplicitAlias` footgun for bare `from
+            // <ident>`, or a `from(...)` call); only the FINAL `from` opens the
+            // clause. So when a later `from` exists, don't break — fall through
+            // and parse this `from X` as a column (`from b` then rejects via
+            // `is_bare_from_field`; `from(b)` stays a valid call column).
             if !cols.is_empty()
                 && self.peek_next() != TokenKind::Colon
                 && self.peek_is_clause_terminator()
+                && !(self.peek() == TokenKind::Keyword(Kw::From)
+                    && self.from_clause_followed_by_another_from())
             {
                 break;
             }
@@ -1652,6 +1662,38 @@ impl<'a> Parser<'a> {
         Ok(cols)
     }
 
+    /// Probe forward from the current `from` (`peek0 == Keyword(From)`) for a
+    /// SECOND depth-0 `from` within the same FROM-clause region. A valid single
+    /// `joinExpr` never has two depth-0 `from` keywords, so a second one means
+    /// the current `from` is a SELECT column (not the clause) per cpp's
+    /// `selectColumnExprListBeforeFrom`. Stops at the from-region's end (a
+    /// depth-0 clause keyword / set-op, a closing bracket below the start depth,
+    /// `;`, or EOF) so a `from` in a later clause or UNIONed select doesn't
+    /// count.
+    fn from_clause_followed_by_another_from(&self) -> bool {
+        let mut probe = Lexer::with_pos(self.src, self.peek0.end);
+        let mut depth: i32 = 0;
+        loop {
+            let kind = match probe.next_token() {
+                Ok(t) => t.kind,
+                Err(_) => return false,
+            };
+            match kind {
+                TokenKind::Eof | TokenKind::Semicolon => return false,
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                    depth -= 1;
+                    if depth < 0 {
+                        return false;
+                    }
+                }
+                TokenKind::Keyword(Kw::From) if depth == 0 => return true,
+                TokenKind::Keyword(kw) if depth == 0 && from_region_terminator(kw) => return false,
+                _ => {}
+            }
+        }
+    }
+
     fn try_consume_implicit_alias(&mut self) -> Result<Option<String>, ParseError> {
         match self.peek() {
             TokenKind::Ident => {
@@ -1675,10 +1717,35 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// Keywords whose appearance at depth 0 ends the FROM-clause region: the
+/// post-FROM clauses and the set-operation joiners. Used by
+/// `from_clause_followed_by_another_from` to bound its look-ahead so a `from`
+/// in a later clause or UNIONed select isn't mistaken for a second FROM.
+fn from_region_terminator(kw: Kw) -> bool {
+    matches!(
+        kw,
+        Kw::Where
+            | Kw::Prewhere
+            | Kw::Group
+            | Kw::Having
+            | Kw::Qualify
+            | Kw::Window
+            | Kw::Order
+            | Kw::Limit
+            | Kw::Offset
+            | Kw::Settings
+            | Kw::Union
+            | Kw::Intersect
+            | Kw::Except
+            | Kw::Array
+    )
+}
+
 /// True when `expr` is a bare `from` Field — a `Field` whose chain is
-/// the single element `from` (any case). Used to flag the grammar's
-/// `ColumnExprInvalidFromImplicitAlias` footgun (`select from x`) in both
-/// the SELECT column list (here) and the FROM table-alias path (`join.rs`).
+/// the single element `from` (any case). Flags the grammar's
+/// `ColumnExprInvalidFromImplicitAlias` footgun (`select from x`) in the SELECT
+/// column list. (A bare `from` in *table* position is valid — `from b, from c`
+/// is table `from` aliased `c` — so the FROM/join path does not use this.)
 pub(crate) fn is_bare_from_field(expr: &Value) -> bool {
     let Some(obj) = expr.as_object() else {
         return false;

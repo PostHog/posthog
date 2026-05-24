@@ -482,6 +482,10 @@ impl<'a> Parser<'a> {
 
     fn parse_primary(&mut self) -> Result<Value, ParseError> {
         let tok = self.peek0;
+        // One-shot: true only for the leading primary of an enclosing INTERVAL's
+        // value (set in `parse_interval_expr`). Taken here so it never leaks past
+        // the first primary — parens / call-args reset it for free.
+        let interval_value = std::mem::take(&mut self.interval_value_pending);
         match tok.kind {
             TokenKind::Number => {
                 self.bump()?;
@@ -627,6 +631,24 @@ impl<'a> Parser<'a> {
             // shape keeps the function-call fall-back; operator continuations
             // like `interval + 1` never reach the commit branch (they aren't
             // primary-value tokens).
+            //
+            // A nested INTERVAL in the value position of an enclosing INTERVAL
+            // (`interval interval '5 day' month`) is special: cpp's ALL(*)
+            // reserves the trailing unit (`month`) for the OUTER interval, so
+            // the inner one never takes the unit-consuming form. Parse it
+            // string-only when a string follows (`interval '5 day'` →
+            // `toIntervalDay(5)`, with a bad string a hard error like cpp's
+            // `ColumnExprIntervalString`), else as a Field / call via the ident
+            // path (`interval - x` → `interval` Field minus `x`; `interval(1)`
+            // → call). The trailing unit then binds to the outer interval.
+            TokenKind::Keyword(Kw::Interval) if interval_value => {
+                if self.peek_next() == TokenKind::String {
+                    self.parse_interval_string_only()
+                        .map_err(ParseError::into_fatal)
+                } else {
+                    self.parse_ident_lead()
+                }
+            }
             TokenKind::Keyword(Kw::Interval) if can_start_interval_value(self.peek_next()) => {
                 if matches!(
                     self.peek_next(),
@@ -1085,6 +1107,11 @@ impl<'a> Parser<'a> {
         // keyword terminates the interval value before they're seen
         // — the outer call gets to those operators after parse_interval_expr
         // returns.
+        //
+        // Flag the value's leading primary so a nested INTERVAL there yields
+        // the unit to us rather than eating it (see `parse_primary`). One-shot:
+        // `parse_primary` takes it, so only that first primary is affected.
+        self.interval_value_pending = true;
         let expr = self.parse_expr_bp(0)?;
         // The grammar's `interval` rule is the eight singular unit
         // *keyword* tokens (`SECOND | MINUTE | HOUR | DAY | WEEK |
@@ -1119,6 +1146,62 @@ impl<'a> Parser<'a> {
             }
         };
         Ok(emit::call(unit_name, vec![expr]))
+    }
+
+    /// Parse `INTERVAL '<count> <unit>'` as the string-only
+    /// `ColumnExprIntervalString` form WITHOUT consuming a following unit
+    /// keyword. Used when an INTERVAL sits in the value position of an
+    /// enclosing INTERVAL (`interval interval '5 day' month`): cpp reserves the
+    /// trailing unit for the outer interval, so the inner string must carry its
+    /// own count+unit. Mirrors the combined-string branch of
+    /// `parse_interval_expr`, except a string that is not `<count> <unit>` is a
+    /// hard error (cpp's `visitColumnExprIntervalString`) rather than a
+    /// fall-through to the expr+unit form, which would steal the outer's unit.
+    fn parse_interval_string_only(&mut self) -> Result<Value, ParseError> {
+        self.expect_kw(Kw::Interval, "INTERVAL")?;
+        let str_tok = self.peek0;
+        let raw = unquote_single_string(self.text(str_tok));
+        let Some((count_str, unit)) = raw.split_once(' ') else {
+            self.bump()?;
+            return Err(ParseError::not_implemented_fatal(
+                "Unsupported interval type: must be in the format '<count> <unit>'",
+                str_tok.start,
+                str_tok.end,
+            ));
+        };
+        let count_valid = !count_str.is_empty() && count_str.bytes().all(|b| b.is_ascii_digit());
+        if !count_valid {
+            self.bump()?;
+            return Err(ParseError::not_implemented_fatal(
+                format!("Unsupported interval count: {count_str}"),
+                str_tok.start,
+                str_tok.end,
+            ));
+        }
+        let count: i64 = match count_str.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                self.bump()?;
+                return Err(ParseError::not_implemented_fatal(
+                    "Unknown error: stoi: out of range",
+                    str_tok.start,
+                    str_tok.end,
+                ));
+            }
+        };
+        let Some(unit_name) = interval_call_name_case_sensitive(unit) else {
+            self.bump()?;
+            return Err(ParseError::not_implemented_fatal(
+                format!("Unsupported interval unit: {unit}"),
+                str_tok.start,
+                str_tok.end,
+            ));
+        };
+        self.bump()?;
+        Ok(emit::call(
+            unit_name,
+            vec![emit::constant(Value::from(count))],
+        ))
     }
 
     /// Is `peek_next` a recognised INTERVAL unit keyword? Used by
@@ -1267,145 +1350,146 @@ impl<'a> Parser<'a> {
         //   2. `*` [EXCLUDE (...)] [REPLACE (...)]
         //   3. `ident DOT *` [EXCLUDE (...)] [REPLACE (...)]
         //   4. `expr_list` → ColumnsList
-        let result =
-            if matches!(self.peek(), TokenKind::String) && self.peek_next() == TokenKind::RParen {
-                let str_tok = self.bump()?;
-                let s = unquote_single_string(self.text(str_tok));
-                emit::columns_expr(Some(s), None, false, None, None)
-            } else if self.peek() == TokenKind::Asterisk
-                && matches!(
-                    self.peek_next(),
-                    TokenKind::Keyword(Kw::Exclude) | TokenKind::Keyword(Kw::Replace)
-                )
-            {
-                let asterisk_pos = self.peek0.start;
-                self.bump()?;
-                let (exclude, replace) = self.parse_columns_decorators()?;
-                // ANTLR resolves `COLUMNS(* …)` against five alternatives in
-                // declared order. The interesting split:
-                //
-                //   `COLUMNS(* EXCLUDE …)` only
-                //     → matches `ColumnExprColumnsList` first because
-                //       `ColumnExprAsterisk` admits a trailing EXCLUDE
-                //       (line 288 of HogQLParser.g4). cpp wraps the asterisk
-                //       columns-expr inside an outer `ColumnsExpr(columns=…)`.
-                //
-                //   `COLUMNS(* REPLACE …)`
-                //   `COLUMNS(* EXCLUDE … REPLACE …)`
-                //     → list path can't match (REPLACE isn't a valid trailing
-                //       decoration on `ColumnExprAsterisk`), so ANTLR falls
-                //       through to the specialised `ColumnExprColumnsReplace`
-                //       / `…ExcludeReplace` rule, which returns the
-                //       UNWRAPPED `ColumnsExpr(all_columns=True, …)` shape.
-                //
-                // Mirror that split here.
-                if replace.is_some() {
-                    emit::columns_expr(None, None, true, exclude, replace)
-                } else {
-                    // cpp's `ColumnExprAsterisk` ctx covers `*` plus the
-                    // optional `EXCLUDE(...)` trailer. Wrap the inner
-                    // ColumnsExpr from the `*` position so it carries the
-                    // span before the outer columns_list_from_first picks
-                    // it up as `columns[0]`.
-                    let inner = self.wrap_pos(
-                        emit::columns_expr(None, None, true, exclude, None),
-                        asterisk_pos,
-                    );
-                    self.columns_list_from_first(inner)?
-                }
+        let result = if matches!(self.peek(), TokenKind::String)
+            && self.peek_next() == TokenKind::RParen
+        {
+            let str_tok = self.bump()?;
+            let s = unquote_single_string(self.text(str_tok));
+            emit::columns_expr(Some(s), None, false, None, None)
+        } else if self.peek() == TokenKind::Asterisk
+            && matches!(
+                self.peek_next(),
+                TokenKind::Keyword(Kw::Exclude) | TokenKind::Keyword(Kw::Replace)
+            )
+        {
+            let asterisk_pos = self.peek0.start;
+            self.bump()?;
+            let (exclude, replace) = self.parse_columns_decorators()?;
+            // ANTLR resolves `COLUMNS(* …)` against five alternatives in
+            // declared order. The interesting split:
+            //
+            //   `COLUMNS(* EXCLUDE …)` only
+            //     → matches `ColumnExprColumnsList` first because
+            //       `ColumnExprAsterisk` admits a trailing EXCLUDE
+            //       (line 288 of HogQLParser.g4). cpp wraps the asterisk
+            //       columns-expr inside an outer `ColumnsExpr(columns=…)`.
+            //
+            //   `COLUMNS(* REPLACE …)`
+            //   `COLUMNS(* EXCLUDE … REPLACE …)`
+            //     → list path can't match (REPLACE isn't a valid trailing
+            //       decoration on `ColumnExprAsterisk`), so ANTLR falls
+            //       through to the specialised `ColumnExprColumnsReplace`
+            //       / `…ExcludeReplace` rule, which returns the
+            //       UNWRAPPED `ColumnsExpr(all_columns=True, …)` shape.
+            //
+            // Mirror that split here.
+            if replace.is_some() {
+                emit::columns_expr(None, None, true, exclude, replace)
             } else {
-                // Could be `ident . *` or an expression list.
-                // Peek for the qualified-asterisk pattern: IDENT DOT ASTERISK.
-                if matches!(
-                    self.peek(),
-                    TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-                ) && self.peek_next() == TokenKind::Dot
-                {
-                    // Try to consume `IDENT.*` (or longer dotted chain ending in `*`).
-                    let saved_pos = self.peek0.start;
-                    let mut chain: Vec<String> = Vec::new();
-                    let mut probe = Lexer::with_pos(self.src, saved_pos);
-                    let first = probe.next_token()?;
-                    chain.push(identifier_text(
-                        &self.src[first.start..first.end],
-                        first.kind,
-                    ));
-                    let mut ok = true;
-                    let mut saw_star = false;
-                    loop {
-                        let dot = probe.next_token()?;
-                        if dot.kind != TokenKind::Dot {
-                            ok = false;
-                            break;
-                        }
-                        let nxt = probe.next_token()?;
-                        if nxt.kind == TokenKind::Asterisk {
-                            saw_star = true;
-                            break;
-                        }
-                        if matches!(
-                            nxt.kind,
-                            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-                        ) {
-                            chain.push(identifier_text(&self.src[nxt.start..nxt.end], nxt.kind));
-                        } else {
-                            ok = false;
-                            break;
-                        }
+                // cpp's `ColumnExprAsterisk` ctx covers `*` plus the
+                // optional `EXCLUDE(...)` trailer. Wrap the inner
+                // ColumnsExpr from the `*` position so it carries the
+                // span before the outer columns_list_from_first picks
+                // it up as `columns[0]`.
+                let inner = self.wrap_pos(
+                    emit::columns_expr(None, None, true, exclude, None),
+                    asterisk_pos,
+                );
+                self.columns_list_from_first(inner, asterisk_pos)?
+            }
+        } else {
+            // Could be `ident . *` or an expression list.
+            // Peek for the qualified-asterisk pattern: IDENT DOT ASTERISK.
+            // The qualifier is the grammar's `identifier`, so only keywords admitted by `kw_valid_as_identifier` qualify — Hog-statement keywords (try/catch/finally) and the rest of the omitted set are not Field qualifiers, so cpp rejects `columns(try.*)`; without this gate rust took it as a qualified-asterisk ColumnsExpr.
+            let first_is_qualifier_ident =
+                matches!(self.peek(), TokenKind::Ident | TokenKind::QuotedIdent)
+                    || matches!(self.peek(), TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
+            if first_is_qualifier_ident && self.peek_next() == TokenKind::Dot {
+                // Try to consume `IDENT.*` (or longer dotted chain ending in `*`).
+                let saved_pos = self.peek0.start;
+                let mut chain: Vec<String> = Vec::new();
+                let mut probe = Lexer::with_pos(self.src, saved_pos);
+                let first = probe.next_token()?;
+                chain.push(identifier_text(
+                    &self.src[first.start..first.end],
+                    first.kind,
+                ));
+                let mut ok = true;
+                let mut saw_star = false;
+                loop {
+                    let dot = probe.next_token()?;
+                    if dot.kind != TokenKind::Dot {
+                        ok = false;
+                        break;
                     }
-                    if ok && saw_star {
-                        // Capture the end of the `*` token before committing
-                        // the cursor — we want the Field span to cover the
-                        // qualified asterisk (`table.*`), matching cpp's
-                        // `ColumnExprColumnsQualifiedAll` ctx span.
-                        let asterisk_end = probe.pos();
-                        // Commit the qualified-asterisk consumption.
-                        self.set_lexer_pos(probe.pos())?;
-                        let (exclude, replace) = self.parse_columns_decorators()?;
-                        let mut chain_values: Vec<Value> =
-                            chain.into_iter().map(Value::String).collect();
-                        chain_values.push(Value::String("*".into()));
-                        let qualified_field =
-                            self.wrap_pos_to(emit::field(chain_values), saved_pos, asterisk_end);
-                        // Four C++-visitor shapes, all reachable here:
-                        //   QualifiedAll:           ColumnsExpr(columns=[Field(table.*)])
-                        //   QualifiedExclude:       ColumnsExpr(columns=[ColumnsExpr(all_columns=True, exclude=...)])
-                        //   QualifiedReplace:       ColumnsExpr(all_columns=True, replace=...)  // qualifier dropped
-                        //   QualifiedExcludeReplace: ColumnsExpr(all_columns=True, exclude=..., replace=...)  // qualifier dropped
-                        match (exclude, replace) {
-                            (None, None) => self.columns_list_from_first(qualified_field)?,
-                            (Some(ex), None) => {
-                                // cpp's `ColumnExprColumnsQualifiedExclude`
-                                // ctx covers `IDENT.* EXCLUDE(...)`; the
-                                // inner ColumnsExpr inherits that span.
-                                // Wrap before passing to the outer list.
-                                let inner = self.wrap_pos(
-                                    emit::columns_expr(None, None, true, Some(ex), None),
-                                    saved_pos,
-                                );
-                                self.columns_list_from_first(inner)?
-                            }
-                            (ex, repl @ Some(_)) => {
-                                // cpp's `ColumnExprColumnsQualifiedReplace` /
-                                // `…QualifiedExcludeReplace` ctx covers the
-                                // full `COLUMNS LPAREN IDENT.* [EXCLUDE(...)]
-                                // REPLACE(...) RPAREN`. The outer
-                                // `parse_expr_bp` wrap captures positions
-                                // from the COLUMNS keyword, so emit the
-                                // ColumnsExpr without a local wrap and let
-                                // that outer wrap stamp the span.
-                                emit::columns_expr(None, None, true, ex, repl)
-                            }
-                        }
+                    let nxt = probe.next_token()?;
+                    if nxt.kind == TokenKind::Asterisk {
+                        saw_star = true;
+                        break;
+                    }
+                    // Chain links are `identifier` too — gate keyword links on `kw_valid_as_identifier` so `columns(a.try.*)` rejects like cpp.
+                    if matches!(nxt.kind, TokenKind::Ident | TokenKind::QuotedIdent)
+                        || matches!(nxt.kind, TokenKind::Keyword(kw) if kw_valid_as_identifier(kw))
+                    {
+                        chain.push(identifier_text(&self.src[nxt.start..nxt.end], nxt.kind));
                     } else {
-                        let list = self.parse_arg_list(TokenKind::RParen)?;
-                        emit::columns_expr(None, Some(list), false, None, None)
+                        ok = false;
+                        break;
+                    }
+                }
+                if ok && saw_star {
+                    // Capture the end of the `*` token before committing
+                    // the cursor — we want the Field span to cover the
+                    // qualified asterisk (`table.*`), matching cpp's
+                    // `ColumnExprColumnsQualifiedAll` ctx span.
+                    let asterisk_end = probe.pos();
+                    // Commit the qualified-asterisk consumption.
+                    self.set_lexer_pos(probe.pos())?;
+                    let (exclude, replace) = self.parse_columns_decorators()?;
+                    let mut chain_values: Vec<Value> =
+                        chain.into_iter().map(Value::String).collect();
+                    chain_values.push(Value::String("*".into()));
+                    let qualified_field =
+                        self.wrap_pos_to(emit::field(chain_values), saved_pos, asterisk_end);
+                    // Four C++-visitor shapes, all reachable here:
+                    //   QualifiedAll:           ColumnsExpr(columns=[Field(table.*)])
+                    //   QualifiedExclude:       ColumnsExpr(columns=[ColumnsExpr(all_columns=True, exclude=...)])
+                    //   QualifiedReplace:       ColumnsExpr(all_columns=True, replace=...)  // qualifier dropped
+                    //   QualifiedExcludeReplace: ColumnsExpr(all_columns=True, exclude=..., replace=...)  // qualifier dropped
+                    match (exclude, replace) {
+                        (None, None) => self.columns_list_from_first(qualified_field, saved_pos)?,
+                        (Some(ex), None) => {
+                            // cpp's `ColumnExprColumnsQualifiedExclude`
+                            // ctx covers `IDENT.* EXCLUDE(...)`; the
+                            // inner ColumnsExpr inherits that span.
+                            // Wrap before passing to the outer list.
+                            let inner = self.wrap_pos(
+                                emit::columns_expr(None, None, true, Some(ex), None),
+                                saved_pos,
+                            );
+                            self.columns_list_from_first(inner, saved_pos)?
+                        }
+                        (ex, repl @ Some(_)) => {
+                            // cpp's `ColumnExprColumnsQualifiedReplace` /
+                            // `…QualifiedExcludeReplace` ctx covers the
+                            // full `COLUMNS LPAREN IDENT.* [EXCLUDE(...)]
+                            // REPLACE(...) RPAREN`. The outer
+                            // `parse_expr_bp` wrap captures positions
+                            // from the COLUMNS keyword, so emit the
+                            // ColumnsExpr without a local wrap and let
+                            // that outer wrap stamp the span.
+                            emit::columns_expr(None, None, true, ex, repl)
+                        }
                     }
                 } else {
                     let list = self.parse_arg_list(TokenKind::RParen)?;
                     emit::columns_expr(None, Some(list), false, None, None)
                 }
-            };
+            } else {
+                let list = self.parse_arg_list(TokenKind::RParen)?;
+                emit::columns_expr(None, Some(list), false, None, None)
+            }
+        };
         self.expect(TokenKind::RParen, ")")?;
         Ok(result)
     }
@@ -1419,7 +1503,11 @@ impl<'a> Parser<'a> {
     /// larger `columnExpr` (a postfix `(…)` call etc.) and may be the
     /// first of a comma list — continue it through the Pratt loop and
     /// collect the rest as `ColumnExprColumnsList`.
-    fn columns_list_from_first(&mut self, first: Value) -> Result<Value, ParseError> {
+    fn columns_list_from_first(
+        &mut self,
+        first: Value,
+        first_start: usize,
+    ) -> Result<Value, ParseError> {
         if self.peek() == TokenKind::RParen {
             return Ok(emit::columns_expr(
                 None,
@@ -1429,8 +1517,8 @@ impl<'a> Parser<'a> {
                 None,
             ));
         }
-        let cont_start = self.peek0.start;
-        let first = self.pratt_continue_with_lhs(first, 0, cont_start)?;
+        // The continuation (postfix call, infix op) extends the asterisk LHS, so its span must start at the LHS's start (`first_start`), not `self.peek0.start` (the token after it) — cpp spans `columns(a.*(b))`'s call from `a`, not from the `(`.
+        let first = self.pratt_continue_with_lhs(first, 0, first_start)?;
         let mut list = vec![first];
         while self.eat(TokenKind::Comma)? {
             if self.peek() == TokenKind::RParen {
@@ -1442,110 +1530,114 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_columns_decorators(&mut self) -> Result<ColumnsDecorators, ParseError> {
-        let exclude = if self.eat_kw(Kw::Exclude)? {
-            self.expect(TokenKind::LParen, "(")?;
-            let mut names = Vec::new();
-            loop {
-                // Each entry is a `nestedIdentifier`: identifier
-                // (DOT identifier)*. The cpp `visitNestedIdentifier`
-                // joins the parts with `.` into a single string.
-                let mut parts: Vec<String> = Vec::new();
-                let first = self.bump()?;
-                parts.push(match first.kind {
+        let exclude = self.parse_exclude_clause()?;
+        let replace = self.parse_replace_clause()?;
+        Ok((exclude, replace))
+    }
+
+    /// `EXCLUDE LPAREN identifierList RPAREN` — the optional exclude list shared by the `COLUMNS(...)` family and the bare `ColumnExprAsterisk` (grammar line 289). Returns `None` when no EXCLUDE keyword follows.
+    fn parse_exclude_clause(&mut self) -> Result<Option<Vec<String>>, ParseError> {
+        if !self.eat_kw(Kw::Exclude)? {
+            return Ok(None);
+        }
+        self.expect(TokenKind::LParen, "(")?;
+        let mut names = Vec::new();
+        loop {
+            // Each entry is a `nestedIdentifier`: identifier
+            // (DOT identifier)*. The cpp `visitNestedIdentifier`
+            // joins the parts with `.` into a single string.
+            let mut parts: Vec<String> = Vec::new();
+            let first = self.bump()?;
+            parts.push(match first.kind {
+                TokenKind::Ident | TokenKind::QuotedIdent => {
+                    identifier_text(self.text(first), first.kind)
+                }
+                TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
+                    identifier_text(self.text(first), first.kind)
+                }
+                _ => {
+                    return Err(self.err(format!(
+                        "expected identifier in EXCLUDE list, got {:?}",
+                        first.kind
+                    )))
+                }
+            });
+            while self.peek() == TokenKind::Dot {
+                self.bump()?;
+                let part = self.bump()?;
+                parts.push(match part.kind {
                     TokenKind::Ident | TokenKind::QuotedIdent => {
-                        identifier_text(self.text(first), first.kind)
+                        identifier_text(self.text(part), part.kind)
                     }
                     TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
-                        identifier_text(self.text(first), first.kind)
+                        identifier_text(self.text(part), part.kind)
                     }
                     _ => {
                         return Err(self.err(format!(
-                            "expected identifier in EXCLUDE list, got {:?}",
-                            first.kind
+                            "expected identifier after `.` in EXCLUDE list, got {:?}",
+                            part.kind
                         )))
                     }
                 });
-                while self.peek() == TokenKind::Dot {
-                    self.bump()?;
-                    let part = self.bump()?;
-                    parts.push(match part.kind {
-                        TokenKind::Ident | TokenKind::QuotedIdent => {
-                            identifier_text(self.text(part), part.kind)
-                        }
-                        TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
-                            identifier_text(self.text(part), part.kind)
-                        }
-                        _ => {
-                            return Err(self.err(format!(
-                                "expected identifier after `.` in EXCLUDE list, got {:?}",
-                                part.kind
-                            )))
-                        }
-                    });
-                }
-                names.push(parts.join("."));
-                if !self.eat(TokenKind::Comma)? {
-                    break;
-                }
-                if self.peek() == TokenKind::RParen {
-                    break;
-                }
             }
-            self.expect(TokenKind::RParen, ")")?;
-            Some(names)
-        } else {
-            None
-        };
-
-        let replace = if self.eat_kw(Kw::Replace)? {
-            self.expect(TokenKind::LParen, "(")?;
-            let mut items = Vec::new();
-            loop {
-                // `columnsReplaceItem: columnExpr AS identifier`. The
-                // separator `AS` is the item's second-to-last token
-                // (the last token is the replacement `identifier`).
-                // Gate the alias-infix on that offset (same mechanism
-                // as CAST) so the inner `columnExpr` parse takes any
-                // earlier aliases and stops before the separator.
-                let item_as = self.find_replace_item_as_pos()?;
-                let prev_stop = std::mem::replace(&mut self.cast_as_stop, item_as);
-                let expr_result = self.parse_expr_bp(0);
-                self.cast_as_stop = prev_stop;
-                let expr = expr_result?;
-                self.expect_kw(Kw::As, "AS")?;
-                let t = self.bump()?;
-                let name = match t.kind {
-                    TokenKind::Ident | TokenKind::QuotedIdent => {
-                        identifier_text(self.text(t), t.kind)
-                    }
-                    TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
-                        identifier_text(self.text(t), t.kind)
-                    }
-                    _ => {
-                        return Err(self.err(format!(
-                            "expected identifier in REPLACE clause, got {:?}",
-                            t.kind
-                        )))
-                    }
-                };
-                items.push((name, expr));
-                if !self.eat(TokenKind::Comma)? {
-                    break;
-                }
-                // `columnsReplaceList: columnsReplaceItem (COMMA
-                // columnsReplaceItem)*` — no trailing comma; cpp rejects
-                // `REPLACE (b AS c,)`.
-                if self.peek() == TokenKind::RParen {
-                    return Err(self.err("trailing comma in REPLACE clause"));
-                }
+            names.push(parts.join("."));
+            if !self.eat(TokenKind::Comma)? {
+                break;
             }
-            self.expect(TokenKind::RParen, ")")?;
-            Some(items)
-        } else {
-            None
-        };
+            if self.peek() == TokenKind::RParen {
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, ")")?;
+        Ok(Some(names))
+    }
 
-        Ok((exclude, replace))
+    /// `REPLACE LPAREN columnsReplaceList RPAREN` — the optional replace list, valid only inside the `COLUMNS(...)` / `(*...)` wrapper forms (a bare `ColumnExprAsterisk` admits EXCLUDE but never REPLACE). Returns `None` when no REPLACE keyword follows.
+    fn parse_replace_clause(&mut self) -> Result<Option<Vec<(String, Value)>>, ParseError> {
+        if !self.eat_kw(Kw::Replace)? {
+            return Ok(None);
+        }
+        self.expect(TokenKind::LParen, "(")?;
+        let mut items = Vec::new();
+        loop {
+            // `columnsReplaceItem: columnExpr AS identifier`. The
+            // separator `AS` is the item's second-to-last token
+            // (the last token is the replacement `identifier`).
+            // Gate the alias-infix on that offset (same mechanism
+            // as CAST) so the inner `columnExpr` parse takes any
+            // earlier aliases and stops before the separator.
+            let item_as = self.find_replace_item_as_pos()?;
+            let prev_stop = std::mem::replace(&mut self.cast_as_stop, item_as);
+            let expr_result = self.parse_expr_bp(0);
+            self.cast_as_stop = prev_stop;
+            let expr = expr_result?;
+            self.expect_kw(Kw::As, "AS")?;
+            let t = self.bump()?;
+            let name = match t.kind {
+                TokenKind::Ident | TokenKind::QuotedIdent => identifier_text(self.text(t), t.kind),
+                TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
+                    identifier_text(self.text(t), t.kind)
+                }
+                _ => {
+                    return Err(self.err(format!(
+                        "expected identifier in REPLACE clause, got {:?}",
+                        t.kind
+                    )))
+                }
+            };
+            items.push((name, expr));
+            if !self.eat(TokenKind::Comma)? {
+                break;
+            }
+            // `columnsReplaceList: columnsReplaceItem (COMMA
+            // columnsReplaceItem)*` — no trailing comma; cpp rejects
+            // `REPLACE (b AS c,)`.
+            if self.peek() == TokenKind::RParen {
+                return Err(self.err("trailing comma in REPLACE clause"));
+            }
+        }
+        self.expect(TokenKind::RParen, ")")?;
+        Ok(Some(items))
     }
 
     /// Bare `*` at primary position. Three forms, in grammar-declared
@@ -1600,8 +1692,11 @@ impl<'a> Parser<'a> {
     fn parse_positional(&mut self) -> Result<Value, ParseError> {
         self.expect(TokenKind::Hash, "#")?;
         let tok = self.bump()?;
-        if tok.kind != TokenKind::Number {
-            return Err(self.err(format!("expected integer after '#', got {:?}", tok.kind)));
+        // Grammar: `HASH DECIMAL_LITERAL # ColumnExprPositional` — only a base-10 integer. Rust's lexer folds hex / octal / float into one `Number` kind, so re-check the text: `#0x6` (hex), `#017` (octal), `#1e3` (float) all reject in cpp, where rust used to read them as PositionalRef(0) via `parse().unwrap_or(0)`.
+        let is_dec = tok.kind == TokenKind::Number && is_decimal_literal(self.text(tok));
+        if !is_dec {
+            let got = self.text(tok).to_string();
+            return Err(self.err(format!("expected decimal integer after '#', got {got:?}")));
         }
         let n: i64 = self.text(tok).parse().unwrap_or(0);
         Ok(json!({"node": "PositionalRef", "index": n}))
@@ -2710,7 +2805,8 @@ impl<'a> Parser<'a> {
         // qualifier in that branch (returning `ColumnsExpr(all_columns=True,
         // exclude=[…])`, NOT a Field chain).
         if ended_with_star && matches!(self.peek(), TokenKind::Keyword(Kw::Exclude)) {
-            let (exclude, _) = self.parse_columns_decorators()?;
+            // Bare `ColumnExprAsterisk` admits only EXCLUDE — a trailing REPLACE has no bare production (REPLACE lives only inside `columns(...)` / `(*...)`), so consume exclude-only and leave any REPLACE for the enclosing context to reject, matching cpp's `a.* exclude(z) replace(...)` rejection.
+            let exclude = self.parse_exclude_clause()?;
             return Ok(emit::columns_expr(None, None, true, exclude, None));
         }
         Ok(emit::field(chain))
@@ -4112,14 +4208,9 @@ impl<'a> Parser<'a> {
                 let part = self.bump()?;
                 match part.kind {
                     TokenKind::Number => {
-                        // cpp's lexer matches `0123` as OCTAL_PREFIX_LITERAL,
-                        // not DECIMAL_LITERAL — so a leading-zero multi-digit
-                        // index is grammatically rejected at the tuple-access
-                        // alt. Rust's lexer collapses both forms into one
-                        // `Number` token and used to silently re-parse it as
-                        // decimal (`a.0123` → TupleAccess(a, 123)).
+                        // Grammar: tuple access takes a DECIMAL_LITERAL index. Rust's lexer folds hex / octal / float into one `Number` kind, so re-check the text. cpp's lexer matches `0123` / `017` as OCTAL_LITERAL (leading zero, all-octal digits) and rejects them here, but `08` / `019` are DECIMAL (8 and 9 are not octal digits) and accept.
                         let text = self.text(part);
-                        if text.len() > 1 && text.starts_with('0') && !text.contains('.') {
+                        if !is_decimal_literal(text) {
                             return Err(self
                                 .err(format!("expected decimal integer after '.', got {text:?}")));
                         }
@@ -4169,10 +4260,9 @@ impl<'a> Parser<'a> {
                 let part = self.bump()?;
                 match part.kind {
                     TokenKind::Number => {
-                        // Same OCTAL_PREFIX_LITERAL vs DECIMAL_LITERAL
-                        // split as the regular `.<N>` branch above.
+                        // Same DECIMAL_LITERAL check as the regular `.<N>` branch above.
                         let text = self.text(part);
-                        if text.len() > 1 && text.starts_with('0') && !text.contains('.') {
+                        if !is_decimal_literal(text) {
                             return Err(self.err(format!(
                                 "expected decimal integer after '?.', got {text:?}"
                             )));
@@ -4730,6 +4820,23 @@ fn can_start_case_body(tok: TokenKind) -> bool {
         return true;
     }
     peek_can_start_clause_body(tok) && !is_pure_infix_op(tok)
+}
+
+/// Is `text` a HogQL `DECIMAL_LITERAL` (base-10 integer) as the lexer would
+/// classify it? Used after `#`, `.`, and `?.`, all of which the grammar
+/// restricts to DECIMAL_LITERAL. Rust's lexer folds every numeric literal
+/// into one `Number` kind, so we re-check the text and reject what cpp's
+/// lexer would tokenize as something else: hex (`0x6`), floats (`1e3`,
+/// `1.5`), and OCTAL_LITERAL — a leading-zero run of octal digits (`017`,
+/// `00`), which the lexer matches as OCTAL before DECIMAL. A leading-zero
+/// number containing an 8 or 9 (`08`, `019`) is NOT octal, so the lexer
+/// reads it as DECIMAL and it is allowed.
+fn is_decimal_literal(text: &str) -> bool {
+    !text.is_empty()
+        && text.bytes().all(|b| b.is_ascii_digit())
+        && !(text.len() >= 2
+            && text.starts_with('0')
+            && text.bytes().all(|b| b.is_ascii_digit() && b <= b'7'))
 }
 
 /// Can `tok` plausibly begin an INTERVAL value? Either an expression
