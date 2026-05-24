@@ -50,16 +50,21 @@ else
   tokensBefore = currentTokens + (timeDiffSeconds * fillRate)
 end
 
--- Drain partially on overdraft: store max(0, tokensBefore - cost) capped at
--- poolMax. Public return stays -1 on denial so callers' tokens<=0 check works,
--- and the bucket reflects the actual consumption so cross-batch budgeting is
--- tight (and never wedges at -1).
-local poolToStore = math.min(math.max(0, tokensBefore - cost), poolMax)
+-- On overdraft, drain by floor(max(0, tokensBefore)) so the fractional remainder
+-- accumulates in the pool. Assumes per-input cost is an integer (≥1) — the
+-- fractional part can never satisfy a per-input request, so we leave it for
+-- cross-batch refill to top up. Without this, sustained-overload batches would
+-- repeatedly drain the partial refill and the bucket would never recover above
+-- zero (total starvation rather than the intended refill-rate throughput).
 local tokensAfter
+local poolToStore
 if tokensBefore - cost >= 0 then
-  tokensAfter = poolToStore
+  tokensAfter = math.min(tokensBefore - cost, poolMax)
+  poolToStore = tokensAfter
 else
   tokensAfter = -1
+  local available = math.max(0, tokensBefore)
+  poolToStore = math.min(tokensBefore - math.floor(available), poolMax)
 end
 
 -- Don't regress ts when now < before; otherwise advance to now.

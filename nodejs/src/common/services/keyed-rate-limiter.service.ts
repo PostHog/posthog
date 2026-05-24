@@ -209,16 +209,15 @@ export class KeyedRateLimiterService {
         let limited = 0
         const out: [string, KeyedRateLimit][] = requests.map((req) => {
             const tokensBefore = budgetById.get(req.id) ?? 0
+            // Boundary is `next < 0`, not `<= 0`: when an input fits exactly (next=0)
+            // we still allow it. Required so the lua's floor-drain of 1 token actually
+            // lets a single input through under sustained overload — with <=0 the input
+            // would be flagged rate-limited and the drained token would leak.
             if (tokensBefore >= req.cost) {
                 const next = tokensBefore - req.cost
                 budgetById.set(req.id, next)
-                const isRateLimited = next <= 0
-                if (isRateLimited) {
-                    limited++
-                } else {
-                    allowed++
-                }
-                return [req.id, { tokensBefore, tokens: next, isRateLimited }]
+                allowed++
+                return [req.id, { tokensBefore, tokens: next, isRateLimited: false }]
             }
             limited++
             return [req.id, { tokensBefore, tokens: -1, isRateLimited: true }]
