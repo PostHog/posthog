@@ -158,7 +158,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                     clearActivePanelIdentifier()
                 }}
                 className={cn(
-                    'z-(--z-layout-panel-over-nav) md:z-(--z-layout-panel-under) fixed top-0 bottom-0 bg-fill-highlight-200 dark:bg-black/80',
+                    'z-(--z-layout-panel-over-nav) md:z-(--z-layout-panel-under) fixed top-0 bottom-0 bg-fill-highlight-200 dark:bg-black/80 transition-opacity duration-200',
                     isMobileLayout
                         ? 'left-0 w-[var(--panel-layout-mobile-offset)]'
                         : 'left-0 right-0 w-screen h-screen',
@@ -176,7 +176,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                     clearActivePanelIdentifier()
                 }}
                 className={cn(
-                    'z-(--z-layout-navbar-under) md:z-(--z-layout-navbar) fixed top-0 bottom-0 right-0 bg-fill-highlight-200 dark:bg-black/80',
+                    'z-(--z-layout-navbar-under) md:z-(--z-layout-navbar) fixed top-0 bottom-0 right-0 bg-fill-highlight-200 dark:bg-black/80 transition-opacity duration-200',
                     isMobileLayout ? 'left-(--project-navbar-width)' : 'left-0 w-screen h-screen',
                     !(isMobileLayout && isLayoutNavbarVisibleForMobile) && 'pointer-events-none opacity-0'
                 )}

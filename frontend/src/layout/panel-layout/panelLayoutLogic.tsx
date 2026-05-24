@@ -260,7 +260,11 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
     }),
     urlToAction(({ actions, values }) => ({
         '*': () => {
-            if (values.mobileLayout && (values.isLayoutNavbarVisibleForMobile || values.isLayoutPanelVisible)) {
+            // URL-surfaced panels (DataAndPeople, DataManagement) set activePanelIdentifier
+            // without flipping isLayoutPanelVisible, so check the identifier too — otherwise
+            // navigating away from one leaves the panel and its dim mounted.
+            const panelIsShown = values.isLayoutPanelVisible || values.activePanelIdentifier !== ''
+            if (values.mobileLayout && (values.isLayoutNavbarVisibleForMobile || panelIsShown)) {
                 actions.showLayoutNavBar(false)
                 actions.showLayoutPanel(false)
                 actions.clearActivePanelIdentifier()
