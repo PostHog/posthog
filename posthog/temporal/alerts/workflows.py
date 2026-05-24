@@ -12,6 +12,7 @@ from posthog.schema import AlertState
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.alerts.activities import (
     cleanup_alert_checks,
+    emit_alert_timeliness_slo,
     evaluate_alert,
     notify_alert,
     prepare_alert,
@@ -22,9 +23,11 @@ from posthog.temporal.alerts.retry_policy import (
     ALERT_EVALUATE_RETRY_POLICY,
     ALERT_NOTIFY_RETRY_POLICY,
     ALERT_PREPARE_RETRY_POLICY,
+    ALERT_TIMELINESS_RETRY_POLICY,
 )
 from posthog.temporal.alerts.types import (
     CheckAlertWorkflowInputs,
+    EmitAlertTimelinessSloActivityInputs,
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
     PrepareAction,
@@ -62,6 +65,12 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
         # rejects the duplicate start.
         tasks = []
         for alert in alerts:
+            slo_properties = {
+                "calculation_interval": alert.calculation_interval,
+                "insight_id": alert.insight_id,
+                "scheduled_check_at": alert.scheduled_check_at,
+            }
+
             task = temporalio.workflow.execute_child_workflow(
                 CheckAlertWorkflow.run,
                 CheckAlertWorkflowInputs(
@@ -70,20 +79,15 @@ class ScheduleDueAlertChecksWorkflow(PostHogWorkflow):
                     distinct_id=alert.distinct_id,
                     calculation_interval=alert.calculation_interval,
                     insight_id=alert.insight_id,
+                    scheduled_check_at=alert.scheduled_check_at,
                     slo=SloConfig(
                         operation=SloOperation.ALERT_CHECK,
                         area=SloArea.ANALYTIC_PLATFORM,
                         team_id=alert.team_id,
                         resource_id=alert.alert_id,
                         distinct_id=alert.distinct_id,
-                        start_properties={
-                            "calculation_interval": alert.calculation_interval,
-                            "insight_id": alert.insight_id,
-                        },
-                        completion_properties={
-                            "calculation_interval": alert.calculation_interval,
-                            "insight_id": alert.insight_id,
-                        },
+                        start_properties=slo_properties.copy(),
+                        completion_properties=slo_properties.copy(),
                     ),
                 ),
                 id=f"check-alert-{alert.alert_id}",
@@ -127,6 +131,8 @@ class CheckAlertWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: CheckAlertWorkflowInputs) -> None:
+        await self._emit_alert_timeliness_slo(inputs)
+
         new_state: AlertState | None = None
         skip_reason: str | None = None
         caught_error: BaseException | None = None
@@ -205,6 +211,42 @@ class CheckAlertWorkflow(PostHogWorkflow):
         # Re-raise after cleanup completes. Same Temporal SDK quirk as ProcessSubscriptionWorkflow
         if caught_error:
             raise caught_error
+
+    async def _emit_alert_timeliness_slo(self, inputs: CheckAlertWorkflowInputs) -> None:
+        """Emit scheduler-lag SLO before normal alert execution.
+
+        Timeliness is intentionally separate from execution success: a late
+        successful alert check is a timeliness failure. Initial checks with no
+        stored due timestamp are excluded from the timeliness denominator.
+        """
+
+        if not inputs.scheduled_check_at:
+            return
+
+        info = temporalio.workflow.info()
+        try:
+            await temporalio.workflow.execute_activity(
+                emit_alert_timeliness_slo,
+                EmitAlertTimelinessSloActivityInputs(
+                    alert_id=inputs.alert_id,
+                    team_id=inputs.team_id,
+                    distinct_id=inputs.distinct_id,
+                    calculation_interval=inputs.calculation_interval,
+                    insight_id=inputs.insight_id,
+                    scheduled_check_at=inputs.scheduled_check_at,
+                    workflow_id=info.workflow_id,
+                    workflow_type=info.workflow_type,
+                    correlation_id=f"{info.run_id}:timeliness",
+                ),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                schedule_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=ALERT_TIMELINESS_RETRY_POLICY,
+            )
+        except Exception as err:
+            temporalio.workflow.logger.warning(
+                "alert_timeliness_slo_activity_failed",
+                extra={"alert_id": inputs.alert_id, "error": str(err)},
+            )
 
 
 @temporalio.workflow.defn(name="run-investigation-safety-net")

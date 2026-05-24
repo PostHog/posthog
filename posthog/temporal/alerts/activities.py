@@ -14,6 +14,8 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.slo.events import emit_slo_completed, emit_slo_started
+from posthog.slo.types import SloArea, SloCompletedProperties, SloOperation, SloStartedProperties
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
@@ -28,8 +30,10 @@ from posthog.tasks.alerts.utils import (
     validate_alert_config,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, should_trigger_investigation
+from posthog.temporal.alerts.timeliness import build_alert_timeliness_completion
 from posthog.temporal.alerts.types import (
     AlertInfo,
+    EmitAlertTimelinessSloActivityInputs,
     EvaluateAlertActivityInputs,
     EvaluateAlertResult,
     NotifyAlertActivityInputs,
@@ -39,6 +43,7 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.utils import get_instance_region
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
@@ -78,7 +83,7 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
             .filter(insight__deleted=False)
             .annotate(_interval_order=calculation_interval_order)
             .order_by("_interval_order", F("next_check_at").asc(nulls_first=True))
-            .only("id", "team_id", "calculation_interval", "insight_id")
+            .only("id", "team_id", "calculation_interval", "insight_id", "next_check_at")
         )
 
         return [
@@ -88,12 +93,73 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
                 distinct_id=str(a.id),
                 calculation_interval=a.calculation_interval,
                 insight_id=a.insight_id,
+                scheduled_check_at=a.next_check_at.isoformat() if a.next_check_at else None,
             )
             for a in alerts
         ]
 
     async with Heartbeater():
         return await get_alerts()
+
+
+@temporalio.activity.defn
+async def emit_alert_timeliness_slo(inputs: EmitAlertTimelinessSloActivityInputs) -> None:
+    """Best-effort alert scheduler-lag SLO emission.
+
+    Observability must not block alert execution, so malformed timing inputs or
+    analytics failures are captured/logged and then swallowed by this activity.
+    """
+
+    try:
+        actual_check_start_at = datetime.now(UTC)
+        outcome, timeliness_props = build_alert_timeliness_completion(
+            calculation_interval=inputs.calculation_interval,
+            scheduled_check_at=inputs.scheduled_check_at,
+            actual_check_start_at=actual_check_start_at,
+        )
+        base_properties = {
+            "correlation_id": inputs.correlation_id,
+            "workflow_id": inputs.workflow_id,
+            "workflow_type": inputs.workflow_type,
+            "calculation_interval": inputs.calculation_interval,
+            "insight_id": inputs.insight_id,
+            "region": get_instance_region(),
+            "scheduled_due_at": timeliness_props["scheduled_due_at"],
+            "actual_check_start_at": timeliness_props["actual_check_start_at"],
+        }
+
+        emit_slo_started(
+            distinct_id=inputs.distinct_id,
+            properties=SloStartedProperties(
+                operation=SloOperation.ALERT_CHECK_TIMELINESS,
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=inputs.team_id,
+                resource_id=inputs.alert_id,
+            ),
+            extra_properties=base_properties,
+        )
+        emit_slo_completed(
+            distinct_id=inputs.distinct_id,
+            properties=SloCompletedProperties(
+                operation=SloOperation.ALERT_CHECK_TIMELINESS,
+                area=SloArea.ANALYTIC_PLATFORM,
+                team_id=inputs.team_id,
+                outcome=outcome,
+                resource_id=inputs.alert_id,
+                duration_ms=float(timeliness_props["evaluation_lag_ms"]),
+            ),
+            extra_properties={**base_properties, **timeliness_props},
+        )
+    except Exception as err:
+        logger.exception("alert_timeliness_slo_emit_failed", alert_id=inputs.alert_id)
+        capture_exception(
+            err,
+            additional_properties={
+                "alert_configuration_id": inputs.alert_id,
+                "insight_id": inputs.insight_id,
+                "team_id": inputs.team_id,
+            },
+        )
 
 
 @temporalio.activity.defn

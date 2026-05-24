@@ -29,6 +29,7 @@ class AlertInfo:
     distinct_id: str
     calculation_interval: str | None
     insight_id: int
+    scheduled_check_at: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -38,12 +39,26 @@ class CheckAlertWorkflowInputs:
     distinct_id: str
     calculation_interval: str | None
     insight_id: int
+    scheduled_check_at: str | None = None
     slo: SloConfig | None = None
 
 
 @dataclasses.dataclass(frozen=True)
 class PrepareAlertActivityInputs:
     alert_id: str
+
+
+@dataclasses.dataclass(frozen=True)
+class EmitAlertTimelinessSloActivityInputs:
+    alert_id: str
+    team_id: int
+    distinct_id: str
+    calculation_interval: str | None
+    insight_id: int
+    scheduled_check_at: str
+    workflow_id: str
+    workflow_type: str
+    correlation_id: str
 
 
 @dataclasses.dataclass(frozen=True)

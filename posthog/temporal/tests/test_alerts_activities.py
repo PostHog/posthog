@@ -24,8 +24,16 @@ from posthog.schema import (
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Insight, User
 from posthog.tasks.alerts.utils import AlertEvaluationResult
-from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
+from posthog.temporal.alerts.activities import (
+    cleanup_alert_checks,
+    emit_alert_timeliness_slo,
+    evaluate_alert,
+    notify_alert,
+    prepare_alert,
+    retrieve_due_alerts,
+)
 from posthog.temporal.alerts.types import (
+    EmitAlertTimelinessSloActivityInputs,
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
     PrepareAction,
@@ -133,6 +141,74 @@ async def _create_alert_check(
         )
 
     return await _create()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+class TestRetrieveDueAlerts:
+    @freeze_time("2024-06-03T10:00:00Z")
+    async def test_includes_original_due_timestamp_before_evaluation_can_mutate_next_check_at(self, ateam) -> None:
+        due_at = datetime(2024, 6, 3, 9, 58, tzinfo=UTC)
+        due_alert = await _create_alert(
+            ateam,
+            calculation_interval=AlertCalculationInterval.HOURLY.value,
+            next_check_at=due_at,
+        )
+        initial_alert = await _create_alert(ateam, next_check_at=None)
+
+        env = ActivityEnvironment()
+        alerts = await env.run(retrieve_due_alerts)
+
+        by_id = {alert.alert_id: alert for alert in alerts}
+        assert by_id[str(due_alert.id)].scheduled_check_at == due_at.isoformat()
+        assert by_id[str(initial_alert.id)].scheduled_check_at is None
+
+
+def _timeliness_inputs(*, scheduled_check_at: str = "2024-06-03T09:58:00+00:00") -> EmitAlertTimelinessSloActivityInputs:
+    return EmitAlertTimelinessSloActivityInputs(
+        alert_id="alert-1",
+        team_id=1,
+        distinct_id="alert-1",
+        calculation_interval=AlertCalculationInterval.HOURLY.value,
+        insight_id=2,
+        scheduled_check_at=scheduled_check_at,
+        workflow_id="check-alert-alert-1",
+        workflow_type="check-alert",
+        correlation_id="run-1:timeliness",
+    )
+
+
+@pytest.mark.asyncio
+class TestEmitAlertTimelinessSlo:
+    @freeze_time("2024-06-03T10:00:01Z")
+    @patch("posthog.slo.events.posthoganalytics")
+    async def test_emits_failure_when_check_starts_after_threshold(self, mock_slo_analytics) -> None:
+        env = ActivityEnvironment()
+        await env.run(emit_alert_timeliness_slo, _timeliness_inputs())
+
+        completed = [
+            c
+            for c in mock_slo_analytics.capture.call_args_list
+            if c.kwargs.get("event") == "slo_operation_completed"
+        ]
+        assert len(completed) == 1
+        props = completed[0].kwargs["properties"]
+        assert props["operation"] == "alert_check_timeliness"
+        assert props["outcome"] == "failure"
+        assert props["is_late"] is True
+        assert props["evaluation_lag_ms"] == 121_000
+        assert props["timeliness_threshold_ms"] == 120_000
+        assert props["duration_ms"] == 121_000.0
+        assert props["region"] is not None
+
+    @patch("posthog.temporal.alerts.activities.capture_exception")
+    @patch("posthog.slo.events.posthoganalytics")
+    async def test_malformed_timestamp_does_not_raise_or_emit(self, mock_slo_analytics, mock_capture_exception) -> None:
+        env = ActivityEnvironment()
+        await env.run(emit_alert_timeliness_slo, _timeliness_inputs(scheduled_check_at="not-a-timestamp"))
+
+        assert mock_slo_analytics.capture.call_count == 0
+        mock_capture_exception.assert_called_once()
 
 
 @pytest.mark.asyncio

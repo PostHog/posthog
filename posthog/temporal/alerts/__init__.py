@@ -1,5 +1,6 @@
 from posthog.temporal.alerts.activities import (
     cleanup_alert_checks,
+    emit_alert_timeliness_slo,
     evaluate_alert,
     notify_alert,
     prepare_alert,
@@ -22,6 +23,7 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     retrieve_due_alerts,
+    emit_alert_timeliness_slo,
     prepare_alert,
     evaluate_alert,
     notify_alert,

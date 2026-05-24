@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -25,7 +26,7 @@ from posthog.schema import (
 from posthog.models import Insight, User
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import AlertEvaluationResult
-from posthog.temporal.alerts.activities import evaluate_alert, notify_alert, prepare_alert
+from posthog.temporal.alerts.activities import emit_alert_timeliness_slo, evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
 from posthog.temporal.alerts.types import CheckAlertWorkflowInputs, SkipReason
 from posthog.temporal.alerts.workflows import CheckAlertWorkflow
@@ -33,7 +34,12 @@ from posthog.temporal.common.slo_interceptor import SloInterceptor
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
-CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [prepare_alert, evaluate_alert, notify_alert]
+CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
+    emit_alert_timeliness_slo,
+    prepare_alert,
+    evaluate_alert,
+    notify_alert,
+]
 
 
 def test_schedule_is_registered_in_init_schedules():
@@ -111,7 +117,15 @@ def _slo_config(alert: AlertConfiguration) -> SloConfig:
     )
 
 
-async def _run_check_alert_workflow(alert_id: str, slo: SloConfig, team_id: int, insight_id: int) -> None:
+async def _run_check_alert_workflow(
+    alert_id: str,
+    slo: SloConfig,
+    team_id: int,
+    insight_id: int,
+    *,
+    calculation_interval: str = AlertCalculationInterval.DAILY.value,
+    scheduled_check_at: str | None = None,
+) -> None:
     """Spin up a WorkflowEnvironment + Worker and execute CheckAlertWorkflow.
 
     Caller patches the boundaries (check_alert_for_insight, send_notifications_for_breaches)
@@ -132,8 +146,9 @@ async def _run_check_alert_workflow(alert_id: str, slo: SloConfig, team_id: int,
                     alert_id=alert_id,
                     team_id=team_id,
                     distinct_id=alert_id,
-                    calculation_interval=AlertCalculationInterval.DAILY.value,
+                    calculation_interval=calculation_interval,
                     insight_id=insight_id,
+                    scheduled_check_at=scheduled_check_at,
                     slo=slo,
                 ),
                 id=f"check-alert-{uuid.uuid4()}",
@@ -141,9 +156,14 @@ async def _run_check_alert_workflow(alert_id: str, slo: SloConfig, team_id: int,
             )
 
 
-def _completed_slo_props(mock_slo_analytics: MagicMock) -> dict:
+def _completed_slo_props(
+    mock_slo_analytics: MagicMock, operation: SloOperation = SloOperation.ALERT_CHECK
+) -> dict:
     completed = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs["properties"].get("operation") == operation
     ]
     assert len(completed) == 1, f"expected 1 SLO completion event, got {len(completed)}"
     return completed[0].kwargs["properties"]
@@ -187,6 +207,93 @@ async def test_check_alert_workflow_firing_drives_full_chain_with_slo(
     assert completed_props["outcome"] == SloOutcome.SUCCESS
     assert completed_props["alert_state"] == AlertState.FIRING
     assert completed_props["calculation_interval"] == alert_with_subscriber.calculation_interval
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_check_alert_workflow_late_success_emits_timeliness_failure(
+    mock_slo_analytics: MagicMock,
+    alert_with_subscriber: AlertConfiguration,
+) -> None:
+    evaluation_result = AlertEvaluationResult(value=5.0, breaches=None)
+    scheduled_check_at = (datetime.now(UTC) - timedelta(minutes=10)).isoformat()
+
+    with patch("posthog.temporal.alerts.activities.check_alert_for_insight", return_value=evaluation_result):
+        await _run_check_alert_workflow(
+            alert_id=str(alert_with_subscriber.id),
+            slo=_slo_config(alert_with_subscriber),
+            team_id=alert_with_subscriber.team_id,
+            insight_id=alert_with_subscriber.insight_id,
+            calculation_interval=AlertCalculationInterval.HOURLY.value,
+            scheduled_check_at=scheduled_check_at,
+        )
+
+    execution_props = _completed_slo_props(mock_slo_analytics, SloOperation.ALERT_CHECK)
+    assert execution_props["outcome"] == SloOutcome.SUCCESS
+    assert execution_props["alert_state"] == AlertState.NOT_FIRING
+
+    timeliness_props = _completed_slo_props(mock_slo_analytics, SloOperation.ALERT_CHECK_TIMELINESS)
+    assert timeliness_props["outcome"] == SloOutcome.FAILURE
+    assert timeliness_props["is_late"] is True
+    assert timeliness_props["timeliness_threshold_ms"] == 120_000
+    assert timeliness_props["evaluation_lag_ms"] > 120_000
+    assert timeliness_props["duration_ms"] == timeliness_props["evaluation_lag_ms"]
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_check_alert_workflow_no_due_check_excluded_from_timeliness_denominator(
+    mock_slo_analytics: MagicMock,
+    alert_with_subscriber: AlertConfiguration,
+) -> None:
+    evaluation_result = AlertEvaluationResult(value=5.0, breaches=None)
+
+    with patch("posthog.temporal.alerts.activities.check_alert_for_insight", return_value=evaluation_result):
+        await _run_check_alert_workflow(
+            alert_id=str(alert_with_subscriber.id),
+            slo=_slo_config(alert_with_subscriber),
+            team_id=alert_with_subscriber.team_id,
+            insight_id=alert_with_subscriber.insight_id,
+            scheduled_check_at=None,
+        )
+
+    _completed_slo_props(mock_slo_analytics, SloOperation.ALERT_CHECK)
+    timeliness_completed = [
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs["properties"].get("operation") == SloOperation.ALERT_CHECK_TIMELINESS
+    ]
+    assert timeliness_completed == []
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_check_alert_workflow_on_time_due_check_emits_timeliness_success(
+    mock_slo_analytics: MagicMock,
+    alert_with_subscriber: AlertConfiguration,
+) -> None:
+    evaluation_result = AlertEvaluationResult(value=5.0, breaches=None)
+    scheduled_check_at = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+
+    with patch("posthog.temporal.alerts.activities.check_alert_for_insight", return_value=evaluation_result):
+        await _run_check_alert_workflow(
+            alert_id=str(alert_with_subscriber.id),
+            slo=_slo_config(alert_with_subscriber),
+            team_id=alert_with_subscriber.team_id,
+            insight_id=alert_with_subscriber.insight_id,
+            calculation_interval=AlertCalculationInterval.HOURLY.value,
+            scheduled_check_at=scheduled_check_at,
+        )
+
+    timeliness_props = _completed_slo_props(mock_slo_analytics, SloOperation.ALERT_CHECK_TIMELINESS)
+    assert timeliness_props["outcome"] == SloOutcome.SUCCESS
+    assert timeliness_props["is_late"] is False
+    assert timeliness_props["timeliness_threshold_ms"] == 120_000
+    assert timeliness_props["evaluation_lag_ms"] <= 120_000
 
 
 @pytest.mark.parametrize(

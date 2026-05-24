@@ -11,6 +11,13 @@ ALERT_PREPARE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
 )
 
+ALERT_TIMELINESS_RETRY_POLICY = RetryPolicy(
+    initial_interval=dt.timedelta(seconds=1),
+    maximum_interval=dt.timedelta(seconds=1),
+    backoff_coefficient=1.0,
+    maximum_attempts=1,
+)
+
 ALERT_EVALUATE_RETRY_POLICY = RetryPolicy(
     initial_interval=dt.timedelta(seconds=1),
     maximum_interval=dt.timedelta(seconds=30),
