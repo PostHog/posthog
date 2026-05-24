@@ -278,7 +278,7 @@ describe('KeyedRateLimiterService', () => {
         })
     })
 
-    describe('rateLimitGrouped (V4 + coalesced + per-input fan-out, overdraftEnabled=false default)', () => {
+    describe('rateLimitGrouped (V3 + coalesced + per-input fan-out)', () => {
         it('returns one decision per input request (parallel to input order)', async () => {
             const limiter = buildLimiter('grouped-shape')
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
@@ -296,9 +296,10 @@ describe('KeyedRateLimiterService', () => {
         })
 
         it('allows the first N inputs of an over-budget batch and denies the rest', async () => {
-            // 10 cost-1 requests against a bucket of 4. JS fan-out walks tokensBefore=4,
-            // allowing the first 4 (last one lands at next=0, which is allowed). Remaining
-            // 6 see budget=0 < 1 and deny.
+            // The user case: 10 cost-1 requests against a bucket of 4. Per the
+            // V2/V3 contract, `isRateLimited = tokens <= 0`, so the 4th request
+            // (which brings tokens to exactly 0) is flagged as rate-limited
+            // even though its cost was paid. The remaining 6 hit tokens=-1.
             const limiter = buildLimiter('grouped-fanout', { bucketSize: 4, refillRate: 0 })
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
@@ -310,7 +311,7 @@ describe('KeyedRateLimiterService', () => {
                 false,
                 false,
                 false,
-                false,
+                true, // tokens=0 — boundary, flagged as rate-limited
                 true,
                 true,
                 true,
@@ -320,13 +321,36 @@ describe('KeyedRateLimiterService', () => {
             ])
         })
 
+        it('per-input decisions match rateLimitMany for uniform-cost batches', async () => {
+            const ungrouped = buildLimiter('grouped-vs-many-a')
+            const grouped = buildLimiter('grouped-vs-many-b')
+            await deleteKeysWithPrefix(redis, ungrouped.getKeyPrefix())
+            await deleteKeysWithPrefix(redis, grouped.getKeyPrefix())
+
+            // 200 events for 50 ids — realistic CDP shape.
+            const ids = Array.from({ length: 50 }, (_, i) => `fn-${i}`)
+            const requests = Array.from({ length: 200 }, () => ({
+                id: ids[Math.floor(Math.random() * ids.length)],
+                cost: 1,
+            }))
+
+            const manyRes = await ungrouped.rateLimitMany(requests)
+            const groupedRes = await grouped.rateLimitGrouped(requests)
+
+            // Same length, same id ordering, same isRateLimited flags.
+            expect(groupedRes.map(([id]) => id)).toEqual(manyRes.map(([id]) => id))
+            expect(groupedRes.map(([, r]) => r.isRateLimited)).toEqual(manyRes.map(([, r]) => r.isRateLimited))
+        })
+
         it('keeps independent budgets per id', async () => {
             const limiter = buildLimiter('grouped-multi-id', { bucketSize: 2, refillRate: 0 })
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-            // Two ids interleaved with 3 cost-1 requests each. Each id's budget of 2
-            // fits the first two cost-1 requests (allowed) and denies the third. If
-            // budgets were shared, team-2's first call would already be denied.
+            // Two ids interleaved with 3 cost-1 requests each. Each id's budget
+            // of 2 fits its 1st request cleanly (tokens=1), depletes on the 2nd
+            // (tokens=0 → rate-limited boundary), and denies the 3rd (tokens=-1).
+            // If the budgets were shared, t2's first call would already be
+            // rate-limited because t1 would have drained the shared bucket.
             const res = await limiter.rateLimitGrouped([
                 { id: 'team-1', cost: 1 },
                 { id: 'team-2', cost: 1 },
@@ -337,7 +361,7 @@ describe('KeyedRateLimiterService', () => {
             ])
 
             expect(res.map(([, r]) => r.tokens)).toEqual([1, 1, 0, 0, -1, -1])
-            expect(res.map(([, r]) => r.isRateLimited)).toEqual([false, false, false, false, true, true])
+            expect(res.map(([, r]) => r.isRateLimited)).toEqual([false, false, true, true, true, true])
         })
 
         it('issues exactly one Redis dispatch per unique id (call-count win)', async () => {
@@ -473,7 +497,7 @@ describe('KeyedRateLimiterService', () => {
             expect(stored.pool).toBe('95')
         })
 
-        it('recovers from overdraft under sustained sub-2 fillRate (wedge regression)', async () => {
+        it('recovers from overdraft under sustained sub-2 fillRate (V3 wedge regression)', async () => {
             const limiter = buildLimiter('grouped-v3-wedge', { bucketSize: 10, refillRate: 1.5 })
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
@@ -493,96 +517,17 @@ describe('KeyedRateLimiterService', () => {
             expect(lastAfterRecovery).toBeGreaterThanOrEqual(4)
         })
 
-        it('preserves the bucket on overdraft (default mode, V3-style)', async () => {
-            const limiter = buildLimiter('grouped-preserve', { bucketSize: 100, refillRate: 0 })
+        it('drains the bucket on overdraft so the next batch sees an empty pool', async () => {
+            const limiter = buildLimiter('grouped-drain', { bucketSize: 100, refillRate: 0 })
             await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
             const key = `${limiter.getKeyPrefix()}/team-1`
 
             const requests = Array.from({ length: 200 }, () => ({ id: 'team-1', cost: 1 }))
             await limiter.rateLimitGrouped(requests)
-            // Default mode: overdraft preserves the bucket. CDP/hog-watcher rely on this.
-            expect((await readBucket(key)).pool).toBe('100')
-        })
-    })
-
-    describe('rateLimitGrouped (V4 overdraftEnabled=true, minCost=1 — ET partial passthrough)', () => {
-        const buildOverdraftLimiter = (
-            name: string,
-            overrides: Partial<{ bucketSize: number; refillRate: number; ttlSeconds: number }> = {}
-        ) =>
-            new KeyedRateLimiterService(
-                {
-                    name,
-                    bucketSize: overrides.bucketSize ?? 100,
-                    refillRate: overrides.refillRate ?? 10,
-                    ttlSeconds: overrides.ttlSeconds ?? 60 * 60 * 24,
-                    overdraftEnabled: true,
-                    minCost: 1,
-                },
-                redis
-            )
-
-        it('passes a prefix of an over-budget batch, drains bucket to 0', async () => {
-            const limiter = buildOverdraftLimiter('overdraft-prefix', { bucketSize: 100, refillRate: 0 })
-            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
-            const key = `${limiter.getKeyPrefix()}/team-1`
-
-            const requests = Array.from({ length: 200 }, () => ({ id: 'team-1', cost: 1 }))
-            const res = await limiter.rateLimitGrouped(requests)
-
-            expect(res.slice(0, 100).every(([, r]) => !r.isRateLimited)).toBe(true)
-            expect(res.slice(100).every(([, r]) => r.isRateLimited)).toBe(true)
             expect((await readBucket(key)).pool).toBe('0')
-        })
 
-        it('preserves fractional remainder on overdraft so refill accumulates cross-batch', async () => {
-            // Sustained 10 ev / 100ms with refillRate=10/sec → refill per call = 1.
-            // After bucket drained to 0, first overdraft call sees tokensBefore=0+1=1.
-            // floor(1/1)*1 = 1, JS allows 1 input, pool stored as 0.
-            const limiter = buildOverdraftLimiter('overdraft-fractional', { bucketSize: 10, refillRate: 1 })
-            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
-
-            // Drain the bucket.
-            const drainRes = await limiter.rateLimitGrouped(
-                Array.from({ length: 10 }, () => ({ id: 'team-1', cost: 1 }))
-            )
-            expect(drainRes.every(([, r]) => !r.isRateLimited)).toBe(true)
-
-            // Sustained overdraft batches. Refill per call = 0.5 (500ms apart).
-            // After 2 calls, refill accumulated to 1.0 → next call lets 1 input through.
-            let allowedCount = 0
-            for (let i = 0; i < 6; i++) {
-                advanceTime(500)
-                const res = await limiter.rateLimitGrouped(Array.from({ length: 5 }, () => ({ id: 'team-1', cost: 1 })))
-                allowedCount += res.filter(([, r]) => !r.isRateLimited).length
-            }
-            // 6 calls × 0.5s × 1/sec = 3.0 tokens refilled → ~3 inputs allowed.
-            expect(allowedCount).toBeGreaterThanOrEqual(2)
-            expect(allowedCount).toBeLessThanOrEqual(3)
-        })
-
-        it('drains in whole multiples of minCost (minCost=5 example)', async () => {
-            const limiter = new KeyedRateLimiterService(
-                {
-                    name: 'overdraft-mincost',
-                    bucketSize: 100,
-                    refillRate: 0,
-                    ttlSeconds: 60,
-                    overdraftEnabled: true,
-                    minCost: 5,
-                },
-                redis
-            )
-            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
-            const key = `${limiter.getKeyPrefix()}/team-1`
-
-            // Drain to 7 leftover.
-            await limiter.rateLimitGrouped([{ id: 'team-1', cost: 93 }])
-            expect((await readBucket(key)).pool).toBe('7')
-
-            // Now overdraft with cost=100. floor(7/5)*5 = 5 granted. Pool=2.
-            await limiter.rateLimitGrouped([{ id: 'team-1', cost: 100 }])
-            expect((await readBucket(key)).pool).toBe('2')
+            const next = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
+            expect(next[0][1].isRateLimited).toBe(true)
         })
     })
 })

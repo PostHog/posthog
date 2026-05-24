@@ -205,11 +205,6 @@ export class ErrorTrackingConsumer {
                     // bucketSize/refillRate are intentionally omitted — every request supplies
                     // them via getBucketConfig (per-team), so service-level defaults are unused.
                     ttlSeconds: config.rateLimiterTtlSeconds,
-                    // ET wants per-input partial pass-through: an over-budget batch passes its
-                    // prefix and the bucket drains by the granted amount (minCost=1 = per-event
-                    // granularity) so refill correctly enforces the long-term rate.
-                    overdraftEnabled: true,
-                    minCost: 1,
                 },
                 this.rateLimiterRedis
             )
