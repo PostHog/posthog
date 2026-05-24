@@ -1768,6 +1768,10 @@ snapshots:
         hash: v1.k794b7964.8c5d02ec4c497a87a0df0cf32bb695ffb728e4efa6ac8b17eaf9063c5ce98170.5sdWMbFrLaEyW5syvARRnAsh5IkpWjdemV1wq35_4ow
     filters-taxonomic-filter--autocapture-context-promotes-elements--light:
         hash: v1.k794b7964.22b6c7c9ce49bc9ed622417764cc41b2bde28d5a71a9fbc7e92131551dcebb63.jaTvGGOP2Q4wYsPwae28Qzm8_iG70pdBcAc_aAshTy4
+    filters-taxonomic-filter--empty-events-with-stale-toggle--dark:
+        hash: v1.k794b7964.58cb6300564a2a703d96ce3e69b884cf4009c6fa3ff46b638915be0d7f3b5f02.16dqA1SviZenMIon-EhxXL-vwoIrRFEbDDIDGT3MIm0
+    filters-taxonomic-filter--empty-events-with-stale-toggle--light:
+        hash: v1.k794b7964.7d9672075e2cafebbb615cbc7b8833c475bc999ef1dd188145059b4537c27228.l6SIczY-o8wbrx8D8moeGvK0dwqQ6W_iFFm3FzN7fB4
     filters-taxonomic-filter--events-free--dark:
         hash: v1.k794b7964.3274e2d1c3ba5b4e3a09b8188a3f401e8140f01d9b35a2a03858c59bd3c91709.J_nYjNfALjeDl5uYZ2ZTpWYCpwNvFG8NJOOthoqpFxk
     filters-taxonomic-filter--events-free--light:
@@ -4609,7 +4613,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--dark:
         hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.O7SwG4Drfr3z02hcLNC1LsLsGWddouhybBp4xZaUE-A
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--light:
-        hash: v1.k794b7964.6c391cbc05b64230fbd8defdbb960b131fd433409817497873fb9ffc705cd360.EIwByuofuT77yP259A9ffqfjSFwW9MrUDOvsZNA_aZM
+        hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.KSiw8WpvjWXIDh87ExL4cPnopVJlTXvzU8N8ruh6Hi8
     scenes-app-insights-funnels--funnel-time-to-convert--dark:
         hash: v1.k794b7964.d64808d2bfc36017f89b57feeaa373e20188738a622801207fa1beb59d02fdd9.cFuKF_Ow887Z3X3BoNhtTvkUWY2vips9HDBe-B02eQE
     scenes-app-insights-funnels--funnel-time-to-convert--light:
