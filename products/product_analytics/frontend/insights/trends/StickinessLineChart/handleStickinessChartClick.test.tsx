@@ -1,4 +1,5 @@
 import { render } from '@testing-library/react'
+
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { NodeKind } from '~/queries/schema/schema-general'

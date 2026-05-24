@@ -26,7 +26,7 @@ export function toPercentData(data: number[], count: number): number[] {
     if (!count) {
         return data.slice()
     }
-    return data.map((v) => (typeof v === 'number' ? (v / count) * 100 : v))
+    return data.map((v) => (v / count) * 100)
 }
 
 export function buildStickinessMainSeries<R extends StickinessResultLike, M = unknown>(

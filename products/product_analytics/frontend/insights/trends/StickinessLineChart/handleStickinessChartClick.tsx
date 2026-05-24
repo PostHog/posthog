@@ -21,11 +21,7 @@ function resolveDataset(seriesKey: string, indexedResults: IndexedTrendResult[])
     return indexedResults.find((r) => String(r.id) === seriesKey) ?? null
 }
 
-export function handleStickinessChartClick(
-    seriesKey: string,
-    dataIndex: number,
-    deps: StickinessChartClickDeps
-): void {
+export function handleStickinessChartClick(seriesKey: string, dataIndex: number, deps: StickinessChartClickDeps): void {
     const dataset = resolveDataset(seriesKey, deps.indexedResults)
     if (!dataset) {
         return
