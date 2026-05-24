@@ -143,7 +143,7 @@ When automating a convention, try these in order — only fall back to the next 
 3. **Skills** (`.agents/skills/`) — scaffold with `hogli init:skill`
 4. **AGENTS.md / CLAUDE.md instructions** — when automated enforcement isn't suitable
 
-Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
+Claude Code hooks are reserved for environment bootstrapping (`SessionStart` and `CwdChanged`) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. The sole `CwdChanged` hook is `setup-flox.sh`, which makes the flox env follow you into a new worktree mid-session (for example after forking a conversation); its handler short-circuits immediately when the target directory has no flox env, so it stays cheap on every `cd`. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
 
 ### Mandatory skill invocation
 
