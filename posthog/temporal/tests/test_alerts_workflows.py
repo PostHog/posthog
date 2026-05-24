@@ -156,14 +156,11 @@ async def _run_check_alert_workflow(
             )
 
 
-def _completed_slo_props(
-    mock_slo_analytics: MagicMock, operation: SloOperation = SloOperation.ALERT_CHECK
-) -> dict:
+def _completed_slo_props(mock_slo_analytics: MagicMock, operation: SloOperation = SloOperation.ALERT_CHECK) -> dict:
     completed = [
         c
         for c in mock_slo_analytics.capture.call_args_list
-        if c.kwargs.get("event") == "slo_operation_completed"
-        and c.kwargs["properties"].get("operation") == operation
+        if c.kwargs.get("event") == "slo_operation_completed" and c.kwargs["properties"].get("operation") == operation
     ]
     assert len(completed) == 1, f"expected 1 SLO completion event, got {len(completed)}"
     return completed[0].kwargs["properties"]

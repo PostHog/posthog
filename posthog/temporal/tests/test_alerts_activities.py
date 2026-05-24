@@ -164,7 +164,9 @@ class TestRetrieveDueAlerts:
         assert by_id[str(initial_alert.id)].scheduled_check_at is None
 
 
-def _timeliness_inputs(*, scheduled_check_at: str = "2024-06-03T09:58:00+00:00") -> EmitAlertTimelinessSloActivityInputs:
+def _timeliness_inputs(
+    *, scheduled_check_at: str = "2024-06-03T09:58:00+00:00"
+) -> EmitAlertTimelinessSloActivityInputs:
     return EmitAlertTimelinessSloActivityInputs(
         alert_id="alert-1",
         team_id=1,
@@ -187,9 +189,7 @@ class TestEmitAlertTimelinessSlo:
         await env.run(emit_alert_timeliness_slo, _timeliness_inputs())
 
         completed = [
-            c
-            for c in mock_slo_analytics.capture.call_args_list
-            if c.kwargs.get("event") == "slo_operation_completed"
+            c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
         ]
         assert len(completed) == 1
         props = completed[0].kwargs["properties"]
