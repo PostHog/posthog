@@ -13,7 +13,13 @@ from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 
-from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email, sanitize_email_properties
+from posthog.email import (
+    CUSTOMER_IO_TEMPLATE_ID_MAP,
+    EmailMessage,
+    _send_email,
+    _send_via_http,
+    sanitize_email_properties,
+)
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.messaging import MessagingRecord
@@ -166,24 +172,58 @@ class TestEmail(BaseTest):
             )
 
     @patch("posthog.email.requests.post")
-    def test_send_via_http_api_error(self, mock_post) -> None:
+    def test_send_via_http_api_error_reraises(self, mock_post) -> None:
+        # _send_via_http must re-raise after capture_exception so the Celery task's
+        # autoretry_for actually engages and synchronous callers (e.g. EmailVerifier)
+        # can surface a user-visible failure instead of returning false success.
         mock_response = MagicMock()
         mock_response.status_code = 400
         mock_response.text = "Bad Request"
         mock_post.return_value = mock_response
 
-        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
-            message = EmailMessage(
-                campaign_key="test_campaign", subject="Test subject", template_name="2fa_enabled", use_http=True
-            )
-            message.add_recipient("test@posthog.com")
+        with self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            with self.assertRaises(Exception) as ctx:
+                _send_via_http(
+                    to=[{"raw_email": "test@posthog.com", "recipient": "test@posthog.com"}],
+                    campaign_key="test_campaign",
+                    template_name="2fa_enabled",
+                    properties={},
+                )
+            self.assertIn("Customer.io API error", str(ctx.exception))
 
-            # The error should be caught and logged, not raised
-            message.send(send_async=False)
-
-            # Verify the message wasn't marked as sent
+            # The atomic block rolls back the record so a retry will re-create and resend.
             record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
             self.assertIsNone(record)
+
+    @patch("posthog.email.requests.post")
+    def test_send_via_http_retry_skips_already_sent_recipients(self, mock_post) -> None:
+        # When a multi-recipient send fails partway, recipients already marked
+        # sent_at on a prior attempt are skipped on retry so we don't double-send.
+        sent_record, _ = MessagingRecord.objects.get_or_create(
+            raw_email="already_sent@posthog.com", campaign_key="retry_campaign"
+        )
+        sent_record.sent_at = timezone.now()
+        sent_record.save()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"delivery_id": "dlv", "queued_at": 1}
+        mock_post.return_value = mock_response
+
+        with self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            _send_via_http(
+                to=[
+                    {"raw_email": "already_sent@posthog.com", "recipient": "already_sent@posthog.com"},
+                    {"raw_email": "first_try@posthog.com", "recipient": "first_try@posthog.com"},
+                ],
+                campaign_key="retry_campaign",
+                template_name="2fa_enabled",
+                properties={},
+            )
+
+            # Only the not-yet-sent recipient was sent to.
+            self.assertEqual(mock_post.call_count, 1)
+            self.assertEqual(mock_post.call_args.kwargs["json"]["to"], "first_try@posthog.com")
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection

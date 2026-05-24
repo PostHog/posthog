@@ -198,6 +198,12 @@ def _send_via_http(
     except Exception as err:
         print("Could not send email via http:", err, file=sys.stderr)
         capture_exception(err)
+        # Re-raise so the Celery task's autoretry_for=(Exception,) actually engages
+        # and synchronous callers (e.g. EmailVerifier.create_token_and_send_email_verification)
+        # surface a user-visible failure instead of returning a false success. Recipients
+        # already marked sent_at above are skipped on retry via the per-recipient
+        # MessagingRecord check, so retries do not double-send.
+        raise
 
 
 def _send_via_smtp(

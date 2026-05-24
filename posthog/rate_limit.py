@@ -697,7 +697,9 @@ class UserAuthenticationThrottle(UserOrEmailRateThrottle):
 
 class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     scope = "user_email_verification"
-    rate = "6/day"
+    # Short window so a user who hits a transient send failure can recover in the same
+    # session instead of being locked out for a day after a handful of attempts.
+    rate = "5/hour"
 
 
 class OnboardingDelegationThrottle(UserRateThrottle):
