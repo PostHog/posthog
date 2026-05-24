@@ -433,7 +433,8 @@ jobs:
               run: |
                   # KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
                   # KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails
-                  cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
+                  cp frontend/node_modules/posthog-js/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ 2>/dev/null || true
+                  python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
               run: |
