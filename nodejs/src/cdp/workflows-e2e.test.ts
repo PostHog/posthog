@@ -546,7 +546,11 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     })
 
-    describe('wait_until_condition: subscription matcher wakes parked jobs', () => {
+    // The matcher reads parked jobs via `CYCLOTRON_NODE_DATABASE_URL` (the postgres-v2 backend).
+    // In legacy `postgres` mode the worker parks the job in a different DB the matcher cannot see,
+    // so wakes are postgres-v2-only.
+    const describeMatcher = mode === 'postgres-v2' ? describe : describe.skip
+    describeMatcher('wait_until_condition: subscription matcher wakes parked jobs', () => {
         let matcher: CdpHogflowSubscriptionMatcherConsumer
 
         // trigger → wait_condition → (matched branch | timeout continue) → exit
