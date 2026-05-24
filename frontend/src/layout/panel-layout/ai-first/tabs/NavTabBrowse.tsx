@@ -22,6 +22,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
+import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -114,6 +115,30 @@ function useStarredState(item: FileSystemEntry): {
     const { shortcutNonFolderPaths } = useValues(projectTreeDataLogic)
     const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
     return { isAlreadyStarred: shortcutNonFolderPaths.has(shortcutPath), addShortcutItem }
+}
+
+function AddToStarredContextAction({ item }: { item: FileSystemEntry }): JSX.Element {
+    const { isAlreadyStarred, addShortcutItem } = useStarredState(item)
+
+    if (isAlreadyStarred) {
+        return (
+            <ContextMenuItem asChild disabled>
+                <ButtonPrimitive menuItem disabled>
+                    <IconStar className="size-4 text-tertiary" />
+                    Already starred
+                </ButtonPrimitive>
+            </ContextMenuItem>
+        )
+    }
+
+    return (
+        <ContextMenuItem asChild>
+            <ButtonPrimitive menuItem onClick={() => addShortcutItem(item)}>
+                <IconStar className="size-4 text-tertiary" />
+                Add to starred
+            </ButtonPrimitive>
+        </ContextMenuItem>
+    )
 }
 
 function AddToStarredDropdownAction({ item }: { item: FileSystemEntry }): JSX.Element {
@@ -329,6 +354,7 @@ export function NavTabBrowse(): JSX.Element {
                                                         className: 'group -outline-offset-2 pr-0',
                                                     }}
                                                     data-attr={`nav-recent-item-${item.id}`}
+                                                    extraContextMenuItems={<AddToStarredContextAction item={item} />}
                                                 >
                                                     <LinkListItem.Content
                                                         icon={iconForType(item.type as FileSystemIconType)}
