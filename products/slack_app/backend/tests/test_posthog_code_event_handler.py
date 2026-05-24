@@ -34,22 +34,22 @@ class TestPostHogCodeEventHandler(TestCase):
             **extra_headers,
         )
 
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_url_verification(self, mock_config):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         response = self._post_event({"type": "url_verification", "challenge": "test-challenge-123"})
         assert response.status_code == 200
         assert response.json() == {"challenge": "test-challenge-123"}
 
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_invalid_signature(self, mock_config):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": "different-secret"}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": "different-secret"}
         response = self._post_event({"type": "url_verification", "challenge": "test"})
         assert response.status_code == 403
 
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_retry_returns_200(self, mock_config):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         body = json.dumps({"type": "event_callback", "event": {"type": "app_mention"}}).encode()
         signature, ts = sign_slack_request(body, self.signing_secret)
         response = self.client.post(
@@ -73,7 +73,7 @@ class TestPostHogCodeEventHandler(TestCase):
         ]
     )
     @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_event_callback_dispatch(
         self,
         _name,
@@ -84,7 +84,7 @@ class TestPostHogCodeEventHandler(TestCase):
         mock_config,
         mock_route,
     ):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_route.return_value = route_result
         payload = {
             "type": "event_callback",
@@ -107,7 +107,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.posthog_code_integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
@@ -238,6 +238,21 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         else:
             assert pending_picker is None
 
+    @patch("products.slack_app.backend.api._posthog_code_enabled_for_integration", return_value=False)
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_local_match_flag_off_skips_workflow(self, mock_sync_connect, mock_asyncio_run, _mock_flag):
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
+
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @override_settings(DEBUG=False)
     def test_link_shared_routes_to_unfurl(self, mock_unfurl):
@@ -252,6 +267,83 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_unfurl.assert_called_once()
         passed_integration = mock_unfurl.call_args[0][1]
         assert passed_integration.id == self.posthog_code_integration.id
+
+    @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
+    @override_settings(DEBUG=False)
+    def test_link_shared_works_with_only_notifications_integration(self, mock_unfurl):
+        # Delete the coding-agent integration and create a notifications-only integration for same workspace
+        self.posthog_code_integration.delete()
+        Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-notifications"},
+        )
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        link_shared_event = {"type": "link_shared", "channel": "C001", "links": []}
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, link_shared_event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_unfurl.assert_called_once()
+        # Don't assert on which integration row was passed: "first row by id" picking is a known
+        # limitation for multi-team workspaces and shouldn't be baked into the test contract.
+        passed_integration = mock_unfurl.call_args[0][1]
+        assert passed_integration.integration_id == "T12345"
+
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @patch("products.slack_app.backend.api.proxy_slack_event_to_secondary_region")
+    @patch("products.slack_app.backend.api.SLACK_PRIMARY_REGION_DOMAIN", "eu.posthog.com")
+    @override_settings(DEBUG=False)
+    def test_app_mention_in_primary_with_only_notifications_proxies_to_secondary(
+        self, mock_proxy, mock_sync_connect, mock_asyncio_run
+    ):
+        # Regression test: the coding-agent install may live in the other region. A notifications-only
+        # row in the primary region must NOT short-circuit the proxy path for app_mention.
+        self.posthog_code_integration.delete()
+        Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-notifications"},
+        )
+        mock_proxy.return_value = True
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+
+        from products.slack_app.backend.api import ROUTE_PROXIED, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+
+        assert result == ROUTE_PROXIED
+        mock_proxy.assert_called_once_with(request)
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
+
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_app_mention_in_secondary_with_only_notifications_noop(self, mock_sync_connect, mock_asyncio_run):
+        # In the secondary region with only a notifications install, app_mention should
+        # report no_integration (no coding-agent install anywhere reachable from here).
+        self.posthog_code_integration.delete()
+        Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-notifications"},
+        )
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+        from products.slack_app.backend.api import ROUTE_NO_INTEGRATION, route_posthog_code_event_to_relevant_region
+
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+
+        assert result == ROUTE_NO_INTEGRATION
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
 
     @patch("products.slack_app.backend.api.proxy_slack_event_to_secondary_region")
     @patch("products.slack_app.backend.api.SLACK_PRIMARY_REGION_DOMAIN", "eu.posthog.com")

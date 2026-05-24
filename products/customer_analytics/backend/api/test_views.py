@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.models import Insight, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -791,6 +792,136 @@ class TestAccountViewSet(APIBaseTest):
 
         new_logs = ActivityLog.objects.filter(team_id=self.team.id, scope="Account", activity="updated").count()
         self.assertGreater(new_logs, initial_logs)
+
+    def test_list_accounts_filter_by_csm_user_id(self):
+        self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="B", _properties={"csm": {"id": 9, "email": "b@x.com"}})
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=7")
+        names = [r["name"] for r in response.json()["results"]]
+        assert names == ["A"]
+
+    @parameterized.expand(
+        [
+            # `_properties` defaults to {} — every role key is absent.
+            ("absent_keys", {"_properties": {}}),
+            # The manager fills every role key with an explicit JSON null.
+            ("null_valued_keys", {"properties": {}}),
+        ]
+    )
+    def test_list_accounts_filter_by_csm_unassigned(self, _name, unassigned_kwargs):
+        self._create_account(name="Assigned", properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="Unassigned", **unassigned_kwargs)
+        response = self.client.get(f"{self.endpoint_base}?csm=unassigned")
+        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
+
+    def test_list_accounts_filter_by_account_executive_user_id(self):
+        self._create_account(name="A", _properties={"account_executive": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="B")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?account_executive=7")
+        assert [r["name"] for r in response.json()["results"]] == ["A"]
+
+    def test_list_accounts_filter_by_account_owner_user_id(self):
+        self._create_account(name="A", _properties={"account_owner": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="B")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?account_owner=7")
+        assert [r["name"] for r in response.json()["results"]] == ["A"]
+
+    @parameterized.expand(
+        [
+            # `_properties` defaults to {} — every role key is absent.
+            ("absent_keys", {"_properties": {}}),
+            # The manager fills every role key with an explicit JSON null.
+            ("null_valued_keys", {"properties": {}}),
+        ]
+    )
+    def test_list_accounts_filter_all_roles_unassigned(self, _name, unassigned_kwargs):
+        # Created through the manager, so every role key is present and csm has a real id.
+        self._create_account(name="Has CSM", properties={"csm": {"id": 7, "email": "a@x.com"}})
+        self._create_account(name="Unassigned", **unassigned_kwargs)
+        response = self.client.get(f"{self.endpoint_base}?all_roles_unassigned=true")
+        assert [r["name"] for r in response.json()["results"]] == ["Unassigned"]
+
+    def test_list_accounts_filter_combined_role_and_tags(self):
+        account_a = self._create_account(name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        account_b = self._create_account(name="B", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        account_c = self._create_account(name="C", _properties={"csm": {"id": 8, "email": "c@x.com"}})
+        set_tags_on_object(["enterprise"], account_a)
+        set_tags_on_object(["startup"], account_b)
+        set_tags_on_object(["enterprise"], account_c)
+        response = self.client.get(f'/api/environments/{self.team.id}/accounts/?csm=7&tags=["enterprise"]')
+        assert [r["name"] for r in response.json()["results"]] == ["A"]
+
+    def test_list_accounts_invalid_csm_value_is_ignored(self):
+        # Malformed user id should be a no-op (return both accounts), not "match nothing".
+        self._create_account(name="A")
+        self._create_account(name="B", _properties={"csm": {"id": 7, "email": "b@x.com"}})
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=not-a-user")
+        assert response.status_code == status.HTTP_200_OK
+        names = sorted(r["name"] for r in response.json()["results"])
+        assert names == ["A", "B"]
+
+    def test_list_accounts_ordering_by_name_asc(self):
+        # Create in alphabetical order so default `-created_at` order is [Banana, Apple];
+        # ordering=name only matches if the filter actually flips the order.
+        self._create_account(name="Apple")
+        self._create_account(name="Banana")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?ordering=name")
+        assert [r["name"] for r in response.json()["results"]] == ["Apple", "Banana"]
+
+    def test_list_accounts_ordering_by_name_desc(self):
+        # Default `-created_at` order would be [Apple, Banana]; ordering=-name flips to [Banana, Apple].
+        self._create_account(name="Banana")
+        self._create_account(name="Apple")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?ordering=-name")
+        assert [r["name"] for r in response.json()["results"]] == ["Banana", "Apple"]
+
+    def test_list_accounts_invalid_ordering_is_ignored(self):
+        # Malformed ordering should fall back to default `-created_at` order.
+        self._create_account(name="Apple")
+        self._create_account(name="Banana")
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?ordering=robert');drop")
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == ["Banana", "Apple"]
+
+    @parameterized.expand(
+        [
+            ("name_exact", "Acme Corp", ["Acme Corp"]),
+            ("name_partial_case_insensitive", "acme", ["Acme Corp"]),
+            ("external_id_partial", "glx-9", ["Globex"]),
+            ("matches_name_or_external_id", "1", ["Acme Corp"]),
+            ("no_match", "zzzz", []),
+        ]
+    )
+    def test_list_accounts_search(self, _name, search, expected):
+        self._create_account(name="Acme Corp", external_id="acme-1")
+        self._create_account(name="Globex", external_id="glx-99")
+        response = self.client.get(f"{self.endpoint_base}?search={search}")
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected)
+
+    def test_list_accounts_blank_search_returns_all(self):
+        self._create_account(name="Acme Corp")
+        self._create_account(name="Globex")
+        response = self.client.get(f"{self.endpoint_base}?search=")
+        assert sorted(r["name"] for r in response.json()["results"]) == ["Acme Corp", "Globex"]
+
+    def test_list_accounts_search_respects_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._create_account(team=other_team, name="Acme Corp")
+        self._create_account(name="Acme Corp")
+        response = self.client.get(f"{self.endpoint_base}?search=acme")
+        assert len(response.json()["results"]) == 1
+
+    def test_list_accounts_role_filter_respects_team_isolation(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._create_account(
+            team=other_team,
+            name="OtherTeamAccount",
+            _properties={"csm": {"id": 7, "email": "a@x.com"}},
+        )
+        self._create_account(name="MyAccount", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        response = self.client.get(f"/api/environments/{self.team.id}/accounts/?csm=7")
+        assert [r["name"] for r in response.json()["results"]] == ["MyAccount"]
 
 
 @pytest.mark.ee

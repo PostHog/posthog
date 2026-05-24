@@ -6,18 +6,21 @@ use uuid::Uuid;
 use super::constants::{
     CAPTURE_V1_DISTINCT_ID_MAX_SIZE, CAPTURE_V1_EVENTS_DROPPED,
     CAPTURE_V1_EVENTS_REROUTED_HISTORICAL, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
-    CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER, DETAIL_EVENT_RESTRICTION_DROP,
-    DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
+    CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_RATE_LIMITER,
+    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS,
+    ILLEGAL_DISTINCT_IDS,
 };
 use super::response::Response;
 use super::types::{Batch, Event, EventResult, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
 use crate::v0_request::DataType;
+use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
 use crate::router;
 use crate::v1::context::Context;
+use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::Destination;
 use crate::v1::Error;
 
@@ -61,6 +64,12 @@ pub async fn process_batch(
     }
 
     apply_historical_rerouting(&state.historical_cfg, context, &mut events);
+
+    // Overflow and global rate limit are independent checks on different axes:
+    // overflow reroutes bursting keys; global rate limit disables person processing.
+    if let Some(ref limiter) = state.overflow_limiter {
+        apply_overflow_stamping(limiter, context, &mut events);
+    }
 
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
         apply_token_distinct_id_limits(limiter, context, &mut events).await;
@@ -259,6 +268,42 @@ fn apply_historical_rerouting(
     }
 }
 
+fn apply_overflow_stamping(limiter: &OverflowLimiter, ctx: &Context, events: &mut [WrappedEvent]) {
+    let mut buf = String::with_capacity(128);
+
+    for event in events.iter_mut() {
+        if event.destination != Destination::AnalyticsMain {
+            continue;
+        }
+        if event.result == EventResult::Drop {
+            continue;
+        }
+
+        buf.clear();
+        event.partition_key(ctx, &mut buf);
+
+        match limiter.is_limited(&buf) {
+            OverflowLimiterResult::ForceLimited => {
+                event.destination = Destination::Overflow;
+                // Disables person processing AND nulls partition key at sink.
+                event.force_disable_person_processing = true;
+                metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "force_limited")
+                    .increment(1);
+            }
+            OverflowLimiterResult::Limited => {
+                event.destination = Destination::Overflow;
+                if !limiter.should_preserve_locality() {
+                    // Nulls partition key at sink -- spreads across partitions.
+                    event.force_disable_person_processing = true;
+                }
+                metrics::counter!(CAPTURE_V1_OVERFLOW_ROUTED, "reason" => "rate_limited")
+                    .increment(1);
+            }
+            OverflowLimiterResult::NotLimited => {}
+        }
+    }
+}
+
 async fn apply_restrictions(
     service: &EventRestrictionService,
     token: &str,
@@ -331,6 +376,7 @@ async fn apply_token_distinct_id_limits(
                 .to_cache_key();
         if limiter.is_limited(&cache_key, 1).await.is_some() {
             event.result = EventResult::Limited;
+            // Disables person processing -- sink will null partition key for Main/Overflow.
             event.force_disable_person_processing = true;
             event.details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
             limited_distinct_ids.insert(event.event.distinct_id.as_str());
@@ -1657,5 +1703,131 @@ mod tests {
             expected,
             "order changed after apply_token_distinct_id_limits",
         );
+    }
+
+    // --- apply_overflow_stamping ---
+
+    fn overflow_limiter(per_second: u32, burst: u32, force_keys: Option<&str>) -> OverflowLimiter {
+        use std::num::NonZeroU32;
+        OverflowLimiter::new(
+            NonZeroU32::new(per_second).unwrap(),
+            NonZeroU32::new(burst).unwrap(),
+            force_keys.map(String::from),
+            false,
+        )
+    }
+
+    fn overflow_limiter_preserving(per_second: u32, burst: u32) -> OverflowLimiter {
+        use std::num::NonZeroU32;
+        OverflowLimiter::new(
+            NonZeroU32::new(per_second).unwrap(),
+            NonZeroU32::new(burst).unwrap(),
+            None,
+            true,
+        )
+    }
+
+    #[test]
+    fn overflow_not_limited() {
+        let ctx = test_utils::test_context();
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let limiter = overflow_limiter(100, 100, None);
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert!(!events[0].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_force_limited_by_full_key() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let limiter = overflow_limiter(100, 100, Some("phc_tok:user-1"));
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::Overflow);
+        assert!(events[0].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_force_limited_by_token_only() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        let limiter = overflow_limiter(100, 100, Some("phc_tok"));
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::Overflow);
+        assert!(events[0].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_rate_limited_disables_person_processing() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        // burst=1 means only 1 event allowed, the second will be limited
+        let limiter = overflow_limiter(1, 1, None);
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-1"),
+        ];
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
+        assert!(!events[0].force_disable_person_processing);
+        assert_eq!(events[1].destination, Destination::Overflow);
+        assert!(events[1].force_disable_person_processing);
+    }
+
+    #[test]
+    fn overflow_rate_limited_preserves_locality_when_configured() {
+        let mut ctx = test_utils::test_context();
+        ctx.api_token = "phc_tok".to_string();
+        let limiter = overflow_limiter_preserving(1, 1);
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$pageview", "user-1"),
+        ];
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[1].destination, Destination::Overflow);
+        assert!(
+            !events[1].force_disable_person_processing,
+            "preserve_locality=true means person processing stays enabled"
+        );
+    }
+
+    #[test]
+    fn overflow_skips_non_analytics_main() {
+        let ctx = test_utils::test_context();
+        let limiter = overflow_limiter(100, 100, Some("phc_test_token:user-1"));
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].destination = Destination::AnalyticsHistorical;
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(
+            events[0].destination,
+            Destination::AnalyticsHistorical,
+            "non-AnalyticsMain events are not overflow-checked"
+        );
+    }
+
+    #[test]
+    fn overflow_skips_dropped_events() {
+        let ctx = test_utils::test_context();
+        let limiter = overflow_limiter(100, 100, Some("phc_test_token:user-1"));
+        let mut events = vec![wrapped_event("$pageview", "user-1")];
+        events[0].result = EventResult::Drop;
+
+        apply_overflow_stamping(&limiter, &ctx, &mut events);
+
+        assert_eq!(events[0].destination, Destination::AnalyticsMain);
     }
 }
