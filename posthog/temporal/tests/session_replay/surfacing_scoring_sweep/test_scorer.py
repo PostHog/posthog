@@ -177,7 +177,8 @@ class TestGetFeatureNames:
         # warmup() hasn't been called yet.
         assert scorer_mod._BOOSTER is None
         names = get_feature_names()
-        assert scorer_mod._BOOSTER is not None
+        loaded_booster = scorer_mod._BOOSTER
+        assert loaded_booster is not None
         assert len(names) == len(_TRAINING_FEATURE_NAMES)
 
     def test_caches_after_first_load(self, trained_model_path: Path) -> None:

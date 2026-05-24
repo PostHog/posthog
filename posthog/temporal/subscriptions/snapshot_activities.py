@@ -6,6 +6,7 @@ import temporalio.activity
 from prometheus_client import Counter
 from structlog import get_logger
 
+from posthog.api.annotation_context import build_annotations_block, resolve_snapshot_date_range
 from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
 from posthog.models import Insight
 from posthog.models.exported_asset import ExportedAsset
@@ -69,6 +70,23 @@ def _extract_columns(query_results: Any) -> list[str] | None:
         return None
     cleaned = [c for c in raw_columns if isinstance(c, str)]
     return cleaned or None
+
+
+def _load_annotations_section(
+    subscription: Subscription,
+    content_snapshots: list[dict],
+    insight_ids: list[int],
+) -> str:
+    """Build the annotation context block injected into the LLM prompt.
+
+    Returns an empty string if there is no usable date window or no annotations match.
+    """
+    return build_annotations_block(
+        subscription.team,
+        resolve_snapshot_date_range(content_snapshots),
+        dashboard_id=subscription.dashboard_id,
+        insight_ids=insight_ids,
+    )
 
 
 def _build_states_from_content_snapshot(
@@ -485,6 +503,29 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
         else:
             prompt_guide = ""
         core_memory_text = await database_sync_to_async(_load_core_memory_text, thread_sensitive=False)(subscription)
+        content_snapshots = [
+            s
+            for s in (
+                current_delivery.content_snapshot,
+                previous_delivery.content_snapshot if previous_delivery else None,
+            )
+            if s
+        ]
+        # Annotations are best-effort context — a DB hiccup here should not fail the whole
+        # summary, which would also drop the rest of the digest. Log and continue with an
+        # empty block.
+        try:
+            annotations_section = await database_sync_to_async(_load_annotations_section, thread_sensitive=False)(
+                subscription, content_snapshots, insight_ids
+            )
+        except Exception as annotations_error:
+            annotations_section = ""
+            await LOGGER.awarning(
+                "snapshot_subscription_insights.annotations_load_failed",
+                subscription_id=inputs.subscription_id,
+                error=str(annotations_error),
+                exc_info=True,
+            )
         summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
             previous_states,
             current_states,
@@ -494,6 +535,7 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
             delivery_id=inputs.delivery_id,
             insight_images=insight_images or None,
             core_memory_text=core_memory_text,
+            annotations_section=annotations_section,
         )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:

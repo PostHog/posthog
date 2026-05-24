@@ -34,6 +34,10 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from posthog.clickhouse.client import sync_execute
 from posthog.session_recordings.sql.session_replay_feature_sql import TRUNCATE_SESSION_REPLAY_FEATURES_TABLE_SQL
 from posthog.temporal.session_replay.surfacing_scoring_sweep.sql import count_unscored_sql, fetch_features_sql
+from posthog.temporal.tests.session_replay.surfacing_scoring_sweep.ch_insert_helpers import (
+    insert_replay_features,
+    insert_session_replay_event,
+)
 
 
 class TestFetchFeaturesSqlShape:
@@ -41,8 +45,8 @@ class TestFetchFeaturesSqlShape:
 
     def test_targets_session_replay_events_not_raw_sessions_v3(self) -> None:
         sql = fetch_features_sql()
-        # Score lives on session_replay_events now — see the move from raw_sessions_v3
-        # in CH migration 0252_session_replay_events_surfacing_score.py.
+        # Score lives on session_replay_events now — see migration
+        # 0259_add_surfacing_score_to_session_replay_events.py.
         assert "FROM session_replay_events" in sql
         assert "raw_sessions_v3" not in sql
 
@@ -99,12 +103,10 @@ class TestEligibleSessionsJoinClickhouse(ClickhouseTestMixin, BaseTest):
     """End-to-end check that the (team_id, session_id) join lines up against
     real CH and that the HAVING-based unscored filter actually skips scored rows.
 
-    Inserts directly into `writable_session_replay_events` (mimicking the
-    Kafka writeback MV's partial-column insert pattern that the scorer uses)
-    and into `writable_session_replay_features`. We don't run the full
-    `fetch_features_sql` because a handful of feature columns are still
-    pending on the live `session_replay_features` DDL (see `sql.py` schema
-    gap) — the eligibility join is what we're guarding here.
+    Inserts into ``sharded_session_replay_events`` (with explicit ``argMinState``
+    for aggregate columns) and ``writable_session_replay_features``. We don't
+    run the full ``fetch_features_sql`` here — the eligibility join is what
+    we're guarding.
     """
 
     SESSION_ID = "01939d3e-7c80-7b56-bf8d-1e74e5c3b3a1"
@@ -123,45 +125,22 @@ class TestEligibleSessionsJoinClickhouse(ClickhouseTestMixin, BaseTest):
         distinct_id: str = "d1",
         surfacing_score: float | None = None,
     ) -> None:
-        # Mirrors the partial-row write pattern: every column not specified gets
-        # its aggregate-function identity. Leaving surfacing_score NULL
-        # marks the row as "eligible" via the HAVING clause.
-        if surfacing_score is None:
-            sync_execute(
-                "INSERT INTO writable_session_replay_events "
-                "(session_id, team_id, distinct_id, min_first_timestamp, max_last_timestamp) "
-                "VALUES (%(session_id)s, %(team_id)s, %(distinct_id)s, now64(6) - INTERVAL 1 HOUR, now64(6))",
-                {"session_id": session_id, "team_id": team_id, "distinct_id": distinct_id},
-            )
-        else:
-            sync_execute(
-                "INSERT INTO writable_session_replay_events "
-                "(session_id, team_id, distinct_id, min_first_timestamp, max_last_timestamp, surfacing_score) "
-                "VALUES (%(session_id)s, %(team_id)s, %(distinct_id)s, "
-                "now64(6) - INTERVAL 1 HOUR, now64(6), %(score)s)",
-                {
-                    "session_id": session_id,
-                    "team_id": team_id,
-                    "distinct_id": distinct_id,
-                    "score": surfacing_score,
-                },
-            )
+        insert_session_replay_event(
+            team_id=team_id,
+            session_id=session_id,
+            distinct_id=distinct_id,
+            surfacing_score=surfacing_score,
+        )
 
     def _insert_replay_features(self, *, team_id: int, session_id: str, event_count: int = 42) -> None:
-        sync_execute(
-            "INSERT INTO writable_session_replay_features "
-            "(session_id, team_id, distinct_id, min_first_timestamp, max_last_timestamp, event_count) "
-            "SELECT %(session_id)s, %(team_id)s, 'd1', now64(6) - INTERVAL 1 HOUR, now64(6), %(event_count)s",
-            {"session_id": session_id, "team_id": team_id, "event_count": event_count},
-        )
+        insert_replay_features(team_id=team_id, session_id=session_id, event_count=event_count)
 
     @staticmethod
     def _eligible_sessions_join_sql() -> str:
         """A trimmed copy of fetch_features_sql's eligible_sessions + INNER JOIN.
 
-        We can't run the full `fetch_features_sql` against the live CH schema yet
-        (some feature columns are pending — see `sql.py` schema gap), but the
-        CTE → join is exactly where past bugs lived.
+        We can't run the full `fetch_features_sql` against the live CH schema in
+        this trimmed query — the CTE → join is exactly where past bugs lived.
         """
         return """
         WITH eligible_sessions AS (

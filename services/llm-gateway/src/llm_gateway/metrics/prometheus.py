@@ -99,7 +99,7 @@ COST_BY_TEAM_USD = TopKCounter(
 RATE_LIMIT_EXCEEDED = Counter(
     "llm_gateway_rate_limit_exceeded_total",
     "Rate limit exceeded events",
-    labelnames=["scope"],
+    labelnames=["scope", "product"],
 )
 
 PRODUCT_COST_WINDOW_USD = Gauge(

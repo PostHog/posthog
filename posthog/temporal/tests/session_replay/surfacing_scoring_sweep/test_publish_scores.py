@@ -34,6 +34,12 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.constants import KA
 ACTIVITIES_MODULE = "posthog.temporal.session_replay.surfacing_scoring_sweep.activities"
 
 
+def _producer_mock(get_producer_mock: mock.MagicMock) -> mock.MagicMock:
+    producer = get_producer_mock.return_value
+    producer.flush.return_value = 0
+    return producer
+
+
 @pytest.fixture
 def id_frame() -> pd.DataFrame:
     """A minimal frame with the four ID columns `_publish_scores` reads from."""
@@ -70,7 +76,7 @@ class TestPublishScores:
     def test_publishes_one_message_per_row_and_flushes_once(self, id_frame: pd.DataFrame) -> None:
         scores = np.array([0.1, 0.5, 0.9], dtype=np.float32)
         with mock.patch(f"{ACTIVITIES_MODULE}.get_producer") as get_producer_mock:
-            producer = get_producer_mock.return_value
+            producer = _producer_mock(get_producer_mock)
             published = _publish_scores(id_frame, scores)
 
             assert published == 3
@@ -89,6 +95,7 @@ class TestPublishScores:
         """The score and distinct_id are the only two non-identity fields in the payload."""
         scores = np.array([0.1, 0.5, 0.9], dtype=np.float32)
         with mock.patch(f"{ACTIVITIES_MODULE}.get_producer") as get_producer_mock:
+            _producer_mock(get_producer_mock)
             _publish_scores(id_frame, scores)
 
             payloads = [call.kwargs["data"] for call in get_producer_mock.return_value.produce.call_args_list]
@@ -114,6 +121,7 @@ class TestPublishScores:
         change blows up loudly.
         """
         with mock.patch(f"{ACTIVITIES_MODULE}.get_producer") as get_producer_mock:
+            _producer_mock(get_producer_mock)
             _publish_scores(id_frame, np.array([0.42, 0.42, 0.42], dtype=np.float32))
 
             for call in get_producer_mock.return_value.produce.call_args_list:
@@ -158,6 +166,7 @@ class TestPublishScores:
             }
         )
         with mock.patch(f"{ACTIVITIES_MODULE}.get_producer") as get_producer_mock:
+            _producer_mock(get_producer_mock)
             _publish_scores(df, np.array([0.42], dtype=np.float32))
 
             (call,) = get_producer_mock.return_value.produce.call_args_list
@@ -173,7 +182,8 @@ class TestPublishScores:
         # future "optimization" doesn't pass np.float32 straight through.
         scores = np.array([0.1, 0.5, 0.9], dtype=np.float32)
         with mock.patch(f"{ACTIVITIES_MODULE}.get_producer") as get_producer_mock:
+            _producer_mock(get_producer_mock)
             _publish_scores(id_frame, scores)
             for call in get_producer_mock.return_value.produce.call_args_list:
-                assert isinstance(call.kwargs["data"]["surfacing_score"], float)
-                assert not isinstance(call.kwargs["data"]["surfacing_score"], np.floating)
+                score = call.kwargs["data"]["surfacing_score"]
+                assert type(score) is float

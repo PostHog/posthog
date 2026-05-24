@@ -125,7 +125,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_list",
-        description="List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_conversation_id. Ordered by most recent activity first by default.",
+        description="List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_session_id. Ordered by most recent activity first by default.",
         parameters=[
             OpenApiParameter(
                 name="search",

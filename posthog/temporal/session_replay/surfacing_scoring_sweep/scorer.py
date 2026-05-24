@@ -11,11 +11,8 @@ container image so the load is local + fast.
 
 The booster is the **single source of truth for the feature schema** —
 `get_feature_names()` returns the booster's embedded `feature_names`, and
-`features.assert_ranges_cover` runs at load time to fail loud if the
-booster declares a feature without a runtime range contract. A retrained
-booster with a different feature set updates serving without a code change
-to `features.py` (only `FEATURE_RANGES` needs to be kept in sync, which is
-itself enforced at warmup).
+`feature_schema.assert_serving_schema_parity` runs at load time to fail loud if
+SQL, ``FEATURE_RANGES``, or the booster drift apart.
 """
 
 from __future__ import annotations
@@ -28,7 +25,8 @@ import pandas as pd
 import xgboost as xgb
 import structlog
 
-from posthog.temporal.session_replay.surfacing_scoring_sweep.features import assert_ranges_cover, feature_matrix
+from posthog.temporal.session_replay.surfacing_scoring_sweep.feature_schema import assert_serving_schema_parity
+from posthog.temporal.session_replay.surfacing_scoring_sweep.features import feature_matrix
 
 logger = structlog.get_logger(__name__)
 
@@ -68,23 +66,26 @@ def _load_booster() -> xgb.Booster:
     any chunk is dispatched.
     """
     global _BOOSTER, _FEATURE_NAMES
-    if _BOOSTER is not None:
-        return _BOOSTER
+    cached_booster = _BOOSTER
+    if cached_booster is not None:
+        return cached_booster
 
     with _BOOSTER_LOCK:
-        if _BOOSTER is not None:
-            return _BOOSTER
+        cached_booster = _BOOSTER
+        if cached_booster is not None:
+            return cached_booster
 
         path = _model_path()
-        booster = xgb.Booster()
-        booster.load_model(path)
+        loaded_booster = xgb.Booster()
+        loaded_booster.load_model(path)
 
         # `booster.feature_names` is set when training passed `feature_names=`
         # to DMatrix. None / empty here means the model was trained without
         # explicit names, which serving cannot work with — the SELECT aliases
-        # have nothing to match against. assert_ranges_cover surfaces this.
-        names: tuple[str, ...] = tuple(booster.feature_names or ())
-        assert_ranges_cover(names)
+        # have nothing to match against. assert_serving_schema_parity surfaces
+        # SQL / FEATURE_RANGES / booster drift at boot.
+        names: tuple[str, ...] = tuple(loaded_booster.feature_names or ())
+        assert_serving_schema_parity(names)
 
         logger.info(
             "surfacing_scoring_sweep.model_loaded",
@@ -92,9 +93,9 @@ def _load_booster() -> xgb.Booster:
             num_features=len(names),
             feature_names=list(names),
         )
-        _BOOSTER = booster
+        _BOOSTER = loaded_booster
         _FEATURE_NAMES = names
-        return _BOOSTER
+        return loaded_booster
 
 
 def warmup() -> None:
@@ -117,14 +118,14 @@ def get_feature_names() -> tuple[str, ...]:
     `features.py`. Booster file = single source of truth for which features
     the model takes.
     """
-    if _FEATURE_NAMES is not None:
-        return _FEATURE_NAMES
+    cached_names = _FEATURE_NAMES
+    if cached_names is not None:
+        return cached_names
     _load_booster()
-    # `_FEATURE_NAMES` is set in lockstep with `_BOOSTER` inside `_load_booster`;
-    # the assert below is a defensive guard to make a programmer error obvious
-    # if the lockstep ever gets broken.
-    assert _FEATURE_NAMES is not None
-    return _FEATURE_NAMES
+    cached_names = _FEATURE_NAMES
+    if cached_names is None:
+        raise RuntimeError("Booster loaded but feature names cache is empty")
+    return cached_names
 
 
 class ScoreRangeError(Exception):

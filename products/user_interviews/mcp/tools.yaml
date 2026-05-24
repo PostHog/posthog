@@ -167,6 +167,22 @@ tools:
     user-interview-topics-interviewees-update:
         operation: user_interview_topics_interviewees_update
         enabled: false
+    user-interview-topics-links-csv:
+        operation: user_interview_topics_links_csv_create
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Export interview links for a topic as CSV
+        description: >
+            Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a
+            downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`.
+            Use this when the human plans to mail-merge the links into their own email tooling rather than letting
+            PostHog send the invites.
+        feature_flag: user-interviews
     user-interview-topics-list:
         operation: user_interview_topics_list
         enabled: true

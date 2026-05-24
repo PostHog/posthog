@@ -33,6 +33,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.activities import _
 from posthog.temporal.session_replay.surfacing_scoring_sweep.features import ID_COLUMNS, validate_features
 from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import get_feature_names, predict
 from posthog.temporal.session_replay.surfacing_scoring_sweep.types import ChunkSpec
+from posthog.temporal.tests.session_replay.surfacing_scoring_sweep.ch_insert_helpers import insert_session_replay_event
 
 
 class TestScoreChunkPipelineClickhouse(ClickhouseTestMixin, BaseTest):
@@ -58,16 +59,11 @@ class TestScoreChunkPipelineClickhouse(ClickhouseTestMixin, BaseTest):
         Mirrors what real ingestion writes (one chunk row with min/max timestamps)
         but leaves surfacing_score NULL so the HAVING filter picks the row up.
         """
-        sync_execute(
-            "INSERT INTO writable_session_replay_events "
-            "(session_id, team_id, distinct_id, min_first_timestamp, max_last_timestamp) "
-            "VALUES (%(session_id)s, %(team_id)s, %(distinct_id)s, %(start)s, now64(6))",
-            {
-                "session_id": self.session_id,
-                "team_id": self.team.id,
-                "distinct_id": self.distinct_id,
-                "start": self.session_start,
-            },
+        insert_session_replay_event(
+            team_id=self.team.id,
+            session_id=self.session_id,
+            distinct_id=self.distinct_id,
+            start=self.session_start,
         )
 
     def _seed_replay_features(self) -> None:

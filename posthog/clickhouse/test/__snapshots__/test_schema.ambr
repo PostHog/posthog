@@ -309,7 +309,7 @@
       version UInt64,
       is_deleted UInt8
   )
-  ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
   
   '''
@@ -574,7 +574,8 @@
       `team_id` Int64,
       `property_type` LowCardinality(String),
       `property_key` String,
-      `property_value` String
+      `property_value` String,
+      `property_count` UInt64
   ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
   
   '''
@@ -2136,7 +2137,7 @@
       version UInt64,
       is_deleted UInt8
   )
-  ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
+  ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_hog_invocation_results_test', kafka_group_name = 'clickhouse_hog_invocation_results', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
   
   '''
@@ -2401,7 +2402,8 @@
       `team_id` Int64,
       `property_type` LowCardinality(String),
       `property_key` String,
-      `property_value` String
+      `property_value` String,
+      `property_count` UInt64
   ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
   
   '''
@@ -2661,12 +2663,12 @@
   
       -- temporary columns for materialized views, these expire immediately after initially created but
       -- are around for materialized views which pull off from this table
-      `_partition` UInt32 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-      `_topic` String TTL created_at + interval 1 second,
-      `_offset` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-      `_bytes_uncompressed` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-      `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-      `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
+      `_partition` UInt32 CODEC(DoubleDelta, ZSTD(1)),
+      `_topic` String,
+      `_offset` UInt64 CODEC(DoubleDelta, ZSTD(1)),
+      `_bytes_uncompressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
+      `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
+      `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)),
   
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -3714,7 +3716,7 @@
       property_type,
       property_key,
       property_value,
-      toUInt64(1) as property_count,
+      property_count,
       coalesce(_timestamp, now()) as last_seen
   FROM posthog_test.kafka_property_values
   WHERE lengthUTF8(property_key) > 0
@@ -6140,6 +6142,41 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_web_overview_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_web_overview_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Hourly UTC bucket. Reads filter by [window_start_utc, window_end_utc).
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Aggregate states matching WebOverviewQueryRunner.outer_select metrics.
+      -- `uniq` (HyperLogLog) is used over `uniqExact` because HogQL exposes
+      -- `uniqMergeIf` but not `uniqExactMergeIf`, and ~99% accuracy is fine for the
+      -- dashboard use case (matches the v2 pre-aggregation choice).
+      uniq_users_state AggregateFunction(uniq, UUID),
+      uniq_sessions_state AggregateFunction(uniq, String),
+      sum_pageviews_state AggregateFunction(sum, Int64),
+      avg_duration_state AggregateFunction(avg, Float64),
+      avg_bounce_state AggregateFunction(avg, Int64),
+  
+      -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day precision so the framework can attach TTLs like 15 min for "today".
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_overview_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, time_window_start)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
 # name: test_create_table_query[tophog]
   '''
   
@@ -6174,6 +6211,36 @@
       lane,
       labels
   FROM kafka_tophog
+  
+  '''
+# ---
+# name: test_create_table_query[web_overview_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS web_overview_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Hourly UTC bucket. Reads filter by [window_start_utc, window_end_utc).
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Aggregate states matching WebOverviewQueryRunner.outer_select metrics.
+      -- `uniq` (HyperLogLog) is used over `uniqExact` because HogQL exposes
+      -- `uniqMergeIf` but not `uniqExactMergeIf`, and ~99% accuracy is fine for the
+      -- dashboard use case (matches the v2 pre-aggregation choice).
+      uniq_users_state AggregateFunction(uniq, UUID),
+      uniq_sessions_state AggregateFunction(uniq, String),
+      sum_pageviews_state AggregateFunction(sum, Int64),
+      avg_duration_state AggregateFunction(avg, Float64),
+      avg_bounce_state AggregateFunction(avg, Int64),
+  
+      -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day precision so the framework can attach TTLs like 15 min for "today".
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_web_overview_preaggregated', sipHash64(job_id))
   
   '''
 # ---
@@ -7589,12 +7656,12 @@
   
       -- temporary columns for materialized views, these expire immediately after initially created but
       -- are around for materialized views which pull off from this table
-      `_partition` UInt32 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-      `_topic` String TTL created_at + interval 1 second,
-      `_offset` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-      `_bytes_uncompressed` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-      `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
-      `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)) TTL created_at + interval 1 second,
+      `_partition` UInt32 CODEC(DoubleDelta, ZSTD(1)),
+      `_topic` String,
+      `_offset` UInt64 CODEC(DoubleDelta, ZSTD(1)),
+      `_bytes_uncompressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
+      `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
+      `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)),
   
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -9355,6 +9422,41 @@
   ORDER BY (pipeline, lane, metric, timestamp, key)
   
   SETTINGS ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_web_overview_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_web_overview_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      -- Hourly UTC bucket. Reads filter by [window_start_utc, window_end_utc).
+      time_window_start DateTime64(6, 'UTC'),
+  
+      -- Aggregate states matching WebOverviewQueryRunner.outer_select metrics.
+      -- `uniq` (HyperLogLog) is used over `uniqExact` because HogQL exposes
+      -- `uniqMergeIf` but not `uniqExactMergeIf`, and ~99% accuracy is fine for the
+      -- dashboard use case (matches the v2 pre-aggregation choice).
+      uniq_users_state AggregateFunction(uniq, UUID),
+      uniq_sessions_state AggregateFunction(uniq, String),
+      sum_pageviews_state AggregateFunction(sum, Int64),
+      avg_duration_state AggregateFunction(avg, Float64),
+      avg_bounce_state AggregateFunction(avg, Int64),
+  
+      -- ReplacingMergeTree version column: latest INSERT wins on duplicate ORDER BY keys.
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+      -- Sub-day precision so the framework can attach TTLs like 15 min for "today".
+      expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.web_overview_preaggregated', '{replica}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, time_window_start)
+  TTL toDateTime(expires_at)
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---

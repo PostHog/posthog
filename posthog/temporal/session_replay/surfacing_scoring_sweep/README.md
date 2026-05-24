@@ -81,6 +81,30 @@ The serving SELECT mirrors the training query verbatim: same
 column names, same arithmetic — so any drift between training and serving
 shows up as a `validate_features` failure rather than silent score skew.
 
+### Feature schema sync (SQL ↔ FEATURE_RANGES ↔ booster)
+
+Three artifacts must stay identical (same columns, same order):
+
+| Artifact | Source of truth for |
+| -------- | ------------------- |
+| `fetch_features_sql()` final SELECT aliases | What ClickHouse returns |
+| `FEATURE_RANGES` keys in `features.py` | Runtime dtype/range validation |
+| `booster.feature_names` in `model.ubj` | What XGBoost predicts on |
+
+`feature_schema.py` enforces parity:
+
+- **Worker boot** (`scorer.warmup()`, wired from `start_temporal_worker`): runs
+  `assert_serving_schema_parity()` — a drifted deploy fails before accepting
+  chunks.
+- **CI** (`test_sql_alignment.py`): same checks against the bundled `model.ubj`.
+- **Retrain workflow**: after changing SQL or `FEATURE_RANGES`, regenerate the
+  model with `python bin/generate_surfacing_placeholder_model.py` (placeholder)
+  or mount a prod-trained `.ubj` whose `feature_names` match the SELECT list.
+
+When adding/removing a feature: update `sql.py` SELECT + `FEATURE_RANGES`,
+retrain/replace the booster, bump `MODEL_FEATURE_SCHEMA_VERSION`, rerun the
+alignment tests.
+
 Sessions without replay features are dropped by the inner join and stay
 NULL in `session_replay_events`. They re-appear on subsequent ticks until
 they age out of the lookback window. That's deliberate — the model can't

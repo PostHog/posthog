@@ -598,6 +598,11 @@ class Command(BaseCommand):
             )
             logger.info("Starting Temporal Worker")
 
+            if task_queue == settings.SURFACING_SCORING_SWEEP_TASK_QUEUE:
+                from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import warmup
+
+                warmup()
+
             worker = runner.run(
                 create_worker(
                     temporal_host,

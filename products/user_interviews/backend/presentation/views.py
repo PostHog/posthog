@@ -10,18 +10,22 @@ from django.core.files import File
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
+from django.utils.text import slugify
 
 import structlog
 import posthoganalytics
 import posthoganalytics.ai.openai
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
 from rest_framework import filters, response, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.request import Request
+from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import EmbeddingModelName, ProductKey
 
@@ -37,6 +41,7 @@ from posthog.email import EmailMessage, is_email_available
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.tasks.exports.csv_exporter import _sanitize_formula_injection
 from posthog.utils import absolute_uri
 
 from ..facade.api import parse_interviewee_identifier
@@ -46,6 +51,12 @@ from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInte
 logger = structlog.get_logger(__name__)
 
 elevenlabs_client = ElevenLabs()
+
+
+class _InterviewLinksCSVRenderer(csvrenderers.CSVRenderer):
+    """Lock the CSV column order for interview-links exports."""
+
+    header = ["interviewee_identifier", "interviewee_email", "user_name", "interview_url"]
 
 
 class UserInterviewSerializer(serializers.ModelSerializer):
@@ -725,6 +736,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "patch",
         "destroy",
         "generate_links",
+        "links_csv",
         "send_invites",
         "add_interviewee",
         "remove_interviewee",
@@ -773,6 +785,58 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for r in results
         ]
         return response.Response(InterviewLinkSerializer(payload, many=True).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            (200, "text/csv"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description=(
+                    "CSV with columns: interviewee_identifier, interviewee_email, user_name, interview_url. "
+                    "One row per targeted interviewee."
+                ),
+            )
+        },
+        description=(
+            "Same materialization as generate_links, returned as a downloadable CSV. "
+            "Intended for users who want to mail-merge the per-person interview links "
+            "into their own email tooling."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="links_csv",
+        renderer_classes=[_InterviewLinksCSVRenderer],
+    )
+    def links_csv(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        topic = self.get_object()
+        results = _materialize_links_for_topic(topic=topic, team=self.team, created_by=request.user)
+
+        if not results:
+            raise ValidationError(
+                {
+                    "error": (
+                        "Topic has no interviewee_emails or interviewee_distinct_ids set. "
+                        "Add them before generating links."
+                    )
+                }
+            )
+
+        rows = [
+            {
+                "interviewee_identifier": _sanitize_formula_injection(r["identifier"]),
+                "interviewee_email": _sanitize_formula_injection(r["email"] or ""),
+                "user_name": _sanitize_formula_injection(r["user_name"]),
+                "interview_url": _sanitize_formula_injection(r["interview_url"]),
+            }
+            for r in results
+        ]
+        filename = f"{slugify(topic.topic or 'user-interview')}-links.csv"
+        return response.Response(
+            rows,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @extend_schema(
         request=SendInvitesRequestSerializer,

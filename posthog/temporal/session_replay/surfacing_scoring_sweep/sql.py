@@ -80,23 +80,6 @@ SESSION_REPLAY_FEATURES_TABLE = "session_replay_features"
 # --------------------------------------------------------------------------- #
 # Aggregate fragment over `session_replay_features`.                           #
 # Identical column-by-column to the training query's CTE.                      #
-#                                                                              #
-# Schema gap: the columns below NOT yet on the live `session_replay_features`  #
-# DDL (`posthog/session_recordings/sql/session_replay_feature_sql.py`):        #
-# `scroll_to_top_count`, `backspace_count`, `long_idle_gap_count`,             #
-# `console_warn_count`, `network_4xx_count`, `network_5xx_count`,              #
-# `mutation_count`, `viewport_resize_count`, `touch_event_count`,              #
-# `selection_copy_count`, every `*_path_visit_count`, and                      #
-# `unique_form_field_count`. They land via the replay-features ALTER + Kafka   #
-# MV update — until that ships, this query will fail with `Unknown identifier` #
-# for those columns. Tracked alongside the retrain in the open follow-ups.    #
-#                                                                              #
-# `uniqCombinedMerge(12)` requires the underlying state to be                  #
-# `AggregateFunction(uniqCombined(12), ...)` — the live DDL still uses         #
-# `AggregateFunction(uniqExact, ...)`. Switching the merge function without    #
-# migrating the state type produces a wire-format error at query time. Either  #
-# the DDL migrates to `uniqCombined(12)` (training query intent) or the merge  #
-# here needs to be `uniqExactMerge` to match what's actually stored.           #
 # --------------------------------------------------------------------------- #
 _AGGREGATED_STATS_FRAGMENT = """
 SELECT

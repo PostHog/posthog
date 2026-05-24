@@ -2,22 +2,24 @@ import { ClickHouseClient } from '@clickhouse/client'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
-import { HogInputsService } from '../services/hog-inputs.service'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
-import { HogInvocationResultsService } from '../services/monitoring/hog-invocation-results.service'
+import {
+    HogInvocationResultsService,
+    decodeInvocationGlobals,
+} from '../services/monitoring/hog-invocation-results.service'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     HogFunctionFilterGlobals,
-    HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { RERUN_PAGE_SIZE, RerunFunctionKind, RerunJobProgress, RerunJobState } from './rerun-job.types'
@@ -72,6 +74,17 @@ export interface PageOutcome {
 }
 
 /**
+ * Re-enqueue targets keyed by rerun function kind. Mirrors the split in
+ * cdp-events-consumer — hog functions go to kafka, hog flows to postgres-v2.
+ * Keying by kind (rather than two positional queue args of similar shape)
+ * stops the two backends from being swapped by mistake.
+ */
+export interface RerunJobQueues {
+    hog_function: JobQueue
+    hog_flow: CyclotronJobQueuePostgresV2
+}
+
+/**
  * Context the worker passes alongside the parsed state on each page. Lets the
  * paginator stamp wrapper lifecycle rows with the right `invocation_id`
  * (= cyclotron job id) and a stable `scheduled_at` for the wrapper across pages.
@@ -93,9 +106,9 @@ export class RerunPaginatorService {
         private clickhouse: ClickHouseClient,
         private hogFunctionManager: HogFunctionManagerService,
         private hogFlowManager: HogFlowManagerService,
-        private hogInputsService: HogInputsService,
         private invocationResultsRowsService: HogInvocationResultsService,
-        private cyclotronJobQueue: CyclotronJobQueue,
+        // Re-enqueue targets keyed by function kind — see RerunJobQueues.
+        private jobQueues: RerunJobQueues,
         private monitoringService: HogFunctionMonitoringService,
         // Mirror of the Django serializer cap (HOG_INVOCATION_RERUN_MAX_COUNT env var).
         private maxCount: number
@@ -120,42 +133,47 @@ export class RerunPaginatorService {
 
             let conflictSkipped = 0
             if (queuedInvocations.length > 0) {
-                // Rerun re-uses the original invocation_id. Routing is the
-                // same as cdp-events-consumer (`getTarget()` per invocation —
-                // hog → kafka, hog_flow → postgres-v2). `overwriteExisting`
-                // only matters for the v2 path: it upserts ONLY when the
-                // existing cyclotron row is in a terminal state. If a v2-
-                // routed invocation's row is still active, the v2 manager
-                // raises CyclotronJobConflictError listing the conflicting
-                // ids — skip those, still queue the rest. Kafka-routed
-                // invocations can't conflict (no PK) and v1 is unsupported
-                // for rerun (throws at the queue boundary).
+                // Rerun re-uses the original invocation_id. A rerun job is
+                // scoped to a single function kind, so the whole page routes to
+                // one backend — hog → kafka, hog_flow → postgres-v2, the same
+                // split cdp-events-consumer uses.
                 let invocationsToEnqueue = queuedInvocations
-                try {
-                    await this.cyclotronJobQueue.queueInvocations(invocationsToEnqueue, {
-                        overwriteExisting: true,
-                    })
-                } catch (e) {
-                    if (!(e instanceof CyclotronJobConflictError)) {
-                        throw e
+                if (function_kind === 'hog_flow') {
+                    // postgres-v2. `overwriteExisting` upserts ONLY when the
+                    // existing cyclotron row is in a terminal state. If a row
+                    // is still active, the v2 manager raises
+                    // CyclotronJobConflictError listing the conflicting ids —
+                    // skip those, still queue the rest.
+                    try {
+                        await this.jobQueues.hog_flow.queueInvocations(invocationsToEnqueue, {
+                            overwriteExisting: true,
+                        })
+                    } catch (e) {
+                        if (!(e instanceof CyclotronJobConflictError)) {
+                            throw e
+                        }
+                        const raw = e.conflictingIds
+                        const conflictingIds = new Set(Array.isArray(raw) ? raw : [raw])
+                        logger.warn('Rerun skipping invocations that are still in-flight', {
+                            rerun_function_kind: function_kind,
+                            rerun_function_id: function_id,
+                            conflicting_invocation_ids: Array.from(conflictingIds),
+                        })
+                        conflictSkipped = conflictingIds.size
+                        for (let i = 0; i < conflictSkipped; i++) {
+                            counterRerunInvocationsSkipped.labels(function_kind, 'still_in_flight').inc()
+                        }
+                        // The conflicting invocations also queued a 'running'
+                        // lifecycle row above — drop them so we don't show a
+                        // stale running row for an invocation that didn't
+                        // actually re-enqueue.
+                        invocationsToEnqueue = queuedInvocations.filter((i) => !conflictingIds.has(i.id))
+                        this.invocationResultsRowsService.dropQueuedRowsFor(Array.from(conflictingIds))
                     }
-                    const raw = e.conflictingIds
-                    const conflictingIds = new Set(Array.isArray(raw) ? raw : [raw])
-                    logger.warn('Rerun skipping invocations that are still in-flight', {
-                        rerun_function_kind: function_kind,
-                        rerun_function_id: function_id,
-                        conflicting_invocation_ids: Array.from(conflictingIds),
-                    })
-                    conflictSkipped = conflictingIds.size
-                    for (let i = 0; i < conflictSkipped; i++) {
-                        counterRerunInvocationsSkipped.labels(function_kind, 'still_in_flight').inc()
-                    }
-                    // The conflicting invocations also queued a 'running'
-                    // lifecycle row above — drop them so we don't show a stale
-                    // running row for an invocation that didn't actually
-                    // re-enqueue.
-                    invocationsToEnqueue = queuedInvocations.filter((i) => !conflictingIds.has(i.id))
-                    this.invocationResultsRowsService.dropQueuedRowsFor(Array.from(conflictingIds))
+                } else {
+                    // kafka. No PK, so a re-enqueue with the original
+                    // invocation_id can't conflict — no overwrite path needed.
+                    await this.jobQueues.hog_function.queueInvocations(invocationsToEnqueue)
                 }
                 await this.invocationResultsRowsService.flush()
                 counterRerunInvocationsQueued.labels(function_kind).inc(invocationsToEnqueue.length)
@@ -422,39 +440,56 @@ export class RerunPaginatorService {
         rows: InvocationRow[]
     ): Promise<{ queued: number; skipped: number; queuedInvocations: CyclotronJobInvocation[] }> {
         const maxAttempts = state.request.filter.max_attempts
-        const queuedInvocations: CyclotronJobInvocation[] = []
-        let skipped = 0
 
-        for (const row of rows) {
-            if (maxAttempts !== undefined && row.attempts >= maxAttempts) {
-                counterRerunInvocationsSkipped.labels(state.function_kind, 'over_max_attempts').inc()
-                skipped++
+        // Rehydrate the whole page concurrently — `addGroupsToGlobals` and the
+        // hog function manager are LazyLoader-backed and batch their DB lookups
+        // across concurrent callers, so a sequential loop would defeat that.
+        const rehydrated = await Promise.all(
+            rows.map(async (row): Promise<CyclotronJobInvocation | null> => {
+                if (maxAttempts !== undefined && row.attempts >= maxAttempts) {
+                    counterRerunInvocationsSkipped.labels(state.function_kind, 'over_max_attempts').inc()
+                    return null
+                }
+                try {
+                    const invocation = await this.rehydrateInvocation(
+                        teamId,
+                        state.function_kind,
+                        state.function_id,
+                        row
+                    )
+                    if (!invocation) {
+                        counterRerunInvocationsSkipped.labels(state.function_kind, 'rehydrate_failed').inc()
+                    }
+                    return invocation
+                } catch (e) {
+                    logger.error('Rerun failed to rehydrate invocation', {
+                        error: e instanceof Error ? e.message : String(e),
+                        invocation_id: row.invocation_id,
+                    })
+                    counterRerunInvocationsSkipped.labels(state.function_kind, 'exception').inc()
+                    return null
+                }
+            })
+        )
+
+        const queuedInvocations: CyclotronJobInvocation[] = []
+        for (const invocation of rehydrated) {
+            if (!invocation) {
                 continue
             }
-            try {
-                const invocation = await this.rehydrateInvocation(teamId, state.function_kind, state.function_id, row)
-                if (!invocation) {
-                    counterRerunInvocationsSkipped.labels(state.function_kind, 'rehydrate_failed').inc()
-                    skipped++
-                    continue
-                }
-                // Rerun-start lifecycle row. is_retry/attempts are derived from
-                // `state.rerunAttempts` (set by rehydrateInvocation above). The
-                // matching terminal row is written by the worker when the
-                // invocation finishes — same derivation, same is_retry=1.
-                this.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
-                queuedInvocations.push(invocation)
-            } catch (e) {
-                logger.error('Rerun failed to rehydrate invocation', {
-                    error: e instanceof Error ? e.message : String(e),
-                    invocation_id: row.invocation_id,
-                })
-                counterRerunInvocationsSkipped.labels(state.function_kind, 'exception').inc()
-                skipped++
-            }
+            // Rerun-start lifecycle row. is_retry/attempts are derived from
+            // `state.rerunAttempts` (set by rehydrateInvocation). The matching
+            // terminal row is written by the worker when the invocation
+            // finishes — same derivation, same is_retry=1.
+            this.invocationResultsRowsService.queueLifecycleRow(invocation, 'running')
+            queuedInvocations.push(invocation)
         }
 
-        return { queued: queuedInvocations.length, skipped, queuedInvocations }
+        return {
+            queued: queuedInvocations.length,
+            skipped: rows.length - queuedInvocations.length,
+            queuedInvocations,
+        }
     }
 
     private async rehydrateInvocation(
@@ -465,7 +500,7 @@ export class RerunPaginatorService {
     ): Promise<CyclotronJobInvocation | null> {
         let parsedGlobals: unknown
         try {
-            parsedGlobals = parseJSON(row.invocation_globals)
+            parsedGlobals = await decodeInvocationGlobals(row.invocation_globals)
         } catch {
             return null
         }
@@ -475,18 +510,18 @@ export class RerunPaginatorService {
             if (!hogFunction || hogFunction.team_id !== teamId) {
                 return null
             }
-            // The persisted globals have `inputs` stripped — secrets stay out
-            // of ClickHouse. Re-resolve inputs here from the current hog function
-            // config + integration store, which also gives the rerun run any
-            // input changes the user made since the original invocation.
-            const persistedGlobals = parsedGlobals as HogFunctionInvocationGlobals
-            const globalsWithInputs = await this.hogInputsService.buildInputsWithGlobals(hogFunction, persistedGlobals)
+            // The persisted globals are minimal — `inputs`, `groups` and
+            // `person` are all stripped. Re-enqueue as-is: the cyclotron worker
+            // rehydrates `groups`/`person` and the executor rebuilds `inputs`
+            // from the current hog function config, so the rerun runs against
+            // the latest config/secrets rather than a stored snapshot.
+            const persistedGlobals = parsedGlobals as HogFunctionInvocationGlobalsWithInputs
             const invocation: CyclotronJobInvocationHogFunction = {
                 // Preserve invocation_id so lifecycle rows collapse under the
                 // ReplacingMergeTree on the same key.
                 id: row.invocation_id,
                 state: {
-                    globals: globalsWithInputs,
+                    globals: persistedGlobals,
                     timings: [],
                     // `attempts` is the fetch-retry counter and is reset to 0
                     // for the rerun run. `rerunAttempts` (read from the

@@ -249,7 +249,12 @@ def _publish_scores(df: pd.DataFrame, scores: np.ndarray) -> int:
 
     # Flush so we don't ack the activity to the workflow before librdkafka has
     # actually delivered every message.
-    producer.flush(timeout=KAFKA_PRODUCE_FLUSH_TIMEOUT_S)
+    remaining = producer.flush(timeout=KAFKA_PRODUCE_FLUSH_TIMEOUT_S)
+    if remaining > 0:
+        raise RuntimeError(
+            f"{remaining} surfacing_score message(s) not delivered within "
+            f"{KAFKA_PRODUCE_FLUSH_TIMEOUT_S}s — chunk will retry"
+        )
 
     return rows_published
 
