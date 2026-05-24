@@ -482,10 +482,12 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                     ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id),
                     config=config,
                 )
-            if not isinstance(result, LangchainToolMessage):
-                raise ValueError(
-                    f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
-                )
+                # Keep the type-mismatch raise inside the span so OTel records the exception
+                # on the tool.invoke span rather than on its (unrelated) parent.
+                if not isinstance(result, LangchainToolMessage):
+                    raise ValueError(
+                        f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+                    )
 
             # Track successful tool execution
             user_distinct_id = self._get_user_distinct_id(config)

@@ -171,6 +171,7 @@ class AgentExecutor:
                             "Existing workflow still running, using existing handle",
                             workflow_id=self._workflow_id,
                         )
+                        span.set_attribute("posthog_ai.start_workflow.attempts", attempt + 1)
                         return existing_handle
                     except Exception:
                         # Workflow completed (possibly with error), retry starting a new one
