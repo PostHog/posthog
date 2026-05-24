@@ -559,12 +559,10 @@ impl<'a> Parser<'a> {
         if self.eat_kw(Kw::Where)? {
             obj.insert("where".into(), self.parse_expr_bp(0)?);
         }
-        // `(USING? SAMPLE …)?` — the grammar allows a SAMPLE clause at
-        // SELECT level (before GROUP BY *and* after QUALIFY). Both
-        // positions attach to the FROM table's existing JoinExpr.sample
-        // slot. The leading USING is optional in the first position
-        // and required in the second; we just accept either.
-        self.try_attach_select_level_sample(&mut obj)?;
+        // `(USING? sampleClause)?` — slot 1, before GROUP BY. USING is
+        // optional here, so a bare SAMPLE is allowed (the cpp visitor drops the
+        // value either way; we mirror the silent drop).
+        self.try_attach_select_level_sample(&mut obj, false)?;
         if matches!(self.peek(), TokenKind::Keyword(Kw::Group))
             && self.peek_next() == TokenKind::Keyword(Kw::By)
         {
@@ -684,9 +682,11 @@ impl<'a> Parser<'a> {
         if self.eat_kw(Kw::Qualify)? {
             obj.insert("qualify".into(), self.parse_expr_bp(0)?);
         }
-        // Second `USING SAMPLE` opportunity per the grammar (after
-        // QUALIFY, before WINDOW). Same attach-to-FROM-table logic.
-        self.try_attach_select_level_sample(&mut obj)?;
+        // Slot 2 (`(USING sampleClause)?`, after QUALIFY, before WINDOW). USING
+        // is REQUIRED here — a bare SAMPLE has no grammar slot at this point
+        // (nor after GROUP BY / HAVING, which also reach here), so cpp rejects
+        // it. Require USING to match.
+        self.try_attach_select_level_sample(&mut obj, true)?;
         // WINDOW clause — minimal: WINDOW name AS (...) [, ...].
         if self.eat_kw(Kw::Window)? {
             let mut windows = serde_json::Map::new();
@@ -1296,10 +1296,19 @@ impl<'a> Parser<'a> {
     fn try_attach_select_level_sample(
         &mut self,
         _obj: &mut serde_json::Map<String, Value>,
+        require_using: bool,
     ) -> Result<(), ParseError> {
+        // Grammar slot 1 (`(USING? sampleClause)?`, before GROUP BY) makes the
+        // USING optional, so a bare SAMPLE is allowed. Slot 2 (`(USING
+        // sampleClause)?`, after QUALIFY) REQUIRES USING — a bare SAMPLE there
+        // (or after GROUP BY / HAVING, which reach this call) has no grammar
+        // slot, so cpp rejects it. Only accept `USING SAMPLE` when
+        // `require_using`.
         let saw_sample = if self.peek_kw2(Kw::Using, Kw::Sample) {
             self.bump()?; // USING
             true
+        } else if require_using {
+            false
         } else {
             matches!(self.peek(), TokenKind::Keyword(Kw::Sample))
         };

@@ -665,3 +665,31 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_expr(query, backend="rust-json"),
                 msg=query,
             )
+
+    @no_memory_leak_check
+    def test_select_level_sample_requires_using_except_before_group_by(self):
+        # Bare SAMPLE is a SELECT-level clause only in slot 1 (`USING?
+        # sampleClause`, before GROUP BY) — and on the FROM table. After
+        # GROUP BY / HAVING / QUALIFY the only slot is `USING sampleClause`
+        # (USING required); a bare SAMPLE there has no grammar slot, so cpp
+        # rejects it. rust used to consume and silently drop it.
+        for query in (
+            "select 1 from t where x sample 0.1",
+            "select 1 from t sample 0.1",
+            "select 1 from t prewhere x sample 0.1",
+            "select 1 from t qualify z using sample 0.1",
+            "select 1 from t group by x using sample 0.1",
+        ):
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )
+        for query in (
+            "select 1 from t group by x sample 0.1",
+            "select 1 from t group by x having y sample 0.1",
+            "select 1 from t qualify z sample 0.1",
+        ):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
