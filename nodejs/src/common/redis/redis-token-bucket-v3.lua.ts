@@ -50,9 +50,14 @@ else
   tokensBefore = currentTokens + (timeDiffSeconds * fillRate)
 end
 
+-- Drain partially on overdraft: store max(0, tokensBefore - cost) capped at
+-- poolMax. Public return stays -1 on denial so callers' tokens<=0 check works,
+-- and the bucket reflects the actual consumption so cross-batch budgeting is
+-- tight (and never wedges at -1).
+local poolToStore = math.min(math.max(0, tokensBefore - cost), poolMax)
 local tokensAfter
 if tokensBefore - cost >= 0 then
-  tokensAfter = math.min(tokensBefore - cost, poolMax)
+  tokensAfter = poolToStore
 else
   tokensAfter = -1
 end
@@ -65,7 +70,7 @@ else
   tsToWrite = now
 end
 
-redis.call('hset', key, 'ts', tsToWrite, 'pool', tokensAfter)
+redis.call('hset', key, 'ts', tsToWrite, 'pool', poolToStore)
 
 -- Set TTL ceiling at (expiry * 2) on creation, then refresh when remaining
 -- TTL drops below expiry/2. PTTL returns -1 (no TTL) and -2 (missing key)

@@ -259,7 +259,7 @@ describe('KeyedRateLimiterService', () => {
                 const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
                 lastAfterRecovery = res[0][1].tokens
             }
-            expect(lastAfterRecovery).toBeGreaterThanOrEqual(0)
+            expect(lastAfterRecovery).toBeGreaterThanOrEqual(4)
         })
 
         it('refreshes the V2 TTL on every call', async () => {
@@ -495,6 +495,39 @@ describe('KeyedRateLimiterService', () => {
             const stored = await readBucket(key)
             expect(stored.ts).toBe(String(Math.round(now / 1000)))
             expect(stored.pool).toBe('95')
+        })
+
+        it('recovers from overdraft under sustained sub-2 fillRate (V3 wedge regression)', async () => {
+            const limiter = buildLimiter('grouped-v3-wedge', { bucketSize: 10, refillRate: 1.5 })
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+            let lastDuringDrain = 0
+            for (let i = 0; i < 100; i++) {
+                const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
+                lastDuringDrain = res[0][1].tokens
+            }
+            expect(lastDuringDrain).toBe(-1)
+
+            let lastAfterRecovery = -1
+            for (let i = 0; i < 10; i++) {
+                advanceTime(1000)
+                const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
+                lastAfterRecovery = res[0][1].tokens
+            }
+            expect(lastAfterRecovery).toBeGreaterThanOrEqual(4)
+        })
+
+        it('drains the bucket on overdraft so the next batch sees an empty pool', async () => {
+            const limiter = buildLimiter('grouped-drain', { bucketSize: 100, refillRate: 0 })
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+            const key = `${limiter.getKeyPrefix()}/team-1`
+
+            const requests = Array.from({ length: 200 }, () => ({ id: 'team-1', cost: 1 }))
+            await limiter.rateLimitGrouped(requests)
+            expect((await readBucket(key)).pool).toBe('0')
+
+            const next = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
+            expect(next[0][1].isRateLimited).toBe(true)
         })
     })
 })

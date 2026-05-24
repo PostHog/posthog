@@ -137,13 +137,9 @@ export class KeyedRateLimiterService {
     }
 
     /**
-     * Coalesced variant of rateLimitMany. Same input/output shape, but N inputs
-     * across M unique ids dispatch only M Redis calls — per-input decisions are
-     * fanned out client-side from each id's `tokensBefore`. For uniform-cost
-     * batches the per-input decisions match rateLimitMany exactly.
-     *
-     * Uses the V3 lua script (HMGET + multi-field HSET + conditional EXPIRE).
-     * Per-id bucket params come from the first request seen for that id.
+     * V3-backed grouped limiter. N inputs across M unique ids → M Redis calls;
+     * per-input decisions fan out client-side from `tokensBefore`. Lua drains
+     * partially on overdraft (stored pool = max(0, tokensBefore - cost)).
      */
     public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
