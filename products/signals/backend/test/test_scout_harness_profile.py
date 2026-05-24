@@ -12,9 +12,7 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
-from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.alert import AlertConfiguration
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.hog_flow.hog_flow import HogFlow
@@ -23,11 +21,13 @@ from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 
+from products.actions.backend.models.action import Action
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
-from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, build_inventory
+from products.signals.backend.models import SignalProjectProfile, SignalReport, SignalSourceConfig
+from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, Inventory, build_inventory
 from products.signals.backend.scout_harness.profile.builders import (
     RECENT_ACTIVITY_WINDOW_DAYS,
     _existing_inbox_reports,
@@ -54,8 +54,8 @@ from products.signals.backend.scout_harness.tools.profile import (
     compute_project_profile,
     get_project_profile,
 )
-from products.signals.backend.models import SignalProjectProfile, SignalReport, SignalSourceConfig
 from products.surveys.backend.models import Survey
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 class TestProjectContext(BaseTest):
@@ -586,9 +586,10 @@ class TestRecentActivity(BaseTest):
 
 
 class TestBuildInventory(BaseTest):
-    def test_returns_all_inventory_keys(self) -> None:
+    def test_returns_a_validated_inventory_with_all_sections(self) -> None:
         inventory = build_inventory(self.team)
-        assert set(inventory.keys()) == {
+        assert isinstance(inventory, Inventory)
+        assert set(inventory.model_dump().keys()) == {
             "project_context",
             "products_in_use",
             "product_intents",
@@ -609,6 +610,12 @@ class TestBuildInventory(BaseTest):
             "recent_actions",
             "top_events",
         }
+
+    def test_persisted_payload_revalidates_against_the_schema(self) -> None:
+        # The stored jsonb is the dumped model; round-tripping it back through `Inventory`
+        # is the contract the scout skills rely on, so guard that the dump stays valid.
+        profile = compute_project_profile(team=self.team)
+        Inventory.model_validate(profile.payload["inventory"])
 
 
 class TestComputeProjectProfile(BaseTest):

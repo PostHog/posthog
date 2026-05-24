@@ -2,8 +2,8 @@
 
 Reads only authoritative tables — no scout-style inference. Each source-reader is its own
 private function so individual sources can be added, swapped, or stubbed out without
-touching the orchestration. Output is a plain dict that the tools layer wraps into a
-`SignalProjectProfile.payload`.
+touching the orchestration. Output is a validated `Inventory` model (see `schema.py`);
+the tools layer dumps it into the `SignalProjectProfile.payload` jsonb column.
 
 Sections fall into three layers. **Capability / configured (sticky)** — `project_context`,
 `products_in_use`, `product_intents`, `integrations`, `external_data_sources`,
@@ -34,9 +34,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.alert import AlertConfiguration
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.hog_flow.hog_flow import HogFlow
@@ -45,8 +43,9 @@ from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 
+from products.actions.backend.models.action import Action
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
 # `products.experiments` ships a facade (api.py + contracts.py) but the contract is
 # not yet enforced by CI (no `backend:contract-check` script in package.json). The
@@ -56,7 +55,9 @@ from products.data_warehouse.backend.models.external_data_source import External
 from products.experiments.backend.models.experiment import Experiment
 from products.notebooks.backend.models import Notebook
 from products.signals.backend.models import SignalReport, SignalSourceConfig
+from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.surveys.backend.models import Survey
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = logging.getLogger(__name__)
 
@@ -92,35 +93,41 @@ RECENT_ACTIVITY_WINDOW_DAYS = 14
 RECENT_ACTIVITY_LIMIT = 20
 
 
-def build_inventory(team: Team) -> dict[str, Any]:
+def build_inventory(team: Team) -> Inventory:
     """Aggregate the deterministic inventory layer for a team.
 
     Each source is read independently — a failure in one (e.g. warehouse temporarily
     unavailable) shouldn't tank the whole profile build. Errors propagate up so the
     caller can decide whether to retry or persist a partial profile; v1 just lets them
     raise, since all the sources read here are local Postgres queries on indexed columns.
+
+    Returns a validated `Inventory` (see `schema.py`) rather than a bare dict — the shape
+    is a contract the scout skills read by key, so validating it on the way out keeps the
+    builders and consumers from drifting apart silently.
     """
-    return {
-        "project_context": _project_context(team),
-        "products_in_use": _products_in_use(team),
-        "product_intents": _product_intents(team),
-        "integrations": _integrations(team),
-        "external_data_sources": _external_data_sources(team),
-        "signal_source_configs": _signal_source_configs(team),
-        "existing_inbox_reports": _existing_inbox_reports(team),
-        "recent_activity": _recent_activity(team),
-        "recent_dashboards": _recent_dashboards(team),
-        "recent_surveys": _recent_surveys(team),
-        "recent_feature_flags": _recent_feature_flags(team),
-        "recent_experiments": _recent_experiments(team),
-        "recent_alerts": _recent_alerts(team),
-        "recent_hog_functions": _recent_hog_functions(team),
-        "recent_hog_flows": _recent_hog_flows(team),
-        "recent_notebooks": _recent_notebooks(team),
-        "recent_cohorts": _recent_cohorts(team),
-        "recent_actions": _recent_actions(team),
-        "top_events": _top_events(team),
-    }
+    return Inventory.model_validate(
+        {
+            "project_context": _project_context(team),
+            "products_in_use": _products_in_use(team),
+            "product_intents": _product_intents(team),
+            "integrations": _integrations(team),
+            "external_data_sources": _external_data_sources(team),
+            "signal_source_configs": _signal_source_configs(team),
+            "existing_inbox_reports": _existing_inbox_reports(team),
+            "recent_activity": _recent_activity(team),
+            "recent_dashboards": _recent_dashboards(team),
+            "recent_surveys": _recent_surveys(team),
+            "recent_feature_flags": _recent_feature_flags(team),
+            "recent_experiments": _recent_experiments(team),
+            "recent_alerts": _recent_alerts(team),
+            "recent_hog_functions": _recent_hog_functions(team),
+            "recent_hog_flows": _recent_hog_flows(team),
+            "recent_notebooks": _recent_notebooks(team),
+            "recent_cohorts": _recent_cohorts(team),
+            "recent_actions": _recent_actions(team),
+            "top_events": _top_events(team),
+        }
+    )
 
 
 def _project_context(team: Team) -> dict[str, Any]:

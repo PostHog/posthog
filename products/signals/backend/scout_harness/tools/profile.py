@@ -24,8 +24,8 @@ from django.utils import timezone
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, build_inventory
 from products.signals.backend.models import SignalProjectProfile
+from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, build_inventory
 
 # Soft cache TTL — `get_project_profile` recomputes when the newest row is older than this.
 # Aligned to the coordinator tick (60min in prod, 15min in dev) so an active team's
@@ -54,8 +54,10 @@ class ProjectProfile:
     """Wire shape for a `SignalProjectProfile` row.
 
     `payload` is the structured snapshot — currently `{inventory: {...}}`; Phase 7 fills
-    in `deltas`, `activity_notes`, and `narrative`. Surfaced as a free-form dict because
-    consumers (the agent, the scout's prompts) read it as JSON.
+    in `deltas`, `activity_notes`, and `narrative`. Surfaced as a dict because consumers
+    (the agent, the scout's prompts) read it as JSON, but the `inventory` block is
+    validated against the `Inventory` schema on write (see `profile/schema.py`), so the
+    stored jsonb is schema-backed rather than free-form.
     """
 
     profile_id: str
@@ -123,7 +125,7 @@ def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfil
             existing = _latest_fresh_profile(team_id=team.id)
             if existing is not None:
                 return _to_dataclass(existing)
-        payload: dict[str, Any] = {"inventory": build_inventory(team)}
+        payload: dict[str, Any] = {"inventory": build_inventory(team).model_dump(mode="json")}
         now = timezone.now()
         row = SignalProjectProfile.objects.create(
             team=team,

@@ -561,7 +561,11 @@ class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
     # invalidate stale rows without a manual backfill.
     source_version = models.CharField(max_length=40)
     # Structured payload: `{inventory: {...}}` in v1; `deltas`, `activity_notes`, `narrative`
-    # slots reserved for Phase 7. Inline jsonb is fine — even a rich profile is small.
+    # slots reserved for Phase 7. Stored as jsonb because the payload is written by one
+    # builder, read whole, and never field-queried — relational columns would buy no query
+    # benefit and a migration per section as coverage grows. Not schemaless, though:
+    # `build_inventory` returns a validated `Inventory` model (see
+    # `scout_harness/profile/schema.py`), so the jsonb is schema-backed on write.
     payload = models.JSONField(default=dict, blank=True)
 
     class Meta:
