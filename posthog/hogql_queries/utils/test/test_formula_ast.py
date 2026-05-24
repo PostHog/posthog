@@ -72,12 +72,14 @@ class TestFormulaAST(APIBaseTest):
 
     def test_binop_rejects_list_operand(self):
         # Mirrors the production crash where a series value reached FormulaAST as a list
-        # and `list + list` silently concatenated instead of raising.
-        formula = FormulaAST(data=[[[1, 2], [3, 4]], [1, 2]])
+        # and `list + list` silently concatenated instead of raising. The type ignore is
+        # intentional — the signature expects list[list[float]] and we're exercising the
+        # malformed-shape path.
+        formula = FormulaAST(data=[[[1, 2], [3, 4]], [1, 2]])  # type: ignore[list-item]
         with self.assertRaises(ExposedHogQLError):
             formula.call("A+B")
 
     def test_unaryop_rejects_list_operand(self):
-        formula = FormulaAST(data=[[[1, 2], [3, 4]]])
+        formula = FormulaAST(data=[[[1, 2], [3, 4]]])  # type: ignore[list-item]
         with self.assertRaises(ExposedHogQLError):
             formula.call("-A")

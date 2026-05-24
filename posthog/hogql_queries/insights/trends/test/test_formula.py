@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -947,7 +947,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         # type(s) for +: 'int' and 'list'`. Validate that we now surface a typed error
         # instead of a 500.
         formula_node = TrendsFormulaNode(formula="A + B")
-        results_group = [
+        results_group: list[dict[str, Any]] = [
             {"data": [1, [2, 3], 4], "aggregated_value": 7},
             {"data": [1, 2, 3], "aggregated_value": 6},
         ]
@@ -956,7 +956,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     def test_apply_formula_rejects_list_typed_aggregated_value(self):
         formula_node = TrendsFormulaNode(formula="A + B")
-        results_group = [
+        results_group: list[dict[str, Any]] = [
             {"data": None, "aggregated_value": [1, 2]},
             {"data": None, "aggregated_value": 3},
         ]
