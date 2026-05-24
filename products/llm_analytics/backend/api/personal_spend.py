@@ -31,9 +31,10 @@ from rest_framework.response import Response
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
@@ -286,10 +287,11 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
 
 
 def _email_filter(email: str) -> ast.Expr:
-    # With person-on-events mode `person.properties.email` is a denormalized column on
-    # the events row, so this is a single column read rather than a join — it also catches
-    # every event the user identified with, including historical distinct_ids merged into
-    # the same person.
+    # With person-on-events, the event row carries `person_id` directly; HogQL then joins to
+    # `person` to read `properties.email`. The join is bounded to one person per event (not a
+    # full pdi walk), and on the main cluster the printer transparently uses the materialized
+    # `pmat_email` column when registered. Same shape the LLM Analytics "Users" tab uses
+    # against `events` -- see `products/llm_analytics/frontend/tabs/llmAnalyticsUsersLogic.ts`.
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
         left=ast.Field(chain=["person", "properties", "email"]),
@@ -354,11 +356,11 @@ def _fetch_summary(
             round(sumIf(toFloat(properties.$ai_total_cost_usd), {product_filter}), 6) AS scoped_cost_usd,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd
-        FROM posthog.ai_events
+        FROM events
         WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
@@ -390,14 +392,14 @@ def _fetch_by_product(
             properties.ai_product AS product,
             count() AS event_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd
-        FROM posthog.ai_events
+        FROM events
         WHERE {event_in} AND {email_filter} AND {timestamp_filter}
         GROUP BY product
         ORDER BY cost_usd DESC
         LIMIT {limit}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
@@ -438,7 +440,7 @@ def _fetch_by_tool(
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             round(avg(toFloat(properties.$ai_input_tokens)), 0) AS avg_input_tokens
-        FROM posthog.ai_events
+        FROM events
         WHERE equals(event, '$ai_generation')
             AND {product_filter}
             AND {email_filter}
@@ -448,7 +450,7 @@ def _fetch_by_tool(
         LIMIT {limit}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
@@ -487,7 +489,7 @@ def _fetch_by_model(
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
             sum(toFloat(properties.$ai_output_tokens)) AS output_tokens
-        FROM posthog.ai_events
+        FROM events
         WHERE {event_in}
             AND {product_filter}
             AND {email_filter}
@@ -497,7 +499,7 @@ def _fetch_by_model(
         LIMIT {limit}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
@@ -537,7 +539,7 @@ def _fetch_top_traces(
             count() AS generation_count,
             round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
             min(timestamp) AS started_at
-        FROM posthog.ai_events
+        FROM events
         WHERE equals(event, '$ai_generation')
             AND {product_filter}
             AND {email_filter}
@@ -547,7 +549,7 @@ def _fetch_top_traces(
         LIMIT {limit}
         """
     )
-    result = execute_with_ai_events_fallback(
+    result = execute_hogql_query(
         query=query,
         placeholders={
             "product_filter": _product_filter(product),
@@ -578,11 +580,21 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     (settings.LLM_ANALYTICS_INTERNAL_TEAM_ID) and are strictly scoped to the
     authenticated user's email (read off the events row via person-on-events) —
     callers cannot pivot to other users' data. Authorization model is "any
-    authenticated PostHog user may read their own spend"; the `llm_analytics:read`
-    scope on the MCP tool is decorative since no project-level scope check
-    applies. Routes through `execute_with_ai_events_fallback` so reads hit the
-    dedicated `ai_events` table when enabled, with the shared `events` table as
-    a fallback. Optionally filter tool / model / trace breakdowns to a single
+    authenticated PostHog user may read their own spend" via `user:read` (the
+    same scope that covers `/api/users/@me/`). Queries the shared `events`
+    table directly -- same pattern as the LLM Analytics "Users" tab and every
+    other person-property filter on AI events. We don't route through
+    `execute_with_ai_events_fallback` because the satellite `ai_events`
+    cluster's Distributed `person` shim doesn't declare materialized columns
+    like `pmat_email`, and the helper's fallback only catches empty results,
+    not the unresolved-identifier exception that would fire there. The
+    `events`-table WHERE clauses lead with the sort-key columns (`team_id`,
+    `event`, `timestamp`) so the scan narrows before the person join fires,
+    and the HogQL printer uses `pmat_email` on the main cluster's `person`
+    when registered -- so this path should be comparable to what the
+    satellite would have served. The endpoint is cached for 5 minutes per
+    user (see `CACHE_TIMEOUT_SECONDS`). Optionally filter tool /
+    model / trace breakdowns to a single
     `ai_product` via the `product` query param; `by_product` always returns
     the full cross-product breakdown. The endpoint is only registered on US
     Cloud + dev/test envs; hobby / self-hosted deploys never see this URL;
@@ -591,18 +603,16 @@ class PersonalSpendViewSet(viewsets.ViewSet):
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [permissions.IsAuthenticated, APIScopePermission]
-    # Identity-scoped: the caller reads their own spend, not data nested under
-    # a team or project. `scope_object = "INTERNAL"` + `dangerously_skip_scoped_team_enforcement`
-    # opt out of team/org enforcement in APIScopePermission — valid here because
-    # this viewset filters strictly by the authenticated user's email (see
-    # `_email_filter` in `list` below). The required scope is overridden to the
-    # purpose-built `personal_spend:read` — narrower than the broad `user:read`
-    # cluster — and the frontend (scopes.tsx) marks its `:write` as disabled.
-    scope_object = "INTERNAL"
-    dangerously_skip_scoped_team_enforcement = True
-
-    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
-        return ["personal_spend:read"]
+    # Identity-scoped (`/@me/...`): the caller reads their own spend, not data
+    # nested under a team or project. `scope_object = "user"` matches the shape
+    # of `/api/users/@me/` — APIScopePermission already exempts the `user`
+    # bucket from team/org scoping, so we don't need
+    # `dangerously_skip_scoped_team_enforcement` here. `user:read` is a clean
+    # superset of "read your own spend": anyone trusted with `user:read`
+    # already learns the more sensitive identity facts on `/api/users/@me/`,
+    # and the wildcard `*` plus OAuth identity tokens (MCP) inherit access
+    # the same way they do for every other `user`-scoped endpoint.
+    scope_object = "user"
 
     def get_throttles(self):
         return [
@@ -662,22 +672,26 @@ class PersonalSpendViewSet(viewsets.ViewSet):
             logger.exception("personal_spend.team_missing", team_id=team_id)
             raise exceptions.NotFound("Internal analytics team is not provisioned on this deployment.")
 
-        summary = _fetch_summary(team, email, from_dt, to_dt, product)
-        by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
-        scoped = summary["scoped_cost_usd"] or 0.0
-        # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
-        # contribute to every tool. `share_of_scoped` is independent per row, so agents can
-        # present headline percentages directly without reconciling sums.
-        for row in by_tool["items"]:
-            row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
+        # Tag the underlying ClickHouse reads with the LLM_ANALYTICS product so they show up
+        # in the existing per-product Prometheus + cost-attribution dashboards alongside the
+        # rest of AI observability traffic. Wraps every call into `_fetch_*` -> HogQL.
+        with tags_context(product=Product.LLM_ANALYTICS):
+            summary = _fetch_summary(team, email, from_dt, to_dt, product)
+            by_tool = _fetch_by_tool(team, email, from_dt, to_dt, product, limit)
+            scoped = summary["scoped_cost_usd"] or 0.0
+            # `cost_usd` in by_tool can exceed scoped_cost_usd because multi-tool generations
+            # contribute to every tool. `share_of_scoped` is independent per row, so agents can
+            # present headline percentages directly without reconciling sums.
+            for row in by_tool["items"]:
+                row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
 
-        payload = {
-            "summary": summary,
-            "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
-            "by_tool": by_tool,
-            "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
-            "top_traces": _fetch_top_traces(team, email, from_dt, to_dt, product, limit),
-        }
+            payload = {
+                "summary": summary,
+                "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
+                "by_tool": by_tool,
+                "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
+                "top_traces": _fetch_top_traces(team, email, from_dt, to_dt, product, limit),
+            }
 
         response_data = PersonalSpendAnalysisResponseSerializer(payload).data
         cache.set(cache_key, response_data, timeout=CACHE_TIMEOUT_SECONDS)

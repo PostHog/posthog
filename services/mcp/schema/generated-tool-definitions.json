@@ -2942,7 +2942,7 @@
         "feature": "llm_analytics",
         "summary": "Get my LLM spend analysis",
         "title": "Get my LLM spend analysis",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["user:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -5120,6 +5120,22 @@
         "feature": "user_interviews",
         "summary": "Update a per-interviewee context row",
         "title": "Update a per-interviewee context row",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interview-topics-links-csv": {
+        "description": "Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`. Use this when the human plans to mail-merge the links into their own email tooling rather than letting PostHog send the invites.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Export interview links for a topic as CSV",
+        "title": "Export interview links for a topic as CSV",
         "required_scopes": ["user_interview:write"],
         "new_mcp": true,
         "annotations": {

@@ -6,21 +6,21 @@ import { buildTheme } from 'lib/charts/utils/theme'
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from 'lib/hog-charts'
 import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { InsightEmptyState } from '../../../insights/EmptyStates'
-import { openPersonsModal } from '../../persons-modal/PersonsModal'
-import { trendsDataLogic } from '../../trendsDataLogic'
-import type { IndexedTrendResult } from '../../types'
-import { handleTrendsChartClick } from '../handleTrendsChartClick'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
@@ -214,7 +214,6 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             insightData?.resolved_date_range,
             querySource,
             indexedResults,
-            openPersonsModal,
         ]
     )
 
