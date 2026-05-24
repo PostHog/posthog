@@ -53,7 +53,7 @@ export function StepWaitUntilConditionConfiguration({
                             filters={eventFilters}
                             setFilters={(newFilters) =>
                                 partialSetWorkflowActionConfig(action.id, {
-                                    events: [{ filters: newFilters ?? {} }],
+                                    events: newFilters ? [{ filters: newFilters }] : undefined,
                                 })
                             }
                             typeKey="workflow-wait-until-event"
