@@ -34,6 +34,11 @@ const TrendsBarChart = lazy(() =>
         default: m.TrendsBarChart,
     }))
 )
+const StickinessLineChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/trends/StickinessLineChart/StickinessLineChart').then((m) => ({
+        default: m.StickinessLineChart,
+    }))
+)
 
 interface Props {
     view: InsightType
@@ -61,6 +66,8 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
 
     const hogChartsTrendsEnabled =
         featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS] && !isLifecycle && !isStickiness
+    const hogChartsStickinessEnabled =
+        featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_STICKINESS] && isStickiness
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -71,6 +78,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         ) {
             if (hogChartsTrendsEnabled) {
                 return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
+            }
+            if (hogChartsStickinessEnabled) {
+                return <StickinessLineChart context={context} />
             }
             return <ActionsLineGraph {...commonProps} />
         }

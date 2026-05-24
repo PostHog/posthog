@@ -28,6 +28,10 @@ interface TrendsTooltipProps {
     formatCompareLabel?: (label: string, dateLabel?: string) => string
     onRowClick?: (datum: SeriesDatum) => void
     showHeader?: boolean
+    /** Override the auto-derived date header. Stickiness needs this since its `date`
+     *  is an interval-count integer, not a date — letting InsightTooltip format it as
+     *  a calendar date produces a wrong "Thursday, 1 Jan 1970" header. */
+    altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
 }
 
 /** Bridges hog-charts TooltipContext to the legacy InsightTooltip.
@@ -48,6 +52,7 @@ export function TrendsTooltip({
     formatCompareLabel,
     onRowClick,
     showHeader,
+    altTitle,
 }: TrendsTooltipProps): React.ReactElement {
     const seriesData = useMemo<SeriesDatum[]>(
         () =>
@@ -131,6 +136,7 @@ export function TrendsTooltip({
             onRowClick={onRowClick}
             hideInspectActorsSection={!onRowClick}
             showHeader={showHeader}
+            altTitle={altTitle}
         />
     )
 }
