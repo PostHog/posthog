@@ -181,19 +181,15 @@ export const sqlEditorTabsLogic = kea<sqlEditorTabsLogicType>([
             }
         },
     })),
-    subscriptions(({ values, cache }) => ({
+    subscriptions(({ cache }) => ({
+        // sqlEditorSceneTabs is `allSceneTabs.filter(...)` — `Array.filter` returns a new
+        // reference on every upstream change, so this subscription fires for any
+        // title/customTitle/url change too. No separate allSceneTabs subscription needed.
         sqlEditorSceneTabs: (tabs: SceneTab[]) => {
             if (!cache.hydrated) {
                 return
             }
             writePersistedTabs(tabs.map(sceneTabToPersisted))
-        },
-        // Persist title/customTitle changes that don't change the tab list reference.
-        allSceneTabs: () => {
-            if (!cache.hydrated) {
-                return
-            }
-            writePersistedTabs(values.sqlEditorSceneTabs.map(sceneTabToPersisted))
         },
     })),
     afterMount(({ actions, values, cache }) => {
@@ -212,7 +208,7 @@ export const sqlEditorTabsLogic = kea<sqlEditorTabsLogicType>([
                 id: tab.id,
                 skipNavigate: true,
                 activate: false,
-                source: 'unknown',
+                source: 'restore',
             })
         }
 

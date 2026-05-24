@@ -72,7 +72,10 @@ function SqlEditorTab({ tab, index, isActive }: SqlEditorTabProps): JSX.Element 
             setEditValue(tab.label)
             setTimeout(() => inputRef.current?.focus(), 50)
         }
-    }, [isEditing, tab.label])
+        // Intentionally omit tab.label: resetting editValue on every external
+        // label change would discard the user's in-progress rename input.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isEditing])
 
     const commit = (): void => {
         const trimmed = editValue.trim()

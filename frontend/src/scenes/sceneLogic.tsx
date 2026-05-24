@@ -53,7 +53,7 @@ import { inviteLogic } from './settings/organization/inviteLogic'
 import { teamLogic } from './teamLogic'
 import { userLogic } from './userLogic'
 
-export type TabOpenSource = 'internal_link' | 'keyboard_shortcut' | 'new_tab_button' | 'unknown'
+export type TabOpenSource = 'internal_link' | 'keyboard_shortcut' | 'new_tab_button' | 'restore' | 'unknown'
 export type TabCloseSource =
     | 'close_button'
     | 'context_menu'
