@@ -87,6 +87,10 @@ class AgentExecutor:
     async def start_workflow(
         self, workflow: type[AgentBaseWorkflow], inputs: Any
     ) -> AsyncGenerator[AssistantOutput, Any]:
+        # Capture the failure outcome inside the span and yield outside it — yielding from
+        # an async generator while a span is "current" leaks that span into the consumer
+        # task's contextvars. See stream_conversation for the longer note.
+        failed = False
         with _tracer.start_as_current_span(
             "posthog_ai.executor.start_workflow",
             attributes={
@@ -114,8 +118,11 @@ class AgentExecutor:
             except Exception as e:
                 posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
                 logger.exception("Error starting workflow", error=e)
-                yield self._failure_message()
-                return
+                failed = True
+
+        if failed:
+            yield self._failure_message()
+            return
 
         async for chunk in self.stream_conversation():
             yield chunk
@@ -214,36 +221,54 @@ class AgentExecutor:
             AssistantOutput generator
         """
         chunk_count = 0
-        with _tracer.start_as_current_span(
+        # Use start_span + use_span (without making the span "current" across yields).
+        # `start_as_current_span` inside an async generator attaches the span to the running
+        # task's contextvars; when the generator yields, the consumer task resumes with that
+        # context still set, leaking this span as the consumer's "current span". We scope
+        # the current-span context only around the non-yielding bookkeeping so child spans
+        # still parent correctly, while yields run outside the attached context.
+        # See https://github.com/open-telemetry/opentelemetry-python/issues/2606.
+        span = _tracer.start_span(
             "posthog_ai.executor.stream_conversation",
             attributes={"posthog_ai.conversation_id": str(self._conversation.id)},
-        ) as span:
+        )
+        try:
             try:
-                # Wait for stream to be created
-                is_stream_available = await self._redis_stream.wait_for_stream()
-                if not is_stream_available:
-                    raise StreamError(
-                        "Stream for this conversation not available - Temporal workflow might have failed"
-                    )
-                last_chunk_time = time.time()
-                async for chunk in self._redis_stream.read_stream():
-                    message = await self._redis_stream_to_assistant_output(chunk)
-
-                    temporal_to_code_latency = last_chunk_time - chunk.timestamp
-                    if temporal_to_code_latency > 0:
-                        STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM.observe(temporal_to_code_latency)
+                with trace.use_span(span, end_on_exit=False):
+                    # Wait for stream to be created
+                    is_stream_available = await self._redis_stream.wait_for_stream()
+                    if not is_stream_available:
+                        raise StreamError(
+                            "Stream for this conversation not available - Temporal workflow might have failed"
+                        )
                     last_chunk_time = time.time()
-                    chunk_count += 1
+                read_iter = self._redis_stream.read_stream().__aiter__()
+                while True:
+                    with trace.use_span(span, end_on_exit=False):
+                        try:
+                            chunk = await read_iter.__anext__()
+                        except StopAsyncIteration:
+                            break
+                        message = await self._redis_stream_to_assistant_output(chunk)
+
+                        temporal_to_code_latency = last_chunk_time - chunk.timestamp
+                        if temporal_to_code_latency > 0:
+                            STREAM_DJANGO_EVENT_LOOP_LATENCY_HISTOGRAM.observe(temporal_to_code_latency)
+                        last_chunk_time = time.time()
+                        chunk_count += 1
 
                     if message:
                         yield message
             except Exception as e:
-                posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
-                logger.exception("Error streaming conversation", error=e)
+                with trace.use_span(span, end_on_exit=False):
+                    posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
+                    logger.exception("Error streaming conversation", error=e)
                 yield self._failure_message()
-            finally:
+        finally:
+            with trace.use_span(span, end_on_exit=False):
                 span.set_attribute("posthog_ai.stream_conversation.chunks", chunk_count)
                 await self._redis_stream.delete_stream()
+            span.end()
 
     async def _redis_stream_to_assistant_output(self, message: StreamEvent) -> AssistantOutput | None:
         """Convert Redis stream event to Assistant output.
