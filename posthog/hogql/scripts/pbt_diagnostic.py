@@ -46,6 +46,16 @@ Typical usage:
     # Persist for later analysis / corpus extraction
     PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py \\
         --write-divergences /tmp/divergences.jsonl --shrink-failures
+
+    # While iterating on a parser version bump the pyproject pin references a
+    # not-yet-published wheel, so `flox activate` is blocked. Run via the
+    # worktree venv python directly, having rebuilt the parser .so locally
+    # first (rust: `uv pip install -e rust/hogql/parser`; cpp: rebuild
+    # `common/hogql_parser` and copy the built .so into `.flox/cache/venv`).
+    # `--write-divergences` streams each finding as it's found, so a long run
+    # that gets killed still leaves its divergences on disk:
+    PYTHONPATH=. .flox/cache/venv/bin/python posthog/hogql/scripts/pbt_diagnostic.py \\
+        --rule program --grammar-mutate --n 10000 --write-divergences /tmp/div.jsonl
 """
 
 # ruff: noqa: T201 (this is a CLI script — print is the output channel)

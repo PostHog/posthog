@@ -37,8 +37,8 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
-from posthog.hogql.parser import clear_parse_caches, parse_expr, parse_select
-from posthog.hogql.scripts._diagnostic_common import _probe_backend
+from posthog.hogql.parser import HogQLParserShadowMismatch, clear_parse_caches, parse_expr, parse_select
+from posthog.hogql.scripts._diagnostic_common import _abort_on_shadow_mismatch, _probe_backend
 
 DEFAULT_N = 1_000  # iterations per row; override with --n
 
@@ -276,11 +276,15 @@ def bench(
         row_label = name if nq == n else f"{name} [N={nq}]"
         try:
             oracle_us = run(lambda q=q: parse_fn(q, backend=oracle), nq)
+        except HogQLParserShadowMismatch as e:
+            _abort_on_shadow_mismatch(oracle, e)
         except Exception as e:
             print(f"{row_label:<30} {len(q):>6} {'ERROR':>12} {'-':>14} {'-':>12}  ({oracle}: {e})")
             continue
         try:
             cand_us = run(lambda q=q: parse_fn(q, backend=candidate), nq)
+        except HogQLParserShadowMismatch as e:
+            _abort_on_shadow_mismatch(candidate, e)
         except Exception as e:
             print(f"{row_label:<30} {len(q):>6} {oracle_us:>12.3f} {'(skip)':>14} {'-':>12}  ({candidate}: {e})")
             continue
