@@ -633,9 +633,16 @@ export class HogFlowExecutorService {
                 : ''
         }
 
-        const triggeredByEvent = hasAssociatedEvent
+        let triggeredByEvent = hasAssociatedEvent
             ? ` on [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
             : ''
+
+        // When the subscription matcher woke this job, surface the wake event rather
+        // than only echoing the trigger event - they are usually different.
+        const wakeEvent = invocation.state.currentAction?.eventMatchedEvent
+        if (hasCurrentAction && invocation.state.currentAction?.eventMatched && wakeEvent) {
+            triggeredByEvent += ` (woken by event: ${wakeEvent.replaceAll('|', '')})`
+        }
 
         return {
             level: 'info',

@@ -4,10 +4,11 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 
 import { findActionById, findActionByType } from '../hogflow-utils'
-import { checkConditions } from './conditional_branch'
+import { ConditionalBranchHandler, checkConditions } from './conditional_branch'
 
 describe('action.conditional_branch', () => {
     let invocation: CyclotronJobInvocationHogFlow
@@ -156,6 +157,76 @@ describe('action.conditional_branch', () => {
             expect(result).toEqual({
                 nextAction: findActionById(invocation.hogFlow, 'condition_1'),
             })
+        })
+    })
+
+    describe('wait_until_condition eventMatched short-circuit', () => {
+        let waitInvocation: CyclotronJobInvocationHogFlow
+        let waitAction: Extract<HogFlowAction, { type: 'wait_until_condition' }>
+        let handler: ConditionalBranchHandler
+
+        beforeEach(() => {
+            const waitFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        wait_until_condition: {
+                            type: 'wait_until_condition',
+                            config: {
+                                condition: {
+                                    filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters, // no match
+                                },
+                                max_wait_duration: '10m',
+                            },
+                        },
+                        matched_target: {
+                            type: 'delay',
+                            config: { delay_duration: '2h' },
+                        },
+                    },
+                    edges: [
+                        {
+                            from: 'wait_until_condition',
+                            to: 'matched_target',
+                            type: 'branch',
+                            index: 0,
+                        },
+                    ],
+                })
+                .build()
+
+            waitAction = findActionByType(waitFlow, 'wait_until_condition')!
+            waitInvocation = createExampleHogFlowInvocation(waitFlow)
+            waitInvocation.state.currentAction = {
+                id: waitAction.id,
+                startedAtTimestamp: DateTime.utc().toMillis(),
+            }
+            handler = new ConditionalBranchHandler()
+        })
+
+        it('advances to the matched branch and clears eventMatched', async () => {
+            waitInvocation.state.currentAction!.eventMatched = true
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
+            expect(result.result).toEqual({ eventMatched: true })
+            expect(waitInvocation.state.currentAction!.eventMatched).toBe(false)
+        })
+
+        it('falls through to condition evaluation when eventMatched is not set', async () => {
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            // Condition does not match, so the step reschedules itself rather than advancing.
+            expect(result.scheduledAt).toBeDefined()
+            expect(result.nextAction).toBeUndefined()
         })
     })
 })
