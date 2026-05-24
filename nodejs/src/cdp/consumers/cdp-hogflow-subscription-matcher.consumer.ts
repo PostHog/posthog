@@ -37,6 +37,8 @@ type WakeRequest = {
     id: string
     stepMatched: boolean
     conversionMatched: boolean
+    // Name of the event that matched, so the executor's resume log can surface it.
+    eventName?: string
 }
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
@@ -144,11 +146,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
             // Any single matching event is enough. Stop early once both flags are set.
             let stepMatched = false
+            let stepMatchedEventName: string | undefined
             let conversionMatched = false
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
                 if (!stepMatched && action?.type === 'wait_until_condition') {
-                    stepMatched = await this.evaluateWaitUntilCondition(action, filterGlobals, globals.event.event)
+                    if (await this.evaluateWaitUntilCondition(action, filterGlobals, globals.event.event)) {
+                        stepMatched = true
+                        stepMatchedEventName = globals.event.event
+                    }
                 }
                 if (!conversionMatched) {
                     conversionMatched = await this.evaluateConversionEvents(hogflow, filterGlobals, globals.event.event)
@@ -159,7 +165,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }
 
             if (stepMatched || conversionMatched) {
-                jobsToWake.push({ id: candidate.id, stepMatched, conversionMatched })
+                jobsToWake.push({
+                    id: candidate.id,
+                    stepMatched,
+                    conversionMatched,
+                    eventName: stepMatchedEventName,
+                })
             }
         }
 
@@ -499,7 +510,11 @@ function applyWakeFlags(stateBuffer: Buffer, req: WakeRequest): Buffer | null {
         let applied = false
         if (req.stepMatched) {
             if (updatedState.currentAction) {
-                updatedState.currentAction = { ...updatedState.currentAction, eventMatched: true }
+                updatedState.currentAction = {
+                    ...updatedState.currentAction,
+                    eventMatched: true,
+                    eventMatchedEvent: req.eventName,
+                }
                 applied = true
             } else {
                 // A parked wait_until_condition job should always carry its current action.

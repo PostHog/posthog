@@ -331,6 +331,9 @@ export type HogFlowInvocationContext = {
         // Set by the subscription matcher consumer when it wakes a wait_until_condition
         // job because a matching event arrived (as opposed to a scheduled timeout firing).
         eventMatched?: boolean
+        // Name of the event that triggered the wake, so the executor can surface
+        // "woken by event: X" in logs instead of echoing the trigger event.
+        eventMatchedEvent?: string
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
