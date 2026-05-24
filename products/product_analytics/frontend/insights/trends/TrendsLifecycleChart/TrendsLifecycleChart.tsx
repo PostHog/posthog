@@ -18,8 +18,8 @@ import { QueryContext } from '~/queries/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { handleTrendsLifecycleChartClick } from './handleTrendsLifecycleChartClick'
 import {
     buildTrendsLifecycleConfig,
@@ -51,10 +51,13 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
     })
 }
 
-export function TrendsLifecycleChart({
-    context,
-    inSharedMode = false,
-}: TrendsLifecycleChartProps): JSX.Element | null {
+// Lifecycle rows label themselves by status ("New", "Returning", ...) — not by
+// the underlying event/action. The row's ribbon color already identifies the
+// series, so we render the label as plain text and skip InsightLabel (which
+// would otherwise prefer `action.name` like "$pageview").
+const renderLifecycleSeriesLabel = (datum: SeriesDatum): React.ReactNode => datum.label
+
+export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLifecycleChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps, insight } = useValues(insightLogic)
 
@@ -81,10 +84,9 @@ export function TrendsLifecycleChart({
         indexedResults.some((r: IndexedTrendResult) => r.count !== 0)
 
     const { series, labels } = useMemo(() => {
-        const lifecycleSeries = buildTrendsLifecycleSeries<IndexedTrendResult, TrendsSeriesMeta>(
-            indexedResults ?? [],
-            { buildMeta: buildLifecycleMeta }
-        )
+        const lifecycleSeries = buildTrendsLifecycleSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
+            buildMeta: buildLifecycleMeta,
+        })
         return { series: lifecycleSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
     }, [indexedResults, currentPeriodResult?.labels])
 
@@ -166,6 +168,7 @@ export function TrendsLifecycleChart({
                     baseCurrency={baseCurrency}
                     groupTypeLabel="Users"
                     onRowClick={onRowClick}
+                    renderSeriesOverride={renderLifecycleSeriesLabel}
                 />
             )
         },
@@ -201,9 +204,7 @@ export function TrendsLifecycleChart({
             dataAttr="trend-lifecycle-graph"
             onError={handleChartError}
         >
-            {showAnnotations && (
-                <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />
-            )}
+            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
         </TimeSeriesBarChart>
     )
 }

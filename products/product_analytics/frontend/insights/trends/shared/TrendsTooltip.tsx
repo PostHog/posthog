@@ -28,6 +28,11 @@ interface TrendsTooltipProps {
     formatCompareLabel?: (label: string, dateLabel?: string) => string
     onRowClick?: (datum: SeriesDatum) => void
     showHeader?: boolean
+    // Overrides the default SeriesLetter + InsightLabel row renderer. Mirrors the
+    // legacy ActionsLineGraph escape hatch used for lifecycle, where the label
+    // is the lifecycle status itself (e.g. "New") and InsightLabel's action.name
+    // would otherwise mask it.
+    renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
 }
 
 /** Bridges hog-charts TooltipContext to the legacy InsightTooltip.
@@ -48,6 +53,7 @@ export function TrendsTooltip({
     formatCompareLabel,
     onRowClick,
     showHeader,
+    renderSeriesOverride,
 }: TrendsTooltipProps): React.ReactElement {
     const seriesData = useMemo<SeriesDatum[]>(
         () =>
@@ -91,6 +97,9 @@ export function TrendsTooltip({
 
     const renderSeries = useCallback(
         (value: React.ReactNode, datum: SeriesDatum): React.ReactElement => {
+            if (renderSeriesOverride) {
+                return <div className="datum-label-column">{renderSeriesOverride(datum)}</div>
+            }
             const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
 
             if (hasBreakdown && !hasMultipleSeries) {
@@ -112,7 +121,7 @@ export function TrendsTooltip({
                 </div>
             )
         },
-        [hasMultipleSeries, breakdownFilter, formatCompareLabel, formula]
+        [hasMultipleSeries, breakdownFilter, formatCompareLabel, formula, renderSeriesOverride]
     )
 
     return (

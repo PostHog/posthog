@@ -1,5 +1,5 @@
-import type { Series, TimeSeriesBarChartConfig } from 'lib/hog-charts'
 import { getBarColorFromStatus } from 'lib/colors'
+import type { Series, TimeSeriesBarChartConfig } from 'lib/hog-charts'
 
 import type { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 import type { IntervalType, LifecycleToggle } from '~/types'

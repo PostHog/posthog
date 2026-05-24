@@ -70,7 +70,15 @@ function renderLifecycle(insightFixture: any): JSX.Element {
     )
 }
 
-const LIFECYCLE_DAYS = ['2023-07-04', '2023-07-05', '2023-07-06', '2023-07-07', '2023-07-08', '2023-07-09', '2023-07-10']
+const LIFECYCLE_DAYS = [
+    '2023-07-04',
+    '2023-07-05',
+    '2023-07-06',
+    '2023-07-07',
+    '2023-07-08',
+    '2023-07-09',
+    '2023-07-10',
+]
 const LIFECYCLE_LABELS = [
     '4-Jul-2023',
     '5-Jul-2023',

@@ -35,11 +35,11 @@ const TrendsBarChart = lazy(() =>
     }))
 )
 const TrendsLifecycleChart = lazy(() =>
-    import(
-        'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart'
-    ).then((m) => ({
-        default: m.TrendsLifecycleChart,
-    }))
+    import('products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart').then(
+        (m) => ({
+            default: m.TrendsLifecycleChart,
+        })
+    )
 )
 
 interface Props {
