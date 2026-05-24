@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { setReadOnlyGetter, setReadOnlyNotifier } from 'lib/readOnlyGuard'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -97,5 +98,52 @@ describe('personalAPIKeysLogic', () => {
 
         expect(capturedCreatePayload).not.toBeNull()
         expect(capturedCreatePayload.scopes).toEqual(['*'])
+    })
+
+    describe('in read-only mode', () => {
+        // Register the guard so api.ts throws ReadOnlyModeError on writes, like
+        // selfReadOnlyModeLogic does in production. The UI gates these triggers
+        // separately — this verifies the defense-in-depth swallow for any future
+        // call site that forgets the UI guard.
+        beforeEach(() => {
+            setReadOnlyGetter(() => true)
+            setReadOnlyNotifier(() => {})
+        })
+
+        afterEach(() => {
+            setReadOnlyGetter(null)
+            setReadOnlyNotifier(null)
+        })
+
+        it('swallows ReadOnlyModeError on rollKey without surfacing it', async () => {
+            // rollKey only attempts the API call if the key is already in state.
+            logic.actions.loadKeysSuccess([
+                {
+                    id: 'some-key-id',
+                    label: 'Existing key',
+                    scopes: ['feature_flag:read'],
+                    mask_value: 'phx_***',
+                } as any,
+            ])
+            await expect(logic.asyncActions.rollKey('some-key-id')).resolves.toBeUndefined()
+        })
+
+        it('swallows ReadOnlyModeError on deleteKey without surfacing it', async () => {
+            await expect(logic.asyncActions.deleteKey('some-key-id')).resolves.toBeUndefined()
+        })
+
+        it('swallows ReadOnlyModeError on create submit without surfacing it', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+
+            logic.actions.setEditingKeyId('new')
+            logic.actions.setEditingKeyValues({
+                label: 'Test key',
+                access_type: 'all',
+                scopes: ['feature_flag:read'],
+            })
+
+            await expect(logic.asyncActions.submitEditingKey()).resolves.toBeUndefined()
+            expect(capturedCreatePayload).toBeNull()
+        })
     })
 })

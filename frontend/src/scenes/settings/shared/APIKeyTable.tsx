@@ -1,8 +1,12 @@
+import { useValues } from 'kea'
+
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTableColumn, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
+
+import { selfReadOnlyModeLogic } from '~/layout/navigation/SelfReadOnlyNotice/selfReadOnlyModeLogic'
 
 export interface APIKeyTableRow {
     id: string
@@ -76,6 +80,9 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
     rowClassName,
     deleteDescription = 'This action cannot be undone.',
 }: APIKeyTableProps<T>): JSX.Element {
+    const { isReadOnly } = useValues(selfReadOnlyModeLogic)
+    const readOnlyDisabledReason = isReadOnly ? 'Read-only mode is on' : undefined
+
     const labelColumn: LemonTableColumn<T, any> = {
         title: 'Label',
         dataIndex: 'label',
@@ -185,10 +192,12 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
                 items={[
                     {
                         label: 'Edit',
+                        disabledReason: readOnlyDisabledReason,
                         onClick: () => onEdit(key.id),
                     },
                     {
                         label: 'Roll',
+                        disabledReason: readOnlyDisabledReason,
                         onClick: () => {
                             LemonDialog.open({
                                 title: `Roll key "${key.label}"?`,
@@ -207,6 +216,7 @@ export function APIKeyTable<T extends APIKeyTableRow = APIKeyTableRow>({
                     {
                         label: 'Delete',
                         status: 'danger',
+                        disabledReason: readOnlyDisabledReason,
                         onClick: () => {
                             LemonDialog.open({
                                 title: `Permanently delete key "${key.label}"?`,

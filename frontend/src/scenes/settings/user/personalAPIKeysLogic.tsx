@@ -10,6 +10,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ReadOnlyModeError } from 'lib/readOnlyGuard'
 import { APIScope, API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
 import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 import { urls } from 'scenes/urls'
@@ -72,7 +73,17 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     return await api.personalApiKeys.list()
                 },
                 deleteKey: async ({ id }) => {
-                    await api.personalApiKeys.delete(id)
+                    try {
+                        await api.personalApiKeys.delete(id)
+                    } catch (error) {
+                        // Swallow read-only blocks: notifyBlocked already shows the dedicated toast.
+                        // Returning the unchanged list keeps the loader from surfacing the throw to
+                        // error tracking.
+                        if (error instanceof ReadOnlyModeError) {
+                            return values.keys
+                        }
+                        throw error
+                    }
                     return values.keys.filter((filteredKey) => filteredKey.id != id)
                 },
                 rollKey: async ({ id }) => {
@@ -81,7 +92,15 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         return values.keys
                     }
 
-                    const rolledKey = await api.personalApiKeys.roll(id)
+                    let rolledKey: PersonalAPIKeyType
+                    try {
+                        rolledKey = await api.personalApiKeys.roll(id)
+                    } catch (error) {
+                        if (error instanceof ReadOnlyModeError) {
+                            return values.keys
+                        }
+                        throw error
+                    }
                     actions.showRollKeySuccessDialog(rolledKey, origKey.mask_value)
 
                     // avoid persisting the raw value in state
@@ -142,10 +161,19 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                     }) ?? []
                 const sanitizedPayload = { ...payload, scopes: sanitizedScopes }
 
-                const key =
-                    values.editingKeyId === 'new'
-                        ? await api.personalApiKeys.create(sanitizedPayload)
-                        : await api.personalApiKeys.update(values.editingKeyId, sanitizedPayload)
+                let key: PersonalAPIKeyType
+                try {
+                    key =
+                        values.editingKeyId === 'new'
+                            ? await api.personalApiKeys.create(sanitizedPayload)
+                            : await api.personalApiKeys.update(values.editingKeyId, sanitizedPayload)
+                } catch (error) {
+                    if (error instanceof ReadOnlyModeError) {
+                        // notifyBlocked already shows the dedicated toast.
+                        return
+                    }
+                    throw error
+                }
 
                 breakpoint()
 
