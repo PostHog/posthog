@@ -103,7 +103,7 @@ describe('useTooltipLifecycle', () => {
         const { result } = renderLifecycle()
         publishHoverCtx(result)
         expect(result.current.tooltipCtx).not.toBeNull()
-        expect(result.current.tooltipCtx?.isPinned).toBe(false)
+        expect(result.current.tooltipCtx!.isPinned).toBe(false)
         expect(result.current.hoverIndex).toBe(1)
         expect(result.current.hoverPosition).toEqual({ x: 100, y: 50 })
     })
@@ -111,7 +111,8 @@ describe('useTooltipLifecycle', () => {
     it('promotes hover ctx to pinned via pin()', () => {
         const { result } = renderLifecycle()
         pinFromHover(result)
-        expect(result.current.tooltipCtx?.onUnpin).toBeInstanceOf(Function)
+        expect(result.current.tooltipCtx).not.toBeNull()
+        expect(result.current.tooltipCtx!.onUnpin).toBeInstanceOf(Function)
     })
 
     it('pin() is a no-op when there is no current ctx', () => {
@@ -186,7 +187,8 @@ describe('useTooltipLifecycle', () => {
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
         })
 
-        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        expect(result.current.tooltipCtx).not.toBeNull()
+        expect(result.current.tooltipCtx!.isPinned).toBe(true)
     })
 
     it('does not clear pinned tooltip on click inside the wrapper', () => {
@@ -200,7 +202,8 @@ describe('useTooltipLifecycle', () => {
             refs.wrapperRef.current!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
         })
 
-        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        expect(result.current.tooltipCtx).not.toBeNull()
+        expect(result.current.tooltipCtx!.isPinned).toBe(true)
     })
 
     it('does not clear pinned tooltip on scroll inside the tooltip element', () => {
@@ -219,7 +222,8 @@ describe('useTooltipLifecycle', () => {
             scrollableChild.dispatchEvent(new Event('scroll', { bubbles: true }))
         })
 
-        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        expect(result.current.tooltipCtx).not.toBeNull()
+        expect(result.current.tooltipCtx!.isPinned).toBe(true)
         document.body.removeChild(tooltipEl)
     })
 
@@ -234,7 +238,8 @@ describe('useTooltipLifecycle', () => {
             inner.dispatchEvent(new Event('scroll', { bubbles: true }))
         })
 
-        expect(result.current.tooltipCtx?.isPinned).toBe(true)
+        expect(result.current.tooltipCtx).not.toBeNull()
+        expect(result.current.tooltipCtx!.isPinned).toBe(true)
     })
 
     it('clears unpinned tooltip on scroll outside the wrapper', () => {
@@ -265,13 +270,15 @@ describe('useTooltipLifecycle', () => {
         pinFromHover(result)
 
         const before = result.current.tooltipCtx
-        expect(before?.seriesData[0].value).toBe(20)
+        expect(before).not.toBeNull()
+        expect(before!.seriesData[0].value).toBe(20)
 
         rerender({ rebuildDeps: [2] })
 
         expect(rebuildPinnedCtx).toHaveBeenCalled()
-        expect(result.current.tooltipCtx?.isPinned).toBe(true)
-        expect(result.current.tooltipCtx?.seriesData[0].value).toBe(999)
+        expect(result.current.tooltipCtx).not.toBeNull()
+        expect(result.current.tooltipCtx!.isPinned).toBe(true)
+        expect(result.current.tooltipCtx!.seriesData[0].value).toBe(999)
     })
 
     it('clears the pin when rebuildPinnedCtx returns null (data point gone)', () => {
@@ -309,11 +316,12 @@ describe('useTooltipLifecycle', () => {
     it('exposes onUnpin on the pinned ctx and the callback drops the pin', () => {
         const { result } = renderLifecycle()
         pinFromHover(result)
-        const onUnpin = result.current.tooltipCtx?.onUnpin
+        expect(result.current.tooltipCtx).not.toBeNull()
+        const onUnpin = result.current.tooltipCtx!.onUnpin
         expect(onUnpin).toBeInstanceOf(Function)
 
         act(() => {
-            onUnpin?.()
+            onUnpin!()
         })
 
         expect(result.current.tooltipCtx).toBeNull()

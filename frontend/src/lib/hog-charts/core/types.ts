@@ -104,8 +104,9 @@ export interface TooltipContext<Meta = unknown> {
     dataIndex: number
     /** The x-axis label at this index. */
     label: string
-    /** One entry per visible series with its value and color at this index. */
-    seriesData: { series: Series<Meta>; value: number; color: string }[]
+    /** One entry per visible series with its value and color at this index. `fraction` is set
+     *  for radial charts (share of total) so renderers don't need to look the slice back up. */
+    seriesData: { series: Series<Meta>; value: number; color: string; fraction?: number }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip. */
     position: { x: number; y: number }
     /** Cursor position in canvas pixels, or `null` for non-mousemove snapshots (e.g. pinned rebuild). */

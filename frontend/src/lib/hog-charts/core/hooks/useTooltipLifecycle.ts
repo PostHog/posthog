@@ -22,6 +22,7 @@ export function isTooltipContextEquivalent<Meta>(a: TooltipContext<Meta>, b: Too
         if (
             ai.value !== bi.value ||
             ai.color !== bi.color ||
+            ai.fraction !== bi.fraction ||
             ai.series.key !== bi.series.key ||
             ai.series.label !== bi.series.label
         ) {

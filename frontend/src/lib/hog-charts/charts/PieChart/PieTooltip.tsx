@@ -1,7 +1,6 @@
 import React from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
-import { useRadialLayout } from '../../core/radial-context'
 import type { TooltipContext } from '../../core/types'
 
 export interface PieTooltipProps<Meta> {
@@ -27,13 +26,11 @@ export function PieTooltip<Meta>({
     isPercent = false,
 }: PieTooltipProps<Meta>): React.ReactElement | null {
     const { theme } = useChartLayout()
-    const { layout } = useRadialLayout()
     const entry = ctx.seriesData[0]
     if (!entry) {
         return null
     }
-    const slice = layout.slices.find((s) => s.series.key === entry.series.key)
-    const share = slice?.fraction ?? 0
+    const share = entry.fraction ?? 0
 
     return (
         <div

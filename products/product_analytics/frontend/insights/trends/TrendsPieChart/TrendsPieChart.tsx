@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { PieChart } from 'lib/hog-charts'
+import { PieChart, PieTooltip } from 'lib/hog-charts'
 import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from 'lib/hog-charts'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -22,7 +22,6 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { PieTooltip } from './PieTooltip'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
 
 interface TrendsPieChartProps {
@@ -44,6 +43,7 @@ export function TrendsPieChart({
     showPersonsModal = true,
 }: TrendsPieChartProps): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
+    // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
     const { insightProps } = useValues(insightLogic)
@@ -115,7 +115,9 @@ export function TrendsPieChart({
         [showValuesOnSeries, showLabelOnSeries, pieChartVizOptions?.disableHoverOffset]
     )
 
-    const canHandleClick = !!onDataPointClick || (showPersonsModal && !formula && !hasDataWarehouseSeries)
+    // ActionsPie disables clicks entirely when the insight has data-warehouse series (see
+    // ActionsPie.tsx — `onClick={hasDataWarehouseSeries ? undefined : onClick}`); match that here.
+    const canHandleClick = !hasDataWarehouseSeries && (!!onDataPointClick || (showPersonsModal && !formula))
 
     // Click parity with ActionsPie. The legacy path builds an InsightActorsQuery from the
     // GraphDataset.breakdownValues array; here each slice is already a single result, so we
@@ -169,7 +171,9 @@ export function TrendsPieChart({
     )
 
     const renderTooltip = useCallback(
-        (ctx: TooltipContext<TrendsSeriesMeta>) => <PieTooltip ctx={ctx} valueFormatter={valueFormatter} />,
+        (ctx: TooltipContext<TrendsSeriesMeta>) => (
+            <PieTooltip<TrendsSeriesMeta> ctx={ctx} valueFormatter={valueFormatter} />
+        ),
         [valueFormatter]
     )
 

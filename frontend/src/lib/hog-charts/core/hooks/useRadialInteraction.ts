@@ -50,7 +50,7 @@ function buildPieTooltipCtx<Meta>(
         // Slot the slice index into `dataIndex` so generic overlays / equivalence checks still work.
         dataIndex: slice.seriesIndex,
         label: slice.series.label,
-        seriesData: [{ series: slice.series, value: slice.value, color: slice.color }],
+        seriesData: [{ series: slice.series, value: slice.value, color: slice.color, fraction: slice.fraction }],
         position: { x: ax, y: ay },
         hoverPosition: cursor,
         canvasBounds,

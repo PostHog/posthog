@@ -97,7 +97,8 @@ describe('computePieLayout', () => {
         expect(layout.total).toBe(10)
         // Negative-valued slice contributes 0 so its arc collapses.
         const sliceA = layout.slices.find((sl) => sl.series.key === 'a')
-        expect(sliceA && sliceA.endAngle - sliceA.startAngle).toBeCloseTo(0, 6)
+        expect(sliceA).not.toBeUndefined()
+        expect(sliceA!.endAngle - sliceA!.startAngle).toBeCloseTo(0, 6)
     })
 
     it('returns an empty layout when total is 0', () => {
