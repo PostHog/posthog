@@ -268,10 +268,10 @@ class EventDefinitionViewSet(
 
         exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
         if exclude_stale:
-            # `last_seen_at` is not indexed: the predicate runs after the team-scoped
-            # `(team_id, name)` index has already narrowed the row set per tenant, and
-            # the response is paginated. Worth re-checking with EXPLAIN if the largest
-            # tenants start showing this in slow-query logs.
+            # `last_seen_at` is not indexed: the predicate runs after the project-scoped
+            # pre-filter in `create_event_definitions_sql` has already narrowed the row
+            # set per tenant, and the response is paginated. Worth re-checking with
+            # EXPLAIN if the largest tenants start showing this in slow-query logs.
             search_query = (
                 search_query
                 + " AND (posthog_eventdefinition.last_seen_at IS NULL"
