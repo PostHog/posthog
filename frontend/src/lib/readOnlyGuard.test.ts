@@ -98,6 +98,7 @@ describe('readOnlyGuard', () => {
                 ['AI conversation queue', 'POST', '/api/environments/2/conversations/abc-123/queue'],
                 ['AI conversation queue clear', 'POST', '/api/environments/2/conversations/abc-123/queue/clear'],
                 ['AI conversation append message', 'POST', '/api/environments/2/conversations/abc-123/append_message'],
+                ['AI conversation cancel', 'PATCH', '/api/environments/2/conversations/abc-123/cancel/'],
             ] as const)('lets %s through (%s %s)', (_label, method, url) => {
                 const notifier = jest.fn()
                 setReadOnlyNotifier(notifier)
@@ -115,6 +116,11 @@ describe('readOnlyGuard', () => {
                 ['insight non-timing sub-action blocked', 'POST', '/api/environments/2/insights/123/timing_breakdown'],
                 ['metalytics-like prefix blocked', 'POST', '/api/projects/2/metalyticsfoo/'],
                 ['ticket saved views write blocked', 'POST', '/api/environments/2/conversations/views/'],
+                [
+                    'ticket saved views write blocked (no trailing slash)',
+                    'POST',
+                    '/api/environments/2/conversations/views',
+                ],
                 ['ticket saved view detail write blocked', 'PATCH', '/api/environments/2/conversations/views/abc/'],
                 ['support tickets write blocked', 'POST', '/api/projects/2/conversations/tickets/'],
                 ['conversations-like prefix blocked', 'POST', '/api/environments/2/conversationsfoo/'],
