@@ -1,1 +1,1 @@
-0021_add_signal_scout_models
+0022_add_signal_scout_models

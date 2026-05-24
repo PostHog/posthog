@@ -12,8 +12,8 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1129_userintegration"),
-        ("signals", "0020_add_signals_scout_source"),
-        ("tasks", "0032_task_origin_product_signals_scout"),
+        ("signals", "0021_add_signals_scout_source"),
+        ("tasks", "0035_task_origin_product_signals_scout"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     """State-only AlterField — `choices` is enforced at the application layer, no DB-level change."""
 
-    dependencies = [("tasks", "0031_task_github_user_integration")]
+    dependencies = [("tasks", "0034_taskpresence")]
 
     operations = [
         migrations.AlterField(
