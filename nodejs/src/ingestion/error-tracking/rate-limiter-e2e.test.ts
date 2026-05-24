@@ -56,22 +56,28 @@ describe('error tracking — sustained traffic e2e', () => {
         )
         await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-        const eventsPerSecond = 10
+        // Simulate sustained 10 events/sec as one batch of 10 per second so we make
+        // ~900 Redis calls instead of 9000. The per-input fan-out inside the batch
+        // still exercises the floor-drain + boundary behavior we care about.
+        const eventsPerBatch = 10
         const totalSeconds = minutes * 60
-        const batchIntervalMs = 1000 / eventsPerSecond // 100ms between calls
+        const batchIntervalMs = 1000
 
         let totalAllowed = 0
         let firstBurstAllowed = 0
         let seenFirstStarve = false
 
-        for (let i = 0; i < totalSeconds * eventsPerSecond; i++) {
-            const res = await limiter.rateLimitGrouped([{ id: 'team-1', cost: 1 }])
-            const allowed = res[0][1].isRateLimited ? 0 : 1
+        for (let s = 0; s < totalSeconds; s++) {
+            const res = await limiter.rateLimitGrouped(
+                Array.from({ length: eventsPerBatch }, () => ({ id: 'team-1', cost: 1 }))
+            )
+            const allowed = res.filter(([, r]) => !r.isRateLimited).length
             totalAllowed += allowed
-            if (i < bucketSize) {
+            // The first ten seconds carry the burst (bucketSize=100 / eventsPerBatch=10).
+            if (s < bucketSize / eventsPerBatch) {
                 firstBurstAllowed += allowed
             }
-            if (i >= bucketSize && allowed === 0 && !seenFirstStarve) {
+            if (s >= bucketSize / eventsPerBatch && allowed === 0 && !seenFirstStarve) {
                 seenFirstStarve = true
             }
             advanceTime(batchIntervalMs)

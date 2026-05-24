@@ -13,8 +13,11 @@ import { Redis } from 'ioredis'
 //      per call; we save ~95% of EXPIRE dispatches. Stale keys live 2x
 //      longer in exchange.
 //
-// Public output (tokensBefore, tokensAfter) and stored-field semantics are
-// identical to V2; only the TTL ceiling and refresh cadence differ.
+// Public return (tokensBefore, tokensAfter) matches V2 (tokensAfter=-1 on
+// denial). Stored-pool semantics on overdraft differ from V2: V3 floor-drains
+// available tokens and preserves the fractional remainder so refill accumulates
+// cross-batch (V2 preserved the full pre-overdraft balance, which over-allows
+// under sustained overload via JS-side fan-out from `tokensBefore`).
 const LUA_TOKEN_BUCKET_V3 = `
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
