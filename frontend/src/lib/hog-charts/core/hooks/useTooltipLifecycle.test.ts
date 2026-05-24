@@ -342,11 +342,7 @@ describe('isTooltipContextEquivalent', () => {
         ['different label', (b) => ({ ...b, label: 'Wed' }), false],
         ['different position.x', (b) => ({ ...b, position: { ...b.position, x: 999 } }), false],
         ['different position.y', (b) => ({ ...b, position: { ...b.position, y: 999 } }), false],
-        [
-            'different seriesData length',
-            (b) => ({ ...b, seriesData: b.seriesData.slice(0, 1) }),
-            false,
-        ],
+        ['different seriesData length', (b) => ({ ...b, seriesData: b.seriesData.slice(0, 1) }), false],
         [
             'different value',
             (b) => ({

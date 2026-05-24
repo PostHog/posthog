@@ -169,9 +169,7 @@ export function TrendsPieChart({
     )
 
     const renderTooltip = useCallback(
-        (ctx: TooltipContext<TrendsSeriesMeta>) => (
-            <PieTooltip ctx={ctx} valueFormatter={valueFormatter} />
-        ),
+        (ctx: TooltipContext<TrendsSeriesMeta>) => <PieTooltip ctx={ctx} valueFormatter={valueFormatter} />,
         [valueFormatter]
     )
 

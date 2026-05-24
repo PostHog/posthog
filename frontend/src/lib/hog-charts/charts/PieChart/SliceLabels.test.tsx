@@ -85,7 +85,9 @@ describe('SliceLabels', () => {
             dimensions: PLOT,
         })
         const { container } = renderWithLayout(layout, <SliceLabels isPercent />)
-        const text = labels(container).map((d) => d.textContent ?? '').join('|')
+        const text = labels(container)
+            .map((d) => d.textContent ?? '')
+            .join('|')
         expect(text).toContain('25%')
         expect(text).toContain('75%')
     })

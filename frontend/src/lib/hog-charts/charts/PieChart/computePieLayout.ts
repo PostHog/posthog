@@ -108,7 +108,10 @@ export function computePieLayout<Meta = unknown>(opts: ComputePieLayoutOptions<M
         return { slices: [], total: 0, cx, cy, outerRadius, innerRadius, padAngle }
     }
 
-    const pieGenerator = d3.pie<Indexed>().value((d) => d.value).padAngle(padAngle)
+    const pieGenerator = d3
+        .pie<Indexed>()
+        .value((d) => d.value)
+        .padAngle(padAngle)
     if (sort === null) {
         pieGenerator.sort(null)
     } else {

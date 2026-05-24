@@ -98,23 +98,25 @@ export function useChartInteraction<Meta = unknown>({
             )
         },
         // resolveValueRef / effectivePositionResolveRef are stable
-        [scales, dimensions, labels, series, canvasRef, labelToCoord, interactionAxis, resolveValueRef, effectivePositionResolveRef]
+        [
+            scales,
+            dimensions,
+            labels,
+            series,
+            canvasRef,
+            labelToCoord,
+            interactionAxis,
+            resolveValueRef,
+            effectivePositionResolveRef,
+        ]
     )
 
-    const {
-        hoverIndex,
-        hoverPosition,
-        tooltipCtx,
-        setHover,
-        setTooltipCtx,
-        isPinned,
-        clearTooltip,
-        pin,
-    } = useTooltipLifecycle<Meta>({
-        wrapperRef,
-        rebuildPinnedCtx,
-        rebuildDeps: [series, labels, scales, dimensions],
-    })
+    const { hoverIndex, hoverPosition, tooltipCtx, setHover, setTooltipCtx, isPinned, clearTooltip, pin } =
+        useTooltipLifecycle<Meta>({
+            wrapperRef,
+            rebuildPinnedCtx,
+            rebuildDeps: [series, labels, scales, dimensions],
+        })
 
     // Read by onClick to decide pin/unpin/passthrough. Event handlers fire after the most
     // recent commit, so an effect-deferred ref is correct here.

@@ -1,7 +1,8 @@
+import type { IndexedTrendResult } from 'scenes/trends/types'
+import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
+
 import type { InsightActorsQuery } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 import type { ActionFilter, GraphDataset } from '~/types'
 
 /** Verifies that the hog-charts TrendsPieChart click handler builds the same `InsightActorsQuery`
@@ -63,10 +64,9 @@ describe('persons modal parity between ActionsPie and TrendsPieChart', () => {
     }
 
     // Build the input the hog-charts TrendsPieChart passes to datasetToActorsQuery — single slice.
-    function newPieDatasetForSlice(slice: IndexedTrendResult): Pick<
-        GraphDataset,
-        'action' | 'breakdown_value' | 'compare_label'
-    > {
+    function newPieDatasetForSlice(
+        slice: IndexedTrendResult
+    ): Pick<GraphDataset, 'action' | 'breakdown_value' | 'compare_label'> {
         return {
             action: slice.action,
             breakdown_value: slice.breakdown_value,

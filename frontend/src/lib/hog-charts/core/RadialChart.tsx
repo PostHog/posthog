@@ -11,7 +11,15 @@ import { useRadialInteraction } from './hooks/useRadialInteraction'
 import type { RadialSlicePayload } from './hooks/useRadialInteraction'
 import { RadialLayoutContext } from './radial-context'
 import type { RadialLayoutContextValue } from './radial-context'
-import type { ChartDrawArgs, ChartMargins, ChartScales, ChartTheme, ResolvedSeries, Series, TooltipContext } from './types'
+import type {
+    ChartDrawArgs,
+    ChartMargins,
+    ChartScales,
+    ChartTheme,
+    ResolvedSeries,
+    Series,
+    TooltipContext,
+} from './types'
 import { defaultResolveValue } from './types'
 
 const OVERLAY_STYLE: React.CSSProperties = {
@@ -203,7 +211,11 @@ export function RadialChart<Meta = unknown>({
                             <div style={OVERLAY_STYLE}>
                                 {children}
                                 {tooltipCtx && showTooltip && (
-                                    <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement="follow-data" />
+                                    <Tooltip
+                                        context={tooltipCtx}
+                                        renderTooltip={renderTooltip}
+                                        placement="follow-data"
+                                    />
                                 )}
                             </div>
                         )}

@@ -72,9 +72,7 @@ describe('buildTrendsPieSeries', () => {
 
     it('clamps missing aggregated_value to 0', () => {
         // aggregated_value is required by the type, but we want to be defensive against partial data.
-        const results = [
-            makeResult({ id: 0, label: 'A', aggregated_value: undefined as unknown as number }),
-        ]
+        const results = [makeResult({ id: 0, label: 'A', aggregated_value: undefined as unknown as number })]
         const series = buildTrendsPieSeries(results, { getColor })
         expect(series[0].data).toEqual([0])
     })

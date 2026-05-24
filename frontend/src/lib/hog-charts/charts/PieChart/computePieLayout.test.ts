@@ -33,11 +33,7 @@ describe('computePieLayout', () => {
 
     it('drops excluded series from layout', () => {
         const layout = computePieLayout({
-            series: [
-                s('a', [10]),
-                s('b', [20], { visibility: { excluded: true } }),
-                s('c', [30]),
-            ],
+            series: [s('a', [10]), s('b', [20], { visibility: { excluded: true } }), s('c', [30])],
             dimensions: PLOT,
         })
         expect(layout.slices.map((sl) => sl.series.key)).toEqual(['a', 'c'])
@@ -46,11 +42,7 @@ describe('computePieLayout', () => {
 
     it('preserves original seriesIndex through excluded filtering', () => {
         const layout = computePieLayout({
-            series: [
-                s('a', [10]),
-                s('b', [20], { visibility: { excluded: true } }),
-                s('c', [30]),
-            ],
+            series: [s('a', [10]), s('b', [20], { visibility: { excluded: true } }), s('c', [30])],
             dimensions: PLOT,
         })
         // 'c' is at index 2 in the input; the slice must preserve that for click attribution.
@@ -148,10 +140,10 @@ describe('computePieLayout', () => {
 
 describe('cursorOffsetToAngle', () => {
     it.each<[string, number, number, number]>([
-        ['12 o\'clock', 0, -1, 0],
-        ['3 o\'clock', 1, 0, Math.PI / 2],
-        ['6 o\'clock', 0, 1, Math.PI],
-        ['9 o\'clock', -1, 0, (3 * Math.PI) / 2],
+        ["12 o'clock", 0, -1, 0],
+        ["3 o'clock", 1, 0, Math.PI / 2],
+        ["6 o'clock", 0, 1, Math.PI],
+        ["9 o'clock", -1, 0, (3 * Math.PI) / 2],
     ])('%s', (_name, dx, dy, expected) => {
         expect(cursorOffsetToAngle(dx, dy)).toBeCloseTo(expected, 6)
     })
@@ -197,9 +189,7 @@ describe('sliceAt', () => {
 
     it('accepts a cursor inside the outerSlack band', () => {
         const slack = 20
-        expect(
-            sliceAt(baseLayout, cursorAt(45, baseLayout.outerRadius + 10), { outerSlack: slack })
-        ).toBe(0)
+        expect(sliceAt(baseLayout, cursorAt(45, baseLayout.outerRadius + 10), { outerSlack: slack })).toBe(0)
     })
 
     it('returns -1 inside the donut inner hole', () => {
@@ -228,7 +218,7 @@ describe('sliceAt', () => {
     })
 
     it.each<[number]>([[0], [90], [180], [270], [359]])(
-        'handles the 12 o\'clock wraparound at %sdeg for a single slice',
+        "handles the 12 o'clock wraparound at %sdeg for a single slice",
         (deg) => {
             const full = computePieLayout({
                 series: [s('only', [100])],
@@ -236,9 +226,7 @@ describe('sliceAt', () => {
             })
             const midR = full.outerRadius / 2
             const rad = (deg * Math.PI) / 180
-            expect(
-                sliceAt(full, { x: full.cx + Math.sin(rad) * midR, y: full.cy - Math.cos(rad) * midR })
-            ).toBe(0)
+            expect(sliceAt(full, { x: full.cx + Math.sin(rad) * midR, y: full.cy - Math.cos(rad) * midR })).toBe(0)
         }
     )
 

@@ -2,9 +2,9 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
+import { useRadialLayout } from '../../core/radial-context'
 import { RadialChart } from '../../core/RadialChart'
 import type { RadialLayoutBuilder } from '../../core/RadialChart'
-import { useRadialLayout } from '../../core/radial-context'
 import type { ChartDrawArgs, ChartTheme, ResolvedSeries, Series, TooltipContext } from '../../core/types'
 import { computePieLayout } from './computePieLayout'
 import type { PieLayout } from './computePieLayout'
@@ -137,16 +137,13 @@ function PieChartInner<Meta = unknown>({
 
     const effectiveHoverOffset = disableHoverOffset ? 0 : hoverOffset
 
-    const drawStatic = useCallback(
-        (args: ChartDrawArgs) => {
-            const layout = getLayoutFromArgs<Meta>(args)
-            if (!layout) {
-                return
-            }
-            drawSlices(args.ctx, layout, args.theme, { skipIndex: -1, offset: 0 })
-        },
-        []
-    )
+    const drawStatic = useCallback((args: ChartDrawArgs) => {
+        const layout = getLayoutFromArgs<Meta>(args)
+        if (!layout) {
+            return
+        }
+        drawSlices(args.ctx, layout, args.theme, { skipIndex: -1, offset: 0 })
+    }, [])
 
     const drawHover = useCallback(
         (args: ChartDrawArgs) => {
