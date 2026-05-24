@@ -26,6 +26,15 @@ export interface KeyedRateLimiterConfig {
     ttlSeconds?: number
     /** When false, throw if the Redis pipeline returns null instead of fail-open allowing all. Default: true (fail open). */
     failOpen?: boolean
+    /**
+     * Grouped-limiter overdraft mode. When true (ET partial-passthrough), an over-budget batch
+     * drains the bucket by floor(available/minCost)*minCost and per-input fan-out uses
+     * `granted` as the local budget. When false (default — CDP / hog-watcher), the bucket
+     * is preserved on overdraft and per-input fan-out walks `tokensBefore`.
+     */
+    overdraftEnabled?: boolean
+    /** Smallest spend unit; lua only drains whole multiples of this in overdraft mode. Default 1. */
+    minCost?: number
 }
 
 export interface KeyedRateLimitRequest {
@@ -76,6 +85,15 @@ export class KeyedRateLimiterService {
             )
         }
         return [`${this.keyPrefix}/${req.id}`, nowSeconds, req.cost, bucketSize, refillRate, ttlSeconds]
+    }
+
+    private rateLimitArgsV4(
+        req: KeyedRateLimitRequest
+    ): [string, number, number, number, number, number, number, number] {
+        const base = this.rateLimitArgs(req)
+        const overdraftEnabled = this.config.overdraftEnabled ? 1 : 0
+        const minCost = this.config.minCost ?? 1
+        return [...base, overdraftEnabled, minCost]
     }
 
     public async rateLimitMany(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
@@ -137,13 +155,18 @@ export class KeyedRateLimiterService {
     }
 
     /**
-     * Coalesced variant of rateLimitMany. Same input/output shape, but N inputs
-     * across M unique ids dispatch only M Redis calls — per-input decisions are
-     * fanned out client-side from each id's `tokensBefore`. For uniform-cost
-     * batches the per-input decisions match rateLimitMany exactly.
+     * Coalesced grouped limiter. N inputs across M unique ids dispatch only M Redis
+     * calls — per-input decisions are fanned out client-side from each id.
      *
-     * Uses the V3 lua script (HMGET + multi-field HSET + conditional EXPIRE).
-     * Per-id bucket params come from the first request seen for that id.
+     * Behavior depends on `overdraftEnabled` config:
+     *   - false (default): lua preserves the bucket on overdraft. JS fan-out walks
+     *     `tokensBefore` (allows the prefix that fits in the local budget). Cross-batch
+     *     the bucket isn't drained — fine for monitoring-only callers.
+     *   - true: lua partial-drains by floor(available/minCost)*minCost (preserving the
+     *     fractional remainder for cross-batch accumulation). JS fan-out walks `granted`
+     *     so it allocates exactly what lua actually deducted.
+     *
+     * Uses the V4 lua script with two extra params (overdraftEnabled, minCost).
      */
     public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
@@ -173,7 +196,7 @@ export class KeyedRateLimiterService {
             { name: `keyed-rate-limiter-grouped:${this.config.name}`, failOpen: true },
             (pipeline) => {
                 items.forEach((req) => {
-                    pipeline.checkRateLimitV3(...this.rateLimitArgs(req))
+                    pipeline.checkRateLimitV4(...this.rateLimitArgsV4(req))
                 })
             }
         )
@@ -198,27 +221,31 @@ export class KeyedRateLimiterService {
             })
         }
 
+        const overdraftEnabled = !!this.config.overdraftEnabled
+        // Per-key fan-out budget: in overdraft mode use `granted` (what lua actually
+        // deducted); otherwise use `tokensBefore` (lua preserved the bucket, JS walks
+        // the local budget from full tokensBefore).
         const budgetById = new Map<string, number>()
+        const tokensBeforeById = new Map<string, number>()
         items.forEach((req, index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
             const tokensBefore = tokenRes[1]?.[0]
-            budgetById.set(req.id, tokensBefore != null ? Number(tokensBefore) : bucketSizes[index])
+            const granted = tokenRes[1]?.[2]
+            const tb = tokensBefore != null ? Number(tokensBefore) : bucketSizes[index]
+            tokensBeforeById.set(req.id, tb)
+            budgetById.set(req.id, overdraftEnabled ? (granted != null ? Number(granted) : 0) : tb)
         })
 
         let allowed = 0
         let limited = 0
         const out: [string, KeyedRateLimit][] = requests.map((req) => {
-            const tokensBefore = budgetById.get(req.id) ?? 0
-            if (tokensBefore >= req.cost) {
-                const next = tokensBefore - req.cost
+            const tokensBefore = tokensBeforeById.get(req.id) ?? 0
+            const budget = budgetById.get(req.id) ?? 0
+            if (budget >= req.cost) {
+                const next = budget - req.cost
                 budgetById.set(req.id, next)
-                const isRateLimited = next <= 0
-                if (isRateLimited) {
-                    limited++
-                } else {
-                    allowed++
-                }
-                return [req.id, { tokensBefore, tokens: next, isRateLimited }]
+                allowed++
+                return [req.id, { tokensBefore, tokens: next, isRateLimited: false }]
             }
             limited++
             return [req.id, { tokensBefore, tokens: -1, isRateLimited: true }]
