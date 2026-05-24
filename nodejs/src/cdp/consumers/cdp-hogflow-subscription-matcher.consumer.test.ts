@@ -277,6 +277,44 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(update).toBeUndefined()
         })
 
+        it('still wakes a job for a conversion match when stepMatched lacks currentAction', async () => {
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            // State missing currentAction: we cannot tag eventMatched, but the same incoming
+            // event also satisfies the workflow's conversion goal, which is independent of
+            // currentAction - that wake must still happen.
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({}) }]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({
+                'flow-1': makeHogFlow({
+                    id: 'flow-1',
+                    conversion: {
+                        window_minutes: null,
+                        filters: {},
+                        bytecode: [],
+                        events: [{ filters: { events: [{ id: 'wuc_subscribed' }] } }],
+                    },
+                } as any),
+            })
+
+            await matcher.runWake([makeGlobals({})])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).not.toBeUndefined()
+            const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
+            expect(newState.state.conversionMatched).toBe(true)
+            // currentAction is missing in input state, so eventMatched must not have been set
+            expect(newState.state.currentAction).toBeUndefined()
+        })
+
         it('wakes a job matched by person_id (batch-triggered scenario, distinct_id mismatch)', async () => {
             matcher.findRows = [
                 {

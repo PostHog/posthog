@@ -495,18 +495,27 @@ function applyWakeFlags(stateBuffer: Buffer, req: WakeRequest): Buffer | null {
     try {
         const parsed = parseJSON(stateBuffer.toString('utf-8'))
         const updatedState: HogFlowInvocationContext = { ...parsed.state }
+
+        let applied = false
         if (req.stepMatched) {
-            if (!updatedState.currentAction) {
+            if (updatedState.currentAction) {
+                updatedState.currentAction = { ...updatedState.currentAction, eventMatched: true }
+                applied = true
+            } else {
                 // A parked wait_until_condition job should always carry its current action.
-                // Without it we cannot tag the wake as an event match, and waking anyway
-                // would misclassify it as a timeout wake - skip instead.
-                logger.warn('Skipping wake: no currentAction in state', { jobId: req.id })
-                return null
+                // Without it we cannot tag the wake as an event match - skip the flag and
+                // continue, since conversionMatched is independent of currentAction and may
+                // still apply.
+                logger.warn('Skipping eventMatched: no currentAction in state', { jobId: req.id })
             }
-            updatedState.currentAction = { ...updatedState.currentAction, eventMatched: true }
         }
         if (req.conversionMatched) {
             updatedState.conversionMatched = true
+            applied = true
+        }
+        if (!applied) {
+            // No flag set - waking the job without one would misclassify as a timeout wake.
+            return null
         }
         parsed.state = updatedState
         return Buffer.from(JSON.stringify(parsed))
