@@ -38,8 +38,9 @@ export type LogsViewerLogicProps = {
     groupByInstanceId?: boolean
     searchGroups?: string[]
     defaultFilters?: Partial<LogEntryParams>
-    /** When false, filter state is not synced to URL params. Use when LogsViewer is embedded inside
-     * another component (e.g. a collapsible panel) to prevent URL changes from resetting parent state. */
+    /** When false, disables two-way URL sync: filter/grouping state is neither written to URL params
+     * nor initialized from them. Use when LogsViewer is embedded inside another component (e.g. a
+     * collapsible panel) to prevent URL changes from resetting parent state. */
     syncToUrl?: boolean
 }
 
@@ -577,6 +578,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         // Disposables handle cleanup automatically
     }),
     actionToUrl(({ values, props }) => {
+        const shouldSyncToUrl = props.syncToUrl !== false
         const syncProperties = (
             properties: Record<string, any>
         ): [string, Record<string, any>, Record<string, any>] => {
@@ -590,8 +592,8 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         }
 
         return {
-            setFilters: ({ filters }) => (props.syncToUrl === false ? undefined : syncProperties(filters)),
-            setIsGrouped: () => (props.syncToUrl === false ? undefined : syncProperties({ grouped: values.isGrouped })),
+            setFilters: ({ filters }) => (shouldSyncToUrl ? syncProperties(filters) : undefined),
+            setIsGrouped: () => (shouldSyncToUrl ? syncProperties({ grouped: values.isGrouped }) : undefined),
         }
     }),
     urlToAction(({ actions, values, props }) => ({
