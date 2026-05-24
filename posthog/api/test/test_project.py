@@ -461,3 +461,33 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # Verify changes were made
         self.project.refresh_from_db()
         self.assertEqual(self.project.name, "New Project Name")
+
+    def test_options_on_projects_list_does_not_500(self):
+        response = self.client.options("/api/projects/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_options_on_project_action_endpoint_does_not_500(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.options(f"/api/projects/{self.project.id}/reset_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_missing_project_id_returns_404_for_scoped_api_key(self):
+        missing_project_id = self.project.id + 999_000
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scoped",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scoped_teams=[self.team.id],
+            scopes=["*"],
+        )
+
+        response = self.client.get(
+            f"/api/projects/{missing_project_id}/groups_types/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

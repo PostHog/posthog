@@ -224,9 +224,14 @@ class TeamMemberLightManagementPermission(BasePermission):
     message = "You don't have sufficient permissions in the project."
 
     def has_permission(self, request, view) -> bool:
+        # OPTIONS preflight (DRF's metadata action) isn't gated on team membership —
+        # there's no concrete team to resolve on list URLs, and `view.team` would
+        # raise KeyError when the lookup kwarg is missing.
+        if request.method == "OPTIONS":
+            return True
         try:
             team = view.team
-        except Team.DoesNotExist:
+        except (Team.DoesNotExist, KeyError):
             return True  # This will be handled as a 404 in the viewset
         requesting_level = view.user_permissions.team(team).effective_membership_level
         if requesting_level is None:
@@ -246,6 +251,11 @@ class TeamMemberStrictManagementPermission(BasePermission):
     message = "You don't have sufficient permissions in the project."
 
     def has_permission(self, request, view) -> bool:
+        # OPTIONS preflight (DRF's metadata action) isn't gated on team membership —
+        # the viewset's user_permissions override only attaches a team for the
+        # action set it knows about, so `current_team` would raise on metadata.
+        if request.method == "OPTIONS":
+            return True
         requesting_level = view.user_permissions.current_team.effective_membership_level
         if requesting_level is None:
             return False
