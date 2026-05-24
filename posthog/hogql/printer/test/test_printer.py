@@ -1167,6 +1167,33 @@ class TestPrinter(BaseTest):
             == prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.ENABLED), dialect="clickhouse")[0]
         )
 
+    def test_property_groups_optimized_missing_field_on_synthetic_table_falls_back(self):
+        # Regression for an uncaught ``Field "..." not found on table Table``
+        # exception aborting query execution when the materialized-property-group
+        # optimizer encountered a synthetic ``Table`` (e.g. a CTE-derived table
+        # built by ``resolve_cte_database_table``) that did not expose the named
+        # field. The optimizer should treat that case as non-optimizable and
+        # return without yielding a materialized source.
+        from posthog.hogql.printer.clickhouse import ClickHousePrinter
+        from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                propertyGroupsMode=PropertyGroupsMode.OPTIMIZED,
+            ),
+        )
+        printer = ClickHousePrinter(context=context)
+
+        cte_table_type = ast.CTETableType(name="cte", select_query_type=ast.SelectQueryType())
+        field_type = ast.FieldType(name="properties", table_type=cte_table_type)
+
+        sources: list[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem] = list(
+            printer._get_all_materialized_property_sources(field_type, "$some_property")
+        )
+        self.assertEqual(sources, [])
+
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count()")
         self.assertEqual(self._expr("count(distinct event)"), "count(DISTINCT events.event)")

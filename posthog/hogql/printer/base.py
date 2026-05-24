@@ -1277,7 +1277,16 @@ class BasePrinter(Visitor[str]):
         if self.context.modifiers.materializationMode == "disabled":
             return
 
-        field = field_type.resolve_database_field(self.context)
+        try:
+            field = field_type.resolve_database_field(self.context)
+        except Exception:
+            # Synthetic ``Table`` instances (e.g. the CTE-derived table built by
+            # ``resolve_cte_database_table``) only expose the columns projected
+            # by the underlying query. ``Table.get_field`` raises when the field
+            # is missing; for the purpose of materialized-property-group
+            # optimization that is just an unoptimizable path, so fall back to
+            # the default JSON-extract printing rather than aborting the query.
+            field = None
 
         # check for a materialised column
         table = field_type.table_type
