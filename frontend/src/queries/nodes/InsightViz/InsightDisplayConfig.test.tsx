@@ -122,8 +122,8 @@ describe('InsightDisplayConfig', () => {
         })
 
         it('removes axis label option count after clearing a committed label', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]: true,
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS], {
+                [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]: true,
             })
             setupAndRender(makeTrendsQuery(ChartDisplayType.ActionsLineGraph, { xAxisLabel: 'Signup date' }))
 

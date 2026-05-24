@@ -131,9 +131,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
     const isCumulativeLineDisplay = display === ChartDisplayType.ActionsLineGraphCumulative
     const showAxisLabelsConfig =
-        isTrends &&
-        ((isLineDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]) ||
-            (isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR]))
+        isTrends && (isLineDisplay || isBarDisplay) && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]
     const isLineGraph = isLineDisplay && !isCumulativeLineDisplay
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
