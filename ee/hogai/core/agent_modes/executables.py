@@ -469,9 +469,18 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         )
 
         try:
-            result = await tool.ainvoke(
-                ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id), config=config
-            )
+            with _tracer.start_as_current_span(
+                "posthog_ai.tool.invoke",
+                attributes={
+                    "posthog_ai.tool_name": tool_call.name,
+                    "posthog_ai.tool_call_id": tool_call.id,
+                    "posthog_ai.team_id": self._team.id,
+                },
+            ):
+                result = await tool.ainvoke(
+                    ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id),
+                    config=config,
+                )
             if not isinstance(result, LangchainToolMessage):
                 raise ValueError(
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
