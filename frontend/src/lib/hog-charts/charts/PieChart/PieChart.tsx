@@ -156,11 +156,33 @@ function PieChartInner<Meta = unknown>({
             if (layout.slices.length <= 1 || effectiveHoverOffset === 0) {
                 return
             }
+            // The mask step below relies on `theme.backgroundColor` to erase the static-canvas
+            // copy of the slice. Without one, the popped-out slice would partially overlap the
+            // original and smear — better to skip the pop-out than render that.
+            if (!args.theme.backgroundColor) {
+                return
+            }
             const slice = layout.slices[args.hoverIndex]
             if (!slice) {
                 return
             }
-            drawSlice(args.ctx, slice, layout, args.theme, { offset: effectiveHoverOffset })
+            // Two-pass paint on the (always-cleared) overlay canvas:
+            //   1. Fill the slice's original footprint with the theme background. The overlay
+            //      sits above the static canvas, so this *visually* erases the un-offset copy
+            //      that `useChartDraw` re-paints on the static layer every render.
+            //   2. Paint the slice in its real color at the offset position.
+            // Without step 1 the offset copy only partially overlaps the original, leaving a
+            // crescent of the un-offset slice visible — a smear, not a clean pop-out.
+            drawSliceShape(args.ctx, slice, layout, {
+                offset: 0,
+                fillStyle: args.theme.backgroundColor,
+                withStroke: undefined,
+            })
+            drawSliceShape(args.ctx, slice, layout, {
+                offset: effectiveHoverOffset,
+                fillStyle: slice.color,
+                withStroke: layout.slices.length > 1 ? args.theme.backgroundColor : undefined,
+            })
         },
         [effectiveHoverOffset]
     )
@@ -248,6 +270,28 @@ function drawSlice<Meta>(
     theme: ChartTheme,
     { offset }: DrawSliceOptions
 ): void {
+    // Inter-slice stroke in the theme background — visually separates adjacent slices
+    // without a heavy outline. Skipped when there's only one slice (no neighbour to separate from).
+    const withStroke = layout.slices.length > 1 ? theme.backgroundColor : undefined
+    drawSliceShape(ctx, slice, layout, { offset, fillStyle: slice.color, withStroke })
+}
+
+interface DrawSliceShapeOptions {
+    offset: number
+    fillStyle: string
+    /** Inter-slice stroke color (typically `theme.backgroundColor`). Omit to skip stroking. */
+    withStroke: string | undefined
+}
+
+/** Lower-level slice painter — takes explicit fill / stroke so the hover layer can both
+ *  mask (background fill, no stroke) and re-paint (slice color, with stroke) using the same
+ *  arc geometry. */
+function drawSliceShape<Meta>(
+    ctx: CanvasRenderingContext2D,
+    slice: PieLayout<Meta>['slices'][number],
+    layout: PieLayout<Meta>,
+    { offset, fillStyle, withStroke }: DrawSliceShapeOptions
+): void {
     const halfPad = layout.padAngle / 2
     const start = slice.startAngle + halfPad
     const end = slice.endAngle - halfPad
@@ -264,7 +308,7 @@ function drawSlice<Meta>(
     const cStart = start - Math.PI / 2
     const cEnd = end - Math.PI / 2
 
-    ctx.fillStyle = slice.color
+    ctx.fillStyle = fillStyle
     ctx.beginPath()
     if (layout.innerRadius > 0) {
         ctx.arc(cx, cy, layout.outerRadius, cStart, cEnd, false)
@@ -276,11 +320,9 @@ function drawSlice<Meta>(
     ctx.closePath()
     ctx.fill()
 
-    // Inter-slice stroke in the theme background — visually separates adjacent slices
-    // without a heavy outline. Skipped when there's only one slice (no neighbour to separate from).
-    if (layout.slices.length > 1 && theme.backgroundColor) {
+    if (withStroke) {
         ctx.lineWidth = 1
-        ctx.strokeStyle = theme.backgroundColor
+        ctx.strokeStyle = withStroke
         ctx.stroke()
     }
 }
