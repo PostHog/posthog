@@ -2169,27 +2169,27 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
 
-    def test_cant_verify_more_than_six_times(self):
+    def test_cant_verify_more_than_throttle_limit(self):
         set_instance_setting("EMAIL_HOST", "localhost")
 
-        for i in range(7):
+        for i in range(6):
             with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
                 response = self.client.post(
                     f"/api/users/request_email_verification/",
                     {"uuid": self.user.uuid},
                 )
-            if i < 6:
+            if i < 5:
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
             else:
-                # Fourth request should fail
+                # Sixth request exceeds the 5/hour throttle and must be rejected.
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
                 self.assertLessEqual(
                     {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
                     response.json().items(),
                 )
 
-        # Three emails should be sent, fourth should not
-        self.assertEqual(len(mail.outbox), 6)
+        # Five emails should be sent, sixth should not.
+        self.assertEqual(len(mail.outbox), 5)
 
     # Token validation
 
