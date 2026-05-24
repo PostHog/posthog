@@ -1818,10 +1818,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const wasFromRecents = hasRecentContext(item)
                 const wasFromPinnedList = hasPinnedContext(item)
 
-                const wasStale =
+                const isEventTab =
                     sourceGroupType === TaxonomicFilterGroupType.Events ||
                     sourceGroupType === TaxonomicFilterGroupType.CustomEvents
-                        ? isDefinitionStale(item as EventDefinition)
+                const wasStale =
+                    isEventTab && item && typeof item === 'object' && 'last_seen_at' in item
+                        ? isDefinitionStale(item)
                         : undefined
 
                 posthog.capture('taxonomic filter item selected', {
