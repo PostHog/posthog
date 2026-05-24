@@ -1,5 +1,7 @@
-import { actions, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene, SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -9,6 +11,29 @@ import type { sqlEditorTabsLogicType } from './sqlEditorTabsLogicType'
 export interface SqlEditorTab {
     id: string
     label: string
+}
+
+const STORAGE_KEY_PREFIX = 'posthog-sql-editor-tabs-v1'
+
+interface PersistedSqlEditorTab {
+    id: string
+    pathname: string
+    search: string
+    hash: string
+    title: string
+    customTitle?: string
+    iconType: SceneTab['iconType']
+    sceneId?: string
+    sceneKey?: string
+    pinned?: boolean
+}
+
+function getStorageKey(): string | null {
+    const teamId = getCurrentTeamIdOrNone()
+    if (teamId == null) {
+        return null
+    }
+    return `${STORAGE_KEY_PREFIX}-${teamId}`
 }
 
 function isSqlEditorSceneTab(tab: SceneTab): boolean {
@@ -30,13 +55,78 @@ function deriveLabel(tab: SceneTab, fallbackIndex: number): string {
     return `Query ${fallbackIndex + 1}`
 }
 
+function sceneTabToPersisted(tab: SceneTab): PersistedSqlEditorTab {
+    return {
+        id: tab.id,
+        pathname: tab.pathname,
+        search: tab.search,
+        hash: tab.hash,
+        title: tab.title,
+        customTitle: tab.customTitle,
+        iconType: tab.iconType,
+        sceneId: tab.sceneId,
+        sceneKey: tab.sceneKey,
+        pinned: tab.pinned,
+    }
+}
+
+function readPersistedTabs(): PersistedSqlEditorTab[] {
+    const key = getStorageKey()
+    if (!key) {
+        return []
+    }
+    try {
+        const raw = localStorage.getItem(key)
+        if (!raw) {
+            return []
+        }
+        const parsed = JSON.parse(raw)
+        if (!Array.isArray(parsed)) {
+            return []
+        }
+        return parsed.filter(
+            (entry): entry is PersistedSqlEditorTab =>
+                entry && typeof entry === 'object' && typeof entry.id === 'string' && typeof entry.pathname === 'string'
+        )
+    } catch (e) {
+        console.error('Failed to parse persisted SQL editor tabs', e)
+        return []
+    }
+}
+
+function writePersistedTabs(tabs: PersistedSqlEditorTab[]): void {
+    const key = getStorageKey()
+    if (!key) {
+        return
+    }
+    try {
+        if (tabs.length === 0) {
+            localStorage.removeItem(key)
+            return
+        }
+        localStorage.setItem(key, JSON.stringify(tabs))
+    } catch (e) {
+        console.error('Failed to persist SQL editor tabs', e)
+    }
+}
+
+function tabUrl(tab: PersistedSqlEditorTab | SceneTab): string {
+    return `${tab.pathname}${tab.search ?? ''}${tab.hash ?? ''}`
+}
+
 export const sqlEditorTabsLogic = kea<sqlEditorTabsLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'sqlEditorTabsLogic']),
     connect(() => ({
         values: [sceneLogic, ['tabs as allSceneTabs', 'activeTabId as sceneActiveTabId']],
         actions: [
             sceneLogic,
-            ['newTab as sceneNewTab', 'removeTab as sceneRemoveTab', 'clickOnTab as sceneClickOnTab', 'saveTabEdit'],
+            [
+                'newTab as sceneNewTab',
+                'removeTab as sceneRemoveTab',
+                'clickOnTab as sceneClickOnTab',
+                'saveTabEdit',
+                'setTabs as sceneSetTabs',
+            ],
         ],
     })),
     actions({
@@ -63,6 +153,10 @@ export const sqlEditorTabsLogic = kea<sqlEditorTabsLogicType>([
             (tabs: SqlEditorTab[], activeTabId: string): SqlEditorTab | null =>
                 tabs.find((tab) => tab.id === activeTabId) ?? tabs[0] ?? null,
         ],
+        sqlEditorSceneTabs: [
+            (s) => [s.allSceneTabs],
+            (allSceneTabs: SceneTab[]): SceneTab[] => allSceneTabs.filter(isSqlEditorSceneTab),
+        ],
     }),
     listeners(({ actions, values }) => ({
         addTab: () => {
@@ -87,4 +181,55 @@ export const sqlEditorTabsLogic = kea<sqlEditorTabsLogicType>([
             }
         },
     })),
+    subscriptions(({ values, cache }) => ({
+        sqlEditorSceneTabs: (tabs: SceneTab[]) => {
+            if (!cache.hydrated) {
+                return
+            }
+            writePersistedTabs(tabs.map(sceneTabToPersisted))
+        },
+        // Persist title/customTitle changes that don't change the tab list reference.
+        allSceneTabs: () => {
+            if (!cache.hydrated) {
+                return
+            }
+            writePersistedTabs(values.sqlEditorSceneTabs.map(sceneTabToPersisted))
+        },
+    })),
+    afterMount(({ actions, values, cache }) => {
+        const persisted = readPersistedTabs()
+        if (persisted.length === 0) {
+            cache.hydrated = true
+            return
+        }
+        const existingIds = new Set(values.allSceneTabs.map((t) => t.id))
+        const existingUrls = new Set(values.allSceneTabs.map(tabUrl))
+
+        const tabsToAdd = persisted.filter((tab) => !existingIds.has(tab.id) && !existingUrls.has(tabUrl(tab)))
+
+        for (const tab of tabsToAdd) {
+            actions.sceneNewTab(tabUrl(tab), {
+                id: tab.id,
+                skipNavigate: true,
+                activate: false,
+                source: 'unknown',
+            })
+        }
+
+        // Mirror persisted customTitle onto restored tabs so labels survive reload.
+        const restoredById = new Map(persisted.map((t) => [t.id, t]))
+        const merged = values.allSceneTabs.map((tab) => {
+            const persistedMatch = restoredById.get(tab.id) ?? persisted.find((p) => tabUrl(p) === tabUrl(tab))
+            if (!persistedMatch?.customTitle) {
+                return tab
+            }
+            return { ...tab, customTitle: persistedMatch.customTitle }
+        })
+        const changed = merged.some((tab, i) => tab.customTitle !== values.allSceneTabs[i]?.customTitle)
+        if (changed) {
+            actions.sceneSetTabs(merged)
+        }
+
+        cache.hydrated = true
+    }),
 ])
