@@ -91,6 +91,13 @@ describe('readOnlyGuard', () => {
                 ['insights timing with trailing slash', 'POST', '/api/projects/2/insights/timing/'],
                 ['metalytics (no trailing slash)', 'POST', '/api/projects/2/metalytics'],
                 ['metalytics with trailing slash', 'POST', '/api/projects/2/metalytics/'],
+                ['new AI conversation', 'POST', '/api/environments/2/conversations'],
+                ['new AI conversation with trailing slash', 'POST', '/api/environments/2/conversations/'],
+                ['AI conversation by id', 'PATCH', '/api/environments/2/conversations/abc-123/'],
+                ['AI conversation delete', 'DELETE', '/api/environments/2/conversations/abc-123/'],
+                ['AI conversation queue', 'POST', '/api/environments/2/conversations/abc-123/queue'],
+                ['AI conversation queue clear', 'POST', '/api/environments/2/conversations/abc-123/queue/clear'],
+                ['AI conversation append message', 'POST', '/api/environments/2/conversations/abc-123/append_message'],
             ] as const)('lets %s through (%s %s)', (_label, method, url) => {
                 const notifier = jest.fn()
                 setReadOnlyNotifier(notifier)
@@ -107,6 +114,10 @@ describe('readOnlyGuard', () => {
                 ['insight non-viewed sub-action blocked', 'POST', '/api/environments/2/insights/123/viewed_by'],
                 ['insight non-timing sub-action blocked', 'POST', '/api/environments/2/insights/123/timing_breakdown'],
                 ['metalytics-like prefix blocked', 'POST', '/api/projects/2/metalyticsfoo/'],
+                ['ticket saved views write blocked', 'POST', '/api/environments/2/conversations/views/'],
+                ['ticket saved view detail write blocked', 'PATCH', '/api/environments/2/conversations/views/abc/'],
+                ['support tickets write blocked', 'POST', '/api/projects/2/conversations/tickets/'],
+                ['conversations-like prefix blocked', 'POST', '/api/environments/2/conversationsfoo/'],
             ] as const)('still blocks %s (%s %s) — only allowlisted paths pass', (_l, method, url) => {
                 expect(() => assertNotReadOnly(method, url)).toThrow(ReadOnlyModeError)
             })
