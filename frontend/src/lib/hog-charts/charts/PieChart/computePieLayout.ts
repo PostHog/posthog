@@ -55,9 +55,13 @@ export interface ComputePieLayoutOptions<Meta = unknown> {
 }
 
 export function defaultSliceValue<Meta>(s: ResolvedSeries<Meta>): number {
+    // Naive sum — `computePieLayout` clamps the result to 0 for negative totals. Keep this
+    // close to "sum(series.data)" so a custom `sliceValue` that wants a different aggregation
+    // (e.g. last point only, average) replaces the whole resolver rather than fighting a
+    // pre-clamp here.
     let sum = 0
     for (const v of s.data) {
-        if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+        if (typeof v === 'number' && Number.isFinite(v)) {
             sum += v
         }
     }
