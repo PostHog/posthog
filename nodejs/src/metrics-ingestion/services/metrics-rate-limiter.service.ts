@@ -148,7 +148,10 @@ export class MetricsRateLimiterService {
                 {
                     tokensBefore,
                     tokensAfter,
-                    isRateLimited: tokensAfter <= 0,
+                    // Lua returns -1 when the cost couldn't be served. tokensAfter=0
+                    // means the deduction succeeded and emptied the bucket — that's a
+                    // served request, not a denied one. Matches KeyedRateLimiterService.
+                    isRateLimited: tokensAfter < 0,
                 },
             ]
         })

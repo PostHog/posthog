@@ -1,6 +1,7 @@
 import { Redis } from 'ioredis'
 
-// V3 single-key token-bucket script.
+// V3 single-key token-bucket script. Used exclusively by rateLimitGrouped,
+// which sums costs per id and fans the served prefix out client-side.
 //
 // Optimizations vs V2 (script CPU was ~95% of Redis cost in prod):
 //   1. ts + pool fetched in one HMGET (was two HGETs).
@@ -13,8 +14,13 @@ import { Redis } from 'ioredis'
 //      per call; we save ~95% of EXPIRE dispatches. Stale keys live 2x
 //      longer in exchange.
 //
-// Public output (tokensBefore, tokensAfter) and stored-field semantics are
-// identical to V2; only the TTL ceiling and refresh cadence differ.
+// Denial-path semantic diverges from V2: V2 preserves the un-deducted
+// balance so a subsequent smaller-cost call in rateLimitMany can spend the
+// leftover. V3 callers fan out a prefix of tokensBefore client-side, so
+// preserving the balance would let an over-budget grouped batch get a fresh
+// prefix every call. V3 instead deducts the portion the client can plausibly
+// admit (= max(tokensBefore, 0), capped at cost), aligning the stored pool
+// with the fan-out decision.
 const LUA_TOKEN_BUCKET_V3 = `
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
@@ -51,11 +57,12 @@ else
 end
 
 -- Wire contract: tokensAfter == -1 means denied, non-negative means served.
--- On denial we still return -1 but persist the un-deducted balance so partial
--- refills accumulate across calls. Without this, sub-2 fractional fillRates
--- wedge at -1 forever under sustained 1 req/s traffic (e.g. per-issue limits
--- like 100 per 15 min) because each denied call would overwrite any accrued
--- refill credit with -1.
+-- On denial we deduct what the client could admit from the fan-out prefix
+-- (= max(tokensBefore, 0), capped at cost) and store the remainder. When the
+-- starting balance was negative we leave it alone — refill credit then
+-- accumulates across calls and the bucket recovers as soon as it covers cost,
+-- which is what makes sub-2 fractional fillRates (e.g. 100 per 15 min) eventually
+-- serve again instead of wedging.
 local tokensAfter
 local poolToStore
 if tokensBefore - cost >= 0 then
@@ -63,7 +70,7 @@ if tokensBefore - cost >= 0 then
   poolToStore = tokensAfter
 else
   tokensAfter = -1
-  poolToStore = math.min(tokensBefore, poolMax)
+  poolToStore = math.min(tokensBefore, 0)
 end
 
 -- Don't regress ts when now < before; otherwise advance to now.

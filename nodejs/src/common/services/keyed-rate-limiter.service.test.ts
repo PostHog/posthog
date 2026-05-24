@@ -530,5 +530,34 @@ describe('KeyedRateLimiterService', () => {
             expect(firstRecoveryIndex).toBeGreaterThanOrEqual(0)
             expect(firstRecoveryIndex).toBeLessThan(5)
         })
+
+        // Regression for the V3 partial-pass-through attack. The denial-path
+        // wedge fix originally stored `min(tokensBefore, poolMax)` on denial,
+        // which let an over-budget grouped batch get a fresh prefix every call:
+        // Redis kept 100 tokens, the client fanned out 100 admits locally, and
+        // the bucket never actually drained. The fix deducts the served portion
+        // (= max(tokensBefore, 0)) so the stored pool reflects the fan-out.
+        it('drains the stored pool when an over-budget batch is partially admitted', async () => {
+            const limiter = buildLimiter('grouped-overbudget-deduct', { bucketSize: 100, refillRate: 0 })
+            await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+            const key = `${limiter.getKeyPrefix()}/team-1`
+
+            const first = await limiter.rateLimitGrouped(Array.from({ length: 110 }, () => ({ id: 'team-1', cost: 1 })))
+            const firstAllowed = first.filter(([, r]) => !r.isRateLimited).length
+            expect(firstAllowed).toBe(100)
+            expect(first.filter(([, r]) => r.isRateLimited).length).toBe(10)
+
+            // Stored pool drained to 0 — the un-deducted balance is no longer
+            // preserved on denial when the grouped fan-out has spent the prefix.
+            const stored = await readBucket(key)
+            expect(stored.pool).toBe('0')
+
+            // Next over-budget batch sees no budget and is denied in full,
+            // instead of being handed a fresh 100-admit prefix.
+            const second = await limiter.rateLimitGrouped(
+                Array.from({ length: 110 }, () => ({ id: 'team-1', cost: 1 }))
+            )
+            expect(second.every(([, r]) => r.isRateLimited)).toBe(true)
+        })
     })
 })

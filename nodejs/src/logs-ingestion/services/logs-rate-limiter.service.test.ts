@@ -67,11 +67,12 @@ describe('LogsRateLimiterService', () => {
             expect(res[0][1].tokensAfter).toBe(1)
             expect(res[0][1].isRateLimited).toBe(false)
 
+            // Last token is spent — the request is served and bucket lands at 0.
             res = await rateLimiter.rateLimitMany([[teamId1, 1, Math.round(now / 1000)]])
 
             expect(res[0][1].tokensBefore).toBe(1)
             expect(res[0][1].tokensAfter).toBe(0)
-            expect(res[0][1].isRateLimited).toBe(true)
+            expect(res[0][1].isRateLimited).toBe(false)
 
             res = await rateLimiter.rateLimitMany([[teamId1, 20, Math.round(now / 1000)]])
 
@@ -191,7 +192,7 @@ describe('LogsRateLimiterService', () => {
             expect(res).toEqual([
                 [teamId1, { tokensBefore: 100, tokensAfter: 10, isRateLimited: false }],
                 [teamId1, { tokensBefore: 10, tokensAfter: 1, isRateLimited: false }],
-                [teamId1, { tokensBefore: 1, tokensAfter: 0, isRateLimited: true }],
+                [teamId1, { tokensBefore: 1, tokensAfter: 0, isRateLimited: false }],
                 [teamId1, { tokensBefore: 0, tokensAfter: -1, isRateLimited: true }],
             ])
         })
