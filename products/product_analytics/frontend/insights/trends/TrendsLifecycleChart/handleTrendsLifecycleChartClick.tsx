@@ -1,12 +1,7 @@
 import { DateDisplay } from 'lib/components/DateDisplay'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
-import type { TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
-
-function resolveDataset(seriesKey: string, indexedResults: IndexedTrendResult[]): IndexedTrendResult | null {
-    return indexedResults.find((r) => String(r.id) === seriesKey) ?? null
-}
+import { resolveDataset, type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
 
 // Lifecycle is the only trends mode whose persons modal uses `additionalSelect: {}` and
 // `orderBy: undefined`. The actor query carries the lifecycle `status` (via

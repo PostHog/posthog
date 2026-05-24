@@ -22,7 +22,7 @@ export interface TrendsChartClickDeps {
 
 // Adapters key each hog-charts Series by `${r.id}`, so we can resolve back
 // to the source IndexedTrendResult without stashing it on meta.
-function resolveDataset(seriesKey: string, indexedResults: IndexedTrendResult[]): IndexedTrendResult | null {
+export function resolveDataset(seriesKey: string, indexedResults: IndexedTrendResult[]): IndexedTrendResult | null {
     return indexedResults.find((r) => String(r.id) === seriesKey) ?? null
 }
 
