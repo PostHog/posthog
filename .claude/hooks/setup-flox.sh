@@ -3,7 +3,7 @@
 # so that all subsequent Bash commands have python, node, pytest, etc. on PATH.
 #
 # CLAUDE_ENV_FILE is available in SessionStart, Setup, CwdChanged, and FileChanged hooks:
-# https://code.claude.com/docs/en/hooks
+# https://code.claude.com/docs/en/hooks#persist-environment-variables
 
 # Skip on Claude web (no flox there) or if CLAUDE_ENV_FILE isn't set
 if [ "$CLAUDE_CODE_REMOTE" = "true" ] || [ -z "$CLAUDE_ENV_FILE" ]; then
