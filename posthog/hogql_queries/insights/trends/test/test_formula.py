@@ -15,7 +15,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import Breakdown, BreakdownFilter, MultipleBreakdownType, TrendsFilter, TrendsQuery
+from posthog.schema import Breakdown, BreakdownFilter, MultipleBreakdownType, TrendsFilter, TrendsFormulaNode, TrendsQuery
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -931,4 +931,29 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "trendsFilter": {"formula": "A/B"},
                 }
+            )
+
+    def test_apply_formula_rejects_list_typed_series_data(self):
+        # Regression: previously, when a series's `data` entry contained nested lists,
+        # FormulaAST silently concatenated them via `list + list`, returning a list of
+        # lists that crashed the outer `sum(...)` with `TypeError: unsupported operand
+        # type(s) for +: 'int' and 'list'`. Validate that we now surface a typed error
+        # instead of a 500.
+        formula_node = TrendsFormulaNode(formula="A + B")
+        results_group = [
+            {"data": [1, [2, 3], 4], "aggregated_value": 7},
+            {"data": [1, 2, 3], "aggregated_value": 6},
+        ]
+        with self.assertRaises(ExposedHogQLError):
+            TrendsQueryRunner.apply_formula_to_results_group(results_group, formula_node)
+
+    def test_apply_formula_rejects_list_typed_aggregated_value(self):
+        formula_node = TrendsFormulaNode(formula="A + B")
+        results_group = [
+            {"data": None, "aggregated_value": [1, 2]},
+            {"data": None, "aggregated_value": 3},
+        ]
+        with self.assertRaises(ExposedHogQLError):
+            TrendsQueryRunner.apply_formula_to_results_group(
+                results_group, formula_node, aggregate_values=True
             )

@@ -44,6 +44,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -1083,17 +1084,36 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         if aggregate_values:
             series_data = [[s["aggregated_value"]] for s in results_group]
+            TrendsQueryRunner._validate_formula_series_data(series_data)
             new_series_data = FormulaAST(series_data).call(formula)
             base_result["aggregated_value"] = float(sum(new_series_data))
             base_result["data"] = None
             base_result["count"] = 0
         else:
             series_data = [s["data"] for s in results_group]
+            TrendsQueryRunner._validate_formula_series_data(series_data)
             new_series_data = FormulaAST(series_data).call(formula)
             base_result["data"] = new_series_data
             base_result["count"] = float(sum(new_series_data))
 
         return base_result
+
+    @staticmethod
+    def _validate_formula_series_data(series_data: list[Any]) -> None:
+        for series_index, series in enumerate(series_data):
+            if not isinstance(series, list | tuple):
+                raise ExposedHogQLError(
+                    f"Formula series {series_index} is not a sequence (got {type(series).__name__})"
+                )
+            for value in series:
+                if value is None:
+                    continue
+                if isinstance(value, int | float):
+                    continue
+                raise ExposedHogQLError(
+                    f"Formula series {series_index} contains non-numeric value of type "
+                    f"{type(value).__name__}"
+                )
 
     def _is_breakdown_filter_field_boolean(self):
         if not self.query.breakdownFilter:

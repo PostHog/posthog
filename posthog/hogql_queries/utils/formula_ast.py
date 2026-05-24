@@ -56,6 +56,8 @@ class FormulaAST:
                 left = 0
             if right is None:
                 right = 0
+            self._reject_non_numeric_operand(left, op)
+            self._reject_non_numeric_operand(right, op)
             try:
                 return self.op_map[type(op)](left, right)
             except ZeroDivisionError:
@@ -69,6 +71,7 @@ class FormulaAST:
             if operand is None:
                 operand = 0
             unary_op = node.op
+            self._reject_non_numeric_operand(operand, unary_op)
             if isinstance(unary_op, ast.USub):
                 return -operand
             elif isinstance(unary_op, ast.UAdd):
@@ -90,3 +93,13 @@ class FormulaAST:
                 )
 
         raise TypeError(f"Unsupported operation: {node.__class__.__name__}")
+
+    @staticmethod
+    def _reject_non_numeric_operand(value: Any, op: ast.AST) -> None:
+        # bool is a subclass of int — int | float covers it correctly.
+        if isinstance(value, int | float):
+            return
+        raise ExposedHogQLError(
+            f"Formula operator {op.__class__.__name__} requires numeric operands, "
+            f"got {type(value).__name__}"
+        )
