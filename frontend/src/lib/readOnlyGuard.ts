@@ -53,16 +53,16 @@ export function isReadOnly(): boolean {
 //      (time-to-see-data), and /metalytics (side-panel scene view tracking).
 //   3. PostHog AI (Max) conversations — the read-only toast tells users to
 //      "Use Max or the MCP to make this change", so Max must remain usable.
-//      Excludes /conversations/views (ticket saved views, not AI). The other
-//      conversations endpoint, /projects/:team_id/conversations/tickets, is
-//      support tickets and stays blocked since it's not under /environments/.
+//      Matches /conversations except the two ticket sub-features (`views` and
+//      `tickets`). Mount-path-agnostic — works under /environments/ or
+//      /projects/ — so the discriminator is the sub-feature, not the prefix.
 const READ_ONLY_ALLOWED_PATTERNS = [
     /\/query(?:\/|$|\?)/, // /api/environments/:team_id/query, /api/environments/:team_id/query/:queryId/log, etc.
     /\/file_system\/log_view(?:\/|$|\?)/, // /api/environments/:team_id/file_system/log_view
     /\/insights\/viewed(?:\/|$|\?)/, // /api/environments/:team_id/insights/viewed — passive "recently viewed" telemetry
     /\/insights\/timing(?:\/|$|\?)/, // /api/projects/:team_id/insights/timing — time-to-see-data telemetry fired after every dashboard/insight load
     /\/metalytics(?:\/|$|\?)/, // /api/projects/:team_id/metalytics — side-panel scene view tracking (only accepts metric_name=viewed)
-    /\/environments\/[^/]+\/conversations(?!\/views)(?:\/|$|\?)/, // /api/environments/:team_id/conversations[/:id[/queue|/append_message|...]] — PostHog AI (Max) conversations, but not /conversations/views (ticket saved views)
+    /\/conversations(?!\/(?:views|tickets))(?:\/|$|\?)/, // /api/.../conversations[/:id[/queue|/append_message|/cancel|...]] — PostHog AI (Max), excluding /conversations/views and /conversations/tickets
 ]
 
 function isReadDisguisedAsWrite(url: string): boolean {
