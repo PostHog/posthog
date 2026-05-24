@@ -1226,6 +1226,15 @@ class TestPrinter(BaseTest):
             "Aggregation 'quantile' expects 1 parameter, found 2",
         )
         self._assert_expr_error("sparkline()", "Function 'sparkline' expects 1 argument, found 0")
+        # toFloatOrDefault is a positional placeholder macro; arity must be enforced before rendering
+        # so single-arg calls surface the standard error instead of a cryptic IndexError.
+        self._assert_expr_error(
+            "toFloatOrDefault('1.5')",
+            "Function 'toFloatOrDefault' expects 2 arguments, found 1",
+        )
+        # json_agg is an aggregation that uses a placeholder macro — arity must also surface the
+        # standard aggregation error.
+        self._assert_expr_error("json_agg()", "Aggregation 'json_agg' expects 1 argument, found 0")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
         self._assert_expr_error(

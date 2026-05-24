@@ -962,6 +962,15 @@ class BasePrinter(Visitor[str]):
             # Handle format strings in function names before checking function type
             # HogQL preserves the macro in its original shape; SQL dialects expand it.
             if func_meta.using_placeholder_arguments and self._expands_placeholder_macros():
+                # Enforce arity here too — otherwise placeholder rendering would raise
+                # a cryptic IndexError instead of the standard arity error.
+                validate_function_args(
+                    node.args,
+                    func_meta.min_args,
+                    func_meta.max_args,
+                    node.name,
+                    function_term="aggregation" if func_meta.aggregate else "function",
+                )
                 return self._render_placeholder_macro(
                     node=node,
                     clickhouse_name=func_meta.clickhouse_name,
