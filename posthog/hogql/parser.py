@@ -1,5 +1,6 @@
 import sys
 import copy
+import time
 import random
 import threading
 from collections.abc import Callable
@@ -9,6 +10,7 @@ from typing import Any, Literal, cast
 
 from django.conf import settings
 
+import posthoganalytics
 from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
 from cachetools import LRUCache
@@ -39,6 +41,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import clear_locations
 
 from posthog.exceptions_capture import capture_exception
+from posthog.utils import get_machine_id
 
 logger = getLogger(__name__)
 
@@ -231,19 +234,26 @@ def _resolve_parser_mode(
 ) -> tuple[HogQLParserBackend, HogQLParserBackend | None]:
     """Resolve a `parserMode` modifier to `(primary, shadow)` backends.
 
-    In TEST: an absent modifier defaults to `CPP_WITH_RUST_SHADOW` so the
-    test suite exercises both backends on every parse and raises on AST
-    divergence (see `_run_shadow_comparison`). Honour an explicit
-    `backend=` override (test factories / parity scripts) untouched.
+    In prod an absent modifier (no team override) defaults to
+    `RUST_PY_WITH_CPP_SHADOW`: `rust-py` is the primary whose result is
+    returned, `cpp-json` runs as a `_SHADOW_SAMPLE_RATE` shadow to catch
+    divergence (see `_run_shadow_comparison`). Resolved here at the call site,
+    never written back onto the modifier, so the query hash is unaffected.
 
-    In prod: an absent modifier is treated as `cpp_only` — resolved here at
-    the call site, never written back onto the modifier, so the query
-    hash is unaffected. The explicitly-passed `backend` is honoured
-    (default `cpp-json`).
+    In TEST an absent modifier stays `CPP_WITH_RUST_SHADOW`: `cpp-json` remains
+    the primary the suite's AST snapshots were recorded against (rust-py and
+    cpp produce structurally identical ASTs but differ in node spans), while
+    `rust-json` runs as a 100% shadow so any structural divergence still fails
+    loud. `rust-py`'s own structural parity is covered by `test_parser_rust_py`.
+
+    An explicitly-passed non-default `backend` (test factories / parity
+    scripts) is honoured untouched, with no shadow.
     """
     if parser_mode is None:
-        if settings.TEST and backend == DEFAULT_BACKEND:
-            return _PARSER_MODE_BACKENDS[ParserMode.CPP_WITH_RUST_SHADOW]
+        if backend == DEFAULT_BACKEND:
+            if settings.TEST:
+                return _PARSER_MODE_BACKENDS[ParserMode.CPP_WITH_RUST_SHADOW]
+            return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_WITH_CPP_SHADOW]
         return backend, None
     return _PARSER_MODE_BACKENDS[parser_mode]
 
@@ -260,6 +270,65 @@ _SHADOW_BACKEND_FAILURES = Counter(
     "Captured but never propagated — primary backend's result is always returned.",
     labelnames=["rule", "shadow"],
 )
+
+_SHADOW_COMPARISON_EVENT = "hogql_parser_shadow_comparison"
+# Constant per process; the parser has no user/team to attribute these to, so we
+# key on the instance like other PostHog instance-telemetry events.
+_MACHINE_ID = get_machine_id()
+
+
+def _capture_shadow_event(
+    rule: ParseRule,
+    primary_backend: HogQLParserBackend,
+    shadow_backend: HogQLParserBackend,
+    matched: bool,
+    statement: str,
+    shadow_ms: float,
+    start: int | None,
+) -> None:
+    """Emit a product-analytics event for one sampled shadow parse.
+
+    Fired on every sampled shadow run, matched or not, so the mismatch rate is
+    computable as a fraction of the total. The raw `query` is attached only on a
+    mismatch, so divergent queries can be looked up without logging every parse.
+
+    The primary is re-parsed here purely to time it head-to-head with the shadow
+    on this statement: the returned node already came back (possibly from cache),
+    so its own parse time isn't observable at this point.
+
+    Fire-and-forget on the global (batched, non-blocking) client; never raises
+    into the parser. The global client can drop events in short-lived Celery
+    workers, which is acceptable for sampled telemetry.
+    """
+    try:
+        primary_started = time.perf_counter()
+        _invoke_parser(primary_backend, rule, statement, start)
+        primary_ms: float | None = (time.perf_counter() - primary_started) * 1000.0
+    except Exception:
+        # The primary already parsed successfully once; a flake on the timing
+        # re-parse must not cost us the event.
+        primary_ms = None
+
+    properties: dict[str, Any] = {
+        "rule": str(rule),
+        "primary_backend": primary_backend,
+        "shadow_backend": shadow_backend,
+        "matched": matched,
+        "primary_parse_ms": primary_ms,
+        "shadow_parse_ms": shadow_ms,
+        "statement_length": len(statement),
+    }
+    if not matched:
+        properties["query"] = statement
+
+    try:
+        posthoganalytics.capture(
+            distinct_id=_MACHINE_ID,
+            event=_SHADOW_COMPARISON_EVENT,
+            properties=properties,
+        )
+    except Exception:
+        logger.exception("failed to capture %s event", _SHADOW_COMPARISON_EVENT)
 
 
 def _run_shadow_comparison(
@@ -289,6 +358,7 @@ def _run_shadow_comparison(
     if random.random() >= _shadow_sample_rate():
         return
     test_mode = settings.TEST
+    shadow_started = time.perf_counter()
     try:
         shadow_node = _invoke_parser(shadow_backend, rule, statement, start)
     except BaseHogQLError as err:
@@ -321,7 +391,14 @@ def _run_shadow_comparison(
             },
         )
         return
-    if clear_locations(primary_node) == clear_locations(shadow_node):
+    shadow_ms = (time.perf_counter() - shadow_started) * 1000.0
+    matched = clear_locations(primary_node) == clear_locations(shadow_node)
+    if not test_mode:
+        # Telemetry only — skipped in TEST, where analytics is disabled and the
+        # 100%-shadow path would otherwise pay for the timing re-parse on every
+        # query in the suite.
+        _capture_shadow_event(rule, primary_backend, shadow_backend, matched, statement, shadow_ms, start)
+    if matched:
         return
     mismatch = HogQLParserShadowMismatch(f"{rule} parser AST mismatch: {primary_backend} vs {shadow_backend}")
     if test_mode:

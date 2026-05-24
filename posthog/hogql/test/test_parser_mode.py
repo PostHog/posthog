@@ -12,9 +12,10 @@ from posthog.hogql.parser import HogQLParserShadowMismatch, _resolve_parser_mode
 class TestParserMode(BaseTest):
     @parameterized.expand(
         [
-            # An absent modifier in TEST defaults to CPP_WITH_RUST_SHADOW so
-            # every test-suite parse exercises both backends and raises on
-            # divergence (see `_run_shadow_comparison`).
+            # An absent modifier in TEST stays CPP_WITH_RUST_SHADOW so the suite
+            # parses on the cpp primary its AST snapshots were recorded against,
+            # with rust-json as a 100% shadow. The prod default (rust-py primary)
+            # is asserted separately below.
             (None, ("cpp-json", "rust-json")),
             (ParserMode.CPP_ONLY, ("cpp-json", None)),
             (ParserMode.RUST_ONLY, ("rust-json", None)),
@@ -28,17 +29,17 @@ class TestParserMode(BaseTest):
         self.assertEqual(_resolve_parser_mode(mode, "cpp-json"), expected)
 
     def test_resolve_parser_mode_honours_explicit_backend_when_absent(self):
-        # With no modifier the `backend=` override still wins — this is the
-        # path the test/diagnostic harness relies on. Even in TEST, an
-        # explicit non-default backend disables the auto-shadow.
+        # With no modifier an explicit non-default `backend=` override still
+        # wins (the path the test/diagnostic harness relies on) and gets no
+        # shadow.
         self.assertEqual(_resolve_parser_mode(None, "rust-json"), ("rust-json", None))
 
-    def test_resolve_parser_mode_prod_absent_modifier_no_shadow(self):
-        # The TEST-only auto-shadow is gated on `settings.TEST`; with that
-        # flag off (i.e. production) an absent modifier means "no shadow".
+    def test_resolve_parser_mode_prod_absent_modifier_defaults_to_rust_py_shadow(self):
+        # The default applies in production too (not just TEST): an absent
+        # modifier means rust-py primary with a cpp-json shadow.
         with patch("posthog.hogql.parser.settings") as mock_settings:
             mock_settings.TEST = False
-            self.assertEqual(_resolve_parser_mode(None, "cpp-json"), ("cpp-json", None))
+            self.assertEqual(_resolve_parser_mode(None, "cpp-json"), ("rust-py", "cpp-json"))
 
     def test_shadow_silent_when_backends_agree(self):
         # A `*_shadow` mode parses with the shadow backend on every sampled
@@ -141,3 +142,91 @@ class TestParserMode(BaseTest):
         self.assertIsInstance(node, ast.SelectQuery)
         captured.assert_called_once()
         self.assertIsInstance(captured.call_args.args[0], ImportError)
+
+    def test_shadow_emits_analytics_event_with_timings_on_match_in_prod(self):
+        # In production every sampled shadow run emits an analytics event
+        # carrying each backend's parse time, so the mismatch rate is a
+        # fraction of a known total. A matching run carries no raw query.
+        with (
+            patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0),
+            patch("posthog.hogql.parser.settings") as mock_settings,
+            patch("posthog.hogql.parser.posthoganalytics") as mock_ph,
+        ):
+            mock_settings.TEST = False
+            node = parse_select(
+                "select a, b from events where a > 1",
+                parser_mode=ParserMode.RUST_PY_WITH_CPP_SHADOW,
+            )
+        self.assertIsInstance(node, ast.SelectQuery)
+        mock_ph.capture.assert_called_once()
+        kwargs = mock_ph.capture.call_args.kwargs
+        self.assertEqual(kwargs["event"], "hogql_parser_shadow_comparison")
+        props = kwargs["properties"]
+        self.assertTrue(props["matched"])
+        self.assertEqual(props["primary_backend"], "rust-py")
+        self.assertEqual(props["shadow_backend"], "cpp-json")
+        self.assertIsInstance(props["primary_parse_ms"], float)
+        self.assertIsInstance(props["shadow_parse_ms"], float)
+        self.assertNotIn("query", props)
+
+    def test_shadow_emits_analytics_event_with_query_on_mismatch_in_prod(self):
+        # On a mismatch the event flips `matched` to False and attaches the raw
+        # query so the divergent statement can be looked up. The existing
+        # error-tracking capture still fires alongside it.
+        from posthog.hogql import parser as parser_module
+
+        decoy = ast.SelectQuery(select=[ast.Constant(value=999)])
+        real_invoke = parser_module._invoke_parser
+
+        def only_shadow_diverges(backend, rule, statement, start):
+            if backend == "cpp-json":
+                return decoy
+            return real_invoke(backend, rule, statement, start)
+
+        with (
+            patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0),
+            patch("posthog.hogql.parser.settings") as mock_settings,
+            patch("posthog.hogql.parser._invoke_parser", side_effect=only_shadow_diverges),
+            patch("posthog.hogql.parser.posthoganalytics") as mock_ph,
+            patch("posthog.hogql.parser.capture_exception") as captured,
+        ):
+            mock_settings.TEST = False
+            node = parse_select(
+                "select shadow_mismatch_probe from events",
+                parser_mode=ParserMode.RUST_PY_WITH_CPP_SHADOW,
+            )
+        self.assertIsInstance(node, ast.SelectQuery)
+        mock_ph.capture.assert_called_once()
+        props = mock_ph.capture.call_args.kwargs["properties"]
+        self.assertFalse(props["matched"])
+        self.assertEqual(props["query"], "select shadow_mismatch_probe from events")
+        captured.assert_called_once()
+        self.assertIsInstance(captured.call_args.args[0], HogQLParserShadowMismatch)
+
+    def test_shadow_event_capture_failure_does_not_break_parse(self):
+        # Telemetry is best-effort: a throwing capture client must never fail
+        # the parse the user is waiting on.
+        with (
+            patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0),
+            patch("posthog.hogql.parser.settings") as mock_settings,
+            patch("posthog.hogql.parser.posthoganalytics") as mock_ph,
+        ):
+            mock_settings.TEST = False
+            mock_ph.capture.side_effect = RuntimeError("capture boom")
+            node = parse_select("select a from events", parser_mode=ParserMode.RUST_PY_WITH_CPP_SHADOW)
+        self.assertIsInstance(node, ast.SelectQuery)
+
+    def test_shadow_event_not_emitted_in_test_mode(self):
+        # In TEST the comparison still runs (and raises on divergence), but the
+        # analytics event is skipped: analytics is disabled there, and the
+        # timing re-parse would otherwise tax every parse in the suite.
+        with (
+            patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0),
+            patch("posthog.hogql.parser.posthoganalytics") as mock_ph,
+        ):
+            node = parse_select(
+                "select a, b from events",
+                parser_mode=ParserMode.RUST_PY_WITH_CPP_SHADOW,
+            )
+        self.assertIsInstance(node, ast.SelectQuery)
+        mock_ph.capture.assert_not_called()
