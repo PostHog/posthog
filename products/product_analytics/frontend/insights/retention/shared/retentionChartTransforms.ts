@@ -6,12 +6,11 @@ import type {
     TooltipConfig,
     TrendLineConfig,
 } from 'lib/hog-charts'
+import type { RetentionTrendPayload } from 'scenes/retention/types'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
-
-import type { RetentionTrendPayload } from '../../types'
 
 // `retentionGraphLogic.trendSeries` spreads `cohortRetention` onto each entry, so the
 // runtime shape includes a cohort `label` field that the declared type doesn't list.
