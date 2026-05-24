@@ -84,7 +84,13 @@ impl<'a> Parser<'a> {
                         }
                     }
                     let next = self.peek_next();
-                    if !peek_can_start_clause_body(next) || is_pure_infix_op(next) {
+                    // `<` is a pure-infix token (less-than), but it also starts
+                    // a HogQLX tag: `1 % <a/>` is `1 modulo <tag>`. Don't treat
+                    // the `%` as the PERCENT marker when a tag follows. Plain
+                    // `1 % < 2` (peek-next `<` not a tag) still breaks.
+                    if (!peek_can_start_clause_body(next) || is_pure_infix_op(next))
+                        && !self.peek_next_starts_hogqlx_tag()
+                    {
                         break;
                     }
                 }
@@ -333,6 +339,17 @@ impl<'a> Parser<'a> {
                 if self.peek_next() == TokenKind::Arrow {
                     return self.parse_single_arg_arrow_lambda();
                 }
+                // `not <tag>` — a `<` that begins a HogQLX tag is NOT the
+                // less-than operator, so NOT is the unary prefix and the tag is
+                // its operand (`not <a/>` → `Not(<a/>)`). Without this, the
+                // `Lt` arm in the pure-binary-operator set below would read NOT
+                // as a Field and `<` as less-than, stranding the tag. Plain
+                // `not < 2` (peek-next `<` not a tag) still falls through there.
+                if self.peek_next_starts_hogqlx_tag() {
+                    self.bump()?; // NOT
+                    let rhs = self.parse_expr_bp(BP_NOT)?;
+                    return Ok(emit::not_(rhs));
+                }
                 // Bare `NOT` followed by a token that can't start an
                 // expression (alias / list-terminator / EOF) is the
                 // identifier "not" — cpp's `keyword` rule admits NOT
@@ -522,6 +539,23 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// After `<cursor> .` (the cursor token followed by a `.`), is the token
+    /// past the `.` a Field-chain link (identifier-ish) rather than a
+    /// tuple-access index (number)? `true.x` is a Field chain; `true.1` is
+    /// tuple access on the boolean Constant. Used to keep `true`/`false` a
+    /// Constant base for numeric tuple access while still folding `.identifier`
+    /// into a Field chain.
+    fn dot_next_is_chain_link(&self) -> bool {
+        if self.peek_next() != TokenKind::Dot {
+            return false;
+        }
+        let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+        matches!(
+            probe.next_token().map(|t| t.kind),
+            Ok(TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_))
+        )
+    }
+
     fn parse_primary(&mut self) -> Result<Value, ParseError> {
         let tok = self.peek0;
         // One-shot: true only for the leading primary of an enclosing INTERVAL's
@@ -570,21 +604,21 @@ impl<'a> Parser<'a> {
                 parse_template_body(self.src, body_offset, body_end)
             }
             TokenKind::Keyword(Kw::True | Kw::False)
-                if self.peek_next() == TokenKind::LParen || self.peek_next() == TokenKind::Dot =>
+                if self.peek_next() == TokenKind::LParen || self.dot_next_is_chain_link() =>
             {
-                // `true`/`false` are not lexer tokens in the grammar —
-                // they are ordinary identifiers, and become Bool
-                // Constants only as a bare `columnIdentifier`. cpp
-                // treats them as identifiers in two columnExpr-leading
-                // postfix positions:
-                //   `true(…)`     → Call(name='true')          (function call)
-                //   `true.x`      → Field(['true', 'x'])       (chain)
-                // The Pratt loop would otherwise wrap a `Constant(true)`
-                // in an `ArrayAccess` for the `.x`, diverging from cpp's
-                // Field shape. Route both shapes through ident-lead so
-                // the chain accumulates correctly. `null` differs —
-                // `NULL` is a real keyword, so `null(…)` stays an
-                // `ExprCall` on the Null constant.
+                // `true`/`false` are not lexer tokens in the grammar — they are
+                // ordinary identifiers, and become Bool Constants only as a bare
+                // `columnIdentifier`. cpp treats them as identifiers in two
+                // columnExpr-leading postfix positions:
+                //   `true(…)`  → Call(name='true')       (function call)
+                //   `true.x`   → Field(['true', 'x'])    (chain)
+                // Route those through ident-lead so the chain accumulates. But
+                // `true.<number>` is tuple access on the boolean Constant
+                // (`true.1` → TupleAccess(Constant(true), 1)) — cpp keeps the
+                // Constant base, so that case is NOT routed here: it falls
+                // through to the Constant arms and the Pratt `.` postfix builds
+                // the TupleAccess. `null` differs — NULL is a real keyword, so
+                // `null(…)` / `null.1` already keep the Null constant.
                 self.parse_ident_lead()
             }
             TokenKind::Keyword(Kw::True) => {

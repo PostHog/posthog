@@ -623,3 +623,45 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_expr(query, backend="rust-json"),
                 msg=query,
             )
+
+    @no_memory_leak_check
+    def test_not_and_modulo_accept_hogqlx_tag_operand(self):
+        # `<` begins a HogQLX tag as well as the less-than operator. In bounded
+        # lookahead rust used to always read `<` as less-than, so `not <a/>`
+        # stranded the tag (NOT became a Field) and `1 % <a/>` abandoned the
+        # modulo. cpp reads the tag operand. Both parse identically here.
+        for query in (
+            "not <a/>",
+            "not <a></a>",
+            "[not <a/>]",
+            "1 and not <a/>",
+            "f(not <a/>)",
+            "1 % <a/>",
+            "[1 % <a/>]",
+            "(1 % <a/>)",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+        # Genuine less-than / modulo (no tag following) are unchanged.
+        for query in ("not < 2", "1 % 2", "1 % x"):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    @no_memory_leak_check
+    def test_boolean_literal_numeric_tuple_access_keeps_constant(self):
+        # `true.1` / `false.0` are tuple access on the boolean Constant, not a
+        # Field chain — cpp keeps Constant(true) as the tuple base. rust used to
+        # route every `true.`/`false.` through ident-lead, making the base a
+        # Field. `true.x` (chain), `true(1)` (call) and `null.1` are unaffected.
+        for query in ("true.1", "false.0", "true.1.2", "true.x", "true(1)", "true", "null.1"):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )

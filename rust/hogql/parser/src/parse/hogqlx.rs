@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 use super::{identifier_text, unquote_single_string, Parser};
 use crate::emit;
 use crate::error::ParseError;
-use crate::lex::TokenKind;
+use crate::lex::{Lexer, TokenKind};
 
 impl<'a> Parser<'a> {
     /// True when peek/peek_next look like the start of a HogQLX tag —
@@ -43,6 +43,22 @@ impl<'a> Parser<'a> {
         matches!(
             self.peek_next(),
             TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
+        )
+    }
+
+    /// Like `peek_starts_hogqlx_tag`, but one token further ahead: is the
+    /// token at `peek_next` (peek1) a `<` that begins a tag? Used by prefix
+    /// operators (`not <tag>`) and operator disambiguation (`1 % <tag>`) where
+    /// the `<` sits one token past the cursor and a probe lexer must resolve
+    /// the token after it.
+    pub(crate) fn peek_next_starts_hogqlx_tag(&self) -> bool {
+        if self.peek_next() != TokenKind::Lt {
+            return false;
+        }
+        let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+        matches!(
+            probe.next_token().map(|t| t.kind),
+            Ok(TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_))
         )
     }
 
