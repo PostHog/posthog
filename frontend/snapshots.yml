@@ -568,6 +568,34 @@ snapshots:
         hash: v1.k794b7964.4c03eb4162445e32a74dc1ff8083feed9788b930aea5a4ce49e15c5da22d1b0b.OgPSbq_YYg9wIYaUs5jvjS-8YAzzBf5RgZIjtgXuZp8
     components-hogcharts-linechart--with-zeros-and-negatives--light:
         hash: v1.k794b7964.5d0d5d5cf4963ac46b4ed2bfdcedf7b24a63a47b7d84e259882e0606cbf43ce1.UtJNbmKgq3ZFS9AdrrOLJzsEejeh19IDdI9aOwxy9Ps
+    components-hogcharts-piechart--donut--dark:
+        hash: v1.k794b7964.53683ceb5ed88f7d3542094db1fb764fc6a2f8908036b3748ac4504695032427.qQAVMSvoraiafCrTL62wowzgaXHrdULwrGIb8d2VwBk
+    components-hogcharts-piechart--donut--light:
+        hash: v1.k794b7964.acf56c27510ab47148eb147dac441df1fb203c73461fae7d38aed39c9883759b.aGBuBjyBEhAJPjrrC_BepNi2g5zmX73vd2WhSO-tjj0
+    components-hogcharts-piechart--long-label-tooltip--dark:
+        hash: v1.k794b7964.d3bcb578618ec73e343c11fc05ccdad95e303c3973e1af922b0bbfd6e36b5dac.5sDDWcQqlACUZke1N8tCP6-3iPy-NvAREIJwMNDWAgY
+    components-hogcharts-piechart--long-label-tooltip--light:
+        hash: v1.k794b7964.083ff76dc306fc7cd2036b03d9d5545140cd24ba616951831fe210565a0bace7.q90E7qfNvWc7LpMhEVA5Wy8UiRWL8Zj_qK0GvU7aqZA
+    components-hogcharts-piechart--no-hover-offset--dark:
+        hash: v1.k794b7964.36ec7ed69ab9a16b562f6d59643a450c26e48fa07f5630696f38594aa49c610b.1kVPOF_OuCp_r0Hokh0cNZ-K6kSC-9KW-5uhiGl-1OI
+    components-hogcharts-piechart--no-hover-offset--light:
+        hash: v1.k794b7964.4ba748898ca2f36f7100332d96c4f3c51cd8a927253a21f187a2a4f3e93db95e.x_GSJSYhXipQxj4gd12Q4qwF5jiKopceWXXqdER9IzY
+    components-hogcharts-piechart--percent--dark:
+        hash: v1.k794b7964.503efa02ae97c5c60aa9adf056939622179a9864ce03906e86223027db2ce1b8.RWxBXw3OJ9zzy6F2aY-rp3EBJ2-HLfdOx2-E3k7oOsA
+    components-hogcharts-piechart--percent--light:
+        hash: v1.k794b7964.e282bbc15ed4820ca911ef9e676f6819be7c86a62958c6ae8be3dd08fc5c44cf.FIU7hDUrHSgX6UtMev4GBzMyQi1jTrndbEGZOm_nUpg
+    components-hogcharts-piechart--pie-default--dark:
+        hash: v1.k794b7964.36ec7ed69ab9a16b562f6d59643a450c26e48fa07f5630696f38594aa49c610b.n2FYmxpqqzT6_FtrjqvjpdLLhlGH5xSktNBnEyN3xX8
+    components-hogcharts-piechart--pie-default--light:
+        hash: v1.k794b7964.4ba748898ca2f36f7100332d96c4f3c51cd8a927253a21f187a2a4f3e93db95e.Iu2223knt2d5773R-s6_ke_oXweHsnv_nL-CmysPasI
+    components-hogcharts-piechart--single-slice--dark:
+        hash: v1.k794b7964.92bc7531883a5830155772e9df2b63b96baf8611980c1195b66cb75716fe4a79.7zFlXhqZqOTrUg3V38lXuMA6YaGwCA_-s_CsBKtwgtM
+    components-hogcharts-piechart--single-slice--light:
+        hash: v1.k794b7964.1a2540afa90064f951baa69e40405eb36459312978920ba46f2826cab097294a.JFioVV2KSnHa9Y-hREGuuT__I5ShHTvv8TgNVw7F0XU
+    components-hogcharts-piechart--with-breakdown-labels--dark:
+        hash: v1.k794b7964.e8aaf3e63d88d917b6511232aff85b4bf54f4c3b71fc267fde59a1170ba056a9.EL-FQ7Hqbd4FOdgbpZv2ynzzwJt2j6OQZkymgQXMC4U
+    components-hogcharts-piechart--with-breakdown-labels--light:
+        hash: v1.k794b7964.811f8e01cbeeb97d8319a76668d33864b6be08a2b8f270e5980fe951fafbc1bb.UoRHUDWOOnMGSCQcBN8D5TwfE6LL3IG58n0wUC_WOwo
     components-hogcharts-referenceline--fill-sides--dark:
         hash: v1.k794b7964.88be514f5436eb4c62b3db30e81e6d2f2c2b71cc6cf19bca459ed13dc901258a.mhwEtPTUGmbBcNrc9l0arcCL92Fzc-tT6uIfVDkGgpg
     components-hogcharts-referenceline--fill-sides--light:
@@ -4609,7 +4637,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--dark:
         hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.O7SwG4Drfr3z02hcLNC1LsLsGWddouhybBp4xZaUE-A
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--light:
-        hash: v1.k794b7964.6c391cbc05b64230fbd8defdbb960b131fd433409817497873fb9ffc705cd360.EIwByuofuT77yP259A9ffqfjSFwW9MrUDOvsZNA_aZM
+        hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.KSiw8WpvjWXIDh87ExL4cPnopVJlTXvzU8N8ruh6Hi8
     scenes-app-insights-funnels--funnel-time-to-convert--dark:
         hash: v1.k794b7964.d64808d2bfc36017f89b57feeaa373e20188738a622801207fa1beb59d02fdd9.cFuKF_Ow887Z3X3BoNhtTvkUWY2vips9HDBe-B02eQE
     scenes-app-insights-funnels--funnel-time-to-convert--light:
