@@ -2,6 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { isReadOnly } from 'lib/readOnlyGuard'
 
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 import { ConversionRateInputType, Experiment } from '~/types'
@@ -238,6 +239,13 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             const { isManualMode, remainingDays, targetSampleSize, experiment, currentProjectId } = values
 
             if (isManualMode || !isLaunched(experiment) || remainingDays === null || targetSampleSize === null) {
+                return
+            }
+
+            // This is an opportunistic background sync of a cached recommendation, triggered
+            // automatically when metrics finish loading. Skip in read-only mode so simply
+            // viewing a launched experiment does not raise a ReadOnlyModeError toast.
+            if (isReadOnly()) {
                 return
             }
 
