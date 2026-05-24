@@ -556,3 +556,70 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             for backend in ("cpp-json", "rust-json"):
                 with self.assertRaises(BaseHogQLError):
                     parse_select(query, backend=backend)
+
+    @no_memory_leak_check
+    def test_interval_without_unit_does_not_over_commit(self):
+        # cpp commits to the INTERVAL form only for a STRING_LITERAL (the
+        # ColumnExprIntervalString alt). `interval <number|ident|quoted-ident>`
+        # with NO trailing unit is NOT an interval: cpp backtracks to `interval`
+        # as a Field. So at expr level it rejects (trailing tokens) on both, but
+        # at PROGRAM level it splits into two statements (`interval` + value).
+        # rust used to commit fatally for number/ident/quoted-ident too, which
+        # over-rejected the program split.
+        for query in ("interval 1", "interval x", 'interval "a"'):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+        # A STRING value still commits (a bad single-token string rejects at both
+        # expr and program level — no two-statement split).
+        for backend in ("cpp-json", "rust-json"):
+            with self.assertRaises(BaseHogQLError):
+                parse_program("interval 'a'", backend=backend)
+        # A trailing unit still makes it a real interval Call on both backends.
+        for query in ("interval 1 day", 'interval "a" day', "interval x day"):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    @no_memory_leak_check
+    def test_statement_boundary_splits_incomplete_special_infix_and_postfix(self):
+        # At a statement boundary, an INCOMPLETE special-infix (LIKE / BETWEEN /
+        # IN / IS) or postfix (`[`) is cpp's "end this statement, start the next"
+        # shape, not an error: `week like` -> two Field statements, `"_" between
+        # "_"` -> three, `[ ] [ ]` -> two empty-array statements. rust's Pratt
+        # loop used to apply the operator greedily and error. These all parse on
+        # both backends with identical ASTs (positions included).
+        for query in (
+            "week like",
+            '"_" between "_"',
+            "[ ] [ ]",
+            "[ ] [ ] [ ]",
+            "week and",
+            "a in",
+            "a is",
+        ):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )
+        # At EXPRESSION level there is no next statement, so the same incomplete
+        # forms stay hard errors on both backends (recovery is statement-only).
+        for query in ("week like", "[ ] [ ]", "a between b", '"_" between "_"'):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
+        # COMPLETE forms are unaffected — still parse identically on both.
+        for query in ("a like b", "a between b and c", "a[b]", "a in (1, 2)", "a is null", "a not like b"):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )

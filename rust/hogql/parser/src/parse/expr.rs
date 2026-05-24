@@ -116,7 +116,29 @@ impl<'a> Parser<'a> {
                 lhs = self.wrap_pos(build_infix(op, lhs, rhs), lhs_start);
                 continue;
             }
-            if let Some(handled) = self.try_special_infix(kind, &mut lhs, min_bp, lhs_start)? {
+            // Special-infix (LIKE / BETWEEN / IS [NOT] (NULL|DISTINCT FROM) /
+            // IN / …). At a statement boundary (recover flag set) an INCOMPLETE
+            // form is cpp's "end this statement, start the next" shape, not an
+            // error: `week like` is two Field statements, `"_" between "_"` is
+            // three. The body/RHS parse happens before `lhs.take()`, so a
+            // failure leaves `lhs` intact — roll back the lexer and break so the
+            // operator begins the next statement (mirrors cpp ALL(*) backtrack
+            // and the regular-infix recovery above). At expression level (flag
+            // off) the failure stays a hard error, matching cpp.
+            if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                let cp = self.checkpoint();
+                match self.try_special_infix(kind, &mut lhs, min_bp, lhs_start) {
+                    Ok(Some(true)) => {
+                        lhs = self.wrap_pos(lhs, lhs_start);
+                        continue;
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
+                        self.restore(cp)?;
+                        break;
+                    }
+                }
+            } else if let Some(handled) = self.try_special_infix(kind, &mut lhs, min_bp, lhs_start)? {
                 if handled {
                     // `try_special_infix` mutates `lhs` in place with a fresh
                     // unpositioned JSON node (`CompareOperation`, `BetweenExpr`,
@@ -143,6 +165,26 @@ impl<'a> Parser<'a> {
                     && self.paren_block_then_colon_equals(self.peek0.end)
                 {
                     break;
+                }
+                // Same statement-boundary recovery as special-infix: a failing
+                // postfix (`[ ] [ ]` — the second `[` can't index the first
+                // empty array) ends the statement so the postfix token begins
+                // the next one. `parse_postfix` moves `lhs` by value, so clone
+                // it to restore on failure. Expression level keeps the error.
+                if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                    let cp = self.checkpoint();
+                    let lhs_backup = lhs.clone();
+                    match self.parse_postfix(kind, lhs) {
+                        Ok(v) => {
+                            lhs = self.wrap_pos(v, lhs_start);
+                            continue;
+                        }
+                        Err(_) => {
+                            self.restore(cp)?;
+                            lhs = lhs_backup;
+                            break;
+                        }
+                    }
                 }
                 lhs = self.parse_postfix(kind, lhs)?;
                 lhs = self.wrap_pos(lhs, lhs_start);
@@ -620,17 +662,20 @@ impl<'a> Parser<'a> {
             // `interval(a, b) over …`, and the empty `interval()` no-args
             // form).
             //
-            // But once `interval` is followed by a NON-paren primary value
-            // (string / number / identifier), cpp commits to the INTERVAL
-            // form: a missing or bad unit is a hard error, never a fall-back
-            // to `interval`-as-Field. The fall-back matters at statement
-            // level — `{ interval 'ln' }` must reject, not parse as the two
-            // statements `interval` (Field) + `'ln'` (Constant). So mark the
-            // committed parse fatal so no outer `try_alt` (lambda body,
-            // declaration list) rolls the error back. The `interval(...)`
-            // shape keeps the function-call fall-back; operator continuations
-            // like `interval + 1` never reach the commit branch (they aren't
-            // primary-value tokens).
+            // cpp commits to the INTERVAL form only when a STRING_LITERAL
+            // follows (the `INTERVAL STRING_LITERAL` ColumnExprIntervalString
+            // alt): then a missing / bad unit is a hard error, never a fall-back
+            // to `interval`-as-Field. This matters at statement level —
+            // `{ interval 'ln' }` must reject, not split into `interval` (Field)
+            // + `'ln'` (Constant). So mark the string-committed parse fatal so no
+            // outer `try_alt` rolls it back. For a number / identifier / quoted-
+            // identifier value (`interval 1`, `interval x`, `interval "a"`) cpp
+            // does NOT commit: with no trailing unit it backtracks to `interval`-
+            // as-Field, so at program level `interval 1` is two statements
+            // (`interval` + `1`). Use try_alt there so `interval 1 day` still
+            // parses as an interval while a unit-less `interval 1` falls back to
+            // a Field. The `interval(...)` shape keeps the function-call fall-
+            // back; operator continuations like `interval + 1` reach try_alt too.
             //
             // A nested INTERVAL in the value position of an enclosing INTERVAL
             // (`interval interval '5 day' month`) is special: cpp's ALL(*)
@@ -650,13 +695,7 @@ impl<'a> Parser<'a> {
                 }
             }
             TokenKind::Keyword(Kw::Interval) if can_start_interval_value(self.peek_next()) => {
-                if matches!(
-                    self.peek_next(),
-                    TokenKind::String
-                        | TokenKind::Number
-                        | TokenKind::Ident
-                        | TokenKind::QuotedIdent
-                ) {
+                if self.peek_next() == TokenKind::String {
                     self.parse_interval_expr().map_err(ParseError::into_fatal)
                 } else {
                     self.try_alt(&[&Self::parse_interval_expr, &Self::parse_ident_lead])
