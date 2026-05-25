@@ -8,6 +8,7 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
     cdp_producer_clear_chunks,
@@ -149,6 +150,8 @@ class PipelineV3(Generic[ResumableData]):
             partition_format=partition_format,
             partition_mode=partition_mode,
             is_first_ever_sync=is_first_ever_sync,
+            workflow_id=current_workflow_id(),
+            workflow_run_id=current_workflow_run_id(),
         )
 
         self._resumable_source_manager = resumable_source_manager

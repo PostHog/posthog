@@ -1,4 +1,4 @@
-import { fireEvent, waitFor } from '@testing-library/react'
+import { fireEvent, waitFor } from '@testing-library/dom'
 import { useEffect, useState } from 'react'
 
 import type { ChartTheme } from './core/types'

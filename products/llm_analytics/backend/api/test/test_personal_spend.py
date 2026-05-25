@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -12,10 +14,17 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 ENDPOINT = "/api/llm_analytics/@me/spend/"
 
@@ -301,7 +310,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["summary"]["total_cost_usd"] == 1.0
 
     def test_date_window_passes_through_to_query_layer(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             response = self.client.get(f"{ENDPOINT}?date_from=-7d")
 
@@ -310,7 +319,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert mock_exec.call_count == 5
 
     def test_second_call_serves_from_cache(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             self.client.get(ENDPOINT)
             first = mock_exec.call_count
@@ -318,7 +327,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             assert mock_exec.call_count == first
 
     def test_refresh_bypasses_cache(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             self.client.get(ENDPOINT)
             first = mock_exec.call_count
@@ -326,7 +335,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             assert mock_exec.call_count == first * 2
 
     def test_cache_key_includes_date_from(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             self.client.get(f"{ENDPOINT}?date_from=-7d")
             first = mock_exec.call_count
@@ -334,7 +343,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             assert mock_exec.call_count == first * 2
 
     def test_cache_key_includes_product(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             self.client.get(ENDPOINT)
             first = mock_exec.call_count
@@ -342,7 +351,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             assert mock_exec.call_count == first * 2
 
     def test_cache_key_includes_limit(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
             self.client.get(f"{ENDPOINT}?limit=10")
             first = mock_exec.call_count
@@ -371,3 +380,84 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         # Each tool drove half of the scoped spend.
         assert rows["Bash"]["share_of_scoped"] == 0.5
         assert rows["Read"]["share_of_scoped"] == 0.5
+
+
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
+class TestPersonalSpendNonSessionAuth(APIBaseTest):
+    """
+    Pins down what scopes the MCP and OAuth-token paths need to reach
+    `/api/llm_analytics/@me/spend/`. The endpoint is `scope_object = "user"` —
+    same bucket as `/api/users/@me/` — so the wildcard `*` (the "Full access"
+    consent option) and an explicit `user:read` both grant access. An OAuth
+    token carrying only OIDC identity scopes (`openid profile email`) without
+    any resource scope is correctly rejected: identity alone does not imply
+    permission to read account data.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._team_id_override = override_settings(LLM_ANALYTICS_INTERNAL_TEAM_ID=self.team.id)
+        self._team_id_override.enable()
+        self.addCleanup(self._team_id_override.disable)
+        self.client.logout()
+
+    def _make_pat(self, scopes: list[str]) -> str:
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="spend-test",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=scopes,
+        )
+        return raw
+
+    def _make_oauth_token(self, scope: str) -> str:
+        app = OAuthApplication.objects.create(
+            name="MCP-like client",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/cb",
+            algorithm="RS256",
+            skip_authorization=False,
+            organization=self.organization,
+            user=self.user,
+        )
+        token_value = f"pha_test_{generate_random_token_personal()[:24]}"
+        OAuthAccessToken.objects.create(
+            user=self.user,
+            application=app,
+            token=token_value,
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+        )
+        return token_value
+
+    @parameterized.expand(
+        [
+            ("wildcard_pat", ["*"], status.HTTP_200_OK),
+            ("user_read_pat", ["user:read"], status.HTTP_200_OK),
+            ("unrelated_scope_pat", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_personal_api_key_scope_matrix(self, _label: str, scopes: list[str], expected: int) -> None:
+        token = self._make_pat(scopes)
+        response = self.client.get(ENDPOINT, headers={"authorization": f"Bearer {token}"})
+        assert response.status_code == expected, response.content
+
+    @parameterized.expand(
+        [
+            ("wildcard_oauth", "*", status.HTTP_200_OK),
+            ("user_read_oauth", "user:read", status.HTTP_200_OK),
+            ("oidc_only_rejected", "openid profile email", status.HTTP_403_FORBIDDEN),
+            ("unrelated_scope_rejected", "insight:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_oauth_token_scope_matrix(self, _label: str, scope: str, expected: int) -> None:
+        token = self._make_oauth_token(scope)
+        response = self.client.get(ENDPOINT, headers={"authorization": f"Bearer {token}"})
+        assert response.status_code == expected, response.content

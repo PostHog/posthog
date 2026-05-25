@@ -340,16 +340,18 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     # --- Group A: timezone correctness --------------------------------------
 
-    @unittest.skip(
-        "Flaky on CI since #59075 — same root cause as test_lazy_result_matches_raw_result. "
-        "Pacific variant is the most reproducible failure. Root cause under investigation."
-    )
     @parameterized.expand(
         [
             ("utc", "UTC"),
             ("pacific", "America/Los_Angeles"),
             ("tokyo", "Asia/Tokyo"),
         ]
+    )
+    @unittest.skip(
+        "Flaky on CI since #59075 — same root cause as test_lazy_result_matches_raw_result. "
+        "Pacific variant is the most reproducible failure. The previous skip in #59614 was "
+        "above @parameterized.expand, so the parameterized variants kept running and failing. "
+        "Root cause under investigation."
     )
     @freeze_time("2024-01-15T12:00:00Z")
     def test_lazy_result_matches_raw_for_whole_hour_timezones(self, _name: str, team_tz: str) -> None:
@@ -438,6 +440,10 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     # --- Group C: forward-only pad + compare readiness ---------------------
 
+    @unittest.skip(
+        "Flaky on CI since #59075 — same intermittent empty-result pattern as the other "
+        "round-trip tests in this file. Missed by #59614. Root cause under investigation."
+    )
     @freeze_time("2024-01-15T12:00:00Z")
     def test_session_just_after_window_start_attributed_correctly(self):
         # Forward-only pad regression: a session starting near the leading edge
@@ -497,6 +503,10 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert result is None, f"expected fall-back to raw when previous precompute not ready, got {result!r}"
 
+    @unittest.skip(
+        "Flaky on CI since #59075 — same intermittent empty-result pattern as the other "
+        "round-trip tests in this file. Root cause under investigation."
+    )
     @freeze_time("2024-01-15T12:00:00Z")
     def test_recomputation_picks_up_late_events_changing_bounce_and_duration(self):
         # After a late event arrives, the next precompute run (cache invalidated

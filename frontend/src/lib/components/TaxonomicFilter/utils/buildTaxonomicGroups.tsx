@@ -789,7 +789,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.Persons,
             endpoint: `api/environments/${teamId}/persons/`,
             getName: (person: PersonType) => person.name || 'Anon user?',
-            getValue: (person: PersonType) => person.distinct_ids[0],
+            getValue: (person: PersonType) => person.distinct_ids?.[0],
             getPopoverHeader: () => `Person`,
         },
         {

@@ -25,10 +25,14 @@ const TrendsCalendarHeatMap = lazy(() =>
 const BoxPlotChart = lazy(() => import('scenes/insights/views/BoxPlot').then((m) => ({ default: m.BoxPlotChart })))
 // Flag-gated — keep full d3 out of the eager Trends/Dashboard bundle
 const TrendsLineChart = lazy(() =>
-    import('./viz/trends-line-chart/TrendsLineChart').then((m) => ({ default: m.TrendsLineChart }))
+    import('products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart').then((m) => ({
+        default: m.TrendsLineChart,
+    }))
 )
 const TrendsBarChart = lazy(() =>
-    import('./viz/trends-bar-chart/TrendsBarChart').then((m) => ({ default: m.TrendsBarChart }))
+    import('products/product_analytics/frontend/insights/trends/TrendsBarChart/TrendsBarChart').then((m) => ({
+        default: m.TrendsBarChart,
+    }))
 )
 
 interface Props {
@@ -55,8 +59,8 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         inSharedMode,
     }
 
-    const showHogChartsBar =
-        featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR] && !isLifecycle && !isStickiness
+    const hogChartsTrendsEnabled =
+        featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS] && !isLifecycle && !isStickiness
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -65,13 +69,13 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             display === ChartDisplayType.ActionsLineGraphCumulative ||
             display === ChartDisplayType.ActionsAreaGraph
         ) {
-            if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS] && !isLifecycle && !isStickiness) {
+            if (hogChartsTrendsEnabled) {
                 return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
             }
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
-            if (showHogChartsBar) {
+            if (hogChartsTrendsEnabled) {
                 return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
             }
             return <ActionsLineGraph {...commonProps} />
@@ -94,7 +98,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <ActionsPie {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
-            if (showHogChartsBar) {
+            if (hogChartsTrendsEnabled) {
                 return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
             }
             return <ActionsHorizontalBar {...commonProps} />
