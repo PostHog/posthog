@@ -233,8 +233,9 @@ class TestDefaultNonRetryableErrors:
         # eventual subclass call site is `cls.default_non_retryable_errors()`.
         errors = SQLSource.default_non_retryable_errors()
         assert key in errors
-        assert errors[key]
-        assert expected_substring in errors[key]
+        message = errors[key]
+        assert message is not None
+        assert expected_substring in message
 
     def test_returns_exactly_the_two_shared_entries(self) -> None:
         errors = SQLSource.default_non_retryable_errors()
