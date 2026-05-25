@@ -18,6 +18,7 @@ import structlog
 import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
+from social_core.exceptions import AuthException
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
@@ -891,6 +892,39 @@ def process_social_domain_jit_provisioning_signup(
                 )
 
     return user
+
+
+def social_associate_user_by_active_email(backend, details, user=None, *args, **kwargs):
+    """
+    Variant of ``social_core.pipeline.social_auth.associate_by_email`` that disambiguates by
+    ``is_active`` only when an email matches more than one account.
+
+    ``social_django``'s ``get_users_by_email`` matches case-insensitively but ignores
+    ``is_active``. Legacy mixed-case duplicates (e.g. an active ``john@x.com`` plus a
+    deactivated ``John@x.com``) therefore make the upstream step see >1 match and raise
+    "associated with another account", locking the active user out of SSO. We resolve that to
+    the single active account instead.
+
+    A *sole* match is passed through unchanged — including a deactivated one — to preserve
+    upstream behaviour: ``do_complete``'s ``is_active`` gate still blocks an inactive user,
+    rather than the pipeline falling through to JIT provisioning (which would mint a fresh
+    active account and defeat the deactivation).
+    """
+    if user:
+        return None
+
+    email = details.get("email")
+    if not email:
+        return None
+
+    users = list(backend.strategy.storage.user.get_users_by_email(email))
+    if len(users) <= 1:
+        return {"user": users[0], "is_new": False} if users else None
+
+    active_users = [candidate for candidate in users if candidate.is_active]
+    if len(active_users) == 1:
+        return {"user": active_users[0], "is_new": False}
+    raise AuthException(backend, "The given email address is associated with another account")
 
 
 @partial
