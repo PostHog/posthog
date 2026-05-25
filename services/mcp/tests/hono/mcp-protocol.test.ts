@@ -16,6 +16,7 @@ import {
     type ProtocolTestHarness,
 } from '../integration/mcp-protocol-suite'
 import { handlers, contextMillHandler } from '../workers/fixtures/handlers'
+import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
 const mswServer = setupServer(...handlers, contextMillHandler)
 
@@ -40,6 +41,7 @@ function createInMemoryRedis(): RedisLike & { ping(): Promise<string> } {
             const cur = String(cursor)
             return [cur === '0' ? 'next' : '0', cur === '0' ? Array.from(store.keys()) : []] as [string, string[]]
         },
+        ...makeRedisRateLimitStubs(),
         ping: async () => 'PONG',
     }
 }
