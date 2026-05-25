@@ -5,6 +5,7 @@ use crate::metrics::consts::{
     FLAG_BODY_READ_TIME_MS, FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, FLAG_DB_OPERATIONS_PER_REQUEST,
     FLAG_PHASE_DURATION_MS, FLAG_PRE_HANDLER_TIME_MS, FLAG_QUEUE_TIME_MS,
 };
+use crate::utils::bot_detection::{BotCategory, BotSource};
 use std::cell::RefCell;
 use std::future::Future;
 use std::time::Instant;
@@ -307,6 +308,15 @@ pub struct FlagsCanonicalLogLine {
     pub http_status: u16,
     /// Error code from FlagError::error_code(). Uses &'static str to avoid allocation.
     pub error_code: Option<&'static str>,
+
+    /// True when the request was short-circuited by the bot filter and
+    /// skipped token rate-limit, auth, billing, and evaluation.
+    pub is_bot: bool,
+    /// Matched bot category, set iff `is_bot` is true. The enum bounds
+    /// the label set; [`Self::emit`] stringifies at log time.
+    pub bot_category: Option<BotCategory>,
+    /// Which signal fired (UA or IP), set iff `is_bot` is true.
+    pub bot_source: Option<BotSource>,
 }
 
 impl Default for FlagsCanonicalLogLine {
@@ -355,6 +365,9 @@ impl Default for FlagsCanonicalLogLine {
             team_cache_source: None,
             http_status: 200,
             error_code: None,
+            is_bot: false,
+            bot_category: None,
+            bot_source: None,
         }
     }
 }
@@ -424,6 +437,9 @@ impl FlagsCanonicalLogLine {
             billing_duration_ms = self.billing_duration_ms,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
+            is_bot = self.is_bot,
+            bot_category = self.bot_category.map(|c| c.as_str()),
+            bot_source = self.bot_source.map(|s| s.as_str()),
             "canonical_log_line"
         );
     }
@@ -592,6 +608,16 @@ impl FlagsCanonicalLogLine {
     /// Populate error fields from a FlagError and emit the log line.
     pub fn emit_for_error(&mut self, error: &FlagError) {
         self.set_error(error);
+        self.emit();
+    }
+
+    /// Emit dependent histograms then the canonical log. For short-circuit
+    /// paths that bypass `run_with_canonical_log` (IP rate-limit blocked,
+    /// bot-Enforced).
+    pub fn emit_short_circuit(&self) {
+        self.emit_db_operations_metrics();
+        self.emit_timing_metrics();
+        self.emit_phase_metrics();
         self.emit();
     }
 }

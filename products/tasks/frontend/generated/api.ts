@@ -25,6 +25,7 @@ import type {
     TaskApi,
     TaskAutomationApi,
     TaskAutomationsListParams,
+    TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
     TaskRunAppendLogRequestApi,
     TaskRunArtifactPresignRequestApi,
@@ -317,6 +318,43 @@ export const getTasksDestroyUrl = (projectId: string, id: string) => {
  */
 export const tasksDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getTasksDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTasksPresenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/presence/`
+}
+
+/**
+ * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.
+ * @summary Beacon presence for a device watching this task
+ */
+export const tasksPresenceCreate = async (
+    projectId: string,
+    id: string,
+    taskPresenceBeaconRequestApi: TaskPresenceBeaconRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksPresenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskPresenceBeaconRequestApi),
+    })
+}
+
+export const getTasksPresenceDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/presence/`
+}
+
+/**
+ * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.
+ * @summary Beacon presence for a device watching this task
+ */
+export const tasksPresenceDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTasksPresenceDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })

@@ -1486,6 +1486,40 @@ class FeatureFlagSerializer(
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
+    def _free_key_held_by_soft_deleted_flags(self, key: str, exclude_pk: int | None = None) -> None:
+        # The (team, key) unique constraint spans soft-deleted rows, so we must
+        # clear any tombstone holding `key`. Hard-delete first; if an FK blocks
+        # it (Experiment uses RESTRICT, EarlyAccessFeature uses PROTECT), rename
+        # the tombstone instead — same scheme as the soft-delete update path.
+        # Only safe when no active dependent references it; re-check that
+        # invariant and error clearly if violated.
+        soft_deleted_qs = FeatureFlag.objects_including_soft_deleted.filter(
+            key=key,
+            team__project_id=self.context["project_id"],
+            deleted=True,
+        )
+        if exclude_pk is not None:
+            soft_deleted_qs = soft_deleted_qs.exclude(pk=exclude_pk)
+
+        for flag in soft_deleted_qs:
+            try:
+                flag.delete()
+            except (deletion.RestrictedError, deletion.ProtectedError):
+                blockers = []
+                active_experiment_ids = list(flag.experiment_set.filter(deleted=False).values_list("id", flat=True))
+                if active_experiment_ids:
+                    blockers.append(f"active experiment(s) with ID(s): {', '.join(map(str, active_experiment_ids))}")
+                eaf_count = flag.features.count()
+                if eaf_count:
+                    blockers.append(f"{eaf_count} early access feature(s)")
+                if blockers:
+                    raise exceptions.ValidationError(
+                        f"Cannot reuse key '{flag.key}': a soft-deleted flag with this key is still "
+                        f"referenced by {' and '.join(blockers)}. Please contact support."
+                    )
+                flag.key = f"{flag.key}:deleted:{flag.id}"
+                flag.save(update_fields=["key"])
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -1518,16 +1552,7 @@ class FeatureFlagSerializer(
 
         encrypt_flag_payloads(validated_data)
 
-        try:
-            FeatureFlag.objects_including_soft_deleted.filter(
-                key=validated_data["key"],
-                team__project_id=self.context["project_id"],
-                deleted=True,
-            ).delete()
-        except deletion.RestrictedError:
-            raise exceptions.ValidationError(
-                "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag."
-            )
+        self._free_key_held_by_soft_deleted_flags(validated_data["key"])
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
@@ -1756,22 +1781,11 @@ class FeatureFlagSerializer(
             validated_data["version"] = locked_version + 1
             old_key = instance.key
 
-            # If the key is changing, free it up by hard-deleting any soft-deleted
-            # flag that still holds the target key — the DB unique constraint on
-            # (team, key) spans soft-deleted rows, so without this the update
-            # would fail with an IntegrityError. Mirrors the behavior in create().
+            # Clear any soft-deleted tombstone on `new_key` so the (team, key)
+            # unique constraint doesn't block the rename. Mirrors create().
             new_key = validated_data.get("key")
             if new_key and new_key != old_key and validated_data.get("deleted", instance.deleted) is False:
-                try:
-                    FeatureFlag.objects_including_soft_deleted.filter(
-                        key=new_key,
-                        team__project_id=self.context["project_id"],
-                        deleted=True,
-                    ).exclude(pk=instance.pk).delete()
-                except deletion.RestrictedError:
-                    raise exceptions.ValidationError(
-                        "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before renaming the flag."
-                    )
+                self._free_key_held_by_soft_deleted_flags(new_key, exclude_pk=instance.pk)
 
             with ImpersonatedContext(request):
                 instance = super().update(instance, validated_data)
@@ -2361,6 +2375,124 @@ class LocalEvaluationResponseSerializer(serializers.Serializer):
     )
 
 
+class BulkKeysRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        allow_empty=True,
+        help_text=(
+            "Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value "
+            "is reported in the response `warning` field and otherwise ignored."
+        ),
+    )
+
+
+class BulkKeysResponseSerializer(serializers.Serializer):
+    keys = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.",
+    )
+    warning = serializers.CharField(
+        required=False,
+        help_text="Present when some submitted IDs were not numeric and were ignored.",
+    )
+
+
+class BulkDeleteFiltersSerializer(serializers.Serializer):
+    """Allowed filter keys for bulk_delete — same shape as the list endpoint's query params."""
+
+    active = serializers.ChoiceField(
+        choices=["true", "false", "STALE"],
+        required=False,
+        help_text="Filter by active state.",
+    )
+    created_by_id = serializers.IntegerField(
+        required=False,
+        help_text="Filter to flags created by a specific user ID.",
+    )
+    search = serializers.CharField(
+        required=False,
+        help_text="Search by feature flag key or name (case-insensitive).",
+    )
+    type = serializers.ChoiceField(
+        choices=["boolean", "multivariant", "experiment", "remote_config"],
+        required=False,
+        help_text="Filter by flag type.",
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        required=False,
+        help_text="Filter by evaluation runtime.",
+    )
+    excluded_properties = serializers.CharField(
+        required=False,
+        help_text="JSON-encoded property filter to exclude. Same shape as the list endpoint.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tag names to filter by. Flags carrying at least one of these tags match.",
+    )
+    has_evaluation_contexts = serializers.BooleanField(
+        required=False,
+        help_text="When true, only matches flags with at least one evaluation context.",
+    )
+
+
+class BulkDeleteRequestSerializer(serializers.Serializer):
+    filters = BulkDeleteFiltersSerializer(
+        required=False,
+        help_text=(
+            "Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. "
+            "Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs."
+        ),
+    )
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        help_text="Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`.",
+    )
+
+
+class BulkDeleteDeletedItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the soft-deleted flag.")
+    key = serializers.CharField(help_text="The flag key at the time of deletion.")
+    rollout_state = serializers.ChoiceField(
+        choices=["fully_rolled_out", "not_rolled_out", "partial"],
+        help_text="Rollout state captured before deletion.",
+    )
+    active_variant = serializers.CharField(
+        allow_null=True,
+        help_text="Variant key when a multivariate flag was fully rolled out to a single variant; otherwise null.",
+    )
+
+
+class BulkDeleteErrorItemSerializer(serializers.Serializer):
+    id = serializers.JSONField(
+        help_text="Feature flag ID — integer for valid inputs; the original raw value for invalid inputs."
+    )
+    key = serializers.CharField(required=False, help_text="The flag key, when known.")
+    reason = serializers.CharField(help_text="Human-readable reason the flag could not be deleted.")
+
+
+class BulkDeleteResponseSerializer(serializers.Serializer):
+    """
+    Schema-only — referenced from ``@extend_schema(responses=...)`` to describe the wire format.
+    Never instantiate this for validation or call ``.is_valid()`` / ``.errors`` on it: the
+    declared ``errors`` field shadows DRF's inherited ``Serializer.errors`` ReturnDict property,
+    so accessing ``serializer.errors`` would return this field descriptor instead of validation
+    errors. The handler builds the response dict directly; this class exists only so drf-spectacular
+    can render the response in the OpenAPI spec and downstream generated clients.
+    """
+
+    deleted = BulkDeleteDeletedItemSerializer(many=True, help_text="Flags successfully soft-deleted.")
+    # Explicit ListSerializer avoids the many=True descriptor magic that confuses type checkers.
+    errors: serializers.ListSerializer = serializers.ListSerializer(  # type: ignore[assignment]
+        child=BulkDeleteErrorItemSerializer(),
+        help_text="Flags that could not be deleted, with reasons.",
+    )
+
+
 # ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
 # all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
 # that already tag their queries. If you add a new ClickHouse query reachable from an
@@ -2383,6 +2515,10 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
+    # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
+    # Other inheritors of the mixin don't extend write actions and so still
+    # reject PAT calls — keeps the scope local to this viewset.
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "bulk_update_tags"]
     # Use the unfiltered manager so non-list actions (retrieve, update, etc.)
     # can access soft-deleted flags. The list action applies its own
     # deleted=False filter in safely_get_queryset.
@@ -2788,7 +2924,14 @@ class FeatureFlagViewSet(
             for feature_flag in all_serialized_flags
         )
 
-    @action(methods=["POST"], detail=False)
+    @extend_schema(
+        request=BulkKeysRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=BulkKeysResponseSerializer),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid flag IDs provided."),
+        },
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:read"])
     def bulk_keys(self, request: request.Request, **kwargs):
         """
         Get feature flag keys by IDs.
@@ -2829,8 +2972,13 @@ class FeatureFlagViewSet(
         if invalid_ids:
             response_data["warning"] = f"Invalid flag IDs ignored: {invalid_ids}"
 
-        # Fetch flags by IDs
-        flags = FeatureFlag.objects.filter(id__in=flag_ids, team__project_id=self.project_id).values_list("id", "key")
+        # Filter through per-object ACLs so a caller can't probe IDs to learn keys of flags they've been denied.
+        # The queryset is project-scoped (team__project_id) while the AC filter is team-scoped — equivalent today
+        # since team_id == project_id, asymmetric only under the deprecated multi-team-per-project ("environments")
+        # path being removed. Mirrors the list endpoint's ACL filtering.
+        queryset = FeatureFlag.objects.filter(id__in=flag_ids, team__project_id=self.project_id)
+        queryset = self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        flags = queryset.values_list("id", "key")
 
         # Create mapping of ID to key
         keys_mapping = {str(flag_id): key for flag_id, key in flags}
@@ -2886,6 +3034,16 @@ class FeatureFlagViewSet(
             }
         )
 
+    @extend_schema(
+        request=BulkDeleteRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=BulkDeleteResponseSerializer),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Invalid input — e.g., both filters and ids supplied, neither supplied, or unknown filter keys.",
+            ),
+        },
+    )
     @action(methods=["POST"], detail=False, required_scopes=["feature_flag:write"])
     def bulk_delete(self, request: request.Request, **kwargs):
         """
@@ -2925,16 +3083,7 @@ class FeatureFlagViewSet(
 
         # Validate filter keys against allowlist to prevent accidental mass deletion
         if filters:
-            valid_filter_keys = {
-                "active",
-                "created_by_id",
-                "search",
-                "type",
-                "evaluation_runtime",
-                "excluded_properties",
-                "tags",
-                "has_evaluation_contexts",
-            }
+            valid_filter_keys = set(BulkDeleteFiltersSerializer().fields.keys())
             unknown_keys = set(filters.keys()) - valid_filter_keys
             if unknown_keys:
                 return Response(

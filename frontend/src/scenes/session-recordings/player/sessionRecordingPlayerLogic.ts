@@ -16,6 +16,8 @@ import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { ReplayPlugin, Replayer, playerConfig } from 'posthog-js/rrweb'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 import { RefObject } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -26,8 +28,6 @@ import {
     CorsPlugin,
     createHLSPlayerPlugin,
 } from '@posthog/replay-shared'
-import { ReplayPlugin, Replayer, playerConfig } from '@posthog/rrweb'
-import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'

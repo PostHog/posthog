@@ -1,4 +1,4 @@
-from products.replay_vision.backend.temporal.activities.call_lens_provider import call_lens_provider_activity
+from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_indexer_observation import (
@@ -16,7 +16,7 @@ from products.replay_vision.backend.temporal.activities.observation_state import
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
 
 __all__ = [
-    "call_lens_provider_activity",
+    "call_scanner_provider_activity",
     "cleanup_gemini_file_activity",
     "create_observation_activity",
     "embed_indexer_observation_activity",
