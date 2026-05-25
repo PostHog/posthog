@@ -795,6 +795,8 @@ async def _setup_slack_delivery_test_case(
         ("is_archived", True),
         ("channel_not_found", True),
         ("not_in_channel", True),
+        ("messages_tab_disabled", True),
+        ("not_authed", True),
         # Transient errors propagate so Temporal retries.
         ("internal_error", False),
         ("rate_limited", False),

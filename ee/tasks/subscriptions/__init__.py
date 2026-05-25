@@ -9,8 +9,20 @@ logger = structlog.get_logger(__name__)
 
 # Slack errors that won't self-heal without user action — skip Temporal retries
 # and auto-disable the subscription so it stops re-firing every cycle.
+# `messages_tab_disabled` and `not_authed` are terminal: the workspace either
+# turned off DM delivery to the app or the OAuth token is no longer accepted,
+# and Slack returns the same error on every retry until the user fixes it.
 SLACK_USER_CONFIG_ERRORS = frozenset(
-    {"not_in_channel", "account_inactive", "is_archived", "channel_not_found", "invalid_auth", "token_revoked"}
+    {
+        "not_in_channel",
+        "account_inactive",
+        "is_archived",
+        "channel_not_found",
+        "invalid_auth",
+        "token_revoked",
+        "messages_tab_disabled",
+        "not_authed",
+    }
 )
 
 

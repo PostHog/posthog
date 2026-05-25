@@ -21,6 +21,23 @@ def _safe_react(client: Any, channel: str, timestamp: str, name: str) -> None:
             raise
 
 
+# Workflows started during the c61131d → ce40d80 (May 22) unification window persisted
+# an integration_id that pointed at a kind="slack" notifications row instead of the
+# coding-agent's kind="slack-posthog-code" row. After the revert the strict get()
+# raised Integration.DoesNotExist, RetryPolicy(maximum_attempts=3) repeated it, and
+# every cycle landed in error tracking — including the apologetic error fallback,
+# which also reads the integration. Accept either Slack kind on the (id, slack_team_id)
+# lookup so those persisted workflows can drain.
+def _get_posthog_code_slack_integration(integration_id: int, slack_team_id: str) -> Any:
+    from posthog.models.integration import Integration
+
+    return Integration.objects.select_related("team", "team__organization").get(
+        id=integration_id,
+        kind__in=("slack-posthog-code", "slack"),
+        integration_id=slack_team_id,
+    )
+
+
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
 _RESUME_ERROR_MSG = "Sorry, I ran into an internal error restarting the agent. Please try again in a minute."
 POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
@@ -354,15 +371,11 @@ def resolve_posthog_code_slack_user_activity(
     thread_ts: str,
     slack_user_id: str,
 ) -> int | None:
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import resolve_slack_user
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack-posthog-code",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = _get_posthog_code_slack_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     user_context = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
     return user_context.user.id if user_context else None
@@ -376,7 +389,7 @@ def handle_posthog_code_rules_command_activity(
     slack_user_id: str,
     user_id: int,
 ) -> PostHogCodeRulesCommandResult:
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import _parse_rules_command
 
@@ -384,11 +397,7 @@ def handle_posthog_code_rules_command_activity(
     if not command:
         return PostHogCodeRulesCommandResult(status="not_a_command")
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack-posthog-code",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = _get_posthog_code_slack_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     if command.action == "help":
@@ -646,15 +655,11 @@ def collect_posthog_code_thread_messages_activity(
     channel: str,
     thread_ts: str,
 ) -> list[dict[str, str]]:
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import _collect_thread_messages
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack-posthog-code",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = _get_posthog_code_slack_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     auth_response = slack.client.auth_test()
     our_bot_id = auth_response.get("bot_id")
@@ -669,15 +674,9 @@ def select_posthog_code_repository_activity(
     user_id: int | None = None,
     channel: str = "",
 ) -> PostHogCodeSlackRepoDecisionData:
-    from posthog.models.integration import Integration
-
     from products.slack_app.backend.api import _get_full_repo_names, select_repository
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack-posthog-code",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = _get_posthog_code_slack_integration(inputs.integration_id, inputs.slack_team_id)
     all_repos = _get_full_repo_names(integration)
     decision = select_repository(
         event_text=event_text,
@@ -709,13 +708,9 @@ def classify_posthog_code_task_needs_repo_activity(
 def post_posthog_code_no_repos_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack-posthog-code",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = _get_posthog_code_slack_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     slack.client.chat_postMessage(
         channel=channel,
@@ -738,15 +733,11 @@ def post_posthog_code_repo_picker_activity(
     guidance: str,
     allow_no_repo: bool,
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import _post_repo_picker_message
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack-posthog-code",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = _get_posthog_code_slack_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     _post_repo_picker_message(
@@ -777,7 +768,7 @@ def create_posthog_code_task_for_repo_activity(
 ) -> None:
     import structlog
 
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext
@@ -786,11 +777,7 @@ def create_posthog_code_task_for_repo_activity(
 
     log = structlog.get_logger(__name__)
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack-posthog-code",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = _get_posthog_code_slack_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     user_message_ts = event.get("ts")
     if user_message_ts:
@@ -905,18 +892,14 @@ def create_posthog_code_routing_rule_activity(
 ) -> None:
     import structlog
 
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
 
     log = structlog.get_logger(__name__)
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack-posthog-code",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = _get_posthog_code_slack_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     all_repos = _get_full_repo_names(integration)
@@ -972,7 +955,7 @@ def forward_posthog_code_followup_activity(
 
     import structlog
 
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.services.agent_command import send_user_message
@@ -992,11 +975,7 @@ def forward_posthog_code_followup_activity(
 
     task_run = mapping.task_run
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack-posthog-code",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = _get_posthog_code_slack_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     if slack_user_id != mapping.mentioning_slack_user_id:
@@ -1411,7 +1390,7 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
 def post_posthog_code_picker_timeout_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import _clear_pending_repo_picker
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -1435,11 +1414,7 @@ def post_posthog_code_picker_timeout_activity(
     ).exists():
         return
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack-posthog-code",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = _get_posthog_code_slack_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     slack.client.chat_postMessage(
         channel=channel,
@@ -1452,7 +1427,7 @@ def post_posthog_code_picker_timeout_activity(
 def post_posthog_code_internal_error_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import _clear_pending_repo_picker
 
@@ -1465,11 +1440,7 @@ def post_posthog_code_internal_error_activity(
             slack_user_id=slack_user_id,
         )
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack-posthog-code",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = _get_posthog_code_slack_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     slack.client.chat_postMessage(
         channel=channel,

@@ -95,8 +95,12 @@ def process_posthog_code_task_termination_payload(payload: dict[str, Any]) -> No
         return
 
     try:
+        # Accept either Slack kind: workflows started during the May 22 unification
+        # window (c61131d → ce40d80) cached integration_id values that pointed at
+        # kind="slack" notifications rows, not the dedicated kind="slack-posthog-code"
+        # row. The strict lookup would silently 404 those terminate clicks.
         integration = Integration.objects.get(
-            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+            id=integration_id, kind__in=("slack-posthog-code", "slack"), integration_id=slack_team_id
         )
     except Integration.DoesNotExist:
         logger.warning("posthog_code_terminate_integration_not_found", integration_id=integration_id)
