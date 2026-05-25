@@ -6,7 +6,6 @@
         "summary": "Optional: submit feedback about the PostHog MCP server.",
         "title": "Submit agent feedback",
         "required_scopes": [],
-        "new_mcp": true,
         "always_available": true,
         "feature_flag": "mcp-feedback-tool",
         "annotations": {
@@ -39,7 +38,6 @@
         "required_scopes": [
             "evaluation:write"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -56,7 +54,6 @@
         "required_scopes": [
             "evaluation:write"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -73,7 +70,6 @@
         "required_scopes": [
             "evaluation:read"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -90,7 +86,6 @@
         "required_scopes": [
             "evaluation:write"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -107,7 +102,6 @@
         "required_scopes": [
             "evaluation:read"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -124,7 +118,6 @@
         "required_scopes": [
             "evaluation:write"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -141,7 +134,6 @@
         "required_scopes": [
             "evaluation:read"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -165,6 +157,23 @@
             "readOnlyHint": false
         }
     },
+    "execute-sql": {
+        "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the querying-posthog-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Call posthog:read-data-warehouse-schema to discover available tables, views, columns, and their types. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nUse system tables with the system. prefix for PostHog-created data. For example, count SQL insight variables with:\n```sql\nSELECT count() AS total FROM system.insight_variables\n```\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.",
+        "category": "SQL",
+        "feature": "sql",
+        "summary": "Execute an SQL query.",
+        "title": "Execute SQL query",
+        "required_scopes": [
+            "query:read",
+            "insight:read"
+        ],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "experiment-get-all": {
         "description": "DEPRECATED: renamed to experiment-list. This alias forwards to experiment-list and will be removed. Call experiment-list directly with the same arguments.",
         "category": "Experiments",
@@ -174,7 +183,6 @@
         "required_scopes": [
             "experiment:read"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -191,7 +199,6 @@
         "required_scopes": [
             "experiment:read"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -208,7 +215,6 @@
         "required_scopes": [
             "external_data_source:write"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -257,7 +263,6 @@
         "required_scopes": [
             "warehouse_table:read"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -274,7 +279,6 @@
         "required_scopes": [
             "query:read"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -291,7 +295,40 @@
         "required_scopes": [
             "organization:read"
         ],
-        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "read-data-schema": {
+        "description": "Use this tool to explore the user's data schema. The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc. Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else. Events or properties starting from \"$\" are system properties automatically captured by SDKs. Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.",
+        "category": "Data schema",
+        "feature": "data_schema",
+        "summary": "Explore the user's events, actions, properties, and property values.",
+        "title": "Read data schema",
+        "required_scopes": [
+            "event_definition:read",
+            "property_definition:read"
+        ],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "read-data-warehouse-schema": {
+        "description": "Use this tool to retrieve the core data warehouse schemas for PostHog tables (events, groups, persons, sessions) and the available data warehouse tables, views, and system tables. Use this to understand the data model before writing HogQL queries.",
+        "category": "Data schema",
+        "feature": "data_schema",
+        "summary": "Read core data warehouse schemas and table lists.",
+        "title": "Read data warehouse schema",
+        "required_scopes": [
+            "warehouse_table:read",
+            "warehouse_view:read"
+        ],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -308,7 +345,6 @@
         "required_scopes": [
             "session_recording:read"
         ],
-        "new_mcp": true,
         "requires_ai_consent": true,
         "feature_flag": "replay-video-based-summarization",
         "annotations": {
@@ -327,7 +363,6 @@
         ],
         "feature": "surveys",
         "title": "Create survey",
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -344,7 +379,6 @@
         ],
         "feature": "surveys",
         "title": "Delete survey",
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -377,7 +411,6 @@
         ],
         "feature": "surveys",
         "title": "Get survey response stats",
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -394,7 +427,6 @@
         ],
         "feature": "surveys",
         "title": "Update survey",
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -427,7 +459,6 @@
         ],
         "feature": "surveys",
         "title": "Get all survey response stats",
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -444,7 +475,6 @@
         "required_scopes": [
             "organization:read"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -461,7 +491,6 @@
         "required_scopes": [
             "project:read"
         ],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

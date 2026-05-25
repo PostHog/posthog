@@ -15,7 +15,6 @@ import type { ToolCatalog } from './tool-catalog'
 export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
-    version: number
     useSingleExec: boolean
     toolFeatureFlags: Record<string, boolean> | undefined
     apiKeyScopes: string[]
@@ -26,11 +25,11 @@ export interface ResolvedState {
 
 // ─── Pure helpers ───
 
-export function resolveModeAndVersion(args: {
+export function resolveMode(args: {
     mode: McpMode | undefined
     singleExecFlagOn: boolean
     clientProfile: MCPClientProfile
-}): { useSingleExec: boolean; version: number } {
+}): { useSingleExec: boolean } {
     const { mode, singleExecFlagOn, clientProfile } = args
     const useSingleExec =
         mode === 'cli' ||
@@ -39,7 +38,7 @@ export function resolveModeAndVersion(args: {
             (clientProfile.isCodingAgent() ||
                 clientProfile.isPostHogCodeConsumer() ||
                 clientProfile.isVibeCodingClient()))
-    return { useSingleExec, version: 2 }
+    return { useSingleExec }
 }
 
 // ─── Resolver ───
@@ -77,7 +76,7 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.cache.get('projectId')) ?? undefined
         }
 
-        const toolFlagKeys = getRequiredFeatureFlags(2)
+        const toolFlagKeys = getRequiredFeatureFlags()
         const allFlagKeys = [...SYSTEM_FLAGS, ...toolFlagKeys]
 
         const flagAnalyticsContext = await reqCtx.getAnalyticsContextSafe(context)
@@ -104,7 +103,7 @@ export class RequestStateResolver {
             oauthClientName,
         })
 
-        const { useSingleExec, version } = resolveModeAndVersion({
+        const { useSingleExec } = resolveMode({
             mode,
             singleExecFlagOn,
             clientProfile,
@@ -123,7 +122,6 @@ export class RequestStateResolver {
         const allTools = this.catalog.getFilteredTools({
             features,
             tools,
-            version,
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,
@@ -134,7 +132,6 @@ export class RequestStateResolver {
         return {
             reqCtx,
             context,
-            version,
             useSingleExec,
             toolFeatureFlags,
             apiKeyScopes,

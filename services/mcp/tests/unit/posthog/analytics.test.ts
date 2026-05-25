@@ -84,7 +84,6 @@ describe('initMcpAnalytics', () => {
                 projectName: 'Project 101',
             }),
             getClientUserAgent: vi.fn().mockResolvedValue('test-agent/1.0'),
-            getMcpVersion: vi.fn().mockResolvedValue(2),
             getOAuthClientName: vi.fn().mockResolvedValue('PostHog Code'),
             getReadOnly: vi.fn().mockResolvedValue(true),
             getTransport: vi.fn().mockResolvedValue('streamable-http'),
@@ -223,7 +222,6 @@ describe('initMcpAnalytics', () => {
 
         expect(await getTrackOptions().eventProperties()).toEqual({
             $ai_product: 'mcp',
-            $mcp_version: 2,
             $mcp_client_user_agent: 'test-agent/1.0',
             $mcp_client_name: 'claude-code',
             $mcp_client_version: '1.2.3',

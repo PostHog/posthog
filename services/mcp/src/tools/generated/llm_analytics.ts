@@ -810,7 +810,6 @@ const LlmaReviewQueueGetSchema = LlmAnalyticsReviewQueuesRetrieveParams.omit({ p
 const llmaReviewQueueGet = (): ToolBase<typeof LlmaReviewQueueGetSchema, WithPostHogUrl<Schemas.ReviewQueue>> => ({
     name: 'llma-review-queue-get',
     schema: LlmaReviewQueueGetSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmaReviewQueueGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ReviewQueue>({
@@ -870,7 +869,6 @@ const llmaReviewQueueItemGet = (): ToolBase<
 > => ({
     name: 'llma-review-queue-item-get',
     schema: LlmaReviewQueueItemGetSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmaReviewQueueItemGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ReviewQueueItem>({
@@ -889,7 +887,6 @@ const llmaReviewQueueItemList = (): ToolBase<
 > => ({
     name: 'llma-review-queue-item-list',
     schema: LlmaReviewQueueItemListSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmaReviewQueueItemListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedReviewQueueItemList>({
@@ -953,7 +950,6 @@ const llmaReviewQueueList = (): ToolBase<
 > => ({
     name: 'llma-review-queue-list',
     schema: LlmaReviewQueueListSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmaReviewQueueListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedReviewQueueList>({
@@ -1064,7 +1060,6 @@ const llmaScoreDefinitionList = (): ToolBase<
 > => ({
     name: 'llma-score-definition-list',
     schema: LlmaScoreDefinitionListSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmaScoreDefinitionListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedScoreDefinitionList>({
@@ -1636,7 +1631,6 @@ const LlmaTraceReviewGetSchema = LlmAnalyticsTraceReviewsRetrieveParams.omit({ p
 const llmaTraceReviewGet = (): ToolBase<typeof LlmaTraceReviewGetSchema, WithPostHogUrl<Schemas.TraceReview>> => ({
     name: 'llma-trace-review-get',
     schema: LlmaTraceReviewGetSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmaTraceReviewGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.TraceReview>({
@@ -1655,7 +1649,6 @@ const llmaTraceReviewList = (): ToolBase<
 > => ({
     name: 'llma-trace-review-list',
     schema: LlmaTraceReviewListSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof LlmaTraceReviewListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedTraceReviewList>({

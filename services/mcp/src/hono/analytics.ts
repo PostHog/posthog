@@ -27,7 +27,6 @@ function buildBaseProperties(
         ...(props.mcpSessionId ? { mcp_session_id: props.mcpSessionId } : {}),
         ...(props.mcpConversationId ? { mcp_conversation_id: props.mcpConversationId } : {}),
         ...(props.mode ? { mcp_mode: props.mode } : {}),
-        ...(state.version !== undefined ? { mcp_version: state.version } : {}),
         ...(analyticsContext ? buildMCPContextProperties(analyticsContext) : {}),
     }
     const groups = analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : {}

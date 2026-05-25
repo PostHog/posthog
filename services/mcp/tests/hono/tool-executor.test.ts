@@ -50,7 +50,6 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getDistinctId: vi.fn(),
             trackEvent: vi.fn(),
         } as any,
-        version: 2,
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
@@ -153,7 +152,7 @@ describe('ToolExecutor', () => {
         it('returns single exec tool entry when useSingleExec is true', async () => {
             const state = makeState(
                 catalog.getPreBuiltEntries().slice(0, 5).map((e) => ({ name: e.name })),
-                { useSingleExec: true, version: 2 }
+                { useSingleExec: true }
             )
 
             const result = await executor.handleToolsList(state, makeProps())

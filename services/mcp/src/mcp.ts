@@ -109,7 +109,6 @@ export class MCP extends McpAgent<Env> {
     private mcpClientVersion: string | undefined
     private mcpProtocolVersion: string | undefined
     private mcpMode: McpMode | undefined
-    private mcpVersion: number | undefined
 
     get requestProperties(): RequestProperties {
         return this.props as RequestProperties
@@ -395,7 +394,6 @@ export class MCP extends McpAgent<Env> {
                         ? { mcp_conversation_id: this.requestProperties.mcpConversationId }
                         : {}),
                     ...(this.mcpMode ? { mcp_mode: this.mcpMode } : {}),
-                    ...(this.mcpVersion !== undefined ? { mcp_version: this.mcpVersion } : {}),
                     ...contextProperties,
                     ...previousContextProperties,
                     ...properties,
@@ -590,7 +588,7 @@ export class MCP extends McpAgent<Env> {
         // rollouts evaluate against the same entities — see `buildMCPAnalyticsGroups`.
         const flagAnalyticsContext = await this.getAnalyticsContextSafe(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
-        const toolFlagsPromise = this.resolveToolFeatureFlags(2, flagGroups)
+        const toolFlagsPromise = this.resolveToolFeatureFlags(flagGroups)
 
         const [toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
             toolFlagsPromise,
@@ -608,7 +606,7 @@ export class MCP extends McpAgent<Env> {
             oauthClientName,
         })
 
-        const { useSingleExec, version } = this.resolveModeAndVersion({
+        const { useSingleExec } = this.resolveMode({
             mode,
             singleExecFlagOn,
             clientProfile,
@@ -643,7 +641,6 @@ export class MCP extends McpAgent<Env> {
         const allTools = await getToolsFromContext(context, {
             features,
             tools,
-            version,
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,
@@ -658,12 +655,12 @@ export class MCP extends McpAgent<Env> {
 
         const toolInfos = allTools.map((t) => ({
             name: t.name,
-            category: getToolDefinition(t.name, version).category,
+            category: getToolDefinition(t.name).category,
         }))
         const queryToolInfos: QueryToolInfo[] = allTools
             .filter((t) => t.name.startsWith('query-'))
             .map((t) => {
-                const def = getToolDefinition(t.name, version)
+                const def = getToolDefinition(t.name)
                 return {
                     name: t.name,
                     title: def.title,
@@ -768,7 +765,6 @@ export class MCP extends McpAgent<Env> {
             getRegion: async () => (await this.cache.get('region')) ?? this.requestProperties.region,
             getAnalyticsContext: async () => this.getAnalyticsContextSafe(await this.getContext()),
             getClientUserAgent: async () => this.requestProperties.clientUserAgent,
-            getMcpVersion: async () => version,
             getOAuthClientName: async () => (await this.cache.get('clientName')) || undefined,
             getReadOnly: async () => readOnly,
             getTransport: async () => this.requestProperties.transport,
@@ -841,10 +837,9 @@ export class MCP extends McpAgent<Env> {
     }
 
     /**
-     * Decide single-exec mode for this connection, stashing the mode and the
-     * protocol version on the instance so `trackEvent` and the observability
-     * identity provider can emit `mcp_mode` / `mcp_version` on every downstream
-     * event without re-deriving them.
+     * Decide single-exec mode for this connection, stashing the mode on the
+     * instance so `trackEvent` and the observability identity provider can emit
+     * `mcp_mode` on every downstream event without re-deriving it.
      *
      * Single-exec is restricted to coding agents — Cursor and other clients
      * that render `structuredContent` in their UI need the full per-tool roster,
@@ -856,11 +851,11 @@ export class MCP extends McpAgent<Env> {
      * `x-posthog-mcp-mode` or query param `mode`) wins over the flag +
      * client-profile heuristic.
      */
-    private resolveModeAndVersion(args: {
+    private resolveMode(args: {
         mode: McpMode | undefined
         singleExecFlagOn: boolean
         clientProfile: MCPClientProfile
-    }): { useSingleExec: boolean; version: number } {
+    }): { useSingleExec: boolean } {
         const { mode, singleExecFlagOn, clientProfile } = args
         const useSingleExec =
             mode === 'cli' ||
@@ -869,12 +864,10 @@ export class MCP extends McpAgent<Env> {
                 (clientProfile.isCodingAgent() ||
                     clientProfile.isPostHogCodeConsumer() ||
                     clientProfile.isVibeCodingClient()))
-        const version = 2
 
         this.mcpMode = useSingleExec ? 'cli' : 'tools'
-        this.mcpVersion = version
 
-        return { useSingleExec, version }
+        return { useSingleExec }
     }
 
     private async resolveSingleExecFlag(): Promise<boolean> {
@@ -886,13 +879,10 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    private async resolveToolFeatureFlags(
-        version?: number,
-        groups?: FlagGroups
-    ): Promise<Record<string, boolean> | undefined> {
+    private async resolveToolFeatureFlags(groups?: FlagGroups): Promise<Record<string, boolean> | undefined> {
         try {
             const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
-            const flagKeys = getRequiredFeatureFlags(version)
+            const flagKeys = getRequiredFeatureFlags()
             if (flagKeys.length === 0) {
                 return undefined
             }

@@ -203,7 +203,6 @@ tools:
                 description: >
                     Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope
                     the metric — usage metrics apply to both groups and persons regardless of this value.
-        mcp_version: 1
     usage-metrics-partial-update:
         operation: groups_types_metrics_partial_update
         enabled: true
@@ -252,7 +251,6 @@ tools:
                 description: >
                     Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope
                     the metric — usage metrics apply to both groups and persons regardless of this value.
-        mcp_version: 1
     usage-metrics-update:
         operation: groups_types_metrics_update
         enabled: false

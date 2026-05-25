@@ -46,12 +46,12 @@ export class InstructionsBuilder {
             guidelines: this.guidelines,
             tools: state.allTools.map((t) => ({
                 name: t.name,
-                category: getToolDefinition(t.name, state.version).category,
+                category: getToolDefinition(t.name).category,
             })),
             queryTools: state.allTools
                 .filter((t) => t.name.startsWith('query-'))
                 .map((t) => {
-                    const def = getToolDefinition(t.name, state.version)
+                    const def = getToolDefinition(t.name)
                     return {
                         name: t.name,
                         title: def.title,
