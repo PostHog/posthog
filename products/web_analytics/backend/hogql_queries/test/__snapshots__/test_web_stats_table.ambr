@@ -392,6 +392,7 @@
   '''
 # ---
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 <<<<<<< HEAD:products/web_analytics/backend/hogql_queries/test/__snapshots__/test_web_stats_table.ambr
 =======
@@ -486,6 +487,8 @@
   '''
 # ---
 >>>>>>> c6d3195444c (fix: dedupe duplicate user=self.user kwargs after rebase)
+=======
+>>>>>>> f668f901fd3 (test(backend): update query snapshots)
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_page_one_user
   '''
   
@@ -587,6 +590,7 @@
                     use_hive_partitioning=0
   '''
 # ---
+<<<<<<< HEAD
 <<<<<<< HEAD:products/web_analytics/backend/hogql_queries/test/__snapshots__/test_web_stats_table.ambr
 >>>>>>> 3ef8b7fba03 (test(backend): update query snapshots):posthog/hogql_queries/web_analytics/test/__snapshots__/test_web_stats_table.ambr
 # name: TestWebStatsTableQueryRunner.test_avg_time_on_page_one_user
@@ -738,6 +742,8 @@
 >>>>>>> c6d3195444c (fix: dedupe duplicate user=self.user kwargs after rebase)
   '''
 # ---
+=======
+>>>>>>> f668f901fd3 (test(backend): update query snapshots)
 # name: TestWebStatsTableQueryRunner.test_bounce_rate
   '''
   
@@ -829,9 +835,12 @@
 # ---
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_one_user
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 =======
 # name: TestWebStatsTableQueryRunner.test_bounce_rate.2
+=======
+>>>>>>> f668f901fd3 (test(backend): update query snapshots)
   '''
   
   SELECT timestamp
@@ -842,6 +851,7 @@
   limit 1
   '''
 # ---
+<<<<<<< HEAD
 <<<<<<< HEAD:products/web_analytics/backend/hogql_queries/test/__snapshots__/test_web_stats_table.ambr
 <<<<<<< HEAD:products/web_analytics/backend/hogql_queries/test/__snapshots__/test_web_stats_table.ambr
 <<<<<<< HEAD:products/web_analytics/backend/hogql_queries/test/__snapshots__/test_web_stats_table.ambr
@@ -893,6 +903,8 @@
   limit 1
   '''
 # ---
+=======
+>>>>>>> f668f901fd3 (test(backend): update query snapshots)
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_one_user.1
   '''
   SELECT counts.breakdown_value AS `context.columns.breakdown_value`,
@@ -971,6 +983,7 @@
                     use_hive_partitioning=0
   '''
 # ---
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 =======
@@ -1118,6 +1131,8 @@
 # ---
 >>>>>>> 3ef8b7fba03 (test(backend): update query snapshots):posthog/hogql_queries/web_analytics/test/__snapshots__/test_web_stats_table.ambr
 >>>>>>> 78484f949b3 (test(backend): update query snapshots)
+=======
+>>>>>>> f668f901fd3 (test(backend): update query snapshots)
 # name: TestWebStatsTableQueryRunner.test_bounce_rate_path_cleaning
   '''
   

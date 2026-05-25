@@ -2051,6 +2051,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -2469,6 +2472,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -2908,6 +2914,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -3372,6 +3381,9 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
          "posthog_organization"."members_can_use_personal_api_keys",
@@ -3520,8 +3532,12 @@
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
          "posthog_taggeditem"."ticket_id",
+<<<<<<< HEAD:products/feature_flags/backend/api/test/__snapshots__/test_organization_feature_flag.ambr
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id"
+=======
+         "posthog_taggeditem"."account_id"
+>>>>>>> f668f901fd3 (test(backend): update query snapshots):posthog/api/test/__snapshots__/test_organization_feature_flag.ambr
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
@@ -3538,8 +3554,12 @@
          "posthog_taggeditem"."feature_flag_id",
          "posthog_taggeditem"."experiment_saved_metric_id",
          "posthog_taggeditem"."ticket_id",
+<<<<<<< HEAD:products/feature_flags/backend/api/test/__snapshots__/test_organization_feature_flag.ambr
          "posthog_taggeditem"."account_id",
          "posthog_taggeditem"."endpoint_id"
+=======
+         "posthog_taggeditem"."account_id"
+>>>>>>> f668f901fd3 (test(backend): update query snapshots):posthog/api/test/__snapshots__/test_organization_feature_flag.ambr
   FROM "posthog_taggeditem"
   WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
