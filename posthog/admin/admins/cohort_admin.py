@@ -1,3 +1,4 @@
+from django import forms
 from django.contrib import admin, messages
 from django.urls import reverse
 from django.utils.html import format_html
@@ -5,8 +6,23 @@ from django.utils.html import format_html
 from posthog.models import Cohort
 
 
+class CohortAdminForm(forms.ModelForm):
+    # `Cohort.groups` is deprecated and defaults to `[]`, but Django's JSONField form treats
+    # empty containers as missing input, which makes the admin reject `[]` as required.
+    # Allow the field to be left blank and normalize empties back to `[]`.
+    groups = forms.JSONField(required=False, initial=list, widget=forms.Textarea(attrs={"rows": 4, "cols": 40}))
+
+    class Meta:
+        model = Cohort
+        fields = "__all__"
+
+    def clean_groups(self) -> list:
+        return self.cleaned_data.get("groups") or []
+
+
 @admin.register(Cohort)
 class CohortAdmin(admin.ModelAdmin):
+    form = CohortAdminForm
     list_display = (
         "id",
         "name",
