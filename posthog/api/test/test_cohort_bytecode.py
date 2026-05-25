@@ -1,8 +1,8 @@
 from typing import Any
 
-from parameterized import parameterized
-
 from posthog.test.base import APIBaseTest
+
+from parameterized import parameterized
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
@@ -634,7 +634,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         # (None == None is True in HogVM), inflating cohort membership. The bytecode must
         # emit a boolean constant (TRUE=29 or FALSE=30), never NULL (31).
         from posthog.api.cohort import generate_cohort_filter_bytecode
-        from posthog.models.property_definition import PropertyDefinition
+        from posthog.models import PropertyDefinition
 
         from common.hogvm.python.operation import Operation
 
