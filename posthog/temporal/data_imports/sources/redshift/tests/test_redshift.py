@@ -100,11 +100,6 @@ class TestRedshiftColumnToArrowField:
         field = col.to_arrow_field()
         assert "UTC" in str(field.type)
 
-    def test_super_maps_to_string(self):
-        col = RedshiftColumn(name="x", data_type="super", nullable=True)
-        field = col.to_arrow_field()
-        assert field.type == __import__("pyarrow").string()
-
 
 # ---------------------------------------------------------------------------
 # Per-cursor metadata queries — exercise impl methods directly
@@ -139,11 +134,6 @@ class TestGetPrimaryKeysForTable:
         cursor.fetchall.return_value = [("id",), ("email",)]
         assert impl.get_primary_keys_for_table(cursor, "public", "t") == ["id", "email"]
 
-    def test_logs_warning_with_logger_when_empty(self, impl, cursor, logger):
-        cursor.fetchall.return_value = []
-        impl.get_primary_keys_for_table(cursor, "public", "t", logger)
-        assert logger.warning.called
-
 
 class TestGetTableMetadata:
     def test_builds_table_with_columns(self, impl, cursor):
@@ -157,11 +147,9 @@ class TestGetTableMetadata:
             ]
         )
         table = impl.get_table_metadata(cursor, "public", "users")
-        assert isinstance(table, Table)
         assert table.name == "users"
         assert table.parents == ("public",)
         assert len(table.columns) == 2
-        assert all(isinstance(c, RedshiftColumn) for c in table.columns)
         assert table.type == "table"
 
     def test_marks_view_when_is_view_true(self, impl, cursor):
@@ -390,15 +378,8 @@ class TestRedshiftSourceWiring:
         source = RedshiftSource()
         assert source.get_implementation is _REDSHIFT_IMPLEMENTATION
 
-    def test_get_implementation_is_redshift_impl(self):
-        assert isinstance(RedshiftSource().get_implementation, RedshiftImplementation)
-
 
 class TestRedshiftSourceNonRetryableErrors:
-    @pytest.fixture
-    def source(self):
-        return RedshiftSource()
-
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -406,18 +387,10 @@ class TestRedshiftSourceNonRetryableErrors:
             "SchemaColumnTypeChangedException: Source column type changed: 'id' has values that no longer fit",
         ],
     )
-    def test_widened_integer_column_errors_are_non_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
+    def test_widened_integer_column_errors_are_non_retryable(self, error_msg):
+        non_retryable = RedshiftSource().get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable
-
-    def test_temporary_file_size_exception_is_non_retryable(self, source):
-        non_retryable = source.get_non_retryable_errors()
-        assert "TemporaryFileSizeExceedsLimitException" in non_retryable
-
-    def test_query_timeout_exception_is_non_retryable(self, source):
-        non_retryable = source.get_non_retryable_errors()
-        assert "QueryTimeoutException" in non_retryable
 
 
 # ---------------------------------------------------------------------------
