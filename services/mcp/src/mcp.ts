@@ -284,17 +284,30 @@ export class MCP extends McpAgent<Env> {
      * same `setName` RPC accounting in Cloudflare's trace events — so if a
      * `mcp_init_timeline` log reaches the pipeline but a `setName` OOM
      * follows, the cause is in this window, not in `init()`.
+     *
+     * To narrow down WHICH post-init() step OOMs, we monkey-patch the three
+     * methods super.onStart calls (`initTransport`, `reinitializeServer`,
+     * `server.connect`) so each emits a begin/end log around its body. The
+     * framework's onStart implementation is not exposed for sub-class hooks,
+     * and reimplementing it here would drift from upstream — patching at
+     * the method boundary is the least-invasive way to get the data.
      */
     async onStart(props: unknown): Promise<void> {
         const startedAt = performance.now()
-        try {
-            await super.onStart(props as RequestProperties)
+        const phase = (label: string): void => {
             console.info(
                 JSON.stringify({
-                    event: 'mcp_onstart_complete',
-                    afterSuperMs: Math.round(performance.now() - startedAt),
+                    event: 'mcp_onstart_phase',
+                    label,
+                    elapsedMs: Math.round(performance.now() - startedAt),
                 })
             )
+        }
+        this._patchOnStartObservers(phase)
+        phase('begin')
+        try {
+            await super.onStart(props as RequestProperties)
+            phase('super_returned')
         } catch (error) {
             console.info(
                 JSON.stringify({
@@ -305,6 +318,56 @@ export class MCP extends McpAgent<Env> {
                 })
             )
             throw error
+        }
+    }
+
+    private _onstartObserversPatched = false
+
+    private _patchOnStartObservers(phase: (label: string) => void): void {
+        if (this._onstartObserversPatched) {
+            return
+        }
+        this._onstartObserversPatched = true
+
+        const wrap = (target: Record<string, unknown>, key: string, label: string): void => {
+            const orig = target[key]
+            if (typeof orig !== 'function') {
+                return
+            }
+            const bound = (orig as (...args: unknown[]) => unknown).bind(target)
+            target[key] = (...args: unknown[]): unknown => {
+                phase(`${label}_begin`)
+                let result: unknown
+                try {
+                    result = bound(...args)
+                } catch (err) {
+                    phase(`${label}_throw`)
+                    throw err
+                }
+                if (result instanceof Promise) {
+                    return result.then(
+                        (value) => {
+                            phase(`${label}_end`)
+                            return value
+                        },
+                        (err) => {
+                            phase(`${label}_reject`)
+                            throw err
+                        }
+                    )
+                }
+                phase(`${label}_end`)
+                return result
+            }
+        }
+
+        const selfRec = this as unknown as Record<string, unknown>
+        wrap(selfRec, 'initTransport', 'inittransport')
+        wrap(selfRec, 'reinitializeServer', 'reinit')
+
+        const serverRec = this.server as unknown as Record<string, unknown> | undefined
+        if (serverRec && typeof serverRec.connect === 'function') {
+            wrap(serverRec, 'connect', 'connect')
         }
     }
 
