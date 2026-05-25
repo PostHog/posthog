@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -9,9 +11,15 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 from ee.hogai.eval.sandboxed.error_tracking.seeders import _EVAL_DISTINCT_IDS, seed_error_tracking_issues
+
+
+@dataclass(frozen=True)
+class _EvalSeedContext:
+    team_id: int
+    user_id: int
+    repository: str
 
 
 class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
@@ -35,7 +43,7 @@ class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
         self.team.save(update_fields=["test_account_filters"])
 
         seed = seed_error_tracking_issues(
-            CustomPromptSandboxContext(team_id=self.team.id, user_id=self.user.id, repository="posthog/hedgebox")
+            _EvalSeedContext(team_id=self.team.id, user_id=self.user.id, repository="posthog/hedgebox")
         )
         target_id = next(item["id"] for item in seed["lookup_issues"] if item["name"] == "Team invite rejected")
 
