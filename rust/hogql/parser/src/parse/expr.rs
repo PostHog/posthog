@@ -4858,8 +4858,9 @@ impl<'a> Parser<'a> {
                             None => self.wrap_pos(between_inner, lhs_start),
                         }
                     };
-                    for hoist in hoisted {
+                    for (hoist, hoist_end) in hoisted {
                         between = apply_between_hoist(between, hoist);
+                        between = self.stamp_hoist_pos(between, lhs_start, hoist_end);
                     }
                     *lhs = between;
                     Ok(Some(true))
@@ -4924,8 +4925,9 @@ impl<'a> Parser<'a> {
                         None => self.wrap_pos(between_inner, lhs_start),
                     }
                 };
-                for hoist in hoisted {
+                for (hoist, hoist_end) in hoisted {
                     between = apply_between_hoist(between, hoist);
+                    between = self.stamp_hoist_pos(between, lhs_start, hoist_end);
                 }
                 *lhs = between;
                 Ok(Some(true))
@@ -5130,6 +5132,19 @@ impl<'a> Parser<'a> {
     ///
     /// Both alts share the same post-parse split + literal-AND
     /// fallback; the difference is just the starting BP.
+    /// Stamp a hoisted BETWEEN wrapper's span. Every wrapper starts at the
+    /// BETWEEN's leftmost operand (`start`); the `end` is the wrapper's own last
+    /// token, captured during the split. `apply_between_hoist` builds a
+    /// position-less node, so `with_pos` fills it; the OUTERMOST wrapper's span
+    /// matches the outer pratt `wrap_pos` (idempotent). Falls back to
+    /// `wrap_pos` when the end wasn't captured.
+    fn stamp_hoist_pos(&self, node: Value, start: usize, end: Option<Value>) -> Value {
+        match end {
+            Some(e) => emit::with_pos(node, self.pos_obj(start), e),
+            None => self.wrap_pos(node, start),
+        }
+    }
+
     fn parse_between_body(&mut self, outer_min_bp: u8) -> Result<BetweenSplit, ParseError> {
         // Depth-aware arm ordering:
         //   - OUTERMOST call (depth=0): WIDE first. The body greedy
@@ -5192,7 +5207,7 @@ impl<'a> Parser<'a> {
         outer_min_bp: u8,
     ) -> Result<BetweenSplit, ParseError> {
         let (low, high, hoisted) = Self::parse_between_body_arm(self, start_bp)?;
-        if hoisted.iter().any(|h| hoist_min_bp(h) <= outer_min_bp) {
+        if hoisted.iter().any(|(h, _)| hoist_min_bp(h) <= outer_min_bp) {
             return Err(
                 self.err("WIDE body hoist conflicts with outer precedence; falling through")
             );
@@ -5545,10 +5560,18 @@ pub(crate) enum BetweenHoist {
     },
 }
 
+/// A hoisted BETWEEN wrapper paired with the `end` position of the
+/// original node it was lifted from. The `end` lets the apply loop stamp
+/// `[lhs_start, end]` on each wrapper so the INNER ones (which the outer
+/// pratt `wrap_pos` never reaches once a further wrapper sits outside
+/// them) carry cpp's span — e.g. `1 between 2 and 3 as l :: Int` needs the
+/// Alias at `[0, end-of-`l`]` and the TypeCast at `[0, end-of-`Int`]`.
+type HoistWithEnd = (BetweenHoist, Option<Value>);
+
 /// Result of finding the BETWEEN separator AND inside a greedy body
 /// parse. `hoisted` wrappers are applied around the BetweenExpr by
 /// the caller of `parse_between_body`, innermost first.
-type BetweenSplit = (Value, Value, Vec<BetweenHoist>);
+type BetweenSplit = (Value, Value, Vec<HoistWithEnd>);
 
 /// The lowest binding power at which this hoist's outer wrapper can
 /// fire. Used by `parse_between_body_arm_wide` to detect when an
@@ -5815,6 +5838,11 @@ fn stamp_span_from_children(parser: &Parser<'_>, mut node: Value, children: &[Va
 /// - Anything else has no AND in it; return None.
 fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSplit> {
     let node_name = node.get("node").and_then(Value::as_str);
+    // `node`'s `end` is the end of the wrapper this frame hoists (Alias, cast,
+    // postfix, …). Captured once so each `hoisted.push` can record it for the
+    // apply loop to stamp the wrapper's `[lhs_start, end]` span — needed for
+    // INNER wrappers the outer pratt `wrap_pos` never reaches.
+    let node_end = node.get("end").cloned();
     if node_name == Some("And") {
         let exprs = node.get("exprs").and_then(Value::as_array).cloned()?;
         if exprs.len() < 2 {
@@ -5895,10 +5923,13 @@ fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSp
                 let left_siblings: Vec<Value> = exprs[..i].to_vec();
                 let right_siblings: Vec<Value> = exprs[i + 1..].to_vec();
                 if !left_siblings.is_empty() || !right_siblings.is_empty() {
-                    hoisted.push(BetweenHoist::Or {
-                        left_siblings,
-                        right_siblings,
-                    });
+                    hoisted.push((
+                        BetweenHoist::Or {
+                            left_siblings,
+                            right_siblings,
+                        },
+                        node_end,
+                    ));
                 }
                 return Some((left_in, right_in, hoisted));
             }
@@ -5983,7 +6014,7 @@ fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSp
                     .unwrap_or("")
                     .to_string();
                 let right = node.get("right").cloned().unwrap_or(Value::Null);
-                hoisted.push(BetweenHoist::ArithmeticOperation { op, right });
+                hoisted.push((BetweenHoist::ArithmeticOperation { op, right }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -6023,10 +6054,13 @@ fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSp
                 if let Some((left_in, right_in, mut hoisted)) =
                     split_at_rightmost_and(parser, &args[0])
                 {
-                    hoisted.push(BetweenHoist::Ternary {
-                        then_branch: args[1].clone(),
-                        else_branch: args[2].clone(),
-                    });
+                    hoisted.push((
+                        BetweenHoist::Ternary {
+                            then_branch: args[1].clone(),
+                            else_branch: args[2].clone(),
+                        },
+                        node_end,
+                    ));
                     return Some((left_in, right_in, hoisted));
                 }
             }
@@ -6044,7 +6078,7 @@ fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSp
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                hoisted.push(BetweenHoist::Alias(name));
+                hoisted.push((BetweenHoist::Alias(name), node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -6067,7 +6101,7 @@ fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSp
                     .get("negated")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                hoisted.push(BetweenHoist::IsDistinctFrom { right, negated });
+                hoisted.push((BetweenHoist::IsDistinctFrom { right, negated }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -6082,7 +6116,7 @@ fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSp
             if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, inner) {
                 // `op` is "==" for IS NULL, "!=" for IS NOT NULL.
                 let negated = node.get("op").and_then(Value::as_str) == Some("!=");
-                hoisted.push(BetweenHoist::IsNull { negated });
+                hoisted.push((BetweenHoist::IsNull { negated }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -6099,7 +6133,7 @@ fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSp
                     .get("nullish")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                hoisted.push(BetweenHoist::ArrayAccess { property, nullish });
+                hoisted.push((BetweenHoist::ArrayAccess { property, nullish }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -6119,7 +6153,7 @@ fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSp
                     .and_then(Value::as_array)
                     .cloned()
                     .unwrap_or_default();
-                hoisted.push(BetweenHoist::ExprCall { args });
+                hoisted.push((BetweenHoist::ExprCall { args }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -6130,7 +6164,7 @@ fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSp
         if let Some(inner) = node.get("expr") {
             if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, inner) {
                 let type_name = node.get("type_name").cloned().unwrap_or(Value::Null);
-                hoisted.push(BetweenHoist::TypeCast { type_name });
+                hoisted.push((BetweenHoist::TypeCast { type_name }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -6147,7 +6181,7 @@ fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSp
                     .get("nullish")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                hoisted.push(BetweenHoist::TupleAccess { index, nullish });
+                hoisted.push((BetweenHoist::TupleAccess { index, nullish }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }
@@ -6199,7 +6233,7 @@ fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSp
                     .get("negated")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                hoisted.push(BetweenHoist::Between { low, high, negated });
+                hoisted.push((BetweenHoist::Between { low, high, negated }, node_end));
                 return Some((left_in, right_in, hoisted));
             }
         }

@@ -246,6 +246,33 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             )
 
     @no_memory_leak_check
+    def test_between_hoist_inner_wrapper_spans(self):
+        # When 2+ wrappers stack outside a BETWEEN (`1 between 2 and 3 as l :: Int`),
+        # the hoist-apply loop built each position-less and only the OUTERMOST got
+        # the outer pratt `wrap_pos` — the inner wrappers (here the Alias) stayed
+        # position-less. cpp spans each at `[lhs_start, end-of-its-own-token]`.
+        # The split now records each hoist's end and the apply loop stamps it.
+        for query in (
+            "1 between 2 and 3 as l :: Int",
+            "1 between 2 and 3 as l :: Int :: Float",
+            "1 between 2 and 3 as l [ 1 ]",
+            "1 between 2 and 3 as l . 1",
+            "1 between 2 and 3 as l ( x )",
+            "1 between 2 and 3 as l is null",
+            "1 between 2 and 3 as l or w",
+            "1 between 2 and 3 as l ? x : y",
+            "1 between 2 and 3 as l + 5",
+            "1 between 2 and 3 as l is distinct from w",
+            "1 between 2 and 3 as l",
+            "1 between 2 and 3 :: Int",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    @no_memory_leak_check
     def test_arrow_lambda_block_body_span_with_trailing_postfix(self):
         # An arrow lambda with a Hog BLOCK body (`x -> { … }`) ends at `}`, so a
         # trailing postfix (`. 1`, `[1]`, `:: Int`) cannot fold into the body and
