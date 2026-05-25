@@ -185,9 +185,15 @@ impl<'a> Parser<'a> {
             // not tuple-access on `return`. Only a `.`-chain-link (`return.x`)
             // makes `return` an identifier, so keep `return .<number>` in the
             // returnStmt path.
+            //
+            // Exception: `return ()` — empty parens are not a valid return value,
+            // so cpp re-reads `return` as a Field and `()` as an empty call:
+            // `Call(return, [])`. `return (expr)` keeps the returnStmt. Route the
+            // empty-call case to the exprStmt arm below.
             TokenKind::Keyword(Kw::Return)
-                if !is_pure_infix_op(self.peek_next())
-                    || (self.peek_next() == TokenKind::Dot && !self.dot_next_is_chain_link()) =>
+                if (!is_pure_infix_op(self.peek_next())
+                    || (self.peek_next() == TokenKind::Dot && !self.dot_next_is_chain_link()))
+                    && !self.return_followed_by_empty_call() =>
             {
                 self.parse_return_stmt()
             }
@@ -759,6 +765,17 @@ impl<'a> Parser<'a> {
             }
             _ => false,
         }
+    }
+
+    /// True when `return` is immediately followed by an empty `()` (the call
+    /// `return()`), distinguishing it from `return (expr)` (a return value).
+    /// `peek_next` is the `(`; probe one token past it for the closing `)`.
+    fn return_followed_by_empty_call(&self) -> bool {
+        if self.peek_next() != TokenKind::LParen {
+            return false;
+        }
+        let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+        matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::RParen))
     }
 
     pub(crate) fn parse_block(&mut self) -> Result<Value, ParseError> {

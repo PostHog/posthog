@@ -1102,16 +1102,25 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 msg=query,
             )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="cpp re-reads `return ()` as Call(return, []) when the empty-parens return value is invalid; rust commits to the return statement and rejects the empty parens",
-    )
     @no_memory_leak_check
-    def test_xfail_return_empty_parens_is_a_call(self):
-        self.assertEqual(
-            parse_program("return ()", backend="cpp-json"),
-            parse_program("return ()", backend="rust-json"),
-        )
+    def test_return_empty_parens_is_a_call(self):
+        # `return ()` — empty parens are not a valid return value, so cpp re-reads
+        # `return` as a Field and `()` as an empty call: `Call(return, [])`. rust
+        # used to commit to the return statement and reject the empty parens. A
+        # `return (expr)` (incl. empty `[]` / `{}` which ARE valid values) keeps
+        # the returnStmt.
+        for query in ("return ()", "return ( )", "return () + 1", "x := return ()", "return () ()"):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )
+        for query in ("return (1)", "return (1, 2)", "return []", "return {}", "return"):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )
 
     @pytest.mark.xfail(
         strict=True, reason="cpp accepts a string / empty EXCLUDE list in some contexts; rust requires identifiers"
