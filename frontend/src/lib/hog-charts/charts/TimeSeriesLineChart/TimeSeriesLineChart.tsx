@@ -1,32 +1,53 @@
 import React, { useMemo } from 'react'
 
-import type { ChartTheme, LineChartConfig, PointClickData, Series, TooltipContext } from '../../core/types'
+import type {
+    ChartTheme,
+    LineChartConfig,
+    PointClickData,
+    Series,
+    TooltipConfig,
+    TooltipContext,
+} from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
+import { buildGoalLineReferenceLines, type GoalLineConfig } from '../../utils/goal-lines'
+import {
+    useXTickFormatter,
+    useYTickFormatter,
+    type XAxisConfig,
+    type YAxisConfig,
+} from '../../utils/use-axis-formatters'
 import { LineChart } from '../LineChart'
-import { AnomalyPointsLayer, type AnomalyMarker } from './overlays/AnomalyPointsLayer'
-import { buildGoalLineReferenceLines, type GoalLineConfig } from './utils/goal-lines'
-import { applyInProgressToSeries, type InProgressConfig } from './utils/in-progress'
-import { useXTickFormatter, useYTickFormatter, type XAxisConfig, type YAxisConfig } from './utils/use-axis-formatters'
-import { useDerivedSeries, type ConfidenceIntervalConfig, type MovingAverageConfig } from './utils/use-derived-series'
+import {
+    resolveValueLabelsConfig,
+    useSeriesWithValueLabelAllowlist,
+    type ValueLabelsConfig,
+} from '../utils/use-value-labels'
+import {
+    useDerivedSeries,
+    type ConfidenceIntervalConfig,
+    type MovingAverageConfig,
+    type TrendLineConfig,
+} from './utils/use-derived-series'
 
-export interface ValueLabelsConfig {
-    seriesKeys?: string[]
-    formatter?: (value: number) => string
-}
-
-export type { ConfidenceIntervalConfig, MovingAverageConfig }
+export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 
 export interface TimeSeriesLineChartConfig {
     xAxis?: XAxisConfig
     yAxis?: YAxisConfig
-    inProgress?: InProgressConfig
     valueLabels?: boolean | ValueLabelsConfig
     goalLines?: GoalLineConfig[]
     confidenceIntervals?: ConfidenceIntervalConfig[]
     movingAverage?: MovingAverageConfig[]
-    /** Anomaly markers rendered as filled circles on top of the chart. */
-    anomalies?: AnomalyMarker[]
+    trendLines?: TrendLineConfig[]
+    /** Comparison series keys mapped to their primary. Comparison series render dimmed. */
+    comparisonOf?: Record<string, string>
+    /** Render area-fill series as a 100% stacked view; y-axis becomes 0–100%. */
+    percentStackView?: boolean
+    /** Show a vertical crosshair line that follows the cursor. */
+    showCrosshair?: boolean
+    /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
+    tooltip?: TooltipConfig
 }
 
 export interface TimeSeriesLineChartProps<Meta = unknown> {
@@ -39,16 +60,7 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     dataAttr?: string
     className?: string
     children?: React.ReactNode
-}
-
-function resolveValueLabelsConfig(valueLabels: TimeSeriesLineChartConfig['valueLabels']): ValueLabelsConfig | null {
-    if (valueLabels === undefined || valueLabels === false) {
-        return null
-    }
-    if (valueLabels === true) {
-        return {}
-    }
-    return valueLabels
+    onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
 export function TimeSeriesLineChart<Meta = unknown>({
@@ -61,40 +73,32 @@ export function TimeSeriesLineChart<Meta = unknown>({
     dataAttr,
     className,
     children,
+    onError,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
-    const { xAxis, yAxis, inProgress, valueLabels, goalLines, confidenceIntervals, movingAverage, anomalies } =
-        config ?? {}
+    const {
+        xAxis,
+        yAxis,
+        valueLabels,
+        goalLines,
+        confidenceIntervals,
+        movingAverage,
+        trendLines,
+        comparisonOf,
+        percentStackView,
+        showCrosshair,
+        tooltip: tooltipConfig,
+    } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
 
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
-
-    const seriesWithInProgress = useMemo(
-        () => applyInProgressToSeries(series, inProgress),
-        // inProgress.fromIndex is the only field applyInProgressToSeries reads; depending
-        // on `inProgress` itself would invalidate on every inline-config render.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [series, inProgress?.fromIndex]
-    )
-
-    // Stable primitive key so callers can pass `valueLabels: { seriesKeys: ['a'] }` inline
-    // without re-running the transform on every render.
-    const seriesKeysSignature = valueLabelsConfig?.seriesKeys?.join(' ')
-    const seriesAfterValueLabels = useMemo(() => {
-        const seriesKeys = valueLabelsConfig?.seriesKeys
-        if (!seriesKeys) {
-            return seriesWithInProgress
-        }
-        const allowed = new Set(seriesKeys)
-        return seriesWithInProgress.map((s) =>
-            allowed.has(s.key) ? s : { ...s, visibility: { ...s.visibility, fromValueLabels: true } }
-        )
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [seriesWithInProgress, seriesKeysSignature])
+    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(series, valueLabelsConfig?.seriesKeys)
 
     const finalSeries = useDerivedSeries(seriesAfterValueLabels, {
         confidenceIntervals,
         movingAverage,
+        trendLines,
+        comparisonOf,
     })
 
     const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
@@ -108,6 +112,9 @@ export function TimeSeriesLineChart<Meta = unknown>({
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxis?.hide,
         showGrid: yAxis?.showGrid,
+        percentStackView,
+        showCrosshair,
+        tooltip: tooltipConfig,
     }
 
     return (
@@ -120,10 +127,10 @@ export function TimeSeriesLineChart<Meta = unknown>({
             onPointClick={onPointClick}
             className={className}
             dataAttr={dataAttr}
+            onError={onError}
         >
             {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
             {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
-            {anomalies && anomalies.length > 0 && <AnomalyPointsLayer markers={anomalies} />}
             {children}
         </LineChart>
     )

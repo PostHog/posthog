@@ -44,7 +44,7 @@ jobs:
         timeout-minutes: 5
         name: Validate dagster path filter coverage
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
             - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
@@ -63,11 +63,17 @@ jobs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             matrix_include: ${{ steps.build-matrix.outputs.include || '[]' }}
+            schema_cache_key: ${{ steps.schema-key.outputs.key }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
-            # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v6
+            # also want this to run on master so we need to checkout.
+            # fetch-depth=1000 + blob:none mirrors ci-backend's turbo-discover so
+            # HEAD^2 (PR branch tip) is reachable for the merge-base step below
+            # without the cost of fetching blobs.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  fetch-depth: 1000
+                  filter: blob:none
                   clean: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -114,7 +120,8 @@ jobs:
                         - 'ee/billing/**'
                         - 'ee/clickhouse/**'
                         - 'ee/hogai/**'
-                        # --- Only the 8 products that DAGs actually import from ---
+                        # --- Only the products that DAGs actually import from ---
+                        - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
@@ -180,6 +187,30 @@ jobs:
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Dagster matrix: $shards shards"
 
+            - name: Fetch base branch for merge-base computation
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              # Scoped, blob-less, no-tags — matches ci-backend's pattern.
+              # Without an explicit refspec, `git fetch --deepen` would fall back
+              # to remote.origin.fetch and pull every branch.
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache key from merge-base
+              id: schema-key
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ -n "$MERGE_BASE" ]; then
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  else
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                  fi
+
     dagster:
         name: Dagster tests (${{ matrix.group }}/${{ matrix.concurrency }})
         needs: [changes]
@@ -192,7 +223,7 @@ jobs:
         runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
                   clean: false
@@ -206,6 +237,11 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
+                  # Retry transient image-pull failures (TLS handshake timeouts,
+                  # registry-1.docker.io / docker.redpanda.com flakes) so a single
+                  # blip doesn't sink the whole shard. Matches ci-backend/ci-nodejs/ci-rust.
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   bin/ci-wait-for-docker launch --down
 
@@ -241,7 +277,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: stable
                   components: cargo
@@ -271,13 +307,12 @@ jobs:
                       psql -U posthog -c "CREATE DATABASE test_dagster;"
 
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' }}
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != '' }}
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
                   path: schema.sql.gz
-                  key: posthog-schema-master-${{ github.sha }}
-                  restore-keys: posthog-schema-master-
+                  key: ${{ needs.changes.outputs.schema_cache_key }}
 
             - name: Prime test_posthog and posthog from cached schema (PR)
               # Primes both test_posthog (used by pytest --reuse-db) and the prod-style
@@ -293,7 +328,7 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  ./bin/hogli db:restore-schema-fresh
                   gunzip -c .postgres-backups/schema-latest.sql.gz | \
                     docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
 

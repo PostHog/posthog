@@ -19,13 +19,16 @@ from temporalio.common import (
     WorkflowIDReusePolicy,
 )
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.schema import ReplayInactivityPeriod
 
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
+from posthog.session_recordings.ai_summary_cap import atomic_check_and_consume, refund
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -344,6 +347,7 @@ async def ensure_llm_single_session_summary(
         model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=inputs.extra_summary_context,
         product_context=inputs.product_context,
+        custom_tags=inputs.custom_tags,
     )
 
     _set_phase(progress, "preparing_video")
@@ -396,7 +400,7 @@ async def ensure_llm_single_session_summary(
         inactivity_periods=inactivity_periods,
     )
 
-    # Slice runs inside the guard so a failure still triggers Gemini file cleanup.
+    cleanup_done = False  # falls through to the `finally` if a3/a4 fails before early cleanup
     try:
         await temporalio.workflow.execute_activity(
             slice_session_data_for_segments_activity,
@@ -426,6 +430,15 @@ async def ensure_llm_single_session_summary(
         segment_tasks = [_analyze_segment_with_semaphore(segment_spec) for segment_spec in segment_specs]
         segment_results = await asyncio.gather(*segment_tasks, return_exceptions=True)
 
+        # Release before consolidation — Gemini's 20 GB cap limits in-flight summaries.
+        await temporalio.workflow.execute_activity(
+            cleanup_gemini_file_activity,
+            args=(uploaded_video.gemini_file_name, inputs.session_id),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+        cleanup_done = True
+
         raw_segments: list[VideoSegmentOutput] = []
         for result in segment_results:
             if isinstance(result, Exception):
@@ -454,17 +467,6 @@ async def ensure_llm_single_session_summary(
         # Storage is the canonical record (fatal on failure); embed/emit/tag are best-effort.
         _set_phase(progress, "saving_summary")
         problems = collect_session_problems(consolidated_analysis.segments)
-        logger.info(
-            "session problem signals pre-emission",
-            team_id=inputs.team_id,
-            session_id=inputs.session_id,
-            workflow_id=trace_id,
-            total_consolidated_segments=len(consolidated_analysis.segments),
-            problem_segment_count=len(problems),
-            problems=[p.model_dump(include={"problem_type", "start_time", "end_time"}) for p in problems[:30]],
-            will_run_emit_activity=bool(problems),
-            signals_type="session-summaries",
-        )
 
         embed_coro = temporalio.workflow.execute_activity(
             embed_and_store_segments_activity,
@@ -523,13 +525,15 @@ async def ensure_llm_single_session_summary(
         if isinstance(store_result, BaseException):
             raise store_result
     finally:
-        _set_phase(progress, "cleanup")
-        await temporalio.workflow.execute_activity(
-            cleanup_gemini_file_activity,
-            args=(uploaded_video.gemini_file_name, inputs.session_id),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=2),
-        )
+        if not cleanup_done:
+            # Sweep reaps within ~5min if this also fails.
+            _set_phase(progress, "cleanup")
+            await temporalio.workflow.execute_activity(
+                cleanup_gemini_file_activity,
+                args=(uploaded_video.gemini_file_name, inputs.session_id),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
 
 
 async def _start_video_summary_workflow(
@@ -616,6 +620,28 @@ async def _check_handle_data(
     return desc.status, final_result
 
 
+async def _workflow_is_running(client: Any, workflow_id: str) -> bool:
+    """True iff a workflow with this id is currently RUNNING.
+
+    Discriminates fresh LLM runs from silent attaches: ``_start_video_summary_workflow``
+    uses ``USE_EXISTING``, so starting twice with the same id returns a handle
+    without raising.
+
+    Error handling is asymmetric on purpose:
+    - ``NOT_FOUND`` → ``False`` (fresh start path; caller must charge the cap).
+    - Any other ``RPCError`` is re-raised so a flaky Temporal blip surfaces as
+      ``session-summary-error`` rather than silently double-charging.
+    """
+    handle = client.get_workflow_handle(workflow_id)
+    try:
+        desc = await handle.describe()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return desc.status == WorkflowExecutionStatus.RUNNING
+
+
 def _prepare_execution(
     session_id: str,
     user: User,
@@ -623,6 +649,7 @@ def _prepare_execution(
     model_to_use: str,
     extra_summary_context: ExtraSummaryContext | None = None,
     product_context: str | None = None,
+    custom_tags: dict[str, str] | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
@@ -654,6 +681,7 @@ def _prepare_execution(
         team_id=team.id,
         extra_summary_context=extra_summary_context,
         product_context=product_context,
+        custom_tags=custom_tags,
         local_reads_prod=local_reads_prod,
         redis_key_base=redis_key_base,
         model_to_use=model_to_use,
@@ -671,6 +699,7 @@ async def execute_summarize_session(
     model_to_use: str | None = None,
     extra_summary_context: ExtraSummaryContext | None = None,
     product_context: str | None = None,
+    custom_tags: dict[str, str] | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
@@ -696,6 +725,7 @@ async def execute_summarize_session(
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         product_context=product_context,
+        custom_tags=custom_tags,
         local_reads_prod=local_reads_prod,
         video_based=video_based,
         trigger_session_id=trigger_session_id,
@@ -782,6 +812,7 @@ async def execute_summarize_session_video_stream(
     team: Team,
     extra_summary_context: ExtraSummaryContext | None = None,
     product_context: str | None = None,
+    custom_tags: dict[str, str] | None = None,
     local_reads_prod: bool = False,
     force_restart: bool = False,
 ) -> AsyncGenerator[str, None]:
@@ -818,17 +849,76 @@ async def execute_summarize_session_video_stream(
         model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=extra_summary_context,
         product_context=product_context,
+        custom_tags=custom_tags,
         local_reads_prod=local_reads_prod,
         video_based=True,
     )
 
     client = await async_connect()
+
+    # The cap only fires on a fresh LLM run. If `_start_video_summary_workflow`
+    # is about to attach via USE_EXISTING to someone else's in-flight run, skip
+    # the cap so we don't 402 a teammate reading already-paid-for work.
+    # `force_restart` always preempts via TERMINATE_EXISTING — counts as fresh.
+    will_start_fresh_run = force_restart or not await _workflow_is_running(client, workflow_id)
+
+    quota_reserved = False
+    if will_start_fresh_run:
+        # Reserve a slot atomically (INCR + revert if over cap). One round-trip
+        # closes the TOCTOU window where concurrent requests can all read the
+        # same `used` and then collectively overshoot. Redis failures fail open
+        # — a flaky counter must not break the summarize path.
+        try:
+            cap_decision = await database_sync_to_async(atomic_check_and_consume, thread_sensitive=False)(team.id)
+        except Exception as e:
+            logger.warning(
+                "video summary cap reservation failed (fail-open)",
+                team_id=team.id,
+                session_id=session_id,
+                error=str(e),
+                signals_type="session-summaries",
+            )
+            cap_decision = None
+
+        if cap_decision is not None and not cap_decision.allowed:
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id,
+                event="replay summary quota blocked",
+                properties={
+                    "team_id": team.id,
+                    "used": cap_decision.used,
+                    "cap": cap_decision.cap,
+                    "source": "dock",
+                },
+                groups=groups(None, team),
+            )
+            yield serialize_to_sse_event(
+                event_label="session-summary-error",
+                event_data=(
+                    "You've reached this team's monthly limit for AI session summaries "
+                    f"({cap_decision.used}/{cap_decision.cap}). Try again next month."
+                ),
+            )
+            return
+
+        quota_reserved = cap_decision is not None and cap_decision.allowed
+
     try:
         handle = await _start_video_summary_workflow(
             inputs=session_input, workflow_id=workflow_id, force_restart=force_restart
         )
     except WorkflowAlreadyStartedError:
+        # Race: someone else started the same workflow between our describe and
+        # start call. Attach to theirs and refund the slot we reserved.
         handle = client.get_workflow_handle(workflow_id)
+        if quota_reserved:
+            await database_sync_to_async(refund, thread_sensitive=False)(team.id, 1)
+            quota_reserved = False
+    except Exception:
+        # Any other start failure: never went to the LLM, give the slot back.
+        if quota_reserved:
+            await database_sync_to_async(refund, thread_sensitive=False)(team.id, 1)
+        raise
 
     logger.info(
         "video summary polling loop starting",

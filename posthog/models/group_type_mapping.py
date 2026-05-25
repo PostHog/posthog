@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -299,3 +300,155 @@ def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[
     except DatabaseError:
         logger.warning("persons_db_group_types_for_projects_failure", project_ids=project_ids, exc_info=True)
     return result
+
+
+def update_group_type_mapping_fields(
+    instance: GroupTypeMapping,
+    *,
+    fields: dict[str, Any],
+    operation: str = "group_type_update",
+) -> None:
+    """Update specific fields on a GroupTypeMapping via personhog, falling back to ORM.
+
+    `fields` maps model field names to values — e.g. {"name_singular": "Org", "name_plural": "Orgs"}.
+    For `detail_dashboard_id`, pass None to clear or an int to set.
+    For `default_columns`, pass a list[str] or None.
+    """
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import UpdateGroupTypeMappingRequest
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            update_mask: list[str] = list(fields.keys())
+            kwargs: dict[str, Any] = {
+                "project_id": instance.project_id,
+                "group_type_index": instance.group_type_index,
+                "update_mask": update_mask,
+            }
+            if "name_singular" in fields:
+                kwargs["name_singular"] = fields["name_singular"] or ""
+            if "name_plural" in fields:
+                kwargs["name_plural"] = fields["name_plural"] or ""
+            if "detail_dashboard_id" in fields:
+                if fields["detail_dashboard_id"] is not None:
+                    kwargs["detail_dashboard_id"] = fields["detail_dashboard_id"]
+            if "default_columns" in fields:
+                if fields["default_columns"] is not None:
+                    kwargs["default_columns"] = json.dumps(fields["default_columns"]).encode()
+
+            client.update_group_type_mapping(UpdateGroupTypeMappingRequest(**kwargs))
+            PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
+            return
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation=operation,
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning(
+                "personhog_update_group_type_mapping_failure",
+                project_id=instance.project_id,
+                group_type_index=instance.group_type_index,
+                exc_info=True,
+            )
+
+    PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="django_orm", client_name=get_client_name()).inc()
+    for field_name, value in fields.items():
+        setattr(instance, field_name, value)
+    instance.save()
+
+
+def delete_group_type_mapping(instance: GroupTypeMapping) -> None:
+    """Delete a GroupTypeMapping via personhog, falling back to ORM."""
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteGroupTypeMappingRequest
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            client.delete_group_type_mapping(
+                DeleteGroupTypeMappingRequest(
+                    project_id=instance.project_id,
+                    group_type_index=instance.group_type_index,
+                )
+            )
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="delete_group_type_mapping", source="personhog", client_name=get_client_name()
+            ).inc()
+            return
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="delete_group_type_mapping",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning(
+                "personhog_delete_group_type_mapping_failure",
+                project_id=instance.project_id,
+                group_type_index=instance.group_type_index,
+                exc_info=True,
+            )
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="delete_group_type_mapping", source="django_orm", client_name=get_client_name()
+    ).inc()
+    instance.delete()
+
+
+def clear_dashboard_from_group_type_mapping(team_id: int, dashboard_id: int, project_id: int | None = None) -> None:
+    """Clear detail_dashboard_id from any GroupTypeMapping referencing this dashboard.
+
+    Uses GetGroupTypeMappingByDashboardId to find the mapping, then UpdateGroupTypeMapping to clear it.
+    Falls back to ORM filter/update.
+    """
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import GetGroupTypeMappingByDashboardIdRequest, UpdateGroupTypeMappingRequest
+
+    client = get_personhog_client()
+    if client is not None:
+        try:
+            resp = client.get_group_type_mapping_by_dashboard_id(
+                GetGroupTypeMappingByDashboardIdRequest(team_id=team_id, dashboard_id=dashboard_id)
+            )
+            if resp.mapping and resp.mapping.group_type_index is not None:
+                client.update_group_type_mapping(
+                    UpdateGroupTypeMappingRequest(
+                        project_id=resp.mapping.project_id,
+                        group_type_index=resp.mapping.group_type_index,
+                        update_mask=["detail_dashboard_id"],
+                    )
+                )
+                invalidate_group_types_cache(resp.mapping.project_id)
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="clear_dashboard_from_group_type_mapping", source="personhog", client_name=get_client_name()
+            ).inc()
+            return
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="clear_dashboard_from_group_type_mapping",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
+            ).inc()
+            logger.warning(
+                "personhog_clear_dashboard_from_group_type_mapping_failure",
+                team_id=team_id,
+                dashboard_id=dashboard_id,
+                exc_info=True,
+            )
+
+    from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="clear_dashboard_from_group_type_mapping", source="django_orm", client_name=get_client_name()
+    ).inc()
+    GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(  # nosemgrep: no-direct-persons-db-orm
+        detail_dashboard_id=dashboard_id
+    ).update(  # nosemgrep: no-direct-persons-db-orm
+        detail_dashboard_id=None
+    )
+    if project_id is not None:
+        invalidate_group_types_cache(project_id)

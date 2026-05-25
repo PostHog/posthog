@@ -661,6 +661,7 @@ function FeatureFlagScheduleV2(): JSX.Element {
                                         <label className="text-xs font-medium text-muted flex items-center gap-1">
                                             Ends
                                             <Tooltip
+                                                interactive
                                                 title={
                                                     <>
                                                         Schedule will run through end of this day in the{' '}
@@ -1451,6 +1452,7 @@ function FeatureFlagScheduleLegacy(): JSX.Element {
                                 <div className="font-semibold leading-6 h-6 mb-1 flex items-center gap-1">
                                     End date (optional)
                                     <Tooltip
+                                        interactive
                                         title={
                                             <>
                                                 Schedule will run through end of this day in the{' '}

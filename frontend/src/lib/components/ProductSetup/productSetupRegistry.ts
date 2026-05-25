@@ -478,13 +478,13 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
 
     [ProductKey.LLM_ANALYTICS]: {
         productKey: ProductKey.LLM_ANALYTICS,
-        title: 'Get started with LLM analytics',
+        title: 'Get started with AI observability',
         tasks: [
             {
                 id: SetupTaskId.IngestFirstLlmEvent,
-                title: 'Send your first LLM event',
+                title: 'Send your first AI event',
                 description: 'Install the PostHog LLM SDK to start tracking AI usage.',
-                skipWarning: "Without LLM events, you can't track AI model usage.",
+                skipWarning: "Without AI events, you can't track AI model usage.",
                 taskType: 'setup',
                 getUrl: () =>
                     urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL }),
@@ -494,7 +494,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
             {
                 id: SetupTaskId.ViewFirstTrace,
                 title: 'View your first trace',
-                description: 'See a complete LLM request trace with prompts and latency.',
+                description: 'See a complete AI request trace with prompts and latency.',
                 taskType: 'onboarding',
                 dependsOn: [SetupTaskId.IngestFirstEvent],
                 getUrl: () => urls.llmAnalyticsTraces(),
@@ -502,7 +502,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
             },
             {
                 id: SetupTaskId.TrackCosts,
-                title: 'Track LLM costs and usage',
+                title: 'Track AI costs and usage',
                 description: 'Monitor AI spending and usage by model and use case.',
                 taskType: 'onboarding',
                 dependsOn: [SetupTaskId.IngestFirstEvent],
@@ -511,7 +511,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
             {
                 id: SetupTaskId.SetUpLlmEvaluation,
                 title: 'Set up LLM evaluation',
-                description: 'Score and evaluate LLM outputs for quality.',
+                description: 'Score and evaluate AI outputs for quality.',
                 taskType: 'explore',
                 getUrl: () => urls.llmAnalyticsEvaluations(),
             },
@@ -570,7 +570,9 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 description: 'Start sending logs from your application to PostHog.',
                 taskType: 'setup',
                 requiresManualCompletion: true,
+                getUrl: () => urls.onboarding({ productKey: ProductKey.LOGS, stepKey: OnboardingStepKey.INSTALL }),
                 docsUrl: 'https://posthog.com/docs/logs',
+                targetSelector: '[data-attr="menu-item-logs"]',
             },
             {
                 id: SetupTaskId.ViewFirstLogs,

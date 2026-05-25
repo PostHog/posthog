@@ -1,3 +1,4 @@
+import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload } from '@/lib/build-tool-result'
@@ -5,7 +6,13 @@ import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { formatResponse } from '@/lib/response'
 
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
-import { POSTHOG_META_KEY, type Context, type Tool, type ZodObjectAny } from './types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_META_KEY,
+    type Context,
+    type Tool,
+    type ZodObjectAny,
+} from './types'
 
 type ExecSchema = ReturnType<typeof makeExecSchema>
 
@@ -31,6 +38,45 @@ function parseCommand(input: string): { verb: string; rest: string } {
         return { verb: trimmed, rest: '' }
     }
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
+}
+
+// Extracts the inner tool name from an exec `call` command, e.g.
+// "call my-tool {...}" → "my-tool". Returns undefined for other verbs or
+// malformed input. Used by analytics to surface the real tool being invoked
+// in single-exec mode, where the outer call always shows as `exec`.
+export function parseExecCallInnerToolName(command: string): string | undefined {
+    const { verb, rest } = parseCommand(command)
+    if (verb !== 'call' || !rest) {
+        return
+    }
+    const argv = rest.startsWith('--json ') ? rest.slice('--json '.length).trim() : rest === '--json' ? '' : rest
+    if (!argv) {
+        return
+    }
+    const innerName = parseCommand(argv).verb
+    return innerName || undefined
+}
+
+// Builds the resolver mcp.ts hands to initMcpAnalytics in single-exec
+// mode: given a request, return the inner tool's { name, description } when
+// the agent invoked it via `call <tool> ...`, or undefined otherwise. Lives
+// here (alongside parseExecCallInnerToolName) so tests can import the exact
+// same factory the production code uses — no copy-pasted resolver lambda.
+export function createExecInnerToolCallResolver(
+    allTools: ReadonlyArray<Tool<ZodObjectAny>>
+): (request: unknown) => { name: string; description: string } | undefined {
+    return (request: unknown) => {
+        const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })?.params
+        if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
+            return
+        }
+        const innerName = parseExecCallInnerToolName(params.arguments.command)
+        if (!innerName) {
+            return
+        }
+        const tool = allTools.find((t) => t.name === innerName)
+        return tool ? { name: tool.name, description: tool.description } : undefined
+    }
 }
 
 // Tools removed from v2 (single-exec) MCP. When the model attempts to call one,
@@ -125,30 +171,43 @@ export function createExecTool(
 
                 case 'info': {
                     if (!rest) {
-                        throw new Error('Usage: info <tool_name>')
+                        throw new Error('Usage: info [--json] <tool_name>')
                     }
-                    const tool = findTool(allTools, rest)
+                    const forceJson = rest.startsWith('--json ') || rest === '--json'
+                    const infoArgs = forceJson ? rest.slice('--json'.length).trim() : rest
+                    if (!infoArgs) {
+                        throw new Error('Usage: info [--json] <tool_name>')
+                    }
+                    const tool = findTool(allTools, infoArgs)
                     const fullSchema = z.toJSONSchema(tool.schema)
-                    const fullOutput = JSON.stringify({
+                    // YAML for the top shape, but inputSchema stays as a JSON
+                    // string dumped inside the YAML — JSON Schema is conventionally
+                    // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
+                    const serialize = (payload: Record<string, unknown>, schema: unknown): string => {
+                        if (forceJson) {
+                            return JSON.stringify({ ...payload, inputSchema: schema })
+                        }
+                        return stringifyYaml({ ...payload, inputSchema: JSON.stringify(schema) }, { lineWidth: 0 })
+                    }
+
+                    const topShape = {
                         name: tool.name,
                         title: tool.title,
                         description: tool.description,
                         annotations: tool.annotations,
-                        inputSchema: fullSchema,
-                    })
+                    }
+                    const fullOutput = serialize(topShape, fullSchema)
 
                     if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
                         return fullOutput
                     }
 
-                    // Schema too large — return summary with drill-down hints
-                    return JSON.stringify({
-                        name: tool.name,
-                        title: tool.title,
-                        description: tool.description,
-                        annotations: tool.annotations,
-                        inputSchema: summarizeSchema(fullSchema as Record<string, unknown>, tool.name),
-                    })
+                    // Schema too large — return summary with drill-down hints.
+                    // Each complex field's `hint` carries the imperative to run
+                    // `schema` before populating it, so no separate directive is
+                    // needed here.
+                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
+                    return serialize(topShape, summary)
                 }
 
                 case 'schema': {
@@ -160,6 +219,9 @@ export function createExecTool(
                     const fullJsonSchema = z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
 
                     if (!fieldPath) {
+                        // The bare `schema <tool>` view is always a summary. Any
+                        // field that still needs drilling carries the imperative
+                        // in its own `hint`, so the summary stands on its own.
                         return JSON.stringify(summarizeSchema(fullJsonSchema, schemaToolName))
                     }
 
@@ -177,10 +239,12 @@ export function createExecTool(
                         return serialized
                     }
 
-                    // Field schema too large — return summary with sub-path hints
+                    // Field schema too large — return a summary instead. The
+                    // summary's complex sub-fields carry the drill-down `hint`,
+                    // so the response shape stays the same as the inline case
+                    // (`{ field, schema }`) — no separate top-level note.
                     return JSON.stringify({
                         field: fieldPath,
-                        note: `Full schema is ${Math.ceil(serialized.length / 6000)}k+ tokens. Showing summary. Drill into sub-fields for details.`,
                         schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
                     })
                 }
@@ -196,15 +260,15 @@ export function createExecTool(
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, toolName)
-
                     let input: Record<string, unknown>
                     if (!jsonBody) {
                         input = {}
                     } else {
                         try {
                             input = JSON.parse(jsonBody) as Record<string, unknown>
-                        } catch {
-                            throw new Error(`Invalid JSON input: ${jsonBody}`)
+                        } catch (err) {
+                            const detail = err instanceof Error ? err.message : String(err)
+                            throw new Error(`Invalid JSON input: ${detail}`)
                         }
                     }
 
@@ -244,7 +308,7 @@ export function createExecTool(
                                 handlerResult: result,
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
-                                params: forceJson ? { ...input, output_format: 'json' } : input,
+                                params: useJson ? { ...input, output_format: 'json' } : input,
                                 // Consumer is the UI-apps host; keep `structuredContent` for the UI.
                                 // Passing `undefined` bypasses the coding-agent suppression in
                                 // `buildToolResultPayload` because this path explicitly wants it.
@@ -260,7 +324,23 @@ export function createExecTool(
                         success: true,
                         output_format: useJson ? 'json' : 'text',
                     })
-                    return useJson ? JSON.stringify(result) : formatResponse(result)
+                    if (useJson) {
+                        return JSON.stringify(result)
+                    }
+                    // Optimized mode: when the handler attached a backend-formatted table
+                    // via `__formatted_results_override`, return ONLY that string. The raw
+                    // `results`/`_posthogUrl` payload would otherwise duplicate the table
+                    // and crowd it out — buildToolResultPayload makes the same choice for
+                    // the non-exec path, this keeps exec consistent.
+                    if (result !== null && typeof result === 'object') {
+                        const formattedOverride = (result as Record<string, unknown>)[
+                            POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY
+                        ]
+                        if (typeof formattedOverride === 'string') {
+                            return formattedOverride
+                        }
+                    }
+                    return formatResponse(result)
                 }
 
                 default:

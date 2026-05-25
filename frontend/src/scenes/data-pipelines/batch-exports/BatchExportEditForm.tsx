@@ -730,6 +730,7 @@ export function BatchExportsEditFields({
                                         <span className="flex gap-2 items-center">
                                             Use VARIANT type for storing JSON data
                                             <Tooltip
+                                                interactive
                                                 title={
                                                     <>
                                                         Using VARIANT for storing JSON data is{' '}

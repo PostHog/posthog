@@ -1,5 +1,5 @@
 import { dimensions, makeSeries } from '../testing'
-import { type ComputeSeriesBarsOptions, computeSeriesBars, cornersFor } from './bar-layout'
+import { type ComputeSeriesBarsOptions, computeBarTrackRect, computeSeriesBars, cornersFor } from './bar-layout'
 import type { BarRect } from './canvas-renderer'
 import { computeStackData, createBarScales } from './scales'
 import type { ChartDimensions } from './types'
@@ -125,6 +125,39 @@ describe('hog-charts bar-layout', () => {
             expect(() => layoutOf({ series: s, scales, layout: 'stacked', isTopOfStack: true })).toThrow(
                 /stackedBand is required/
             )
+        })
+
+        it('rounds the cap of the topmost visible series per yAxisId (multi-axis stacked)', () => {
+            const labels = ['a', 'b', 'c']
+            const left1 = makeSeries({ key: 'left-1', data: [10, 20, 30], yAxisId: 'left' })
+            const left2 = makeSeries({ key: 'left-2', data: [5, 15, 25], yAxisId: 'left' })
+            const right1 = makeSeries({ key: 'right-1', data: [1, 2, 3], yAxisId: 'right' })
+            const all = [left1, left2, right1]
+            const scales = createBarScales(all, labels, dimensions, { barLayout: 'stacked' })
+            const stacks = computeStackData(all, labels)
+
+            // Mirror the per-axis top resolution that BarChart performs: last visible series per axisId wins.
+            const topPerAxis = new Map<string, string>()
+            for (const s of all) {
+                topPerAxis.set(s.yAxisId ?? 'left', s.key)
+            }
+
+            const hasRoundedCap = (bars: ReturnType<typeof layoutOf>): boolean =>
+                bars.some((b) => b !== null && (b.corners.topLeft || b.corners.topRight))
+
+            const barsFor = (s: typeof left1): ReturnType<typeof layoutOf> =>
+                layoutOf({
+                    series: s,
+                    labels,
+                    scales,
+                    layout: 'stacked',
+                    stackedBand: stacks.get(s.key),
+                    isTopOfStack: topPerAxis.get(s.yAxisId ?? 'left') === s.key,
+                })
+
+            expect(hasRoundedCap(barsFor(left2))).toBe(true)
+            expect(hasRoundedCap(barsFor(right1))).toBe(true)
+            expect(hasRoundedCap(barsFor(left1))).toBe(false)
         })
     })
 
@@ -335,6 +368,40 @@ describe('hog-charts bar-layout', () => {
                 })
                 expect(bars).toEqual(expectedBars)
             }
+        })
+    })
+
+    describe('computeBarTrackRect', () => {
+        const verticalBar: BarRect = {
+            x: 100,
+            y: 120,
+            width: 50,
+            height: 200,
+            corners: { topLeft: true },
+            dataIndex: 2,
+        }
+        const horizontalBar: BarRect = { x: 60, y: 100, width: 140, height: 40, corners: {}, dataIndex: 0 }
+
+        it('stretches a vertical bar across the full value axis, keeping its band slot', () => {
+            expect(computeBarTrackRect(verticalBar, 368, 16, false)).toEqual({
+                x: 100,
+                y: 16,
+                width: 50,
+                height: 352,
+                corners: { topLeft: true },
+                dataIndex: 2,
+            })
+        })
+
+        it('stretches a horizontal bar across the full value axis, keeping its band slot', () => {
+            expect(computeBarTrackRect(horizontalBar, 60, 540, true)).toEqual({
+                x: 60,
+                y: 100,
+                width: 480,
+                height: 40,
+                corners: {},
+                dataIndex: 0,
+            })
         })
     })
 })

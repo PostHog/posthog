@@ -24,8 +24,9 @@ use personhog_proto::personhog::types::v1::{
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
     InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
-    ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
+    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
@@ -52,6 +53,16 @@ macro_rules! route_request {
     }};
 }
 
+macro_rules! route_with_metadata {
+    ($self:expr, $method:ident, $request:expr) => {{
+        let metadata = $request.metadata().clone();
+        match $self.router.$method(&metadata, $request.into_inner()).await {
+            Ok(response) => Ok(Response::new(response)),
+            Err(status) => Err(status),
+        }
+    }};
+}
+
 #[tonic::async_trait]
 impl PersonHogService for PersonHogRouterService {
     // Person lookups by ID
@@ -60,28 +71,28 @@ impl PersonHogService for PersonHogRouterService {
         &self,
         request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
-        route_request!(self, get_person, request)
+        route_with_metadata!(self, get_person, request)
     }
 
     async fn get_persons(
         &self,
         request: Request<GetPersonsRequest>,
     ) -> Result<Response<PersonsResponse>, Status> {
-        route_request!(self, get_persons, request)
+        route_with_metadata!(self, get_persons, request)
     }
 
     async fn get_person_by_uuid(
         &self,
         request: Request<GetPersonByUuidRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
-        route_request!(self, get_person_by_uuid, request)
+        route_with_metadata!(self, get_person_by_uuid, request)
     }
 
     async fn get_persons_by_uuids(
         &self,
         request: Request<GetPersonsByUuidsRequest>,
     ) -> Result<Response<PersonsResponse>, Status> {
-        route_request!(self, get_persons_by_uuids, request)
+        route_with_metadata!(self, get_persons_by_uuids, request)
     }
 
     // Person lookups by distinct ID
@@ -90,21 +101,21 @@ impl PersonHogService for PersonHogRouterService {
         &self,
         request: Request<GetPersonByDistinctIdRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
-        route_request!(self, get_person_by_distinct_id, request)
+        route_with_metadata!(self, get_person_by_distinct_id, request)
     }
 
     async fn get_persons_by_distinct_ids_in_team(
         &self,
         request: Request<GetPersonsByDistinctIdsInTeamRequest>,
     ) -> Result<Response<PersonsByDistinctIdsInTeamResponse>, Status> {
-        route_request!(self, get_persons_by_distinct_ids_in_team, request)
+        route_with_metadata!(self, get_persons_by_distinct_ids_in_team, request)
     }
 
     async fn get_persons_by_distinct_ids(
         &self,
         request: Request<GetPersonsByDistinctIdsRequest>,
     ) -> Result<Response<PersonsByDistinctIdsResponse>, Status> {
-        route_request!(self, get_persons_by_distinct_ids, request)
+        route_with_metadata!(self, get_persons_by_distinct_ids, request)
     }
 
     // Distinct ID operations
@@ -113,14 +124,14 @@ impl PersonHogService for PersonHogRouterService {
         &self,
         request: Request<GetDistinctIdsForPersonRequest>,
     ) -> Result<Response<GetDistinctIdsForPersonResponse>, Status> {
-        route_request!(self, get_distinct_ids_for_person, request)
+        route_with_metadata!(self, get_distinct_ids_for_person, request)
     }
 
     async fn get_distinct_ids_for_persons(
         &self,
         request: Request<GetDistinctIdsForPersonsRequest>,
     ) -> Result<Response<GetDistinctIdsForPersonsResponse>, Status> {
-        route_request!(self, get_distinct_ids_for_persons, request)
+        route_with_metadata!(self, get_distinct_ids_for_persons, request)
     }
 
     // Feature flag hash key override support
@@ -211,6 +222,13 @@ impl PersonHogService for PersonHogRouterService {
         request: Request<GetGroupsBatchRequest>,
     ) -> Result<Response<GetGroupsBatchResponse>, Status> {
         route_request!(self, get_groups_batch, request)
+    }
+
+    async fn list_groups(
+        &self,
+        request: Request<ListGroupsRequest>,
+    ) -> Result<Response<ListGroupsResponse>, Status> {
+        route_request!(self, list_groups, request)
     }
 
     // Group type mappings

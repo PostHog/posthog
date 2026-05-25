@@ -239,16 +239,25 @@ def get_user_mcp_server_configs(
     token: str,
     team_id: int,
     user_id: int,
+    *,
+    interaction_origin: str | None = None,
 ) -> list[McpServerConfig]:
     """Fetch the user's MCP Store installations and return sandbox configs.
 
     Uses the mcp_store facade to get active installations, then builds
     McpServerConfig entries with full proxy URLs and auth headers.
 
+    The `x-posthog-mcp-consumer` header is set on every config so the agent's
+    identity propagates through the MCP Store proxy to whichever upstream MCP
+    the user installed. The PostHog MCP needs this to resolve single-exec mode
+    (without it, calls to `exec` fail with "Tool exec not found"); non-PostHog
+    upstreams ignore the header.
+
     Returns an empty list on errors (non-fatal).
     """
     installations = get_active_installations(team_id, user_id)
     api_base = get_sandbox_api_url().rstrip("/")
+    consumer = _resolve_mcp_consumer(interaction_origin)
 
     configs: list[McpServerConfig] = []
     for installation in installations:
@@ -257,7 +266,10 @@ def get_user_mcp_server_configs(
                 type="http",
                 name=installation.name,
                 url=f"{api_base}{installation.proxy_path}",
-                headers=[{"name": "Authorization", "value": f"Bearer {token}"}],
+                headers=[
+                    {"name": "Authorization", "value": f"Bearer {token}"},
+                    {"name": "x-posthog-mcp-consumer", "value": consumer},
+                ],
             )
         )
 
@@ -319,6 +331,12 @@ def _resolve_mcp_url() -> str | None:
     if hostname == "eu.posthog.com":
         return "https://mcp-eu.posthog.com/mcp"
 
+    # Local dev: point to the local wrangler dev MCP server via
+    # host.docker.internal, since the sandbox runs in Docker.
+    # On Linux without Docker Desktop, set SANDBOX_MCP_URL instead.
+    if hostname in ("localhost", "127.0.0.1"):
+        return "http://host.docker.internal:8787/mcp"
+
     return None
 
 
@@ -330,6 +348,15 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
         github_integration.refresh_access_token()
 
     return github_integration.integration.access_token or None
+
+
+def get_user_github_token(github_user_integration_id: str) -> Optional[str]:
+    """Return the installation access token from a UserIntegration, refreshing if expired."""
+    integration = UserIntegration.objects.get(id=github_user_integration_id)
+    github_integration = UserGitHubIntegration(integration)
+    if github_integration.access_token_expired():
+        github_integration.refresh_access_token()
+    return github_integration.integration.sensitive_config.get("access_token") or None
 
 
 def _normalize_repository(repository: str | None) -> str | None:
@@ -527,17 +554,32 @@ def get_sandbox_github_token(
                 raise ReauthorizationRequired(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
-        else:
-            token = user_github_integration.get_usable_user_access_token()
-            if token is None:
+            return get_github_token(github_integration_id)
+        if github_integration_id is None:
+            no_team_token: str | None = user_github_integration.get_usable_user_access_token()
+            if no_team_token is None:
                 raise ReauthorizationRequired(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
+            return no_team_token
+        try:
+            token: str | None = user_github_integration.get_usable_user_access_token()
+        except ReauthorizationRequired:
+            token = None
+        if token is not None:
             return token
-
+        return get_github_token(github_integration_id)
+    elif pr_authorship_mode == PrAuthorshipMode.BOT:
+        if github_integration_id is not None:
+            return get_github_token(github_integration_id)
+        # BOT fallback for teams without an Integration row: borrow the
+        # installation access token from the UserIntegration the task was created with.
+        if github_user_integration_id:
+            return get_user_github_token(github_user_integration_id)
+        return None
+    # No authorship mode resolved (legacy callers without state and without a task).
     if github_integration_id is None:
         return None
-
     return get_github_token(github_integration_id)
 
 

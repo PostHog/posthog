@@ -1,9 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { LineChart, ValueLabels } from 'lib/hog-charts'
-import type { LineChartConfig, Series } from 'lib/hog-charts'
-
+import { LineChart } from '../charts/LineChart'
+import type { LineChartConfig, Series } from '../core/types'
 import { Stage, useReactiveTheme } from '../story-helpers'
+import { ValueLabels } from './ValueLabels'
 
 const LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -120,7 +120,8 @@ export const HiddenOnAuxiliarySeries: Story = {
             color,
             data: [22, 30, 38, 46, 54, 62, 70],
             stroke: { pattern: [1, 3] },
-            visibility: { fromTooltip: true, fromValueLabels: true },
+            overlay: true,
+            visibility: { tooltip: false, valueLabel: false },
         }
         return (
             <Stage>

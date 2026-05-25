@@ -6,18 +6,19 @@ from django.utils import timezone
 from posthog.models.utils import UUIDModel
 
 
-def jsonhas_expr(prop: str, param_prefix: str) -> str:
+def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> str:
     """Build a ClickHouse ``JSONHas`` expression for a (possibly nested) property path.
 
     Splits dotted names so ``"sub.prop"`` becomes
-    ``JSONHas(properties, %(prefix_0)s, %(prefix_1)s)``.
+    ``JSONHas(properties, %(prefix_0)s, %(prefix_1)s)``.  Pass ``column`` to
+    target a different JSON column (e.g. ``"person_properties"``).
     """
     parts = prop.split(".")
     args = ", ".join(f"%({param_prefix}_{i})s" for i in range(len(parts)))
-    return f"JSONHas(properties, {args})"
+    return f"JSONHas({column}, {args})"
 
 
-def compile_hogql_predicate(obj, *, target_data_table: bool = False) -> tuple[str, dict]:
+def compile_hogql_predicate(obj) -> tuple[str, dict]:
     """Parse and compile ``obj.hogql_predicate`` into a ClickHouse SQL fragment.
 
     Returns ``(sql_fragment, extra_params)``. Both are empty when the predicate
@@ -26,14 +27,12 @@ def compile_hogql_predicate(obj, *, target_data_table: bool = False) -> tuple[st
     :class:`~django.core.exceptions.ValidationError` on parse, resolution or
     subquery errors — suitable for use inside ``Model.clean()``.
 
-    ``target_data_table`` selects the ClickHouse table the fragment will be
-    spliced against:
-
-    - ``False`` (default): emit ``events.<col>`` qualifiers — for read queries
-      against the Distributed ``events`` proxy (e.g. cluster-wide row counts).
-    - ``True``: emit ``sharded_events.<col>`` qualifiers — for the local
-      ``sharded_events`` MergeTree (DELETE mutations, parts inspection, deferred
-      uuid extraction).
+    The fragment uses unqualified column references (no ``events.``/``sharded_events.``
+    prefix), so it can be spliced into queries against either the Distributed
+    ``events`` proxy or the local ``sharded_events`` MergeTree. This matters for
+    lightweight DELETE: ClickHouse rewrites it into a mutation whose expression
+    analyzer rejects table-qualified references like ``sharded_events.mat_$current_url``
+    even when the column exists on every replica.
     """
     predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
     if not predicate:
@@ -64,13 +63,11 @@ def compile_hogql_predicate(obj, *, target_data_table: bool = False) -> tuple[st
     if obj.team_id is None:
         raise ValidationError({"hogql_predicate": "team_id must be set before validating the predicate."})
 
+    # ``within_non_hogql_query=True`` instructs the printer to emit unqualified column
+    # references — both for regular fields and for materialized-column shortcuts.
     context = HogQLContext(team_id=obj.team_id, within_non_hogql_query=True, enable_select_queries=False)
-    # Default leaves the events table un-aliased so qualified column references (e.g. mat-column
-    # shortcuts) print as ``events.<col>`` — the right shape for the Distributed proxy used by
-    # read queries. Only the data-table case needs an alias swap.
-    table_alias = "sharded_events" if target_data_table else None
     try:
-        sql = translate_hogql(predicate, context, dialect="clickhouse", events_table_alias=table_alias)
+        sql = translate_hogql(predicate, context, dialect="clickhouse")
     except Exception as exc:
         raise ValidationError({"hogql_predicate": f"Could not compile HogQL: {exc}"}) from exc
 
@@ -157,7 +154,14 @@ class DataDeletionRequest(UUIDModel):
         models.CharField(max_length=1024),
         blank=True,
         default=list,
-        help_text="Property names to remove. Required for property_removal requests.",
+        help_text="Property names to remove from events.properties. Required for property_removal requests when person_properties is empty.",
+    )
+    person_properties = ArrayField(
+        models.CharField(max_length=1024),
+        blank=True,
+        null=True,
+        default=list,
+        help_text="Property names to remove from events.person_properties. Required for property_removal requests when properties is empty.",
     )
     person_uuids = ArrayField(
         models.UUIDField(),
@@ -252,6 +256,23 @@ class DataDeletionRequest(UUIDModel):
         "scheduled deletes_job drains them. Only honored for event_removal.",
     )
 
+    # Execution tracking
+    attempt_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of times execution has been attempted. "
+        "Incremented when a load_* op transitions the request to IN_PROGRESS.",
+    )
+    first_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When execution was first attempted (set on the first APPROVED → IN_PROGRESS transition).",
+    )
+    last_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When execution was most recently attempted (updated on every APPROVED → IN_PROGRESS transition).",
+    )
+
     class Meta:
         ordering = ["-created_at"]
 
@@ -313,6 +334,8 @@ class DataDeletionRequest(UUIDModel):
             raise ValidationError({"events": "events / delete_all_events are not valid for person_removal."})
         if self.properties:
             raise ValidationError({"properties": "properties are not valid for person_removal."})
+        if self.person_properties:
+            raise ValidationError({"person_properties": "person_properties are not valid for person_removal."})
         if self.hogql_predicate:
             raise ValidationError({"hogql_predicate": "hogql_predicate is not valid for person_removal."})
 

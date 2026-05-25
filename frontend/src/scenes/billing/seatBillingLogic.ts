@@ -22,8 +22,12 @@ export function isFreePlanKey(planKey: string | null | undefined): boolean {
     return !!planKey && planKey.startsWith(CODE_FREE_PLAN_PREFIX)
 }
 
+export function isAlphaPlanKey(planKey: string | null | undefined): boolean {
+    return planKey === CODE_PLAN_ALPHA_PRO
+}
+
 export function canReactivateSeat(seat: Pick<SeatData, 'plan_key' | 'status'> | null | undefined): boolean {
-    return !!seat && seat.status === 'canceling' && seat.plan_key !== CODE_PLAN_ALPHA_PRO
+    return !!seat && seat.status === 'canceling' && !isAlphaPlanKey(seat.plan_key)
 }
 
 // TODO: Replace with `seat.price` once billing exposes it via SeatSerializer
@@ -111,9 +115,14 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
         ],
         isPro: [(s) => [s.mySeat], (mySeat): boolean => isProPlanKey(mySeat?.plan_key)],
         isFree: [(s) => [s.mySeat], (mySeat): boolean => isFreePlanKey(mySeat?.plan_key)],
+        isAlpha: [(s) => [s.mySeat], (mySeat): boolean => isAlphaPlanKey(mySeat?.plan_key)],
         canUpgrade: [
             (s) => [s.mySeat],
-            (mySeat): boolean => !!mySeat && mySeat.status === 'active' && isFreePlanKey(mySeat.plan_key),
+            (mySeat): boolean =>
+                !!mySeat &&
+                mySeat.status === 'active' &&
+                isFreePlanKey(mySeat.plan_key) &&
+                !isAlphaPlanKey(mySeat.plan_key),
         ],
         canCancel: [(s) => [s.mySeat], (mySeat): boolean => !!mySeat && mySeat.status === 'active'],
         canReactivate: [(s) => [s.mySeat], (mySeat): boolean => canReactivateSeat(mySeat)],
@@ -145,6 +154,11 @@ export const seatBillingLogic = kea<seatBillingLogicType>([
         activeCount: [
             (s) => [s.displaySeats],
             (displaySeats): number => displaySeats.filter((s: SeatData) => s.status === 'active').length,
+        ],
+        hasAlphaSeats: [
+            (s) => [s.displaySeats, s.mySeat],
+            (displaySeats, mySeat): boolean =>
+                displaySeats.some((s: SeatData) => isAlphaPlanKey(s.plan_key)) || isAlphaPlanKey(mySeat?.plan_key),
         ],
         cancelingCount: [
             (s) => [s.displaySeats],

@@ -1,16 +1,11 @@
 import type { BarRect, BarRoundedCorners } from './canvas-renderer'
 import type { BarScaleSet, StackedBand } from './scales'
-import type { ChartScales, Series } from './types'
+import type { Series } from './types'
 
-/** Brand for the BarChart `ChartScales._private` slot — populated by BarChart, narrowed
- *  by its draw callbacks and by overlays that detect bar-chart presence (ValueLabels). */
+/** Brand for the BarChart `ChartScales._private` slot — populated by BarChart and
+ *  narrowed by its draw callbacks. */
 export interface BarChartPrivate {
     __barChart: BarScaleSet
-}
-
-export function getBarChartPrivate(scales: ChartScales): BarChartPrivate | undefined {
-    const slot = scales._private as BarChartPrivate | undefined
-    return slot && '__barChart' in slot ? slot : undefined
 }
 
 export type SeriesBarLayout = (BarRect | null)[]
@@ -139,4 +134,28 @@ export function computeBarAtIndex({
     const isPositive = isHorizontal ? topPixel >= bottomPixel : topPixel <= bottomPixel
     const corners = cornersFor(isHorizontal, isPositive, shouldRoundCap)
     return makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, bottomPixel, corners, dataIndex)
+}
+
+/** The track rect behind a bar — the bar's band slot stretched across the whole value
+ *  axis. `axisRangeA`/`axisRangeB` are the two endpoints of the value scale's pixel range
+ *  (in either order — for a vertical Y scale d3 returns `[bottomPx, topPx]`). Used by
+ *  funnel-style charts to draw and hit-test the faint "remainder to 100%" region. */
+export function computeBarTrackRect(
+    bar: BarRect,
+    axisRangeA: number,
+    axisRangeB: number,
+    isHorizontal: boolean
+): BarRect {
+    const valueMin = Math.min(axisRangeA, axisRangeB)
+    const valueSize = Math.abs(axisRangeB - axisRangeA)
+    return isHorizontal
+        ? {
+              x: valueMin,
+              y: bar.y,
+              width: valueSize,
+              height: bar.height,
+              corners: bar.corners,
+              dataIndex: bar.dataIndex,
+          }
+        : { x: bar.x, y: valueMin, width: bar.width, height: valueSize, corners: bar.corners, dataIndex: bar.dataIndex }
 }

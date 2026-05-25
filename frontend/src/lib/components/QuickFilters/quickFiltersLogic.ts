@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter } from '~/types'
 
@@ -37,6 +38,9 @@ export const quickFiltersLogic = kea<quickFiltersLogicType>([
             [] as QuickFilter[],
             {
                 loadQuickFilters: async () => {
+                    if (isSharedView()) {
+                        return []
+                    }
                     const response = await api.quickFilters.list(props.context)
                     return response.results
                 },

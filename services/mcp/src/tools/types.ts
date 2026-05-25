@@ -3,6 +3,7 @@ import type { z } from 'zod'
 import type { ApiClient, GroupType } from '@/api/client'
 import type { Schemas } from '@/api/generated'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
+import type { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { SessionManager } from '@/lib/SessionManager'
 import type { StateManager } from '@/lib/StateManager'
 import type { PrefixedString } from '@/lib/types'
@@ -25,6 +26,9 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
+    mcpClientName: string | undefined
+    mcpClientVersion: string | undefined
+    mcpProtocolVersion: string | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
@@ -83,6 +87,14 @@ export type Context = {
      * exec wrapper) can attach `_analytics` without depending on the MCP class.
      */
     getDistinctId: () => Promise<string>
+    /**
+     * Capture a PostHog analytics event with the same context (mcp_client_name,
+     * session id, $groups, etc.) that the MCP class attaches to its own events.
+     * Best-effort — never throws and silently swallows failures so analytics
+     * cannot fail a tool call. Workspace context is auto-resolved from the
+     * stateManager when not provided.
+     */
+    trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
 }
 
 export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {

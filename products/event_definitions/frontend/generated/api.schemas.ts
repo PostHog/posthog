@@ -36,14 +36,10 @@ export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
-
-export const NullEnumApi = {} as const
-
 /**
  * @nullable
  */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 export interface UserBasicApi {
     readonly id: number
@@ -63,7 +59,7 @@ export interface UserBasicApi {
     is_email_verified?: boolean | null
     /** @nullable */
     readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -191,9 +187,9 @@ export interface BulkUpdateTagsRequestApi {
     ids: number[]
     /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
 
-* `add` - add
-* `remove` - remove
-* `set` - set */
+  * `add` - add
+  * `remove` - remove
+  * `set` - set */
     action: ActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
@@ -253,6 +249,14 @@ export interface PrimaryPropertiesResponseApi {
 }
 
 export type EventDefinitionsListParams = {
+    /**
+     * When true, omit events that have been explicitly hidden by a team admin (Enterprise only).
+     */
+    exclude_hidden?: boolean
+    /**
+     * When true, omit events whose last ingested occurrence is older than 30 days. Events that have never been seen (`last_seen_at` is null) are kept so newly-defined events remain discoverable. Default false. If a search returns zero results with this filter on, retry with `exclude_stale=false` and tell the user the matches are stale.
+     */
+    exclude_stale?: boolean
     /**
      * Number of results to return per page.
      */

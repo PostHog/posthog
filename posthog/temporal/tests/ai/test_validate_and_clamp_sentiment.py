@@ -2,7 +2,7 @@ import pytest
 
 from parameterized import parameterized
 
-from posthog.temporal.session_replay.session_summary.activities.video_based.a5_consolidate_video_segments import (
+from posthog.temporal.session_replay.session_summary.activities.video_based.a6_consolidate_video_segments import (
     _validate_and_clamp_sentiment,
 )
 from posthog.temporal.session_replay.session_summary.types.video import (

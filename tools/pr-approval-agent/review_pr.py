@@ -43,6 +43,7 @@ from gates import (
     test_only,
 )
 from github import PRData, check_team_membership, fetch_pr
+from migration_risk import migration_check_pending, safe_migration_files
 from reviewer import Reviewer
 
 try:
@@ -128,6 +129,9 @@ class Pipeline:
         self._classify()
         self._run_gates()
 
+        if self._only_pending_migration_check():
+            return self._refuse_pending_migration_check()
+
         gate_verdict = self._gate_verdict()
 
         if self.dry_run:
@@ -135,6 +139,36 @@ class Pipeline:
             return self.final_verdict
 
         self._llm_review(gate_verdict)
+        return self.final_verdict
+
+    def _only_pending_migration_check(self) -> bool:
+        """True when the only thing blocking approval is a pending Migration risk check.
+
+        Lets us emit a specific deny reason ("wait for the check, re-label")
+        instead of the generic deny-list one. Other denies (auth, crypto) or
+        gate failures (size, prerequisites) won't clear when the analyzer
+        finishes, so we shouldn't promise a re-label will help.
+        """
+        if self.classification.get("deny_categories", []) != ["migrations"]:
+            return False
+        if any(not r.passed and r.gate != "deny-list" for r in self.gate_results):
+            return False
+        return migration_check_pending(self.pr.check_runs, self.pr.file_paths)
+
+    def _refuse_pending_migration_check(self) -> str:
+        self.final_verdict = "REFUSED"
+        self.reviewer_output = {
+            "verdict": "REFUSE",
+            "reasoning": (
+                "The `Migration risk` check has not completed for this commit. "
+                "Wait for it to finish (visible in the PR's Checks tab), then "
+                "re-apply the `stamphog` label to retry."
+            ),
+            "risk": "unknown",
+            "issues": [],
+        }
+        print(f"\n{_warn('REFUSED')} — Migration risk check pending; re-label after it completes")
+        self._capture_review_completed("DENIED", "PENDING-MIGRATION-CHECK")
         return self.final_verdict
 
     def _gate_verdict(self) -> str:
@@ -166,7 +200,8 @@ class Pipeline:
         top_dirs = file_info["top_dirs"]
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
-        deny = detect_deny_categories(file_paths, pr.title)
+        safe_migrations = safe_migration_files(pr.check_runs, file_paths)
+        deny = detect_deny_categories(file_paths, pr.title, ignored_files=safe_migrations)
         allow_only = is_allow_listed_only(file_paths)
         is_test = test_only(categories)
         ownership_rules = parse_codeowners_soft(CODEOWNERS_SOFT)
@@ -198,6 +233,7 @@ class Pipeline:
             "commit_scope": cc["scope"],
             "categories": categories,
             "deny_categories": deny,
+            "safe_migration_files": sorted(safe_migrations),
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
@@ -414,6 +450,7 @@ class Pipeline:
                 "breadth": self.classification["breadth"],
                 "commit_type": self.classification.get("commit_type"),
                 "deny_categories": self.classification.get("deny_categories", []),
+                "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
             },
             "gates": [

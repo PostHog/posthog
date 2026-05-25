@@ -1,9 +1,9 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, type RenderResult } from '@testing-library/react'
 import React from 'react'
 
-import type { BaseChartContext, ChartLayoutContextValue } from '../core/chart-context'
-import { ChartHoverContext, ChartLayoutContext } from '../core/chart-context'
-import type { ChartTheme, ResolvedSeries, ResolveValueFn } from '../core/types'
+import type { BaseChartContext } from '../core/chart-context'
+import type { ChartScales, ChartTheme, ResolvedSeries, ResolveValueFn } from '../core/types'
+import { makeOverlayContext, type OverlayContextOverrides, renderOverlayInChart } from '../testing'
 import { ValueLabels } from './ValueLabels'
 
 const DIMENSIONS = {
@@ -22,40 +22,21 @@ const xScale = (label: string): number | undefined => X_POSITIONS[label]
 // Left axis: 0 -> 368, 100 -> 16
 const yScale = (v: number): number => 368 - (v / 100) * 352
 
-const DEFAULT_THEME: ChartTheme = { colors: ['#000'], backgroundColor: '#ffffff' }
-const DEFAULT_RESOLVE: ResolveValueFn = (s, i) => s.data[i] ?? 0
-
-function makeContext(series: ResolvedSeries[], overrides: Partial<BaseChartContext> = {}): BaseChartContext {
-    return {
+function makeContext(
+    series: ResolvedSeries[],
+    overrides: OverlayContextOverrides & { scales?: ChartScales } = {}
+): BaseChartContext {
+    const { scales, ...rest } = overrides
+    return makeOverlayContext(scales ?? { x: xScale, y: yScale, yTicks: () => [0, 50, 100] }, {
         dimensions: DIMENSIONS,
         labels: LABELS,
         series,
-        scales: {
-            x: xScale,
-            y: yScale,
-            yTicks: () => [0, 50, 100],
-        },
-        theme: DEFAULT_THEME,
-        resolveValue: DEFAULT_RESOLVE,
-        canvasBounds: () => null,
-        axisOrientation: 'vertical',
-        isPercent: false,
-        hoverIndex: -1,
-        ...overrides,
-    }
+        ...rest,
+    })
 }
 
-function toLayout(ctx: BaseChartContext): ChartLayoutContextValue {
-    const { hoverIndex: _hoverIndex, ...layout } = ctx
-    return layout
-}
-
-function renderInChart(context: BaseChartContext, node: React.ReactNode): ReturnType<typeof render> {
-    return render(
-        <ChartLayoutContext.Provider value={toLayout(context)}>
-            <ChartHoverContext.Provider value={{ hoverIndex: context.hoverIndex }}>{node}</ChartHoverContext.Provider>
-        </ChartLayoutContext.Provider>
-    )
+function renderInChart(context: BaseChartContext, node: React.ReactNode): RenderResult {
+    return renderOverlayInChart(node, context)
 }
 
 function labelDivs(container: HTMLElement): HTMLDivElement[] {
@@ -125,35 +106,6 @@ describe('ValueLabels', () => {
         })
     })
 
-    it('skips a series with more points than maxPointsPerSeries', () => {
-        const longData = Array.from({ length: 150 }, (_, i) => i + 1)
-        const longLabels = longData.map((_, i) => `L${i}`)
-        const longXPositions: Record<string, number> = {}
-        longData.forEach((_, i) => {
-            longXPositions[`L${i}`] = 60 + (i / (longData.length - 1)) * 640
-        })
-        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: longData }]
-        const ctx = makeContext(series, {
-            labels: longLabels,
-            scales: {
-                x: (label: string) => longXPositions[label],
-                y: yScale,
-                yTicks: () => [0, 50, 100],
-            },
-        })
-        const { container } = renderInChart(ctx, <ValueLabels />)
-        expect(labelDivs(container)).toHaveLength(0)
-    })
-
-    it('honours a custom maxPointsPerSeries override', () => {
-        const data = Array.from({ length: 6 }, (_, i) => 10 + i * 10)
-        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data }]
-        // default (100) renders all; override to 3 should render none
-        const ctx = makeContext(series)
-        const { container } = renderInChart(ctx, <ValueLabels maxPointsPerSeries={3} />)
-        expect(labelDivs(container)).toHaveLength(0)
-    })
-
     it('drops overlapping labels via greedy collision avoidance', () => {
         // Two points at the same x: only one should survive.
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50, 50] }]
@@ -217,6 +169,40 @@ describe('ValueLabels', () => {
         expect(bgColors).toEqual(['rgb(17, 34, 51)', 'rgb(68, 85, 102)'])
     })
 
+    it('per-segment: passes seriesKey to scales.x so grouped bars anchor on their own bar', () => {
+        // Mirrors BarChart's grouped-layout x-scale: returns a per-series offset when seriesKey
+        // is supplied, otherwise the band center. With the seriesKey wired through, each label
+        // lands on its own bar instead of the shared band center.
+        const series: ResolvedSeries[] = [
+            { key: 'a', label: 'A', color: '#112233', data: [10] },
+            { key: 'b', label: 'B', color: '#445566', data: [20] },
+        ]
+        const xScaleGrouped = (label: string, seriesKey?: string): number | undefined => {
+            const bandStart = X_POSITIONS[label]
+            if (bandStart == null) {
+                return undefined
+            }
+            if (seriesKey === 'a') {
+                return bandStart - 10
+            }
+            if (seriesKey === 'b') {
+                return bandStart + 10
+            }
+            return bandStart
+        }
+        const ctx = makeContext(series, {
+            labels: ['Mon'],
+            scales: { x: xScaleGrouped, y: yScale, yTicks: () => [0, 50, 100] },
+        })
+        const { container } = renderInChart(ctx, <ValueLabels />)
+        const divs = labelDivs(container)
+        expect(divs).toHaveLength(2)
+        // Each label should land on its own bar's x — not the shared band center (60).
+        const byColor = new Map(divs.map((d) => [d.style.backgroundColor, d.style.left]))
+        expect(byColor.get('rgb(17, 34, 51)')).toBe('50px')
+        expect(byColor.get('rgb(68, 85, 102)')).toBe('70px')
+    })
+
     it('renders null when nothing survives filtering', () => {
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [NaN, NaN, NaN] }]
         const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
@@ -226,11 +212,11 @@ describe('ValueLabels', () => {
 
     it('positions labels at the resolved (e.g. stacked) y, not the raw series.data y', () => {
         // Raw value 25 sits at y=278 on the left axis; stacking lifts it to top-of-stack=75 → y=104.
-        // The resolveValue closure mimics what LineChart provides for stacked series.
+        // The resolvePositionValue closure mimics what LineChart provides for stacked series.
         const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [25] }]
         const stackedTops: Record<string, number[]> = { s: [75] }
-        const resolveValue: ResolveValueFn = (s, i) => stackedTops[s.key]?.[i] ?? s.data[i] ?? 0
-        const ctx = makeContext(series, { labels: ['Mon'], resolveValue })
+        const resolvePositionValue: ResolveValueFn = (s, i) => stackedTops[s.key]?.[i] ?? s.data[i] ?? 0
+        const ctx = makeContext(series, { labels: ['Mon'], resolvePositionValue })
         const { container } = renderInChart(ctx, <ValueLabels />)
         const divs = labelDivs(container)
         expect(divs).toHaveLength(1)
@@ -276,15 +262,6 @@ describe('ValueLabels', () => {
     })
 
     describe('stack-total mode', () => {
-        it('honours maxPointsPerSeries against the number of bands', () => {
-            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 20, 30, 40, 50] }]
-            const { container } = renderInChart(
-                makeContext(series),
-                <ValueLabels mode="stack-total" maxPointsPerSeries={3} />
-            )
-            expect(labelDivs(container)).toHaveLength(0)
-        })
-
         it('skips mixed-sign bands (no single visual stack apex)', () => {
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#a00', data: [30, 30] },
@@ -300,40 +277,13 @@ describe('ValueLabels', () => {
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#112233', data: [10, 0, 30] },
                 { key: 'b', label: 'B', color: '#445566', data: [5, 0, 5] },
-                { key: 'c', label: 'C', color: '#778899', data: [99, 99, 99], visibility: { fromValueLabels: true } },
+                { key: 'c', label: 'C', color: '#778899', data: [99, 99, 99], visibility: { valueLabel: false } },
             ]
             const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
             const divs = labelDivs(renderInChart(ctx, <ValueLabels mode="stack-total" />).container)
             expect(divs.map((d) => d.textContent)).toEqual(['15', '35'])
             // Total label uses the topmost visible series color.
             expect(divs[0].style.backgroundColor).toBe('rgb(68, 85, 102)')
-        })
-    })
-
-    describe('minBarSize', () => {
-        const barPrivate = { __barChart: { band: () => 0, value: () => 0 } as unknown }
-        const barScales = { x: xScale, y: yScale, yTicks: () => [0, 50, 100], _private: barPrivate }
-
-        it.each<[string, number[], string[], { minBarSize?: number; bar?: boolean; mode?: 'stack-total' }]>([
-            ['filters narrow segments by default on bar charts', [1, 2, 50, 1, 2], ['50'], { bar: true }],
-            ['minBarSize=0 keeps everything', [1, 50], ['1', '50'], { minBarSize: 0, bar: true }],
-            ['ignored on non-bar charts', [1, 2], ['1', '2'], {}],
-        ])('%s', (_name, data, expected, { minBarSize, bar }) => {
-            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data }]
-            const labels = data.length === 5 ? LABELS : ['Mon', 'Tue']
-            const ctx = makeContext(series, bar ? { labels, scales: barScales } : { labels })
-            const { container } = renderInChart(ctx, <ValueLabels minBarSize={minBarSize} />)
-            expect(labelDivs(container).map((d) => d.textContent)).toEqual(expected)
-        })
-
-        it('drops bands whose stack-total size is below minBarSize', () => {
-            const series: ResolvedSeries[] = [
-                { key: 'a', label: 'A', color: '#a00', data: [1, 50] },
-                { key: 'b', label: 'B', color: '#0a0', data: [1, 5] },
-            ]
-            const ctx = makeContext(series, { labels: ['Mon', 'Tue'], scales: barScales })
-            const divs = labelDivs(renderInChart(ctx, <ValueLabels mode="stack-total" />).container)
-            expect(divs.map((d) => d.textContent)).toEqual(['55'])
         })
     })
 

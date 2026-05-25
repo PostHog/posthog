@@ -17,15 +17,14 @@ async def test_workflow_returns_activity_result_as_dict():
     @activity.defn(name="sweep_gemini_files_activity")
     async def sweep_mocked(inputs: CleanupSweepInputs) -> CleanupSweepResult:
         return CleanupSweepResult(
-            listed=42,
+            scanned=42,
             deleted=10,
             skipped_running=5,
             skipped_too_young=20,
-            skipped_unrecognized_prefix=2,
-            skipped_no_name=1,
             skipped_temporal_error=1,
+            skipped_invalid_value=2,
             delete_failed=1,
-            hit_max_files_cap=False,
+            hit_max_files_cap=True,
         )
 
     task_queue = str(uuid.uuid4())
@@ -45,13 +44,12 @@ async def test_workflow_returns_activity_result_as_dict():
             )
 
     assert result == {
-        "listed": 42,
+        "scanned": 42,
         "deleted": 10,
         "skipped_running": 5,
         "skipped_too_young": 20,
-        "skipped_unrecognized_prefix": 2,
-        "skipped_no_name": 1,
         "skipped_temporal_error": 1,
+        "skipped_invalid_value": 2,
         "delete_failed": 1,
-        "hit_max_files_cap": False,
+        "hit_max_files_cap": True,
     }

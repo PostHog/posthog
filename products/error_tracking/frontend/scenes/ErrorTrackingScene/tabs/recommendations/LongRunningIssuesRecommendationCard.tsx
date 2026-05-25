@@ -20,6 +20,18 @@ export function LongRunningIssuesRecommendationCard({
     const { suppressIssue, activateIssue } = useActions(recommendationsTabLogic)
 
     const issues = recommendation.meta.issues ?? []
+    const isFirstLoad = recommendation.computed_at === null
+
+    if (isFirstLoad) {
+        return (
+            <RecommendationCard
+                recommendationId={recommendation.id}
+                title="Long-running issues"
+                description="Your oldest active issues that are still firing this week — worth a second look."
+                dismissed={dismissed}
+            />
+        )
+    }
 
     if (issues.length === 0) {
         return (
@@ -71,7 +83,7 @@ export function LongRunningIssuesRecommendationCard({
                                         onClick={(e) => {
                                             e.preventDefault()
                                             e.stopPropagation()
-                                            suppressIssue({ issueId: issue.id })
+                                            suppressIssue(issue.id)
                                         }}
                                     >
                                         Suppress
@@ -83,7 +95,7 @@ export function LongRunningIssuesRecommendationCard({
                                         onClick={(e) => {
                                             e.preventDefault()
                                             e.stopPropagation()
-                                            activateIssue({ issueId: issue.id })
+                                            activateIssue(issue.id)
                                         }}
                                     >
                                         Undo

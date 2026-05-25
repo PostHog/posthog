@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -13,6 +13,13 @@ import {
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsSamplingSectionLogicType } from './logsSamplingSectionLogicType'
+import { type SamplingRuleDropTotals, fetchSamplingRuleDropTotalsLast24h } from './samplingRuleDropImpact'
+
+// Background refresh cadence for the per-rule 24h drop counts. The underlying
+// `app_metrics2` table flushes every ~1 min, so a 30s tick is fast enough that
+// the user sees the new numbers shortly after they arrive without spamming
+// HogQL. The disposables plugin pauses the timer while the tab is hidden.
+const IMPACT_POLL_INTERVAL_MS = 30_000
 
 export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsSampling', 'logsSamplingSectionLogic']),
@@ -56,9 +63,59 @@ export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
                 },
             },
         ],
+        ruleDropImpact: [
+            {} as Record<string, SamplingRuleDropTotals>,
+            {
+                loadRuleDropImpact: async (_, breakpoint) => {
+                    const rules = values.rules
+                    const ids = rules.map((r) => r.id)
+                    if (ids.length === 0) {
+                        return {}
+                    }
+                    await breakpoint(1)
+                    return await fetchSamplingRuleDropTotalsLast24h(ids)
+                },
+            },
+        ],
     })),
 
+    reducers({
+        ruleDropImpactStatus: [
+            'idle' as 'idle' | 'loading' | 'ok' | 'error',
+            {
+                loadRuleDropImpact: () => 'loading',
+                loadRuleDropImpactSuccess: () => 'ok',
+                loadRuleDropImpactFailure: () => 'error',
+            },
+        ],
+    }),
+
+    selectors({
+        ruleDropImpactCellState: [
+            (s) => [s.ruleDropImpactStatus, s.ruleDropImpactLoading, s.rules],
+            (
+                status: 'idle' | 'loading' | 'ok' | 'error',
+                loading: boolean,
+                rules: LogsSamplingRuleApi[]
+            ): 'loading' | 'ok' | 'error' | 'unknown' => {
+                if (loading || (status === 'idle' && rules.length > 0)) {
+                    return 'loading'
+                }
+                if (status === 'error') {
+                    return 'error'
+                }
+                if (status === 'ok') {
+                    return 'ok'
+                }
+                return 'unknown'
+            },
+        ],
+    }),
+
     listeners(({ actions, values }) => ({
+        loadRulesSuccess: () => {
+            actions.loadRuleDropImpact(undefined)
+        },
         saveRulesOrder: async ({ orderedIds }) => {
             const projectId = values.currentTeamId
             if (projectId === null) {
@@ -96,7 +153,13 @@ export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, cache }) => {
         actions.loadRules()
+        cache.disposables.add(() => {
+            const pollTimer = window.setInterval(() => {
+                actions.loadRuleDropImpact(undefined)
+            }, IMPACT_POLL_INTERVAL_MS)
+            return () => clearInterval(pollTimer)
+        }, 'impactPoller')
     }),
 ])

@@ -11,7 +11,7 @@ import { AppMetricsOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import type { LogsSettings } from '~/types'
 
-import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
 import { HealthCheckResult, PluginServerService } from '../types'
 import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
@@ -21,7 +21,7 @@ import { type PiiScrubStats } from './log-pii-scrub'
 import { processLogMessageBuffer } from './log-record-avro'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import type { CompiledRuleSet } from './sampling/evaluate'
-import { processBufferWithSampling } from './sampling/process-buffer-with-sampling'
+import { LogsSamplingService } from './sampling/logs-sampling.service'
 import { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
@@ -48,8 +48,6 @@ export type UsageStats = {
     bytesDropped: number
     recordsDropped: number
     piiReplacements: number
-    /** Log lines dropped by head sampling / drop rules (not quota or rate limit). */
-    samplingRecordsDropped: number
 }
 
 const DEFAULT_USAGE_STATS: UsageStats = {
@@ -60,7 +58,6 @@ const DEFAULT_USAGE_STATS: UsageStats = {
     bytesDropped: 0,
     recordsDropped: 0,
     piiReplacements: 0,
-    samplingRecordsDropped: 0,
 }
 
 export type UsageStatsByTeam = Map<number, UsageStats>
@@ -121,12 +118,19 @@ export const logsSamplingRecordsDroppedCounter = new Counter({
     labelNames: ['team_id'],
 })
 
+export const logsBytesDroppedByRuleCounter = new Counter({
+    name: 'logs_ingestion_bytes_dropped_by_rule_total',
+    help: 'Bytes dropped by drop rules, summed from per-row bytes_uncompressed.',
+    labelNames: ['team_id'],
+})
+
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
+    private samplingService: LogsSamplingService
     private readonly samplingEnabledTeamsRaw: string
     private readonly samplingKillswitch: boolean
 
@@ -144,7 +148,7 @@ export class LogsIngestionConsumer {
 
         this.appMetricsAggregator = new AppMetricsAggregator(deps.outputs)
 
-        this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
+        this.kafkaConsumer = createKafkaConsumer({ groupId: this.groupId, topic: this.topic })
         // Logs ingestion uses its own Redis instance with TLS support
         this.redis = createRedisV2PoolFromConfig({
             connection:
@@ -162,6 +166,7 @@ export class LogsIngestionConsumer {
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(config, this.redis)
+        this.samplingService = new LogsSamplingService(this.redis, config.LOGS_LIMITER_TTL_SECONDS)
         this.samplingEnabledTeamsRaw = overrides.LOGS_SAMPLING_ENABLED_TEAMS ?? config.LOGS_SAMPLING_ENABLED_TEAMS
         this.samplingKillswitch = overrides.LOGS_SAMPLING_KILLSWITCH ?? config.LOGS_SAMPLING_KILLSWITCH
     }
@@ -198,12 +203,14 @@ export class LogsIngestionConsumer {
               pii: PiiScrubStats
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
+              bytesDroppedByRuleId: Map<string, number>
           }
         | {
               outcome: 'sampling_all_dropped'
               pii: PiiScrubStats
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
+              bytesDroppedByRuleId: Map<string, number>
           }
     > {
         const samplingCache = this.deps.samplingRulesCache
@@ -227,9 +234,17 @@ export class LogsIngestionConsumer {
         })
 
         if (useSamplingPipeline && ruleSet) {
-            const sampled = await processBufferWithSampling(message.message.value!, logsSettings, ruleSet)
+            const sampled = await this.samplingService.processBuffer(
+                message.message.value!,
+                logsSettings,
+                ruleSet,
+                message.teamId
+            )
             if (sampled.recordsDropped > 0) {
                 logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, sampled.recordsDropped)
+            }
+            if (sampled.bytesDropped > 0) {
+                logsBytesDroppedByRuleCounter.inc({ team_id: message.teamId.toString() }, sampled.bytesDropped)
             }
             if (sampled.allDropped) {
                 return {
@@ -237,6 +252,7 @@ export class LogsIngestionConsumer {
                     pii: sampled.pii,
                     recordsDropped: sampled.recordsDropped,
                     recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
+                    bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
                 }
             }
             return {
@@ -245,6 +261,7 @@ export class LogsIngestionConsumer {
                 pii: sampled.pii,
                 recordsDropped: sampled.recordsDropped,
                 recordsDroppedByRuleId: sampled.recordsDroppedByRuleId,
+                bytesDroppedByRuleId: sampled.bytesDroppedByRuleId,
             }
         }
 
@@ -255,6 +272,7 @@ export class LogsIngestionConsumer {
             pii: res.pii,
             recordsDropped: 0,
             recordsDroppedByRuleId: new Map(),
+            bytesDroppedByRuleId: new Map(),
         }
     }
 
@@ -359,15 +377,6 @@ export class LogsIngestionConsumer {
         usage.set(teamId, row)
     }
 
-    private addSamplingRecordsDroppedIntoUsage(usage: UsageStatsByTeam, teamId: number, count: number): void {
-        if (count === 0) {
-            return
-        }
-        const row = usage.get(teamId) || { ...DEFAULT_USAGE_STATS }
-        row.samplingRecordsDropped += count
-        usage.set(teamId, row)
-    }
-
     private async filterQuotaLimitedMessages(
         messages: LogsIngestionMessage[]
     ): Promise<{ quotaAllowedMessages: LogsIngestionMessage[]; quotaDroppedMessages: LogsIngestionMessage[] }> {
@@ -461,14 +470,14 @@ export class LogsIngestionConsumer {
                                 1
                             )
                             this.addPiiStatsIntoUsage(usageStats, message.teamId, resolved.pii)
-                            this.addSamplingRecordsDroppedIntoUsage(usageStats, message.teamId, resolved.recordsDropped)
                             this.queueSamplingRecordsDroppedByRule(message.teamId, resolved.recordsDroppedByRuleId)
+                            this.queueBytesDroppedByRule(message.teamId, resolved.bytesDroppedByRuleId)
                             return Promise.resolve()
                         }
-                        const { processedValue, pii, recordsDropped, recordsDroppedByRuleId } = resolved
+                        const { processedValue, pii, recordsDroppedByRuleId, bytesDroppedByRuleId } = resolved
                         this.addPiiStatsIntoUsage(usageStats, message.teamId, pii)
-                        this.addSamplingRecordsDroppedIntoUsage(usageStats, message.teamId, recordsDropped)
                         this.queueSamplingRecordsDroppedByRule(message.teamId, recordsDroppedByRuleId)
+                        this.queueBytesDroppedByRule(message.teamId, bytesDroppedByRuleId)
 
                         // Await so a rejection here lands in the catch and routes to the DLQ.
                         await this.deps.outputs.queueMessages(LOGS_OUTPUT, [
@@ -539,7 +548,6 @@ export class LogsIngestionConsumer {
             this.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
             this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
             this.queueUsageMetric(teamId, 'pii_replacements', stats.piiReplacements)
-            this.queueUsageMetric(teamId, 'sampling_records_dropped', stats.samplingRecordsDropped)
         }
 
         // Best-effort: don't let metric failures block ingestion
@@ -565,7 +573,10 @@ export class LogsIngestionConsumer {
         })
     }
 
-    /** Per-rule head sampling drops; `instance_id` is the LogsExclusionRule UUID (app_metrics2 dimension). */
+    /**
+     * Per-rule head sampling drops in app_metrics2 (`sampling_records_dropped_by_rule`).
+     * Team-level sampling volume in CH is `sum(count)` over those rows (no separate aggregate metric).
+     */
     private queueSamplingRecordsDroppedByRule(teamId: number, byRule: Map<string, number>): void {
         for (const [ruleId, count] of byRule) {
             if (count <= 0) {
@@ -578,6 +589,27 @@ export class LogsIngestionConsumer {
                 instance_id: ruleId,
                 metric_kind: 'usage',
                 metric_name: 'sampling_records_dropped_by_rule',
+                count,
+            })
+        }
+    }
+
+    /**
+     * Per-rule dropped bytes in app_metrics2 (`bytes_dropped_by_rule`). Summed from per-row
+     * `bytes_uncompressed`; bridges drop-rule accounting toward billing's `bytes_ingested`.
+     */
+    private queueBytesDroppedByRule(teamId: number, byRule: Map<string, number>): void {
+        for (const [ruleId, count] of byRule) {
+            if (count <= 0) {
+                continue
+            }
+            this.appMetricsAggregator.queue({
+                team_id: teamId,
+                app_source: 'logs',
+                app_source_id: '',
+                instance_id: ruleId,
+                metric_kind: 'usage',
+                metric_name: 'bytes_dropped_by_rule',
                 count,
             })
         }

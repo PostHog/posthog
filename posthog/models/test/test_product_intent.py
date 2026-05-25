@@ -17,9 +17,13 @@ from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.insight import Insight
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
+    _fetch_product_intents,
+    _team_product_intents_cache_key,
+    cached_product_intents_for_team,
     calculate_product_activation,
     enqueue_product_activation_calc_debounced,
 )
+from posthog.models.team.team import Team
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.utils import get_instance_realm
 
@@ -836,3 +840,72 @@ class TestEnqueueProductActivationCalcDebounced(BaseTest):
         assert mock_log.call_args.args == ("product_activation_debounce_cache_failure",)
         assert mock_log.call_args.kwargs == {"team_id": self.team.id, "exc_info": True}
         mock_capture.assert_called_once()
+
+
+class TestCachedProductIntentsForTeam(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def test_caches_results(self):
+        ProductIntent.objects.create(team=self.team, product_type=ProductKey.SURVEYS)
+
+        with patch(
+            "posthog.models.product_intent.product_intent._fetch_product_intents",
+            wraps=_fetch_product_intents,
+        ) as spy:
+            first = cached_product_intents_for_team(self.team.id)
+            second = cached_product_intents_for_team(self.team.id)
+        assert spy.call_count == 1
+        assert first == second
+        assert {row["product_type"] for row in first} == {"surveys"}
+
+    @parameterized.expand(
+        [
+            (
+                "create",
+                lambda self: ProductIntent.objects.create(team=self.team, product_type=ProductKey.FEATURE_FLAGS),
+            ),
+            (
+                "delete",
+                lambda self: ProductIntent.objects.get(team=self.team, product_type=ProductKey.EXPERIMENTS).delete(),
+            ),
+        ]
+    )
+    def test_invalidates_on_signal(self, _name, mutate):
+        # Seed an existing intent so the delete path has something to remove and both
+        # cases share the same starting point.
+        ProductIntent.objects.create(team=self.team, product_type=ProductKey.EXPERIMENTS)
+        cached_product_intents_for_team(self.team.id)
+        assert cache.get(_team_product_intents_cache_key(self.team.id)) is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            mutate(self)
+
+        assert cache.get(_team_product_intents_cache_key(self.team.id)) is None
+
+    def test_invalidates_both_teams_on_reassignment(self):
+        # Codex P2: when an intent's team_id changes, the previous team's cache must
+        # also be evicted, otherwise its /api/users/@me/ payload returns the moved
+        # intent for up to PRODUCT_INTENTS_CACHE_TTL_SECONDS.
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.SURVEYS)
+        cached_product_intents_for_team(self.team.id)
+        cached_product_intents_for_team(other_team.id)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            intent.team = other_team
+            intent.save()
+
+        assert cache.get(_team_product_intents_cache_key(self.team.id)) is None
+        assert cache.get(_team_product_intents_cache_key(other_team.id)) is None
+
+    def test_isolates_per_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        ProductIntent.objects.create(team=self.team, product_type=ProductKey.SURVEYS)
+        ProductIntent.objects.create(team=other_team, product_type=ProductKey.EXPERIMENTS)
+
+        team_a = cached_product_intents_for_team(self.team.id)
+        team_b = cached_product_intents_for_team(other_team.id)
+        assert {row["product_type"] for row in team_a} == {"surveys"}
+        assert {row["product_type"] for row in team_b} == {"experiments"}

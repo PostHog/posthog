@@ -33,6 +33,7 @@ export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     summary: 'sent every week',
     next_delivery_date: '2026-04-07T17:00:00Z',
     deleted: false,
+    enabled: true,
 }
 
 /** Insight subscription with several email recipients so Resource shows the type label, not the long name. */
@@ -62,6 +63,7 @@ export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     summary: 'sent every day',
     next_delivery_date: '2026-04-08T09:00:00Z',
     deleted: false,
+    enabled: true,
     integration_id: 1,
 }
 

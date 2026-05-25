@@ -18,6 +18,7 @@ import {
     GraphsHog,
     MailHog,
     MicrophoneHog,
+    ReadingHog,
     RobotHog,
     SurprisedHog,
 } from 'lib/components/hedgehogs'
@@ -42,6 +43,7 @@ const PRODUCT_HEDGEHOG: Partial<Record<string, React.ComponentType<{ className?:
     [ProductKey.ERROR_TRACKING]: DetectiveHog,
     [ProductKey.SURVEYS]: MicrophoneHog,
     [ProductKey.WORKFLOWS]: MailHog,
+    [ProductKey.LOGS]: ReadingHog,
 }
 
 function getSocialProof(productKey: string): string | undefined {

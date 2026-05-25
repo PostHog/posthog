@@ -447,7 +447,7 @@ function CDCConfigSection(): JSX.Element {
                                 <div>
                                     <div className="flex items-center gap-2 mb-1">
                                         <h4 className="mb-0 text-base font-semibold">Change data capture (CDC)</h4>
-                                        <LemonTag type="success">Recommended</LemonTag>
+                                        <LemonTag type="completion">Alpha</LemonTag>
                                     </div>
                                     <p className="text-sm text-secondary mb-2">
                                         Real-time sync via PostgreSQL logical replication. Captures inserts, updates,
@@ -779,10 +779,9 @@ export function SourceFormComponent({
                                     : 'Prefix cannot consist of only underscores'
                         }
 
-                        const displayValue = value ? value.trim().replace(/^_+|_+$/g, '') : ''
-                        const tableName = displayValue
-                            ? `${sourceConfig.name.toLowerCase()}.${displayValue}.table_name`
-                            : `${sourceConfig.name.toLowerCase()}.table_name`
+                        const cleanedPrefix = value ? value.trim() : ''
+                        const sourceType = sourceConfig.name.toLowerCase()
+                        const tableName = `${cleanedPrefix}${sourceType}_table_name`.toLowerCase()
                         return (
                             <>
                                 <LemonInput

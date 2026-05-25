@@ -70,24 +70,24 @@ export interface ChartProps<Meta = unknown> {
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
-    /** `data-attr` applied to the chart wrapper. Lets product-level tests
-     *  (`waitForSelector: '[data-attr=…] > canvas'`) target a chart instance
-     *  without having to know its className. */
     dataAttr?: string
     children?: React.ReactNode
-    /** Resolves the y-value for a series at a given index. Defaults to series.data[index].
-     *  Identity is read live for tooltip values and overlays, but the pinned-tooltip
+    /** Resolves the y-value to *display* for a series at a given index. Defaults to
+     *  series.data[index]. Identity is read live for tooltip values, but the pinned-tooltip
      *  rebuild only refires when `series`, `labels`, or `scales` change. Callers that
      *  derive values from data not reflected in those (e.g. an external "%" toggle)
      *  should ensure that toggle also updates `series` or the chart's scales — otherwise
      *  a held pin will keep showing values from the previous resolver. */
     resolveValue?: ResolveValueFn
+    /** Value used to *anchor* the tooltip and value-label overlays per series. Defaults to
+     *  `resolveValue`. Stacked charts pass the stacked-top resolver here so overlays land at the
+     *  visual top of each segment, while each tooltip row still shows that series's own value
+     *  via `resolveValue`. */
+    resolvePositionValue?: ResolveValueFn
     /** Required for horizontal orientation — maps labels to the coordinate on the categorical
      *  axis (y in horizontal mode). Should be referentially stable; non-stable identities
      *  invalidate the interaction memo on every render. */
     labelToCoord?: (label: string) => number | undefined
-    /** Surfaced on layout context so overlays can default to a percent formatter. */
-    isPercent?: boolean
 }
 
 export function Chart<Meta = unknown>({
@@ -104,8 +104,8 @@ export function Chart<Meta = unknown>({
     dataAttr,
     children,
     resolveValue,
+    resolvePositionValue,
     labelToCoord,
-    isPercent = false,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -115,6 +115,7 @@ export function Chart<Meta = unknown>({
         tooltip: tooltipConfig,
         showCrosshair = false,
         axisOrientation = 'vertical',
+        isPercent = false,
     } = config ?? {}
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
@@ -153,7 +154,7 @@ export function Chart<Meta = unknown>({
 
     const { left: resolvedYFormatter, right: resolvedYRightFormatter } = useResolvedYFormatters(scales, yTickFormatter)
 
-    const { hoverIndex, tooltipCtx, handlers } = useChartInteraction<Meta>({
+    const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useChartInteraction<Meta>({
         scales,
         dimensions,
         labels,
@@ -164,6 +165,7 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip,
         onPointClick,
         resolveValue,
+        resolvePositionValue,
         interactionAxis,
         labelToCoord,
     })
@@ -178,7 +180,7 @@ export function Chart<Meta = unknown>({
                 axisOrientation,
                 labelToCoord,
             }),
-        [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord]
+        [showCrosshair, theme.crosshairColor, axisOrientation, labelToCoord, drawHoverRef.current]
     )
 
     useChartDraw({
@@ -189,6 +191,7 @@ export function Chart<Meta = unknown>({
         series: coloredSeries,
         labels,
         hoverIndex,
+        hoverPosition,
         theme,
         drawStatic,
         drawHover: composedDrawHover,
@@ -206,7 +209,14 @@ export function Chart<Meta = unknown>({
         [canvasRef]
     )
 
-    const stableResolveValue = useStableResolveValue(resolveValue)
+    // Overlays (value labels) anchor at the stacked top, so expose the position resolver —
+    // falling back to the value resolver when the chart doesn't stack.
+    const stablePositionValue = useStableResolveValue(resolvePositionValue ?? resolveValue)
+
+    const axisValue = useMemo(
+        () => ({ orientation: axisOrientation, xTickFormatter, isPercent }),
+        [axisOrientation, xTickFormatter, isPercent]
+    )
 
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
@@ -218,12 +228,11 @@ export function Chart<Meta = unknown>({
             labels,
             series: coloredSeries,
             theme,
-            resolveValue: stableResolveValue,
+            resolvePositionValue: stablePositionValue,
             canvasBounds,
-            axisOrientation,
-            isPercent,
+            axis: axisValue,
         }
-    }, [scales, dimensions, labels, coloredSeries, theme, stableResolveValue, canvasBounds, axisOrientation, isPercent])
+    }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue])
 
     const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 

@@ -1,0 +1,220 @@
+@layer components {
+    /*
+     * Outer chrome — owns border / shadow / radius / animation.
+     * Mirrors `.quill-combobox__content`. Scroll lives on the inner List.
+     */
+    .quill-autocomplete__content {
+        position: relative;
+
+        /*
+         * Default minimum width matches the trigger (`--anchor-width` is set
+         * by base-ui's Positioner from the anchor element). The popup grows
+         * with content but never shrinks below the trigger. Override per
+         * instance by setting `--quill-autocomplete-min-width` — works via
+         * inline style or Tailwind arbitrary-property syntax:
+         *
+         *   <AutocompleteContent style={{ '--quill-autocomplete-min-width': '20rem' }} />
+         *   <AutocompleteContent className="[--quill-autocomplete-min-width:20rem]" />
+         *
+         * `max-width: var(--available-width)` keeps it inside the viewport.
+         */
+        min-width: var(--quill-autocomplete-min-width, var(--anchor-width, 8rem));
+        max-width: var(--available-width);
+        max-height: var(--available-height);
+        overflow: hidden;
+        color: var(--foreground);
+        background-color: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-md);
+        transition:
+            opacity 150ms cubic-bezier(0.215, 0.61, 0.355, 1),
+            transform 150ms cubic-bezier(0.215, 0.61, 0.355, 1);
+        transform-origin: var(--transform-origin);
+    }
+
+    .quill-autocomplete__content[data-starting-style],
+    .quill-autocomplete__content[data-ending-style] {
+        opacity: 0;
+        transform: scale(0.97);
+    }
+
+    /*
+     * Input wrapper acts as the popup's search header — but ONLY when
+     * rendered inside a popover (`.quill-autocomplete__content`) or a
+     * dialog (`[data-slot='dialog-content']`). When used standalone on a
+     * page (e.g. the Combobox-style Grouped story where the input is a
+     * sibling of the popover), the wrapper stays bare so it reads as a
+     * normal page-level input.
+     *
+     * `:where()` keeps specificity at 0,1,0 so consumers can still
+     * override per-instance via className.
+     */
+    :where(.quill-autocomplete__content, [data-slot='dialog-content']) [data-slot='autocomplete-input-group-wrapper'] {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        padding: var(--spacing, 0.25rem);
+        background-color: var(--card);
+        border-bottom: 1px solid var(--border);
+    }
+
+    /* When AutocompleteStatus immediately follows the input wrapper, the
+       Status acts as the divider — drop the wrapper's border-bottom so we
+       don't double-up. */
+    :where(.quill-autocomplete__content, [data-slot='dialog-content'])
+        [data-slot='autocomplete-input-group-wrapper']:has(+ [data-slot='autocomplete-status']) {
+        padding-bottom: 0;
+        border-bottom: none;
+    }
+
+    :where(.quill-autocomplete__content, [data-slot='dialog-content'])
+        [data-slot='autocomplete-input-group-wrapper']
+        [data-slot='input-group'] {
+        height: 1.75rem;
+        background-color: color-mix(in oklab, var(--input) 20%, transparent);
+        box-shadow: none;
+    }
+
+    /* The separator that AutocompleteInput renders is redundant once the
+       wrapper has its own border-bottom, so hide it. Kept in the JSX so
+       inline use (input outside of popup) can still opt into it later. */
+    [data-slot='autocomplete-popover-separator'] {
+        display: none;
+    }
+
+    /*
+     * List — scroll lives here. Border on parent `.quill-autocomplete__content`.
+     * `--available-height` is set by base-ui's Positioner in popover mode.
+     * In inline mode (e.g. inside a Dialog) the variable is undefined, so we
+     * fall back to `100vh` which lets the list expand to whatever the parent
+     * (e.g. DialogContent) actually allows.
+     */
+    .quill-autocomplete__list {
+        min-height: 0;
+        max-height: min(
+            calc(var(--spacing, 0.25rem) * 72 - var(--spacing, 0.25rem) * 9),
+            calc(var(--available-height, 100vh) - var(--spacing, 0.25rem) * 9)
+        );
+        padding: var(--spacing, 0.25rem);
+
+        /* `hidden auto` = overflow-x: hidden, overflow-y: auto. Clips item
+           highlight rings at the list's right edge so they don't leak past
+           the popup/dialog's rounded corners (combobox uses a popup with
+           overflow:hidden, autocomplete-inline-in-Dialog has no such wrapper). */
+        overflow: hidden auto;
+        overscroll-behavior: contain;
+        scroll-padding-block: var(--spacing, 0.25rem);
+    }
+
+    /*
+     * Empty state visibility. Hide by default; show only when a sibling
+     * List has zero `[role='option']` descendants. Targets `[role='option']`
+     * rather than `[data-slot='autocomplete-item']` because base-ui's
+     * render-prop merging onto Button drops our slot attribute, but ARIA
+     * roles are always set by base-ui internally.
+     *
+     * Two selectors cover Empty placed before OR after the List in the
+     * DOM, without needing a common ancestor — works in popover mode
+     * (Default) and inline mode (CommandPalette inside Dialog).
+     *
+     * `MenuEmpty` is nested as a CHILD of `<Autocomplete.Empty>` (not
+     * passed via the `render` prop) so the parent's `display: none`
+     * collapses the whole subtree without needing `!important` to outrank
+     * `MenuEmpty`'s `inline-flex` from `buttonVariants`.
+     */
+    .quill-autocomplete__empty {
+        display: none;
+    }
+
+    .quill-autocomplete__empty:has(~ [data-slot='autocomplete-list']:not(:has([role='option']))),
+    [data-slot='autocomplete-list']:not(:has([role='option'])) ~ .quill-autocomplete__empty {
+        display: flex;
+    }
+
+    .quill-autocomplete__list[data-empty] {
+        padding: 0;
+    }
+
+    /* When AutocompleteStatus immediately precedes the list, the Status's
+       own padding already provides the inset above the first item — drop
+       the list's top padding to avoid stacking. */
+    [data-slot='autocomplete-status'] + .quill-autocomplete__list {
+        padding-top: 0;
+    }
+
+    .quill-autocomplete__item {
+        width: 100%;
+    }
+
+    .quill-autocomplete__item[data-disabled] {
+        pointer-events: none;
+        opacity: 0.5;
+    }
+
+    .quill-autocomplete__item:not([data-variant='destructive'])[data-highlighted] * {
+        color: var(--foreground);
+    }
+
+    /* Drop nested Item primitive borders inside autocomplete rows */
+    .quill-autocomplete__item > .item {
+        border: 0;
+    }
+
+    .quill-autocomplete__label {
+        position: sticky;
+        top: calc(var(--spacing, 0.25rem) * -1);
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        padding-block: 0 !important;
+
+        /*
+         * Pull the label flush with the list's outer top edge:
+         *  - `margin-top: -spacing` consumes the list's `padding-top` in
+         *    the normal flow (otherwise the label sits BELOW the padding
+         *    on initial render).
+         *  - `top: -spacing` keeps the sticky offset at the same place so
+         *    the label doesn't jump when scrolling starts.
+         *
+         * When `[data-slot='autocomplete-status']` precedes the list, the
+         * list's `padding-top` is 0 (set elsewhere in this file), so the
+         * lift would punch the label into the Status. Override below.
+         */
+        margin-top: calc(var(--spacing, 0.25rem) * -1);
+        background-color: var(--card);
+    }
+
+    [data-slot='autocomplete-status'] + .quill-autocomplete__list .quill-autocomplete__label {
+        top: 0;
+        margin-top: 0;
+    }
+
+    .quill-autocomplete__separator {
+        height: 1px;
+        margin-block: 0.25rem;
+        margin-inline: -0.25rem;
+        background-color: color-mix(in oklab, var(--border) 50%, transparent);
+    }
+
+    .quill-autocomplete__separator:last-child {
+        display: none;
+    }
+
+    .quill-autocomplete__trigger svg:not([class*='size-']) {
+        width: 0.875rem;
+        height: 0.875rem;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-autocomplete__content,
+        .quill-autocomplete__content[data-starting-style],
+        .quill-autocomplete__content[data-ending-style] {
+            opacity: 1;
+            transition: none;
+            transform: none;
+        }
+    }
+}

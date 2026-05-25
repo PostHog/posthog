@@ -24,6 +24,8 @@ import {
     TileLayout,
 } from '~/types'
 
+import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
+
 /** Shape used for staff JSON export, customer save-as-template, and API `create_from_template_json`. */
 export function dashboardToSaveableTemplate(
     dashboard: DashboardType<InsightModel> | null | undefined
@@ -115,15 +117,7 @@ export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
-export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 export const QUICK_FILTER_DEBOUNCE_MS = 1500
-
-/**
- * Cold-start one-shot threshold: if data is older than this when a shared dashboard loads,
- * trigger one immediate force_blocking refresh. Aligned with the periodic interval and the
- * backend throttle (`SHARED_FORCE_BLOCKING_MIN_AGE`).
- */
-export const SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES = AUTO_REFRESH_INITIAL_INTERVAL_SECONDS / 60
 
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {
@@ -142,23 +136,6 @@ function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
 export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh: Dayjs | null): boolean {
     const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
     return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
-}
-
-/**
- * Trigger one force_blocking refresh on initial shared-dashboard load if the stalest tile is too old.
- * Idempotent across reloads since the follow-up run uses `forceRefresh` + non-initial action.
- */
-export function scheduleSharedDashboardStaleAutoForceIfEligible(options: {
-    effectiveLastRefresh: Dayjs | null
-    triggerDashboardRefresh: () => void
-}): void {
-    const { effectiveLastRefresh, triggerDashboardRefresh } = options
-    if (!shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh)) {
-        return
-    }
-    queueMicrotask(() => {
-        triggerDashboardRefresh()
-    })
 }
 
 // Helper function for exponential backoff

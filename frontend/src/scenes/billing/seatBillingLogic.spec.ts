@@ -1,4 +1,10 @@
-import { canReactivateSeat, isFreePlanKey, isProPlanKey, seatPriceFromPlanKey } from './seatBillingLogic'
+import {
+    canReactivateSeat,
+    isAlphaPlanKey,
+    isFreePlanKey,
+    isProPlanKey,
+    seatPriceFromPlanKey,
+} from './seatBillingLogic'
 
 describe('seatBillingLogic plan key helpers', () => {
     describe('isProPlanKey', () => {
@@ -14,6 +20,21 @@ describe('seatBillingLogic plan key helpers', () => {
             [undefined, false],
         ])('isProPlanKey(%p) === %p', (planKey, expected) => {
             expect(isProPlanKey(planKey)).toBe(expected)
+        })
+    })
+
+    describe('isAlphaPlanKey', () => {
+        it.each([
+            ['posthog-code-pro-0-20260422', true],
+            ['posthog-code-pro-200-20260301', false],
+            ['posthog-code-pro-500-20270101', false],
+            ['posthog-code-free-20260301', false],
+            ['some-other-plan', false],
+            ['', false],
+            [null, false],
+            [undefined, false],
+        ])('isAlphaPlanKey(%p) === %p', (planKey, expected) => {
+            expect(isAlphaPlanKey(planKey)).toBe(expected)
         })
     })
 

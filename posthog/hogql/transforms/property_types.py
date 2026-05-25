@@ -30,14 +30,6 @@ from posthog.clickhouse.materialized_columns import (
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
 
-# Mapping from PropertyType enum values to column name suffixes for dynamic materialized columns
-PROPERTY_TYPE_TO_COLUMN_NAME: dict[str, str] = {
-    "String": "string",
-    "Numeric": "numeric",
-    "Boolean": "bool",
-    "DateTime": "datetime",
-}
-
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
@@ -86,9 +78,7 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         prop_info: dict[str, str | None] = {"type": prop_def.property_type}
         slot = prop_def.materialized_column_slots.first()
         if slot:
-            type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type)
-            if type_name:
-                prop_info["dmat"] = f"dmat_{type_name}_{slot.slot_index}"
+            prop_info["dmat"] = f"dmat_string_{slot.slot_index}"
 
         event_properties[prop_def.name] = prop_info
 
@@ -562,16 +552,27 @@ class PropertySwapper(CloningVisitor):
         # Add notice about the property type and materialization status
         self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
 
-        if "dmat" in prop_info:
-            # Don't rewrite the AST - let the printer substitute the dmat column
-            # The printer will check context.property_swapper and use the dmat column
-            return node
-
+        # Both paths fall through to the wrapper: dmat columns are `Nullable(String)` (the
+        # printer swaps the field to `dmat_string_<idx>`), so they need the same cast as
+        # the JSON fallback.
         return self._field_type_to_property_call(node, field_type)
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":
-            return ast.Call(name="toDateTime", args=[node])
+            # Carry the return type so an enclosing toDateTime() resolves its
+            # already-a-datetime overload instead of re-parsing this value
+            # (parseDateTime64BestEffortOrNull only accepts strings). Only
+            # return_type drives overload resolution here; arg_types is an
+            # approximation of the signature and is not re-validated.
+            return ast.Call(
+                name="toDateTime",
+                args=[node],
+                type=ast.CallType(
+                    name="toDateTime",
+                    arg_types=[ast.StringType(nullable=True)],
+                    return_type=ast.DateTimeType(nullable=True),
+                ),
+            )
         if field_type == "Float":
             return ast.Call(name="toFloat", args=[node])
         if field_type == "Boolean":

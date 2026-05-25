@@ -30,13 +30,12 @@ class GeminiFileCleanupSweepWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         return {
-            "listed": result.listed,
+            "scanned": result.scanned,
             "deleted": result.deleted,
             "skipped_running": result.skipped_running,
             "skipped_too_young": result.skipped_too_young,
-            "skipped_unrecognized_prefix": result.skipped_unrecognized_prefix,
-            "skipped_no_name": result.skipped_no_name,
             "skipped_temporal_error": result.skipped_temporal_error,
+            "skipped_invalid_value": result.skipped_invalid_value,
             "delete_failed": result.delete_failed,
             "hit_max_files_cap": result.hit_max_files_cap,
         }

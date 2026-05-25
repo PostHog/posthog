@@ -37,8 +37,8 @@ export function getPreviewQueryUrl(
 }
 
 export const SyncProgressStep = (): JSX.Element => {
-    const { sourceId, isWrapped, source: wizardSource } = useValues(sourceWizardLogic)
-    const { cancelWizard } = useActions(sourceWizardLogic)
+    const { sourceId, isWrapped, source: wizardSource, nextButtonText } = useValues(sourceWizardLogic)
+    const { cancelWizard, closeWizard } = useActions(sourceWizardLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(sourceManagementLogic)
     const source = dataWarehouseSources?.results.find((n) => n.id === sourceId)
     const schemas = source?.schemas ?? []
@@ -175,6 +175,13 @@ export const SyncProgressStep = (): JSX.Element => {
                 isDirectQuerySource
                     ? "You're all set! Your enabled tables are now available in the SQL editor."
                     : "You're all set! We'll import the data in the background, and after it's done, you will be able to query it in PostHog."
+            }
+            actions={
+                !isWrapped && (
+                    <LemonButton type="primary" onClick={closeWizard} data-attr="sync-progress-return">
+                        {nextButtonText}
+                    </LemonButton>
+                )
             }
         >
             {schemasWithErrors.length > 0 && (

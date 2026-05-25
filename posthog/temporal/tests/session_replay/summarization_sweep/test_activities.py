@@ -72,6 +72,10 @@ async def test_find_sessions_filters_summarized(activity_environment, organizati
                 "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value=existing,
             ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value={"s2"},
+            ),
         ):
             result = await activity_environment.run(
                 find_sessions_for_team_activity,
@@ -103,6 +107,10 @@ async def test_find_sessions_dispatches_all_unsummarized_candidates(activity_env
             patch(
                 "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value=existing,
+            ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value={"s3", "s4", "s5", "s6", "s7"},
             ),
         ):
             result = await activity_environment.run(
@@ -137,6 +145,10 @@ async def test_find_sessions_passes_sample_rate_to_fetch(activity_environment, o
             patch(
                 "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={"only-1": False},
+            ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value={"only-1"},
             ),
         ):
             result = await activity_environment.run(
@@ -231,6 +243,10 @@ async def test_find_sessions_prefers_created_by_user(activity_environment, organ
                 "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={"s1": False},
             ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value={"s1"},
+            ),
         ):
             result = await activity_environment.run(
                 find_sessions_for_team_activity,
@@ -258,6 +274,10 @@ async def test_find_sessions_falls_back_when_created_by_is_null(activity_environ
             patch(
                 "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={"s1": False},
+            ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value={"s1"},
             ),
         ):
             result = await activity_environment.run(
@@ -311,6 +331,10 @@ async def test_find_sessions_skips_recordings_with_too_many_failures(activity_en
                 return_value={},
             ),
             patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                return_value=set(candidate_ids),
+            ),
+            patch(
                 "posthog.temporal.session_replay.summarization_sweep.activities._stuck_session_ids",
                 return_value={"stuck-2"},
             ),
@@ -322,6 +346,104 @@ async def test_find_sessions_skips_recordings_with_too_many_failures(activity_en
         assert sorted(result.session_ids) == ["good-1", "good-3"]
     finally:
         await sync_to_async(user.delete)()
+
+
+@pytest.mark.parametrize(
+    "candidate_ids,sessions_with_events,expected_kept",
+    [
+        (["has-events", "snapshot-only-1", "snapshot-only-2"], {"has-events"}, ["has-events"]),
+        (["s1", "s2", "s3"], {"s1", "s2", "s3"}, ["s1", "s2", "s3"]),
+        (["s1", "s2", "s3"], set(), []),
+    ],
+    ids=["mixed", "all_have_events", "none_have_events"],
+)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_find_sessions_drops_sessions_without_events(
+    activity_environment, organization, team, candidate_ids, sessions_with_events, expected_kept
+):
+    from typing import Any
+
+    from posthog.models.user import User
+
+    await sync_to_async(enable_signal_source)(team)
+    user = await sync_to_async(User.objects.create_and_join)(organization, "events@posthog.com", "pw", "Events")
+    try:
+        captured: dict[str, Any] = {}
+
+        def _fake_filter(*, team, session_ids, lookback_minutes, max_execution_time_seconds):
+            captured["session_ids"] = list(session_ids)
+            captured["lookback_minutes"] = lookback_minutes
+            captured["max_execution_time_seconds"] = max_execution_time_seconds
+            return sessions_with_events
+
+        with (
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.fetch_recent_session_ids",
+                return_value=candidate_ids,
+            ),
+            patch(
+                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                return_value={},
+            ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+                side_effect=_fake_filter,
+            ),
+        ):
+            result = await activity_environment.run(
+                find_sessions_for_team_activity,
+                FindSessionsInput(team_id=team.id, lookback_minutes=30),
+            )
+        from posthog.temporal.session_replay.summarization_sweep.constants import (
+            EVENTS_PREFILTER_QUERY_MAX_EXECUTION_SECONDS,
+        )
+
+        assert sorted(result.session_ids) == sorted(expected_kept)
+        assert sorted(captured["session_ids"]) == sorted(candidate_ids)
+        assert captured["lookback_minutes"] == 30
+        assert captured["max_execution_time_seconds"] == EVENTS_PREFILTER_QUERY_MAX_EXECUTION_SECONDS
+    finally:
+        await sync_to_async(user.delete)()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_find_sessions_skips_events_filter_when_all_summarized(activity_environment, organization, team):
+    from posthog.models.user import User
+
+    await sync_to_async(enable_signal_source)(team)
+    user = await sync_to_async(User.objects.create_and_join)(organization, "skipfilter@posthog.com", "pw", "Skip")
+    try:
+        candidate_ids = ["s1", "s2"]
+        with (
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.fetch_recent_session_ids",
+                return_value=candidate_ids,
+            ),
+            patch(
+                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                return_value={"s1": True, "s2": True},
+            ),
+            patch(
+                "posthog.temporal.session_replay.summarization_sweep.activities.filter_session_ids_with_events",
+            ) as mock_filter,
+        ):
+            result = await activity_environment.run(
+                find_sessions_for_team_activity,
+                FindSessionsInput(team_id=team.id, lookback_minutes=30),
+            )
+        assert result.session_ids == []
+        mock_filter.assert_not_called()
+    finally:
+        await sync_to_async(user.delete)()
+
+
+@pytest.mark.asyncio
+async def test_filter_session_ids_with_events_returns_empty_for_empty_input():
+    from posthog.temporal.session_replay.summarization_sweep.session_candidates import filter_session_ids_with_events
+
+    assert filter_session_ids_with_events(team=None, session_ids=[], lookback_minutes=30) == set()  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

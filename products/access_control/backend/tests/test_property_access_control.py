@@ -99,6 +99,55 @@ class TestGetPropertyAccessLevel(BaseTest):
         assert level == PropertyAccessLevel.READ
         assert level.grants_access()
 
+    def test_org_admin_bypasses_default_restriction(self):
+        from posthog.models import OrganizationMembership
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        level = get_property_access_level(property=self.prop_def, user=self.user)
+        assert level == PropertyAccessLevel.READ_WRITE
+
+    def test_org_admin_bypasses_user_specific_restriction(self):
+        from posthog.models import OrganizationMembership
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member=self.organization_membership,
+        )
+        level = get_property_access_level(property=self.prop_def, user=self.user)
+        assert level == PropertyAccessLevel.READ_WRITE
+
+    def test_org_admin_bypasses_role_restriction(self):
+        from posthog.models import OrganizationMembership
+
+        from ee.models.rbac.role import Role, RoleMembership
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        role = Role.objects.create(name="Restricted", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+            role=role,
+        )
+        level = get_property_access_level(property=self.prop_def, user=self.user)
+        assert level == PropertyAccessLevel.READ_WRITE
+
     def test_grants_access_helper(self):
         assert PropertyAccessLevel.READ_WRITE.grants_access() is True
         assert PropertyAccessLevel.READ.grants_access() is True

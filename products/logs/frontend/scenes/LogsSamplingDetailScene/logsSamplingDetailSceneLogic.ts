@@ -13,6 +13,10 @@ import {
     buildSamplingFormDefaults,
     logsSamplingFormLogic,
 } from 'products/logs/frontend/components/LogsSampling/logsSamplingFormLogic'
+import {
+    type SamplingRuleDropTotals,
+    fetchSamplingRuleDropTotalsLast24h,
+} from 'products/logs/frontend/components/LogsSampling/samplingRuleDropImpact'
 import { logsSamplingRulesDestroy, logsSamplingRulesRetrieve } from 'products/logs/frontend/generated/api'
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSettingsUrl'
@@ -52,6 +56,16 @@ export const logsSamplingDetailSceneLogic = kea<logsSamplingDetailSceneLogicType
                 loadRule: async () => logsSamplingRulesRetrieve(String(values.currentTeamId), props.id),
             },
         ],
+        ruleDropImpact24h: [
+            null as SamplingRuleDropTotals | null,
+            {
+                loadRuleDropImpact24h: async (_, breakpoint) => {
+                    await breakpoint(1)
+                    const map = await fetchSamplingRuleDropTotalsLast24h([props.id])
+                    return map[props.id] ?? { records: 0, bytes: 0 }
+                },
+            },
+        ],
     })),
 
     selectors({
@@ -74,6 +88,13 @@ export const logsSamplingDetailSceneLogic = kea<logsSamplingDetailSceneLogicType
             if (values.rule) {
                 actions.resetSamplingForm(buildSamplingFormDefaults(values.rule))
             }
+            actions.loadRuleDropImpact24h(undefined)
+        },
+        loadRuleDropImpact24hFailure: () => {
+            // Mirrors the deleteRule pattern below — the kea-loaders default is to
+            // log and swallow, which leaves the refresh button looking like it did
+            // nothing on backend failure. Toast so the user knows to retry.
+            lemonToast.error('Could not refresh drop impact')
         },
         deleteRule: async () => {
             try {

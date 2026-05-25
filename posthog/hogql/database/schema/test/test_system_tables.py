@@ -4,13 +4,13 @@ from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import (
-    Action,
     Annotation,
     Cohort,
     ExportedAsset,
@@ -24,23 +24,21 @@ from posthog.models import (
     Team,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.alert import AlertConfiguration
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
 
+from products.actions.backend.models.action import Action
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.conversations.backend.models import Ticket
+from products.customer_analytics.backend.models.account import Account
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from products.experiments.backend.models.experiment import Experiment
 from products.llm_analytics.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.llm_analytics.backend.models.score_definitions import ScoreDefinition
@@ -48,6 +46,10 @@ from products.llm_analytics.backend.models.trace_reviews import TraceReview, Tra
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook
 from products.surveys.backend.models import Survey
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 
@@ -92,6 +94,13 @@ class TestSystemTablesTeamScoping(BaseTest):
             f"or add to excluded_tables with a reason."
         )
 
+    def test_error_tracking_symbol_sets_does_not_expose_storage_internals(self):
+        table = SystemTables().children["error_tracking_symbol_sets"].get()
+        assert isinstance(table, Table)
+
+        assert "storage_ptr" not in table.fields
+        assert "content_hash" not in table.fields
+
 
 def _create_batch_export(team: Team, label: str):
     from posthog.batch_exports.models import BatchExport, BatchExportDestination
@@ -117,6 +126,10 @@ def _create_alert(team: Team, label: str) -> AlertConfiguration:
 
 def _create_activity_log(team: Team, label: str) -> ActivityLog:
     return ActivityLog.objects.create(team_id=team.pk, activity="updated", scope="FeatureFlag", item_id=label)
+
+
+def _create_account(team: Team, label: str) -> Account:
+    return Account.objects.unscoped().create(team=team, name=f"account_{label}", external_id=f"ext_{label}")
 
 
 def _create_action(team: Team, label: str) -> Action:
@@ -275,6 +288,12 @@ def _create_error_tracking_release(team: Team, label: str):
     )
 
 
+def _create_error_tracking_symbol_set(team: Team, label: str) -> ErrorTrackingSymbolSet:
+    return ErrorTrackingSymbolSet.objects.create(
+        team=team, ref=f"symbol_set_{label}", storage_ptr=f"symbolsets/{label}"
+    )
+
+
 def _create_hog_flow(team: Team, label: str) -> HogFlow:
     return HogFlow.objects.create(team=team, name=f"flow_{label}")
 
@@ -318,6 +337,20 @@ def _create_integration(team: Team, label: str):
     return Integration.objects.create(team=team, kind="slack", errors="")
 
 
+def _create_integration_repository_cache_entry(team: Team, label: str):
+    from posthog.models.integration import Integration
+    from posthog.models.integration_repository_cache import IntegrationRepositoryCacheEntry
+
+    integration = Integration.objects.create(team=team, kind="github", errors="")
+    return IntegrationRepositoryCacheEntry.objects.create(
+        integration=integration,
+        team=team,
+        full_name=f"owner/repo_{label}",
+        default_branch="main",
+        default_branch_sha=f"sha_{label}",
+    )
+
+
 def _create_logs_view(team: Team, label: str) -> LogsView:
     return LogsView.objects.create(team=team, name=f"logs_view_{label}")
 
@@ -349,6 +382,22 @@ def _create_trace_review(team: Team, label: str) -> TraceReview:
         created_by=user,
         reviewed_by=user,
     )
+
+
+def _create_score_definition(team: Team, label: str) -> ScoreDefinition:
+    user = _get_or_create_user_for_team(team, label)
+    definition = ScoreDefinition.objects.create(
+        team=team,
+        name=f"score_definition_{label}",
+        description="",
+        kind=ScoreDefinition.Kind.BOOLEAN,
+        created_by=user,
+    )
+    definition.create_new_version(
+        config={"true_label": "Yes", "false_label": "No"},
+        created_by=user,
+    )
+    return definition
 
 
 def _create_trace_review_score(team: Team, label: str) -> TraceReviewScore:
@@ -467,6 +516,7 @@ def _create_usage_metric(team: Team, label: str) -> GroupUsageMetric:
 
 
 SYSTEM_TABLE_FACTORIES = [
+    ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
     ("alerts", _create_alert),
@@ -489,6 +539,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("source_sync_jobs", _create_source_sync_job),
     ("error_tracking_issues", _create_error_tracking_issue),
     ("error_tracking_releases", _create_error_tracking_release),
+    ("error_tracking_symbol_sets", _create_error_tracking_symbol_set),
     ("error_tracking_suppression_rules", _create_error_tracking_suppression_rule),
     ("experiments", _create_experiment),
     ("exports", _create_export),
@@ -500,12 +551,14 @@ SYSTEM_TABLE_FACTORIES = [
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
     ("integrations", _create_integration),
+    ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
     ("logs_views", _create_logs_view),
     ("notebooks", _create_notebook),
     ("review_queue_items", _create_review_queue_item),
     ("review_queues", _create_review_queue),
     ("sandbox_environments", _create_sandbox_environment),
+    ("score_definitions", _create_score_definition),
     ("session_recording_playlists", _create_session_recording_playlist),
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),

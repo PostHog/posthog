@@ -20,16 +20,23 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
+import { compactNumber, humanizeBytes } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsSamplingSectionLogic } from './logsSamplingSectionLogic'
 import { ruleTypeLabel } from './ruleTypeLabel'
+import { type SamplingRuleDropTotals } from './samplingRuleDropImpact'
+
+type RuleDropImpactCellState = 'loading' | 'ok' | 'error' | 'unknown'
+
+const EMPTY_IMPACT: SamplingRuleDropTotals = { records: 0, bytes: 0 }
 
 interface SortableRowProps {
     row: LogsSamplingRuleApi
@@ -37,6 +44,8 @@ interface SortableRowProps {
     disabledReason: string | null
     ruleEnabledTogglePendingId: string | null
     saveRulesOrderPending: boolean
+    ruleDropImpactCellState: RuleDropImpactCellState
+    impact24h: SamplingRuleDropTotals
     onSetRuleEnabled: (ruleId: string, enabled: boolean) => void
 }
 
@@ -46,6 +55,8 @@ function SortableRow({
     disabledReason,
     ruleEnabledTogglePendingId,
     saveRulesOrderPending,
+    ruleDropImpactCellState,
+    impact24h,
     onSetRuleEnabled,
 }: SortableRowProps): JSX.Element {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -92,6 +103,30 @@ function SortableRow({
                 </LemonButton>
             </td>
             <td className="py-2 px-2 text-secondary text-sm align-middle">{ruleTypeLabel(row.rule_type)}</td>
+            <td className="py-2 px-2 text-secondary text-sm align-middle whitespace-nowrap">
+                {ruleDropImpactCellState === 'loading' ? (
+                    <span className="text-muted">…</span>
+                ) : ruleDropImpactCellState === 'ok' ? (
+                    <span>
+                        ~{compactNumber(impact24h.records)} dropped
+                        {impact24h.bytes > 0 && (
+                            <span className="text-muted"> · ~{humanizeBytes(impact24h.bytes)}</span>
+                        )}{' '}
+                        <span className="text-muted">(24h)</span>
+                    </span>
+                ) : (
+                    <span
+                        className="text-muted"
+                        title={
+                            ruleDropImpactCellState === 'error'
+                                ? 'Could not load 24h drop totals'
+                                : 'Drop impact not available'
+                        }
+                    >
+                        —
+                    </span>
+                )}
+            </td>
             <td className="py-2 px-2 w-32 align-middle">
                 <LemonSwitch
                     checked={row.enabled ?? false}
@@ -111,8 +146,14 @@ function SortableRow({
 }
 
 export function LogsSamplingRulesSortableTable(): JSX.Element {
-    const { rules, rulesLoading, saveRulesOrderPending, ruleEnabledTogglePendingId } =
-        useValues(logsSamplingSectionLogic)
+    const {
+        rules,
+        rulesLoading,
+        saveRulesOrderPending,
+        ruleEnabledTogglePendingId,
+        ruleDropImpact,
+        ruleDropImpactCellState,
+    } = useValues(logsSamplingSectionLogic)
     const { loadRules, saveRulesOrder, setRuleEnabled } = useActions(logsSamplingSectionLogic)
 
     const [localRules, setLocalRules] = useState<LogsSamplingRuleApi[]>(rules)
@@ -200,6 +241,23 @@ export function LogsSamplingRulesSortableTable(): JSX.Element {
                                 <th className="py-2 px-2 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider min-w-0">
                                     Type
                                 </th>
+                                <th className="py-2 px-2 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider whitespace-nowrap">
+                                    <span className="inline-flex items-center gap-1">
+                                        Impact (24h)
+                                        <Tooltip
+                                            title={
+                                                <>
+                                                    Log lines and bytes dropped by this rule in ingestion metrics. Bytes
+                                                    appear once any drops have been attributed by the current producer
+                                                    (older drops show records only). Rules scoped to a service only
+                                                    affect that service; others count across the project.
+                                                </>
+                                            }
+                                        >
+                                            <IconInfo className="text-muted-alt text-base shrink-0" />
+                                        </Tooltip>
+                                    </span>
+                                </th>
                                 <th className="py-2 px-2 w-32 text-left text-xs font-semibold text-muted-alt uppercase tracking-wider">
                                     Enabled
                                 </th>
@@ -208,7 +266,7 @@ export function LogsSamplingRulesSortableTable(): JSX.Element {
                         <tbody>
                             {localRules.length === 0 ? (
                                 <tr>
-                                    <td colSpan={5} className="text-center py-8 text-muted">
+                                    <td colSpan={6} className="text-center py-8 text-muted">
                                         No drop rules yet
                                     </td>
                                 </tr>
@@ -225,6 +283,8 @@ export function LogsSamplingRulesSortableTable(): JSX.Element {
                                             disabledReason={dragDisabledReason}
                                             ruleEnabledTogglePendingId={ruleEnabledTogglePendingId}
                                             saveRulesOrderPending={saveRulesOrderPending}
+                                            ruleDropImpactCellState={ruleDropImpactCellState}
+                                            impact24h={ruleDropImpact[row.id] ?? EMPTY_IMPACT}
                                             onSetRuleEnabled={setRuleEnabled}
                                         />
                                     ))}

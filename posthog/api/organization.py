@@ -134,17 +134,40 @@ def _bump_org_serializer_cache_version(organization_id: str) -> None:
 
 
 CacheField = Literal["teams", "projects"]
+OrgCacheField = Literal["member_count"]
 
 
-def _cached_per_user_org(field: CacheField, user_id: int, organization_id: str, fetcher: Callable[[], Any]) -> Any:
-    version = _org_serializer_cache_version(organization_id)
-    cache_key = f"org_serializer:{field}:{organization_id}:v{version}:{user_id}"
+def _cached_org_serializer_field(cache_key: str, fetcher: Callable[[], Any]) -> Any:
     cached = get_safe_cache(cache_key)
     if cached is not None:
         return cached
     result = fetcher()
     safe_cache_set(cache_key, result, timeout=ORG_SERIALIZER_CACHE_TTL_SECONDS)
     return result
+
+
+def _cached_per_user_org(field: CacheField, user_id: int, organization_id: str, fetcher: Callable[[], Any]) -> Any:
+    version = _org_serializer_cache_version(organization_id)
+    cache_key = f"org_serializer:{field}:{organization_id}:v{version}:{user_id}"
+    return _cached_org_serializer_field(cache_key, fetcher)
+
+
+def _fetch_member_count(organization: Organization) -> int:
+    # The cache version is bumped on OrganizationMembership signals (see _INVALIDATION_SOURCES
+    # below), so add/remove of members invalidates immediately. User.is_active flips and email
+    # changes to/from INTERNAL_BOT_EMAIL_SUFFIX do NOT invalidate via signals — they rely on
+    # ORG_SERIALIZER_CACHE_TTL_SECONDS (1h) as the staleness bound.
+    return (
+        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+        .filter(user__is_active=True, organization=organization)
+        .count()
+    )
+
+
+def _cached_per_org(field: OrgCacheField, organization_id: str, fetcher: Callable[[], Any]) -> Any:
+    version = _org_serializer_cache_version(organization_id)
+    cache_key = f"org_serializer:{field}:{organization_id}:v{version}"
+    return _cached_org_serializer_field(cache_key, fetcher)
 
 
 def _resolve_cached_user_id(serializer_context: dict[str, Any]) -> int | None:
@@ -257,6 +280,10 @@ class OrganizationSerializer(
             "allow_publicly_shared_resources",
             "member_count",
             "is_ai_data_processing_approved",
+            "is_ai_training_opted_in",
+            "is_ai_training_locked",
+            "is_ai_training_cta_shown",
+            "is_hipaa",
             "default_experiment_stats_method",
             "default_anonymize_ips",
             "default_role_id",
@@ -281,6 +308,9 @@ class OrganizationSerializer(
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
+            "is_ai_training_locked",
+            "is_ai_training_cta_shown",
+            "is_hipaa",
         ]
         extra_kwargs = {
             "slug": {
@@ -378,6 +408,20 @@ class OrganizationSerializer(
                 )
         return value
 
+    def validate_is_ai_training_opted_in(self, value: bool | None) -> bool | None:
+        if self.instance and self.instance.is_ai_training_opted_in != value:
+            if self.instance.is_hipaa:
+                raise serializers.ValidationError(
+                    "HIPAA organizations are always opted out of AI training and this setting cannot be changed.",
+                    code="locked",
+                )
+            if self.instance.is_ai_training_locked:
+                raise serializers.ValidationError(
+                    "AI training opt-in is locked for this organization and cannot be changed. Contact PostHog support if you need to update this setting.",
+                    code="locked",
+                )
+        return value
+
     def validate_members_can_use_personal_api_keys(self, value: bool) -> bool:
         if self.instance and self.instance.members_can_use_personal_api_keys != value:
             if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
@@ -389,15 +433,8 @@ class OrganizationSerializer(
 
     @extend_schema_field(serializers.IntegerField())
     @tracer.start_as_current_span("organization_serializer.member_count")
-    def get_member_count(self, organization: Organization):
-        return (
-            OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
-            .filter(
-                user__is_active=True,
-            )
-            .filter(organization=organization)
-            .count()
-        )
+    def get_member_count(self, organization: Organization) -> int:
+        return _cached_per_org("member_count", str(organization.id), lambda: _fetch_member_count(organization))
 
     @tracer.start_as_current_span("organization_serializer.to_representation")
     def to_representation(self, instance):
@@ -537,6 +574,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         setting_events = [
             ("enforce_2fa", "organization 2fa enforcement toggled"),
             ("is_ai_data_processing_approved", "organization ai data processing consent toggled"),
+            ("is_ai_training_opted_in", "organization ai training opt-in toggled"),
         ]
 
         fields_to_capture = [field for field, _ in setting_events if field in request.data]

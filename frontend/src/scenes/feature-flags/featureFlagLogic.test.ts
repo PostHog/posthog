@@ -1,13 +1,17 @@
 import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 import { FeatureFlagFilters } from '~/types'
+
+import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
@@ -282,6 +286,157 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('applyTemplate', () => {
+        const EXPECTED_VARIANTS = partial({
+            variants: [partial({ key: 'control' }), partial({ key: 'test' })],
+        })
+
+        const TEMPLATE_EXPECTATIONS: Array<{
+            id: TemplateKey
+            expectedMultivariate: unknown
+        }> = [
+            { id: 'simple', expectedMultivariate: null },
+            { id: 'targeted', expectedMultivariate: null },
+            { id: 'multivariate', expectedMultivariate: EXPECTED_VARIANTS },
+            { id: 'targeted-multivariate', expectedMultivariate: EXPECTED_VARIANTS },
+        ]
+
+        it.each(TEMPLATE_EXPECTATIONS)(
+            'clears encrypted-payload state when switching a remote configuration flag to $id',
+            async ({ id, expectedMultivariate }) => {
+                const MOCK_REMOTE_CONFIG_FLAG: FeatureFlagType = {
+                    ...logic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: true,
+                    filters: {
+                        ...logic.values.featureFlag.filters,
+                        payloads: { true: 'encrypted-ciphertext' },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFeatureFlag(MOCK_REMOTE_CONFIG_FLAG)
+                }).toDispatchActions(['setFeatureFlag'])
+
+                await expectLogic(logic, () => {
+                    logic.actions.applyTemplate(id)
+                })
+                    .toDispatchActions(['applyTemplate', 'setFeatureFlag', 'resetEncryptedPayload'])
+                    .toMatchValues({
+                        featureFlag: partial({
+                            is_remote_configuration: false,
+                            has_encrypted_payloads: false,
+                            filters: partial({
+                                multivariate: expectedMultivariate,
+                                payloads: { true: '' },
+                            }),
+                        }),
+                    })
+
+                // The encrypted ciphertext must not survive under any payload key.
+                expect(Object.values(logic.values.featureFlag.filters.payloads ?? {})).not.toContain(
+                    'encrypted-ciphertext'
+                )
+            }
+        )
+
+        it('preserves variant payloads when applying a template to a non-encrypted flag', async () => {
+            const MOCK_NON_ENCRYPTED_FLAG: FeatureFlagType = {
+                ...logic.values.featureFlag,
+                is_remote_configuration: false,
+                has_encrypted_payloads: false,
+                filters: {
+                    ...logic.values.featureFlag.filters,
+                    payloads: { control: '{"x":1}', test: '{"y":2}' },
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(MOCK_NON_ENCRYPTED_FLAG)
+            }).toDispatchActions(['setFeatureFlag'])
+
+            await expectLogic(logic, () => {
+                logic.actions.applyTemplate('multivariate')
+            })
+                .toDispatchActions(['applyTemplate', 'setFeatureFlag'])
+                .toMatchValues({
+                    featureFlag: partial({
+                        is_remote_configuration: false,
+                        has_encrypted_payloads: false,
+                        filters: partial({
+                            payloads: { control: '{"x":1}', test: '{"y":2}' },
+                        }),
+                    }),
+                })
+        })
+    })
+
+    describe('setRemoteConfigEnabled', () => {
+        it('clears encrypted-payload state when toggling remote config off', async () => {
+            const MOCK_REMOTE_CONFIG_FLAG: FeatureFlagType = {
+                ...logic.values.featureFlag,
+                is_remote_configuration: true,
+                has_encrypted_payloads: true,
+                filters: {
+                    ...logic.values.featureFlag.filters,
+                    payloads: { true: 'encrypted-ciphertext' },
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(MOCK_REMOTE_CONFIG_FLAG)
+            }).toDispatchActions(['setFeatureFlag'])
+
+            await expectLogic(logic, () => {
+                logic.actions.setRemoteConfigEnabled(false)
+            })
+                .toDispatchActions(['setRemoteConfigEnabled', 'resetEncryptedPayload'])
+                .toMatchValues({
+                    featureFlag: partial({
+                        is_remote_configuration: false,
+                        has_encrypted_payloads: false,
+                        filters: partial({
+                            payloads: { true: '' },
+                        }),
+                    }),
+                })
+
+            // The encrypted ciphertext must not survive under any payload key.
+            expect(Object.values(logic.values.featureFlag.filters.payloads ?? {})).not.toContain('encrypted-ciphertext')
+        })
+
+        it('does not reset encrypted payload state when toggling off a non-encrypted flag', async () => {
+            const MOCK_REMOTE_CONFIG_PLAIN_FLAG: FeatureFlagType = {
+                ...logic.values.featureFlag,
+                is_remote_configuration: true,
+                has_encrypted_payloads: false,
+                filters: {
+                    ...logic.values.featureFlag.filters,
+                    payloads: { true: 'plain-payload' },
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag(MOCK_REMOTE_CONFIG_PLAIN_FLAG)
+            }).toDispatchActions(['setFeatureFlag'])
+
+            await expectLogic(logic, () => {
+                logic.actions.setRemoteConfigEnabled(false)
+            })
+                .toDispatchActions(['setRemoteConfigEnabled'])
+                .toNotHaveDispatchedActions(['resetEncryptedPayload'])
+                .toMatchValues({
+                    featureFlag: partial({
+                        is_remote_configuration: false,
+                        has_encrypted_payloads: false,
+                        filters: partial({
+                            payloads: { true: 'plain-payload' },
+                        }),
+                    }),
+                })
+        })
+    })
+
     describe('change detection', () => {
         it('detects active status changes', () => {
             const originalFlag = { ...MOCK_FEATURE_FLAG, active: false }
@@ -375,6 +530,84 @@ describe('featureFlagLogic', () => {
                     name: 'Bulk edit',
                 } as Parameters<typeof logic.actions.setFeatureFlagValues>[0])
             }).toMatchValues({ hasUnsavedChanges: true })
+        })
+    })
+
+    describe('urlToAction preserves in-progress edits', () => {
+        // Regression for https://github.com/PostHog/posthog/issues/58656 — when the user
+        // dismisses the beforeUnload prompt, urlToAction must not silently reload the
+        // flag and wipe their in-progress edits. The guard must sit *above* the
+        // editFeatureFlag dispatch, because its listener also calls loadFeatureFlag()
+        // whenever editing === true.
+
+        it('preserves an in-progress edit on a PUSH navigation when the form is dirty', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', 'Edited but not saved')
+            }).toMatchValues({ hasUnsavedChanges: true, isFormDirty: true })
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlag(1))
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['editFeatureFlag'])
+
+            expect(logic.values.featureFlag.name).toBe('Edited but not saved')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it('preserves an in-progress edit on a PUSH to the same URL with ?edit=true', async () => {
+            // Realistic visibilitychange / re-push path: the user is already in edit mode,
+            // so the URL carries `?edit=true`. Without the early-return above editFeatureFlag,
+            // its listener (`if (editing) loadFeatureFlag()`) would still wipe the form.
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', 'Edited with edit=true in url')
+            }).toMatchValues({ hasUnsavedChanges: true, isFormDirty: true })
+
+            await expectLogic(logic, () => {
+                router.actions.push(`${urls.featureFlag(1)}?edit=true`)
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['editFeatureFlag'])
+
+            expect(logic.values.featureFlag.name).toBe('Edited with edit=true in url')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it.each([
+            ['sourceId=42', `${urls.featureFlag('new')}?sourceId=42`],
+            ['type=multivariate', `${urls.featureFlag('new')}?type=multivariate`],
+            ['template=experiment', `${urls.featureFlag('new')}?template=experiment`],
+            ['intent=remote-config', `${urls.featureFlag('new')}?intent=remote-config`],
+        ])('skips the new-flag template re-load on a dirty PUSH carrying %s', async (_label, targetUrl) => {
+            // Pin that the dirty guard also short-circuits the special new-flag
+            // re-load branches (sourceId / type / template / intent) inside `urlToAction`.
+            // Park the router at a non-matching path first so the `new`-keyed logic's
+            // afterMount doesn't see those query params at mount time and prefetch.
+            router.actions.push('/')
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toFinishAllListeners()
+
+            await expectLogic(newLogic, () => {
+                newLogic.actions.setFeatureFlagValue('name', 'Draft new flag')
+            }).toMatchValues({ isFormDirty: true })
+
+            await expectLogic(newLogic, () => {
+                router.actions.push(targetUrl)
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['editFeatureFlag'])
+
+            expect(newLogic.values.featureFlag.name).toBe('Draft new flag')
+            newLogic.unmount()
+        })
+
+        it('still reloads the flag on a PUSH navigation when the form is clean', async () => {
+            await expectLogic(logic).toMatchValues({ hasUnsavedChanges: false })
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlag(1))
+            }).toDispatchActions(['loadFeatureFlag'])
         })
     })
 

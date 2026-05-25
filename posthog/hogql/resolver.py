@@ -67,6 +67,11 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "localtimestamp": ast.DateTimeType,
 }
 
+# Lock the resolver's keyword catalog to `ast.Keyword.__post_init__`'s allowlist; drift in either direction is a silent injection vector or a construction-time crash, so the two sets must move together.
+assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
+    "POSTGRES_KEYWORD_TYPES and ast.VALID_KEYWORD_NAMES are out of sync — update both."
+)
+
 # Dialects that share Postgres's SQL surface (feature support, keyword set, syntax quirks).
 # DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
 # takes the PG code path in the resolver.
@@ -1180,7 +1185,7 @@ class Resolver(CloningVisitor):
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
 
-            node.table = cast(ast.SelectQuery, super().visit(node.table))
+            node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
 
             # Remap column names if column_aliases is provided (e.g. AS v(id, name))
             if node.column_aliases and node.table.type:
@@ -1198,13 +1203,14 @@ class Resolver(CloningVisitor):
                         f"Subquery has {num_cols} column(s) but {len(node.column_aliases)} column name(s) were provided"
                     )
 
-                # Remap the SelectQueryType columns dict
-                select_query_type = cast(ast.SelectQueryType, node.table.type)
+                # Remap the SelectQueryType columns dict.
                 if isinstance(node.table.type, ast.SelectSetQueryType):
                     first_type = node.table.type.types[0]
                     while isinstance(first_type, ast.SelectSetQueryType):
                         first_type = first_type.types[0]
                     select_query_type = cast(ast.SelectQueryType, first_type)
+                else:
+                    select_query_type = cast(ast.SelectQueryType, node.table.type)
 
                 # Build new columns from the select list's types, keyed by the alias column names
                 select_list = cast(ast.SelectQuery, inner_select).select

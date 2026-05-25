@@ -1,6 +1,8 @@
 import { createHash } from 'crypto'
+import type RE2 from 're2'
 
 import type { LogRecord } from '../log-record-avro'
+import { type FilterGroupNode, matchFilterGroup } from './filter-group-match'
 
 export const SAMPLING_DECISION_KEEP = 'keep' as const
 export const SAMPLING_DECISION_DROP = 'drop' as const
@@ -19,20 +21,34 @@ export type CompiledSamplingRule = {
     id: string
     ruleType: 'severity_sampling' | 'path_drop' | 'rate_limit'
     scopeService: string | null
-    pathRegex: RegExp | null
-    pathDropPatterns: RegExp[] | null
+    pathRegex: RE2 | null
+    pathDropPatterns: RE2[] | null
     /** When set, path_drop regexes match only this attribute; null uses pathForMatching(). */
     pathDropMatchAttributeKey: string | null
+    /**
+     * Universal filter group from the drop-rule UI. Evaluated per record alongside
+     * legacy `pathDropPatterns`: a record is dropped if EITHER matches. Null when
+     * the rule has no filter_group configured (legacy / patterns-only rules).
+     */
+    filterGroup: FilterGroupNode | null
     severityActions: [SeverityAction, SeverityAction, SeverityAction, SeverityAction]
     alwaysKeep: {
         statusGte: number | null
         latencyMsGt: number | null
         attributePredicates: { key: string; op: string; value?: string }[]
     } | null
+    /**
+     * Set for rate_limit rules with valid config. Token-bucket on Redis; `costUnit` controls
+     * whether each record consumes one token (`'records'`) or its own `bytes_uncompressed`
+     * (`'bytes'`). `refillPerSecond` and `poolMax` are expressed in the matching unit.
+     */
+    rateLimit: { refillPerSecond: number; poolMax: number; costUnit: 'records' | 'bytes' } | null
 }
 
 export type CompiledRuleSet = {
     rules: CompiledSamplingRule[]
+    /** True when any compiled rule applies per-line Redis rate limiting. */
+    hasRateLimitRules: boolean
 }
 
 const SEV_ORD_DEBUG = 0
@@ -131,6 +147,29 @@ function alwaysKeepMatches(rule: CompiledSamplingRule, record: LogRecord): boole
     return false
 }
 
+/**
+ * A path_drop rule matches when EITHER the legacy regex patterns match the
+ * resolved path/attribute, OR the universal filter_group matches the record.
+ * Both shapes are supported during the transition off `config.patterns` —
+ * once all rules carry a filter_group, the patterns branch will be retired.
+ */
+function pathDropMatches(rule: CompiledSamplingRule, record: LogRecord): boolean {
+    if (rule.pathDropPatterns && rule.pathDropPatterns.length > 0) {
+        const p = rule.pathDropMatchAttributeKey
+            ? (getAttribute(record, rule.pathDropMatchAttributeKey) ?? '')
+            : pathForMatching(record)
+        for (const rx of rule.pathDropPatterns) {
+            if (rx.test(p)) {
+                return true
+            }
+        }
+    }
+    if (rule.filterGroup && matchFilterGroup(rule.filterGroup, record)) {
+        return true
+    }
+    return false
+}
+
 function matchesScope(rule: CompiledSamplingRule, record: LogRecord): boolean {
     if (rule.scopeService != null && rule.scopeService !== '') {
         const sn = record.service_name || ''
@@ -153,6 +192,74 @@ export type EvaluateResult = {
     ruleId: string | null
 }
 
+export type SamplingClassifyResult =
+    | { kind: 'resolved'; decision: SamplingDecision; ruleId: string | null }
+    | { kind: 'rate_limit'; ruleId: string }
+
+export type RateLimitPendingByRule = Map<string, number[]>
+
+/**
+ * Stateless rule walk for ingestion. Deterministic rules (`path_drop`, `severity_sampling`)
+ * always win over `rate_limit` regardless of priority order: a record that any deterministic
+ * rule resolves never charges the rate-limit bucket. The first applicable `rate_limit` match
+ * is remembered while the walk continues; it is only returned when no deterministic rule
+ * resolves the record. Otherwise matches `evaluateLogRecord`.
+ */
+export function classifySamplingRecord(teamRuleSet: CompiledRuleSet | null, record: LogRecord): SamplingClassifyResult {
+    if (!teamRuleSet || teamRuleSet.rules.length === 0) {
+        return { kind: 'resolved', decision: SAMPLING_DECISION_KEEP, ruleId: null }
+    }
+    const ord = severityOrdinalFromRecord(record)
+    let pendingRateLimitRuleId: string | null = null
+    for (const rule of teamRuleSet.rules) {
+        if (!matchesScope(rule, record)) {
+            continue
+        }
+        if (alwaysKeepMatches(rule, record)) {
+            return { kind: 'resolved', decision: SAMPLING_DECISION_KEEP, ruleId: rule.id }
+        }
+        if (rule.ruleType === 'path_drop') {
+            if (pathDropMatches(rule, record)) {
+                return { kind: 'resolved', decision: SAMPLING_DECISION_DROP, ruleId: rule.id }
+            }
+            continue
+        }
+        if (rule.ruleType === 'severity_sampling') {
+            const action = rule.severityActions[ord]
+            if (action.type === 'keep') {
+                return { kind: 'resolved', decision: SAMPLING_DECISION_KEEP, ruleId: rule.id }
+            }
+            if (action.type === 'drop') {
+                return { kind: 'resolved', decision: SAMPLING_DECISION_DROP, ruleId: rule.id }
+            }
+            const u = hash01FromTraceId(record.trace_id)
+            if (u < action.rate) {
+                return { kind: 'resolved', decision: SAMPLING_DECISION_SAMPLE_KEPT, ruleId: rule.id }
+            }
+            return { kind: 'resolved', decision: SAMPLING_DECISION_SAMPLE_DROPPED, ruleId: rule.id }
+        }
+        if (rule.ruleType === 'rate_limit') {
+            if (!rule.rateLimit) {
+                continue
+            }
+            // Mirror path_drop: filter_group must match if set. scope_service was
+            // already checked by matchesScope; this adds the modern scoping that
+            // the drop-rule UI now writes for rate_limit rules.
+            if (rule.filterGroup && !matchFilterGroup(rule.filterGroup, record)) {
+                continue
+            }
+            if (pendingRateLimitRuleId === null) {
+                pendingRateLimitRuleId = rule.id
+            }
+            continue
+        }
+    }
+    if (pendingRateLimitRuleId !== null) {
+        return { kind: 'rate_limit', ruleId: pendingRateLimitRuleId }
+    }
+    return { kind: 'resolved', decision: SAMPLING_DECISION_KEEP, ruleId: null }
+}
+
 export function evaluateLogRecord(teamRuleSet: CompiledRuleSet | null, record: LogRecord): EvaluateResult {
     if (!teamRuleSet || teamRuleSet.rules.length === 0) {
         return { decision: SAMPLING_DECISION_KEEP, ruleId: null }
@@ -166,16 +273,8 @@ export function evaluateLogRecord(teamRuleSet: CompiledRuleSet | null, record: L
             return { decision: SAMPLING_DECISION_KEEP, ruleId: rule.id }
         }
         if (rule.ruleType === 'path_drop') {
-            if (!rule.pathDropPatterns || rule.pathDropPatterns.length === 0) {
-                continue
-            }
-            const p = rule.pathDropMatchAttributeKey
-                ? (getAttribute(record, rule.pathDropMatchAttributeKey) ?? '')
-                : pathForMatching(record)
-            for (const rx of rule.pathDropPatterns) {
-                if (rx.test(p)) {
-                    return { decision: SAMPLING_DECISION_DROP, ruleId: rule.id }
-                }
+            if (pathDropMatches(rule, record)) {
+                return { decision: SAMPLING_DECISION_DROP, ruleId: rule.id }
             }
             continue
         }
@@ -194,6 +293,7 @@ export function evaluateLogRecord(teamRuleSet: CompiledRuleSet | null, record: L
             return { decision: SAMPLING_DECISION_SAMPLE_DROPPED, ruleId: rule.id }
         }
         if (rule.ruleType === 'rate_limit') {
+            // Stateful in ingestion; stateless evaluation does not drop here.
             continue
         }
     }

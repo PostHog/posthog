@@ -217,8 +217,9 @@ class TestRESTClient:
         prepared_request = mock_session.prepare_request.call_args.args[0]
         assert prepared_request.params == {"limit": 100, "name": "alice"}
 
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_retries_on_429(self, MockSession) -> None:
+    def test_send_request_retries_on_429(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -235,8 +236,9 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
 
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_retries_on_500(self, MockSession) -> None:
+    def test_send_request_retries_on_500(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -253,8 +255,9 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
 
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_raises_after_max_retries(self, MockSession) -> None:
+    def test_send_request_raises_after_max_retries(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -267,8 +270,9 @@ class TestRESTClient:
         with pytest.raises(RESTClientRetryableError):
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
 
+    @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_respects_retry_after_header(self, MockSession) -> None:
+    def test_send_request_respects_retry_after_header(self, MockSession, mock_sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
@@ -285,3 +289,4 @@ class TestRESTClient:
 
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
+        mock_sleep.assert_called_once_with(90.0)

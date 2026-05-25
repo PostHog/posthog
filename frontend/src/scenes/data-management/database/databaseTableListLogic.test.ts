@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
@@ -65,6 +67,31 @@ describe('databaseTableListLogic', () => {
 
         await Promise.all([firstRequest, secondRequest])
         expect(performQuery).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        { name: 'main path', concurrentLoads: 1 },
+        { name: 'dedup branch', concurrentLoads: 2 },
+    ])('does not crash when unmounted mid-load ($name)', async ({ concurrentLoads }) => {
+        let resolveQuery: ((value: { tables: Record<string, never>; joins: never[] }) => void) | undefined
+        ;(performQuery as jest.Mock).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveQuery = resolve
+                })
+        )
+
+        const localLogic = databaseTableListLogic()
+        localLogic.mount()
+
+        const requests = Array.from({ length: concurrentLoads }, () => localLogic.asyncActions.loadDatabase())
+        expect(performQuery).toHaveBeenCalledTimes(1)
+
+        localLogic.unmount()
+        resolveQuery?.({ tables: {}, joins: [] })
+        await Promise.all(requests)
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
     })
 
     it('does not let a stale schema response overwrite the selected connection schema', async () => {
