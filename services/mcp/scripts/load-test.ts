@@ -1,4 +1,5 @@
 #!/usr/bin/env npx tsx
+/* eslint-disable no-console */
 
 const BASE_URL = process.env.MCP_URL || 'https://mcp.us.posthog.com'
 const API_KEY = process.env.MCP_API_KEY
@@ -48,7 +49,7 @@ const TOOLS: ToolCall[] = [
 ]
 
 function pick<T>(arr: T[]): T {
-    return arr[Math.floor(Math.random() * arr.length)]
+    return arr[Math.floor(Math.random() * arr.length)] as T
 }
 
 let nextId = 1
@@ -141,7 +142,7 @@ async function callTool(tool: ToolCall, sessionId: string): Promise<void> {
 
 function percentile(sorted: number[], p: number): number {
     const idx = Math.ceil((p / 100) * sorted.length) - 1
-    return sorted[Math.max(0, idx)]
+    return sorted[Math.max(0, idx)] ?? 0
 }
 
 function printStats(): void {
