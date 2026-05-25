@@ -973,6 +973,7 @@ def forward_posthog_code_followup_activity(
     import structlog
 
     from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.organization import OrganizationMembership
 
     from products.slack_app.backend.api import resolve_slack_user
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -1000,12 +1001,15 @@ def forward_posthog_code_followup_activity(
     )
     slack = SlackIntegration(integration)
 
-    # The sandbox runs under the original starter's identity, so any thread participant who drives
-    # it inherits those permissions. Require the follow-up sender to be a member of the same
-    # PostHog org as the starter — the same gate applied to new @mentions in
-    # resolve_posthog_code_slack_user_activity. Without this, external participants in shared /
-    # Slack Connect channels could drive a sandbox they shouldn't have access to.
-    if resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts) is None:
+    # The sandbox runs under the original starter's identity with `posthog_mcp_scopes="full"`,
+    # so any thread participant who drives it inherits those permissions. Two gates:
+    #   1. Org membership — same gate as new @mentions in resolve_posthog_code_slack_user_activity.
+    #      Keeps external participants in shared / Slack Connect channels out.
+    #   2. Org membership level >= starter's level — prevents intra-org privilege escalation, where
+    #      a member-level user drives a sandbox auth'd as an admin/owner starter and asks the agent
+    #      to perform actions they couldn't perform themselves.
+    follow_up_user_context = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
+    if follow_up_user_context is None:
         log.info(
             "posthog_code_followup_non_org_member",
             channel=channel,
@@ -1013,6 +1017,38 @@ def forward_posthog_code_followup_activity(
             slack_user_id=slack_user_id,
         )
         return True
+
+    starter = mapping.task.created_by
+    if starter is not None and follow_up_user_context.user.id != starter.id:
+        org_id = integration.team.organization_id
+        level_by_user = dict(
+            OrganizationMembership.objects.filter(
+                organization_id=org_id,
+                user_id__in=[follow_up_user_context.user.id, starter.id],
+            ).values_list("user_id", "level")
+        )
+        follow_up_level = level_by_user.get(follow_up_user_context.user.id)
+        starter_level = level_by_user.get(starter.id)
+        if follow_up_level is None or starter_level is None or follow_up_level < starter_level:
+            log.info(
+                "posthog_code_followup_insufficient_privilege",
+                channel=channel,
+                thread_ts=thread_ts,
+                slack_user_id=slack_user_id,
+                follow_up_user_id=follow_up_user_context.user.id,
+                starter_user_id=starter.id,
+                follow_up_level=follow_up_level,
+                starter_level=starter_level,
+            )
+            slack.client.chat_postMessage(
+                channel=channel,
+                thread_ts=thread_ts,
+                text=(
+                    f"<@{slack_user_id}> This task is running under the starter's PostHog permissions, "
+                    "which are higher than yours. Please start a new thread to run the agent under your own permissions."
+                ),
+            )
+            return True
 
     if task_run.is_terminal:
         return _resume_task_with_new_run(

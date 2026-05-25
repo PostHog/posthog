@@ -6,7 +6,7 @@ from django.apps import apps
 from django.test import TestCase
 
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
@@ -409,6 +409,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
+        OrganizationMembership.objects.create(
+            organization=self.org, user=self.user, level=OrganizationMembership.Level.ADMIN
+        )
         self.integration = Integration.objects.create(
             team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
         )
@@ -426,14 +429,20 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             status=self.TaskRun.Status.IN_PROGRESS,
             state={"sandbox_url": "https://sandbox.example.com/rpc"},
         )
-        # Treat every Slack sender as an org member by default. Individual tests can override
-        # the patched resolver to simulate a non-org-member sender.
+        # Treat every Slack sender as the starter (Alice) by default — same user, same level, so
+        # the privilege-level gate is a no-op. Individual tests override the patched resolver to
+        # simulate a non-org-member sender or a lower-privileged sender.
         resolver_patcher = patch("products.slack_app.backend.api.resolve_slack_user")
         self.mock_resolve_slack_user = resolver_patcher.start()
         self.addCleanup(resolver_patcher.stop)
         self.mock_resolve_slack_user.return_value = SimpleNamespace(
-            user=SimpleNamespace(id=self.user.id), is_team_member=True
+            user=SimpleNamespace(id=self.user.id), slack_email="alice@test.com"
         )
+
+    def _create_other_org_member(self, email: str, level: int) -> User:
+        other = User.objects.create(email=email)
+        OrganizationMembership.objects.create(organization=self.org, user=other, level=level)
+        return other
 
     def _create_mapping(self, mentioning_user: str = "U_ALICE") -> SlackThreadTaskMapping:
         return SlackThreadTaskMapping.objects.create(
@@ -542,6 +551,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self.task_run.save()
         self._create_mapping(mentioning_user="U_ALICE")
         mock_slack_cls.return_value = MagicMock()
+        # Bob is a different user at the same org level as Alice (admin).
+        bob = self._create_other_org_member("bob@test.com", OrganizationMembership.Level.ADMIN)
+        self.mock_resolve_slack_user.return_value = SimpleNamespace(
+            user=SimpleNamespace(id=bob.id), slack_email="bob@test.com"
+        )
 
         inputs = _make_inputs(self.integration.id)
         result = forward_posthog_code_followup_activity(
@@ -600,6 +614,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     def test_other_thread_participant_can_send_followup(self, mock_slack_cls, mock_send, mock_token):
         self._create_mapping(mentioning_user="U_ALICE")
         mock_slack_cls.return_value = MagicMock()
+        # Bob is a different user at the same org level as Alice (admin).
+        bob = self._create_other_org_member("bob@test.com", OrganizationMembership.Level.ADMIN)
+        self.mock_resolve_slack_user.return_value = SimpleNamespace(
+            user=SimpleNamespace(id=bob.id), slack_email="bob@test.com"
+        )
         mock_send.return_value = _command_result(
             success=True,
             status_code=200,
@@ -628,6 +647,30 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
         assert result is True
         mock_send.assert_not_called()
+
+    @patch("products.tasks.backend.services.agent_command.send_user_message")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_lower_privileged_followup_is_rejected(self, mock_slack_cls, mock_send):
+        # Bob is a MEMBER, the starter (Alice) is ADMIN. The agent runs with Alice's PostHog MCP
+        # scopes, so allowing Bob to drive it would let him perform admin actions through the
+        # sandbox he couldn't perform under his own identity.
+        self._create_mapping(mentioning_user="U_ALICE")
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+        bob = self._create_other_org_member("bob@test.com", OrganizationMembership.Level.MEMBER)
+        self.mock_resolve_slack_user.return_value = SimpleNamespace(
+            user=SimpleNamespace(id=bob.id), slack_email="bob@test.com"
+        )
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> do something", "1234.5679"
+        )
+        assert result is True
+        mock_send.assert_not_called()
+        post_call = mock_slack_instance.client.chat_postMessage.call_args
+        assert post_call is not None
+        assert "higher than yours" in post_call.kwargs["text"]
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_sandbox_not_ready_returns_true_with_message(self, mock_slack_cls):
