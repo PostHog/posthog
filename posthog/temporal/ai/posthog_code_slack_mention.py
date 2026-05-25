@@ -254,6 +254,24 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             return
 
         try:
+            # Gate every workflow entry on the team's AI-credits quota before any
+            # other activity runs. Webhook-level short-circuit catches the common
+            # case (see products/slack_app/backend/api.py); this is the defense in
+            # depth that also covers replays, manual workflow starts, and the race
+            # where the webhook saw "not limited" but Redis flipped before we got
+            # here. Wrapped in `workflow.patched` so in-flight workflows from
+            # before this deploy stay deterministic on replay.
+            if workflow.patched("posthog-code-slack-billing-gate"):
+                blocked = await _execute_posthog_code_activity(
+                    enforce_posthog_code_billing_quota_activity,
+                    inputs,
+                    channel,
+                    thread_ts,
+                    slack_user_id,
+                )
+                if blocked:
+                    return
+
             followup_handled = await _execute_posthog_code_activity(
                 forward_posthog_code_followup_activity,
                 inputs,
@@ -937,6 +955,38 @@ def classify_posthog_code_task_needs_repo_activity(
     from products.slack_app.backend.api import classify_task_needs_repo
 
     return classify_task_needs_repo(event_text, thread_messages)
+
+
+@activity.defn
+def enforce_posthog_code_billing_quota_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+) -> bool:
+    """Block the workflow when the team has exhausted its AI-credits quota.
+
+    Returns True when a denial was posted and the workflow should stop. Called
+    as the first activity in the mention workflow so the bot never proceeds to
+    Slack roundtrips, thread fetches, or billable LLM calls (the classifier,
+    notably) for an over-quota team.
+    """
+    from posthog.models.integration import Integration, SlackIntegration
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=inputs.integration_id,
+        kind="slack-posthog-code",
+        integration_id=inputs.slack_team_id,
+    )
+    slack = SlackIntegration(integration)
+    return _block_if_team_over_quota(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="task_create",
+    )
 
 
 @activity.defn

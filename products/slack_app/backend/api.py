@@ -299,6 +299,55 @@ def lookup_slack_user_id_by_email(
     return slack_user_id
 
 
+def _refuse_mention_if_team_over_quota(
+    slack: SlackIntegration,
+    event: dict[str, Any],
+    integration: Integration,
+) -> bool:
+    """Refuse an app_mention at the webhook layer when the team is over quota.
+
+    Returns True when the mention was refused and a denial was posted, so the
+    caller should bail without starting the workflow. The activity-level gate
+    inside ``PostHogCodeSlackMentionWorkflow`` is the defense in depth; doing
+    the same check here saves a Slack roundtrip, a Temporal execution, and a
+    billable classifier call for the common "team is exhausted" case.
+    """
+    from posthog.temporal.ai.posthog_code_slack_mention import _QUOTA_EXHAUSTED_MESSAGE
+
+    from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+
+    if not is_team_limited(
+        integration.team.api_token,
+        QuotaResource.AI_CREDITS,
+        QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+    ):
+        return False
+
+    channel = event.get("channel")
+    thread_ts = event.get("thread_ts") or event.get("ts")
+    slack_user_id = event.get("user")
+    if not channel or not thread_ts or not slack_user_id:
+        # The denial needs somewhere to land; without these the workflow
+        # would have bailed at the top of `run()` anyway.
+        return True
+
+    logger.info(
+        "posthog_code_slack_mention_blocked_by_quota_at_webhook",
+        team_id=integration.team_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    _post_slack_user_feedback(
+        slack,
+        channel,
+        slack_user_id,
+        thread_ts,
+        _QUOTA_EXHAUSTED_MESSAGE,
+        prefer_thread_message=True,
+    )
+    return True
+
+
 def _post_slack_user_feedback(
     slack: SlackIntegration,
     channel: str,
@@ -1220,6 +1269,8 @@ def route_posthog_code_event_to_relevant_region(
                 _notify_missing_slack_scopes(slack, event, missing_scopes)
                 return ROUTE_HANDLED_LOCALLY
             if _resolve_pending_repo_picker_from_followup(event, local_match):
+                return ROUTE_HANDLED_LOCALLY
+            if _refuse_mention_if_team_over_quota(slack, event, local_match):
                 return ROUTE_HANDLED_LOCALLY
             workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(
                 event=event,

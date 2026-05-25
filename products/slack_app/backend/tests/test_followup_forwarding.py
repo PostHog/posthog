@@ -13,6 +13,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.temporal.ai.posthog_code_slack_mention import (
     PostHogCodeSlackMentionWorkflowInputs,
     create_posthog_code_task_for_repo_activity,
+    enforce_posthog_code_billing_quota_activity,
     forward_posthog_code_followup_activity,
 )
 
@@ -775,6 +776,52 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             channel="C123", timestamp="1234.5679", name="seedling"
         )
         # Response is delivered by relayAgentResponse, not by this activity.
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
+
+
+class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
+    """The workflow's first activity gate. Returns True (and posts a denial) when
+    the team is over its AI-credits quota; False otherwise."""
+
+    def setUp(self):
+        self.org = Organization.objects.create(name="TestOrg")
+        self.team = Team.objects.create(organization=self.org, name="TestTeam")
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
+        )
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)
+    def test_returns_true_and_posts_denial_when_over_quota(self, _mock_is_team_limited, mock_slack_cls):
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        blocked = enforce_posthog_code_billing_quota_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+        )
+
+        assert blocked is True
+        _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
+
+    @patch("posthog.models.integration.SlackIntegration")
+    @patch("ee.billing.quota_limiting.is_team_limited", return_value=False)
+    def test_returns_false_and_posts_nothing_when_under_quota(self, _mock_is_team_limited, mock_slack_cls):
+        mock_slack_instance = MagicMock()
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        blocked = enforce_posthog_code_billing_quota_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+        )
+
+        assert blocked is False
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
 
