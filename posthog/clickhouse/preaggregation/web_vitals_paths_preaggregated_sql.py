@@ -1,14 +1,15 @@
 # Table for storing lazy-precomputed web vitals path-breakdown quantiles
 #
-# Stores per-hour, per-team, per-path quantile-state aggregates matching
-# `WebVitalsPathBreakdownQueryRunner`'s output. Reads merge across hourly
+# Stores per-day, per-team, per-path quantile-state aggregates matching
+# `WebVitalsPathBreakdownQueryRunner`'s output. Reads merge across daily
 # buckets and pick a single percentile (p75/p90/p99) via array indexing.
 #
-# Buckets are UTC hourly on event `timestamp` (no session join in the raw
-# query, so no session pad on the INSERT). One state column per Web Vitals
-# metric (INP/LCP/CLS/FCP) — keeps the INSERT a single GROUP BY (vs. a
-# discriminator column that would need ARRAY JOIN to fan out one event into
-# four rows) and lets each metric tab read just one column.
+# Buckets are keyed by `toStartOfDay(event.timestamp, team_tz)` — the start
+# of the team-local day (no session join in the raw query, so no session pad
+# on the INSERT). One state column per Web Vitals metric (INP/LCP/CLS/FCP)
+# — keeps the INSERT a single GROUP BY (vs. a discriminator column that
+# would need ARRAY JOIN to fan out one event into four rows) and lets each
+# metric tab read just one column.
 
 from django.conf import settings
 
@@ -35,8 +36,9 @@ CREATE TABLE IF NOT EXISTS {table_name}
     team_id Int64,
     job_id UUID,
 
-    -- Hourly UTC bucket on event `timestamp`. The raw vitals query has no
-    -- session join, so no session-boundary pad is needed.
+    -- Daily bucket keyed by `toStartOfDay(event.timestamp, team_tz)` — start
+    -- of the team-local day. The raw vitals query has no session join, so no
+    -- session-boundary pad is needed.
     time_window_start DateTime64(6, 'UTC'),
 
     -- Cleaned (or raw) `$pathname` — same expression the raw query uses, so
@@ -44,7 +46,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- values hash to different cache keys via the placeholder substitution.
     path String,
 
-    -- One reservoir per (path, hour, metric) covering p75/p90/p99 in a single
+    -- One reservoir per (path, day, metric) covering p75/p90/p99 in a single
     -- state. Reads pick a single percentile via
     -- `arrayElement(quantilesMergeIf(...), pct_index)`. Same reservoir
     -- algorithm as the raw `quantile(p)`; values match exactly when reservoir
@@ -70,7 +72,7 @@ def SHARDED_WEB_VITALS_PATHS_PREAGGREGATED_TABLE_SQL():
     # Partition by `expires_at` (the TTL column) so `ttl_only_drop_parts=1` can
     # drop whole parts atomically when all rows in them expire. `path` must be
     # in ORDER BY so the ReplacingMergeTree does not collapse distinct paths
-    # within one (job, hour).
+    # within one (job, day).
     return (
         WEB_VITALS_PATHS_PREAGGREGATED_TABLE_BASE_SQL
         + """
