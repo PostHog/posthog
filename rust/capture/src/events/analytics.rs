@@ -202,15 +202,15 @@ pub fn process_single_event(
 /// which topic and key to produce to.
 #[instrument(skip_all, fields(events = events.len(), request_id))]
 #[allow(clippy::too_many_arguments)]
-pub async fn process_events<'a>(
+pub async fn process_events(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     dropper: Arc<TokenDropper>,
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
-    events: &'a [RawEvent],
-    context: &'a ProcessingContext,
+    events: Vec<RawEvent>,
+    context: &ProcessingContext,
 ) -> Result<(), CaptureError> {
     let chatty_debug_enabled = context.chatty_debug_enabled;
 
@@ -228,26 +228,25 @@ pub async fn process_events<'a>(
     // pipeline still extracts as before — no silent data loss.
     let raw_events = events;
     let mut events: Vec<ProcessedEvent> = Vec::with_capacity(raw_events.len());
-    for raw in raw_events {
-        if raw.event == "$$heatmap" || !has_heatmap_data(raw) {
-            events.push(process_single_event(raw, historical_cfg, context)?);
+    for mut raw in raw_events {
+        if raw.event == "$$heatmap" || !has_heatmap_data(&raw) {
+            events.push(process_single_event(&raw, historical_cfg, context)?);
             continue;
         }
-        let redirect = match create_heatmap_redirect(raw, historical_cfg, context) {
+        let redirect = match create_heatmap_redirect(&raw, historical_cfg, context) {
             Ok(Some(redirect)) => redirect,
             Ok(None) => {
-                events.push(process_single_event(raw, historical_cfg, context)?);
+                events.push(process_single_event(&raw, historical_cfg, context)?);
                 continue;
             }
             Err(err) => {
                 error!("failed to create heatmap redirect: {err:#}");
-                events.push(process_single_event(raw, historical_cfg, context)?);
+                events.push(process_single_event(&raw, historical_cfg, context)?);
                 continue;
             }
         };
-        let mut stripped = raw.clone();
-        stripped.properties.remove("$heatmap_data");
-        let mut processed = process_single_event(&stripped, historical_cfg, context)?;
+        raw.properties.remove("$heatmap_data");
+        let mut processed = process_single_event(&raw, historical_cfg, context)?;
         processed.metadata.skip_heatmap_processing = true;
         events.push(processed);
         counter!("capture_heatmap_redirects_created").increment(1);
@@ -600,7 +599,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await;
@@ -648,7 +647,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await;
@@ -697,7 +696,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await;
@@ -746,7 +745,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await;
@@ -802,7 +801,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await;
@@ -838,7 +837,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await;
@@ -892,7 +891,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await;
@@ -940,7 +939,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await;
@@ -998,7 +997,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await
@@ -1071,7 +1070,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await
@@ -1143,7 +1142,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await
@@ -1210,7 +1209,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await
@@ -1269,7 +1268,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await
@@ -1322,7 +1321,7 @@ mod tests {
             historical_cfg,
             None,
             None, // no overflow limiter
-            &events,
+            events,
             &context,
         )
         .await
@@ -1358,7 +1357,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
-            &events,
+            events,
             &context,
         )
         .await
@@ -1396,7 +1395,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
-            &events,
+            events,
             &context,
         )
         .await
@@ -1436,7 +1435,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
-            &events,
+            events,
             &context,
         )
         .await
@@ -1493,7 +1492,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
-            &events,
+            events,
             &context,
         )
         .await
@@ -1532,7 +1531,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
-            &events,
+            events,
             &context,
         )
         .await
@@ -1588,7 +1587,7 @@ mod tests {
             historical_cfg,
             Some(global_limiter),
             Some(overflow_limiter),
-            &events,
+            events,
             &context,
         )
         .await
@@ -1660,7 +1659,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
-            &events,
+            events,
             &context,
         )
         .await
@@ -1711,7 +1710,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
-            &events,
+            events,
             &context,
         )
         .await
@@ -1765,7 +1764,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
-            &events,
+            events,
             &context,
         )
         .await
@@ -1947,7 +1946,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await
@@ -1995,7 +1994,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await
@@ -2032,7 +2031,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await
@@ -2077,7 +2076,7 @@ mod tests {
             historical_cfg,
             None,
             None,
-            &events,
+            events,
             &context,
         )
         .await

@@ -69,6 +69,7 @@ pub async fn event(
         }
 
         Ok((context, events)) => {
+            let event_count = events.len() as u64;
             if let Err(err) = process_events(
                 state.sink.clone(),
                 state.token_dropper.clone(),
@@ -76,12 +77,12 @@ pub async fn event(
                 state.historical_cfg,
                 state.global_rate_limiter_token_distinctid.clone(),
                 state.overflow_limiter.clone(),
-                &events,
+                events,
                 &context,
             )
             .await
             {
-                report_dropped_events(err.to_metric_tag(), events.len() as u64);
+                report_dropped_events(err.to_metric_tag(), event_count);
                 report_internal_error_metrics(err.to_metric_tag(), "processing");
                 warn!("event: rejected payload: {err:#}");
                 return Err(err);
