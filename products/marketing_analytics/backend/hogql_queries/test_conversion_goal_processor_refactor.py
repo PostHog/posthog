@@ -6,7 +6,14 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.schema import AttributionMode, BaseMathType, ConversionGoalFilter1, EventPropertyFilter, PropertyOperator
+from posthog.schema import (
+    AttributionMode,
+    BaseMathType,
+    ConversionGoalFilter1,
+    ConversionGoalFilter3,
+    EventPropertyFilter,
+    PropertyOperator,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -31,6 +38,20 @@ def _make_event_goal(
         math=BaseMathType.TOTAL,
         schema_map=schema_map or {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
         properties=properties or [],
+    )
+
+
+def _make_data_warehouse_goal() -> ConversionGoalFilter3:
+    return ConversionGoalFilter3(
+        kind="DataWarehouseNode",
+        id="stripe_charges",
+        id_field="id",
+        table_name="stripe_charges",
+        distinct_id_field="customer_email",
+        timestamp_field="created_at",
+        conversion_goal_id="goal_dw",
+        conversion_goal_name="Test DW Goal",
+        schema_map={"utm_campaign_name": "utm_campaign"},
     )
 
 
@@ -178,8 +199,12 @@ class TestConversionGoalProcessorRefactor(BaseTest):
         assert "campaign_id" not in aliases
 
     def test_precompute_template_raises_for_unsupported_goal_kinds(self):
-        processor = self._processor()
-        processor.goal.kind = "DataWarehouseNode"
+        processor = ConversionGoalProcessor(
+            goal=_make_data_warehouse_goal(),
+            index=0,
+            team=self.team,
+            config=MarketingAnalyticsConfig(),
+        )
         with pytest.raises(NotImplementedError):
             processor.get_attributed_query_for_precomputation()
 
