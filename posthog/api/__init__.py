@@ -142,6 +142,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
 )
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 
+from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.session_summaries import SessionGroupSummaryViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
@@ -370,6 +371,14 @@ router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
 
 # Seats (proxied to billing service)
 router.register(r"seats", seats.SeatViewSet, "seats")
+
+# Quota limits (project-scoped — backs the LLM gateway's QuotaResolver)
+projects_router.register(
+    r"quota_limits",
+    QuotaLimitsViewSet,
+    "project_quota_limits",
+    ["team_id"],
+)
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
 projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])

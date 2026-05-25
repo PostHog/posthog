@@ -38,6 +38,7 @@ from llm_gateway.rate_limiting.denial_event import PosthogDenialCapturer
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.request_context import RequestContext, set_request_context
 from llm_gateway.services.plan_resolver import PlanResolver
+from llm_gateway.services.quota_resolver import QuotaResolver
 
 
 def configure_logging(debug: bool = False) -> None:
@@ -159,7 +160,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
     app.state.throttle_runner = ThrottleRunner(
         throttles=[
-            BillableCreditThrottle(redis=app.state.redis),
+            BillableCreditThrottle(),
             product_throttle,
             UserCostBurstThrottle(redis=app.state.redis),
             UserCostSustainedThrottle(redis=app.state.redis),
@@ -185,6 +186,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     app.state.http_client = httpx.AsyncClient()
     app.state.plan_resolver = PlanResolver(
+        redis=app.state.redis,
+        http_client=app.state.http_client,
+    )
+    app.state.quota_resolver = QuotaResolver(
         redis=app.state.redis,
         http_client=app.state.http_client,
     )

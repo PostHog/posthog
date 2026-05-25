@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Annotated, Any
 
@@ -20,6 +21,7 @@ from llm_gateway.request_context import (
     set_throttle_context,
 )
 from llm_gateway.services.plan_resolver import resolve_plan_info
+from llm_gateway.services.quota_resolver import resolve_quota_status
 
 logger = structlog.get_logger(__name__)
 
@@ -163,7 +165,11 @@ async def enforce_throttles(
     else:
         end_user_id = await _extract_end_user_id_from_body(request)
 
-    plan_info = await resolve_plan_info(request, user.user_id, product)
+    # Plan + quota are independent Django roundtrips on cache miss — overlap them.
+    plan_info, quota_status = await asyncio.gather(
+        resolve_plan_info(request, user.user_id, product),
+        resolve_quota_status(request, user.team_id),
+    )
 
     context = ThrottleContext(
         user=user,
@@ -173,6 +179,7 @@ async def enforce_throttles(
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
+        ai_credits_exhausted=quota_status.limited,
     )
     request.state.throttle_context = context
     set_throttle_context(runner, context)

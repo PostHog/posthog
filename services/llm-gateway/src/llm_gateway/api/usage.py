@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.dependencies import get_authenticated_user
+from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.cost_throttles import CostStatus, UserCostBurstThrottle, UserCostSustainedThrottle
 from llm_gateway.rate_limiting.runner import ThrottleRunner
 from llm_gateway.rate_limiting.throttles import ThrottleContext
@@ -19,6 +21,7 @@ from llm_gateway.services.plan_resolver import (
     parse_iso_utc,
     resolve_plan_info,
 )
+from llm_gateway.services.quota_resolver import resolve_quota_status
 
 logger = structlog.get_logger(__name__)
 
@@ -35,11 +38,16 @@ class CostLimitStatus(BaseModel):
     exceeded: bool
 
 
+class AiCreditsStatus(BaseModel):
+    exhausted: bool
+
+
 class UsageResponse(BaseModel):
     product: str
     user_id: int
     burst: CostLimitStatus
     sustained: CostLimitStatus
+    ai_credits: AiCreditsStatus
     is_rate_limited: bool
     is_pro: bool
     billing_period_end: datetime | None = None
@@ -65,8 +73,19 @@ async def get_usage(
     user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
 ) -> UsageResponse:
     runner: ThrottleRunner = request.app.state.throttle_runner
-    plan_info = await resolve_plan_info(request, user.user_id, product)
+
+    plan_info, quota_status = await asyncio.gather(
+        resolve_plan_info(request, user.user_id, product),
+        resolve_quota_status(request, user.team_id),
+    )
     now = datetime.now(tz=UTC)
+
+    # Non-billable products don't actually get denied by BillableCreditThrottle,
+    # so reporting "exhausted" here would be misleading regardless of the team's
+    # AI credits state.
+    product_config = get_product_config(product)
+    is_billable = bool(product_config and product_config.billable)
+    ai_credits_exhausted = quota_status.limited if is_billable else False
 
     context = ThrottleContext(
         user=user,
@@ -75,6 +94,7 @@ async def get_usage(
         plan_key=plan_info.plan_key,
         seat_created_at=plan_info.seat_created_at,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
+        ai_credits_exhausted=ai_credits_exhausted,
     )
 
     burst_status: CostLimitStatus | None = None
@@ -118,7 +138,8 @@ async def get_usage(
         user_id=user.user_id,
         burst=burst_status,
         sustained=sustained_status,
-        is_rate_limited=burst_status.exceeded or sustained_status.exceeded,
+        ai_credits=AiCreditsStatus(exhausted=ai_credits_exhausted),
+        is_rate_limited=burst_status.exceeded or sustained_status.exceeded or ai_credits_exhausted,
         is_pro=is_pro_plan(plan_info.plan_key),
         billing_period_end=billing_period_end,
     )

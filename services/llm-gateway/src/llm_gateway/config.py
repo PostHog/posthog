@@ -160,6 +160,10 @@ class Settings(BaseSettings):
 
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 900  # 15 minutes
+    # AI credits quota state is fast-moving — Django itself caches the underlying
+    # Redis set for 30 seconds, so caching the resolver result for any longer
+    # would just stack staleness without saving lookups.
+    quota_cache_ttl: int = 30
     billing_period_days: int = 30
 
     # Anthropic -> Bedrock circuit breaker. When the trailing failure rate of the Anthropic

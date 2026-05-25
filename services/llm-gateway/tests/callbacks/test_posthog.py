@@ -348,11 +348,13 @@ class TestPostHogCallback:
         assert props["$ai_billable"] is False
 
     @pytest.mark.asyncio
-    async def test_on_failure_marks_slack_app_billable(
+    @pytest.mark.parametrize("product", ["slack_app", "slack_app_routing"])
+    async def test_on_failure_marks_slack_products_billable(
         self,
         callback: PostHogCallback,
         auth_user: AuthenticatedUser,
         mock_posthog_client: tuple,
+        product: str,
     ) -> None:
         _, mock_client = mock_posthog_client
         kwargs = {
@@ -366,7 +368,7 @@ class TestPostHogCallback:
 
         with (
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="slack_app"),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value=product),
         ):
             await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
 

@@ -11,10 +11,6 @@ class AuthenticatedUser:
     scopes: list[str] | None = None
     token_expires_at: datetime | None = None
     application_id: str | None = None
-    # The team's `posthog_team.api_token` — used by quota-limit throttles that
-    # read Django's `@posthog/quota-limits/...` Redis sets, which are keyed by
-    # team API token rather than team_id.
-    team_api_token: str | None = None
 
 
 def resolve_distinct_id(auth_user: AuthenticatedUser, end_user_id: str | None) -> str:
