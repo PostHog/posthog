@@ -602,6 +602,14 @@ class SurveyConditionsSchemaSerializer(serializers.Serializer):
     )
 
 
+class SurveySummarizeRequestSerializer(serializers.Serializer):
+    force_refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, bypass cached summaries and regenerate. Defaults to false.",
+    )
+
+
 class SurveyResponseAnswerSerializer(serializers.Serializer):
     question_id = serializers.CharField(help_text="UUID of the survey question this answer belongs to.")
     question_index = serializers.IntegerField(help_text="Zero-based index of the question within the survey.")
@@ -2890,6 +2898,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             "the survey-wide headline summary (delegates to summary_headline). Pass `force_refresh=true` in the body "
             "to bypass caches."
         ),
+        # request= is critical here — without it drf-spectacular falls back to the default ModelViewSet serializer
+        # (SurveySerializerCreateUpdateOnly) and generates a Zod schema demanding name/type fields that have nothing
+        # to do with summarization.
+        request=SurveySummarizeRequestSerializer,
         parameters=[
             OpenApiParameter(
                 "question_index",

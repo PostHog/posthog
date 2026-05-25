@@ -38175,6 +38175,11 @@ export namespace Schemas {
       rates: SurveyStatsResponseRates;
     }
 
+    export interface SurveySummarizeRequest {
+      /** When true, bypass cached summaries and regenerate. Defaults to false. */
+      force_refresh?: boolean;
+    }
+
     export interface Synthesize {
       /**
          * The text the assistant should speak aloud.

@@ -20,6 +20,7 @@ import type {
     SurveySerializerCreateUpdateOnlyApi,
     SurveySerializerCreateUpdateOnlySchemaApi,
     SurveyStatsResponseApi,
+    SurveySummarizeRequestApi,
     SurveysGlobalStatsRetrieveParams,
     SurveysListParams,
     SurveysResponsesListParams,
@@ -360,7 +361,7 @@ export const getSurveysSummarizeResponsesCreateUrl = (
 export const surveysSummarizeResponsesCreate = async (
     projectId: string,
     id: string,
-    surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
+    surveySummarizeRequestApi?: SurveySummarizeRequestApi,
     params?: SurveysSummarizeResponsesCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -368,7 +369,7 @@ export const surveysSummarizeResponsesCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
+        body: JSON.stringify(surveySummarizeRequestApi),
     })
 }
 

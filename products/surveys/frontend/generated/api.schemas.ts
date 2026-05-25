@@ -2083,6 +2083,11 @@ export interface SurveyStatsResponseApi {
     rates: SurveyStatsResponseApiRates
 }
 
+export interface SurveySummarizeRequestApi {
+    /** When true, bypass cached summaries and regenerate. Defaults to false. */
+    force_refresh?: boolean
+}
+
 export interface SurveyQuestionLabelApi {
     /** UUID assigned to the survey question. */
     question_id: string
