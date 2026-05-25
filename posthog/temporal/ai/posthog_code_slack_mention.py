@@ -231,6 +231,9 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     )
                     return
 
+                if self._selected_repo and await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
+                    return
+
                 await _execute_posthog_code_activity(
                     create_posthog_code_task_for_repo_activity,
                     inputs,
@@ -246,6 +249,9 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
 
             repository = decision.repository
             if not repository:
+                return
+
+            if await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
                 return
 
             await _execute_posthog_code_activity(
@@ -283,6 +289,30 @@ async def _execute_posthog_code_activity(activity_fn: Any, *args: Any) -> Any:
         args=args,
         start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS),
         retry_policy=RetryPolicy(maximum_attempts=3),
+    )
+
+
+async def _gate_on_personal_github(
+    inputs: "PostHogCodeSlackMentionWorkflowInputs",
+    channel: str,
+    thread_ts: str,
+    user_id: int,
+) -> bool:
+    """Return True when the workflow must abort because the mentioner has no personal GitHub.
+
+    Gated by `workflow.patched` so in-flight workflows started before this code was
+    deployed don't introduce a new activity command on replay and trip nondeterminism.
+    Pre-patch workflows skip the gate entirely and behave as before; post-patch
+    workflows always evaluate it.
+    """
+    if not workflow.patched("posthog-code-block-no-personal-github-2026-05"):
+        return False
+    return await _execute_posthog_code_activity(
+        block_posthog_code_task_if_no_personal_github_activity,
+        inputs,
+        channel,
+        thread_ts,
+        user_id,
     )
 
 
@@ -701,6 +731,80 @@ def post_posthog_code_repo_picker_activity(
         workflow_id=workflow_id,
         allow_no_repo=allow_no_repo,
     )
+
+
+@activity.defn
+def block_posthog_code_task_if_no_personal_github_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    thread_ts: str,
+    user_id: int,
+) -> bool:
+    """Gate a repo-bound coding-agent task on the mentioner having a personal GitHub.
+
+    Returns True (and posts an in-thread Slack message with a "Connect GitHub" button)
+    when the user has no `UserIntegration` of kind=github; the caller must then skip
+    `create_posthog_code_task_for_repo_activity`. Returns False to let the task proceed.
+
+    The team-level GitHub App can still author commits, but PRs would land under the
+    PostHog app identity instead of the user's. Rather than degrading silently, hold
+    the task and surface the one-click path to the personal integration setup.
+    """
+    from django.conf import settings
+
+    import structlog
+
+    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.user_integration import UserIntegration
+
+    log = structlog.get_logger(__name__)
+
+    has_personal_github = UserIntegration.objects.filter(
+        user_id=user_id,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+    ).exists()
+    if has_personal_github:
+        return False
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=inputs.integration_id,
+        kind=SLACK_INTEGRATION_KIND,
+        integration_id=inputs.slack_team_id,
+    )
+    slack = SlackIntegration(integration)
+
+    settings_url = f"{settings.SITE_URL}/project/{integration.team_id}/settings/user-personal-integrations"
+    text = (
+        "I can't start this task yet — you haven't connected your personal GitHub. "
+        "Connect it so I can open the pull request as you, then mention me again."
+    )
+    slack.client.chat_postMessage(
+        channel=channel,
+        thread_ts=thread_ts,
+        text=text,
+        blocks=[
+            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Connect GitHub", "emoji": True},
+                        "url": settings_url,
+                        "style": "primary",
+                    }
+                ],
+            },
+        ],
+    )
+    log.info(
+        "posthog_code_task_blocked_no_personal_github",
+        user_id=user_id,
+        team_id=integration.team_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    return True
 
 
 @activity.defn
