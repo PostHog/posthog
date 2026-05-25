@@ -26,7 +26,7 @@
 
 use serde_json::{json, Value};
 
-use super::{identifier_text, unquote_single_string, Parser};
+use super::{identifier_text, kw_valid_as_identifier, unquote_single_string, Parser};
 use crate::emit;
 use crate::error::ParseError;
 use crate::lex::{Lexer, TokenKind};
@@ -301,8 +301,17 @@ impl<'a> Parser<'a> {
     /// by an ident-like token with no intervening whitespace.
     fn parse_hogqlx_identifier(&mut self, what: &str) -> Result<String, ParseError> {
         let head = self.bump()?;
+        // A tag/attr name is an `identifier` (grammar `hogqlxTagElement` /
+        // `hogqlxTagAttribute`), so a keyword head is only valid when it is a
+        // grammar-`keyword`-rule member. The Hog-statement keywords (fn/let/…),
+        // set-op keywords (intersect/except) and literal keywords (null/inf/nan)
+        // are omitted from that rule, so cpp rejects `<fn/>` / `<a let/>` with
+        // "no viable alternative"; gate them out here to match.
         let mut name = match head.kind {
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
+            TokenKind::Ident | TokenKind::QuotedIdent => {
+                identifier_text(self.text(head), head.kind)
+            }
+            TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                 identifier_text(self.text(head), head.kind)
             }
             _ => {

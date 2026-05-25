@@ -775,3 +775,40 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_program(query, backend="rust-json"),
                 msg=query,
             )
+
+    @no_memory_leak_check
+    def test_hogqlx_tag_name_rejects_non_identifier_keywords(self):
+        # A HogQLX tag/attr name is a grammar `identifier`, so a keyword head is
+        # valid only when the grammar's `keyword` rule admits it. The Hog-statement
+        # keywords (fn/fun/let/while/throw/try/catch/finally), set-op keywords
+        # (intersect/except), literal keywords (null/inf/nan) and within/materialized
+        # are omitted from that rule, so cpp rejects `<fn/>`; rust used to accept
+        # them as tag/attr names (over-accept).
+        for kw in (
+            "fn",
+            "fun",
+            "let",
+            "while",
+            "throw",
+            "try",
+            "catch",
+            "finally",
+            "intersect",
+            "except",
+            "null",
+            "inf",
+            "nan",
+            "within",
+            "materialized",
+        ):
+            for query in (f"< {kw} />", f"< a {kw} />"):
+                for backend in ("cpp-json", "rust-json"):
+                    with self.assertRaises(BaseHogQLError):
+                        parse_expr(query, backend=backend)
+        # Keywords that the grammar's `keyword` rule admits stay valid tag names.
+        for kw in ("and", "select", "from", "by", "group", "order", "day", "sample"):
+            self.assertEqual(
+                parse_expr(f"< {kw} />", backend="cpp-json"),
+                parse_expr(f"< {kw} />", backend="rust-json"),
+                msg=kw,
+            )
