@@ -18,6 +18,7 @@ import type {
     ReadResourceRequest,
 } from '@modelcontextprotocol/sdk/types.js'
 
+import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
 
 import { trackInitEvent } from './analytics'
@@ -229,7 +230,7 @@ class McpDispatcher {
                     resources: { listChanged: false },
                     prompts: { listChanged: false },
                 },
-                serverInfo: { name: 'PostHog', version: '1.0.0' },
+                serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
                 ...(instructions ? { instructions } : {}),
             }
         } catch (error) {

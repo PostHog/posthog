@@ -1,4 +1,5 @@
 import { ApiClient } from '@/api/client'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
 import {
     AnalyticsEvent,
@@ -148,12 +149,21 @@ export class RequestContext {
     buildClientProperties(props?: RequestProperties): Record<string, unknown> {
         const p = props ?? this.props
         return {
+            $ai_product: 'mcp',
+            $mcp_source: MCP_ANALYTICS_SOURCE,
+            $mcp_server_name: MCP_SERVER_NAME,
+            $mcp_server_version: MCP_SERVER_VERSION,
+            $mcp_client_name: p.mcpClientName,
+            $mcp_client_version: p.mcpClientVersion,
+            $mcp_client_user_agent: p.clientUserAgent,
+            $mcp_protocol_version: p.mcpProtocolVersion,
+            $mcp_transport: p.transport,
+            $mcp_session_id: p.mcpSessionId,
+            $mcp_conversation_id: p.mcpConversationId,
+            $mcp_consumer: p.mcpConsumer,
+            $mcp_mode: p.mode,
+            $mcp_region: p.region,
             mcp_runtime: 'hono',
-            ...(p.mcpClientName ? { mcp_client_name: p.mcpClientName } : {}),
-            ...(p.mcpClientVersion ? { mcp_client_version: p.mcpClientVersion } : {}),
-            ...(p.mcpProtocolVersion ? { mcp_protocol_version: p.mcpProtocolVersion } : {}),
-            ...(p.mcpConsumer ? { mcp_consumer: p.mcpConsumer } : {}),
-            ...(p.transport ? { mcp_transport: p.transport } : {}),
         }
     }
 
@@ -184,7 +194,7 @@ export class RequestContext {
                     ...(resolvedProps.sessionId
                         ? { $session_id: await this.getSessionUuid(resolvedProps.sessionId) }
                         : {}),
-                    ...(clientName ? { mcp_oauth_client_name: clientName } : {}),
+                    ...(clientName ? { $mcp_oauth_client_name: clientName } : {}),
                     ...contextProperties,
                     ...previousContextProperties,
                     ...properties,
