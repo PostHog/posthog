@@ -53,7 +53,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, isString, objectsEqual, pluralize, toParams } from 'lib/utils'
+import { isString, objectsEqual, pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import {
@@ -71,14 +71,12 @@ import {
 } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
@@ -93,7 +91,6 @@ import {
     EventDefinitionType,
     Experiment,
     FeatureFlagType,
-    Group,
     PersonProperty,
     PersonType,
     PropertyDefinition,
@@ -108,6 +105,7 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
+import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGroupsLogic'
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
@@ -331,8 +329,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['currentTeamId', 'currentTeam'],
             projectLogic,
             ['currentProjectId'],
-            groupsModel,
-            ['groupTypes', 'aggregationLabel'],
             dataWarehouseSettingsSceneLogic, // This logic needs to be connected to stop the popover from erroring out
             ['dataWarehouseTables'],
             joinsLogic,
@@ -343,6 +339,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['featureFlags'],
             primaryEventPropertiesModel,
             ['primaryProperties'],
+            groupAnalyticsTaxonomicGroupsLogic,
+            ['groupAnalyticsTaxonomicGroups', 'groupAnalyticsTaxonomicGroupNames'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -1570,47 +1568,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
 
                 return filtered
             },
-        ],
-        groupAnalyticsTaxonomicGroupNames: [
-            (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
-            (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
-                Array.from(groupTypes.values()).map((type) => ({
-                    name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).plural)}`,
-                    searchPlaceholder: `${aggregationLabel(type.group_type_index).plural}`,
-                    type: `${TaxonomicFilterGroupType.GroupNamesPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
-                    endpoint: combineUrl(`api/environments/${teamId}/groups/`, {
-                        group_type_index: type.group_type_index,
-                    }).url,
-                    getPopoverHeader: () => `Group Names`,
-                    getName: (group: Group) => groupDisplayId(group.group_key, group.group_properties),
-                    getValue: (group: Group) => group.group_key,
-                    groupTypeIndex: type.group_type_index,
-                })),
-        ],
-        groupAnalyticsTaxonomicGroups: [
-            (s) => [s.groupTypes, s.currentProjectId, s.aggregationLabel],
-            (groupTypes, projectId, aggregationLabel): TaxonomicFilterGroup[] =>
-                Array.from(groupTypes.values()).map((type) => ({
-                    name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
-                    searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
-                    type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
-                    endpoint: combineUrl(`api/projects/${projectId}/property_definitions`, {
-                        type: 'group',
-                        group_type_index: type.group_type_index,
-                        exclude_hidden: true,
-                        exclude_restricted: true,
-                    }).url,
-                    valuesEndpoint: (key) =>
-                        `api/projects/${projectId}/groups/property_values?${toParams({
-                            key,
-                            group_type_index: type.group_type_index,
-                        })}`,
-                    getName: (group) => group.name,
-                    getValue: (group) => group.name,
-                    getPopoverHeader: () => `Property`,
-                    getIcon: getPropertyDefinitionIcon,
-                    groupTypeIndex: type.group_type_index,
-                })),
         ],
         infiniteListLogics: [
             (s) => [s.taxonomicGroupTypes, (_, props) => props],

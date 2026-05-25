@@ -1,6 +1,7 @@
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { hasBreakdown } from 'scenes/funnels/funnelUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
 
@@ -15,7 +16,6 @@ import {
 } from '~/queries/schema/schema-general'
 import type { CohortType, IntervalType } from '~/types'
 
-import { hasBreakdown } from '../../funnelUtils'
 import type { FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 
 export interface FunnelLineChartClickDeps {
