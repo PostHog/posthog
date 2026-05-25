@@ -36,7 +36,7 @@ class TestDogfoodInterviewLink(_FeatureFlagEnabledMixin):
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.content
-        return UserInterviewTopic.objects.get(id=response.json()["id"])
+        return UserInterviewTopic.objects.get(team=self.team, id=response.json()["id"])
 
     def test_topic_creation_does_not_eagerly_seed_dogfood_context(self) -> None:
         topic = self._create_topic()
