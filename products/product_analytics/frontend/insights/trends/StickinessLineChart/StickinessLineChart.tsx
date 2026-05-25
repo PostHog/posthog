@@ -18,13 +18,13 @@ import { groupsModel } from '~/models/groupsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
 import {
+    buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
     buildStickinessSeries,
-    formatStickinessLabels,
     stickinessPercentFormatter,
 } from './stickinessChartTransforms'
 
@@ -39,6 +39,16 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
         feature: 'stickiness-line-chart',
         componentStack: info.componentStack ?? undefined,
     })
+}
+
+/** Stickiness `date` is an interval-count integer (1, 2, …), not a date.
+ *  Render "stickiness on {interval} {day}" so InsightTooltip doesn't try to
+ *  format it as a calendar date (which would land on 1970-01-01). */
+function buildStickinessAltTitle(interval: string | null | undefined): (seriesData: SeriesDatum[]) => string {
+    return (seriesData) => {
+        const day = seriesData[0]?.date_label ?? ''
+        return `stickiness on ${interval || 'day'} ${day}`
+    }
 }
 
 export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.Element | null {
@@ -65,16 +75,10 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     const { timezone, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
-    const resolvedGroupTypeLabel =
-        context?.groupTypeLabel ??
-        (labelGroupType === 'people'
-            ? 'people'
-            : labelGroupType === 'none'
-              ? ''
-              : aggregationLabel(labelGroupType).plural)
+    const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
-    const rawLabels = currentPeriodResult?.labels ?? []
-    const labels = useMemo(() => formatStickinessLabels(rawLabels, interval), [rawLabels, interval])
+    const bucketCount = currentPeriodResult?.labels?.length ?? 0
+    const labels = useMemo(() => buildStickinessLabels(bucketCount, interval), [bucketCount, interval])
 
     const hasData =
         indexedResults &&
@@ -131,6 +135,8 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         [clickDeps]
     )
 
+    const altTitle = useMemo(() => buildStickinessAltTitle(interval), [interval])
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
             const onRowClick = canHandleClick
@@ -139,13 +145,6 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                       handleStickinessChartClick(seriesKey, datum.dataIndex, clickDeps)
                   }
                 : undefined
-            // Stickiness `date` is an interval-count integer (1, 2, …), not a date.
-            // Render "stickiness on {interval} {day}" so InsightTooltip doesn't try to
-            // format it as a calendar date (which would land on 1970-01-01).
-            const stickinessAltTitle = (seriesData: SeriesDatum[]): string => {
-                const day = seriesData[0]?.date_label ?? ''
-                return `stickiness on ${interval || 'day'} ${day}`
-            }
             return (
                 <TrendsTooltip
                     context={ctx}
@@ -160,7 +159,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                     groupTypeLabel={resolvedGroupTypeLabel}
                     formatCompareLabel={context?.formatCompareLabel}
                     onRowClick={onRowClick}
-                    altTitle={stickinessAltTitle}
+                    altTitle={altTitle}
                 />
             )
         },
@@ -175,6 +174,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             context?.formatCompareLabel,
             canHandleClick,
             clickDeps,
+            altTitle,
         ]
     )
 

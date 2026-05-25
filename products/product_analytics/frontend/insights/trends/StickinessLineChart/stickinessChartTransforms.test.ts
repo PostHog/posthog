@@ -2,10 +2,10 @@ import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
 import type { TooltipConfig } from 'lib/hog-charts'
 
 import {
+    buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
     buildStickinessMainSeries,
     buildStickinessSeries,
-    formatStickinessLabels,
     stickinessPercentFormatter,
     toPercentData,
     type StickinessResultLike,
@@ -128,23 +128,23 @@ describe('stickinessChartTransforms', () => {
         })
     })
 
-    describe('formatStickinessLabels', () => {
+    describe('buildStickinessLabels', () => {
         it.each([
-            ['day', ['1 day', '2 days', '3 days'], ['Day 0', 'Day 1', 'Day 2']],
-            ['week', ['1 week', '2 weeks'], ['Week 0', 'Week 1']],
-            ['hour', ['1 hour', '2 hours'], ['Hour 0', 'Hour 1']],
-            ['month', ['1 month', '2 months'], ['Month 0', 'Month 1']],
-        ] as const)('emits "%s"-prefixed labels by index', (interval, input, expected) => {
-            expect(formatStickinessLabels(input, interval)).toEqual(expected)
+            ['day', 3, ['Day 0', 'Day 1', 'Day 2']],
+            ['week', 2, ['Week 0', 'Week 1']],
+            ['hour', 2, ['Hour 0', 'Hour 1']],
+            ['month', 2, ['Month 0', 'Month 1']],
+        ] as const)('emits "%s"-prefixed labels by index', (interval, count, expected) => {
+            expect(buildStickinessLabels(count, interval)).toEqual(expected)
         })
 
         it('defaults to "Day" when interval is null/undefined', () => {
-            expect(formatStickinessLabels(['1 day', '2 days'], null)).toEqual(['Day 0', 'Day 1'])
-            expect(formatStickinessLabels(['1 day', '2 days'], undefined)).toEqual(['Day 0', 'Day 1'])
+            expect(buildStickinessLabels(2, null)).toEqual(['Day 0', 'Day 1'])
+            expect(buildStickinessLabels(2, undefined)).toEqual(['Day 0', 'Day 1'])
         })
 
-        it('returns empty array for empty input', () => {
-            expect(formatStickinessLabels([], 'day')).toEqual([])
+        it('returns empty array when count is 0', () => {
+            expect(buildStickinessLabels(0, 'day')).toEqual([])
         })
     })
 
@@ -164,14 +164,17 @@ describe('stickinessChartTransforms', () => {
 
         it('returns yAxis with percent tick formatter and a linear scale by default', () => {
             const config = buildStickinessLineTimeSeriesConfig({})
-            expect(config.yAxis?.scale).toBe('linear')
-            expect(config.yAxis?.showGrid).toBe(true)
-            expect(config.yAxis?.tickFormatter?.(50)).toBe('50.0%')
+            expect(config.yAxis).not.toBeUndefined()
+            expect(config.yAxis!.scale).toBe('linear')
+            expect(config.yAxis!.showGrid).toBe(true)
+            expect(config.yAxis!.tickFormatter).not.toBeUndefined()
+            expect(config.yAxis!.tickFormatter!(50)).toBe('50.0%')
         })
 
         it('switches the y-scale to log when yAxisScaleType is log10', () => {
             const config = buildStickinessLineTimeSeriesConfig({ yAxisScaleType: 'log10' })
-            expect(config.yAxis?.scale).toBe('log')
+            expect(config.yAxis).not.toBeUndefined()
+            expect(config.yAxis!.scale).toBe('log')
         })
 
         it('omits an xAxis date config — labels are pre-formatted interval counts', () => {

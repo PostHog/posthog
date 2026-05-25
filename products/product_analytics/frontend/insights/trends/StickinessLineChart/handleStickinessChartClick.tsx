@@ -33,6 +33,10 @@ export function handleStickinessChartClick(seriesKey: string, dataIndex: number,
     }
 
     if (deps.context?.onDataPointClick) {
+        // Intentional behavior change from legacy ActionsLineGraph: that code path
+        // passed `dataset.breakdownValues?.[index]` which on stickiness `IndexedTrendResult`
+        // was always `undefined`. We surface `dataset.breakdown_value` instead so
+        // consumers see the actual breakdown value the user clicked.
         deps.context.onDataPointClick(
             {
                 breakdown: dataset.breakdown_value,

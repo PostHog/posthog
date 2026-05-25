@@ -57,11 +57,11 @@ export function buildStickinessSeries<R extends StickinessResultLike, M = unknow
 
 /** Produce per-bucket labels ("Day 0", "Day 1", …). The API's own "X day(s)" labels
  * duplicate the interval prefix when paired with a stickiness-style axis, so we
- * synthesize them from the index. Mirrors `formatIntervalLabels` in the legacy LineGraph. */
-export function formatStickinessLabels(labels: readonly string[], interval: string | null | undefined): string[] {
+ * synthesize them from the bucket count. Mirrors `formatIntervalLabels` in the legacy LineGraph. */
+export function buildStickinessLabels(count: number, interval: string | null | undefined): string[] {
     const unit = interval ?? 'day'
     const prefix = `${unit.slice(0, 1).toUpperCase()}${unit.slice(1)}`
-    return labels.map((_, i) => `${prefix} ${i}`)
+    return Array.from({ length: count }, (_, i) => `${prefix} ${i}`)
 }
 
 /** Emit `85.0%`-style ticks — legacy parity with `${value.toFixed(1)}%` in LineGraph. */

@@ -7,6 +7,10 @@ import { CompareLabelType, EntityTypes } from '~/types'
 
 import { handleStickinessChartClick, type StickinessChartClickDeps } from './handleStickinessChartClick'
 
+// `IndexedTrendResult['days']` is declared `string[]`, but the backend serves
+// stickiness "days" as integers. Centralize the cast so the test bodies stay clean.
+const daysAsType = (nums: number[]): string[] => nums as unknown as string[]
+
 function makeTrendResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {
     return {
         id: 0,
@@ -17,14 +21,14 @@ function makeTrendResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTr
             type: EntityTypes.EVENTS,
             order: 0,
             name: '$pageview',
-            days: [1, 2, 3] as unknown as string[],
+            days: daysAsType([1, 2, 3]),
         },
         label: '$pageview',
         count: 10,
         aggregated_value: 10,
         data: [5, 3, 2],
         labels: ['1 day', '2 days', '3 days'],
-        days: [1, 2, 3] as unknown as string[],
+        days: daysAsType([1, 2, 3]),
         ...overrides,
     }
 }
@@ -97,25 +101,22 @@ describe('handleStickinessChartClick', () => {
     it.each([
         ['breakdown_value', { breakdown_value: 'Spike' }, 1, { day: 2, breakdown: 'Spike' }],
         ['compare_label', { compare_label: CompareLabelType.Previous }, 0, { day: 1, compare: 'previous' }],
-    ] as const)(
-        'forwards %s to context.onDataPointClick instead of opening the modal',
-        (_field, override, dataIndex, expected) => {
-            const openPersonsModal = jest.fn()
-            const onDataPointClick = jest.fn()
-            const trendResult = makeTrendResult(override)
-            const deps = makeDeps({
-                openPersonsModal,
-                indexedResults: [trendResult],
-                context: { onDataPointClick },
-            })
+    ] as const)('includes %s in the onDataPointClick payload when present', (_field, override, dataIndex, expected) => {
+        const openPersonsModal = jest.fn()
+        const onDataPointClick = jest.fn()
+        const trendResult = makeTrendResult(override)
+        const deps = makeDeps({
+            openPersonsModal,
+            indexedResults: [trendResult],
+            context: { onDataPointClick },
+        })
 
-            handleStickinessChartClick(keyFor(trendResult), dataIndex, deps)
+        handleStickinessChartClick(keyFor(trendResult), dataIndex, deps)
 
-            expect(openPersonsModal).not.toHaveBeenCalled()
-            expect(onDataPointClick).toHaveBeenCalledTimes(1)
-            expect(onDataPointClick).toHaveBeenCalledWith(expect.objectContaining(expected), expect.anything())
-        }
-    )
+        expect(openPersonsModal).not.toHaveBeenCalled()
+        expect(onDataPointClick).toHaveBeenCalledTimes(1)
+        expect(onDataPointClick).toHaveBeenCalledWith(expect.objectContaining(expected), expect.anything())
+    })
 
     it('passes indexedResults[0] (not the clicked dataset) as the second arg to onDataPointClick', () => {
         const openPersonsModal = jest.fn()
@@ -174,7 +175,7 @@ describe('handleStickinessChartClick', () => {
         const openPersonsModal = jest.fn()
         const trendResult = makeTrendResult({
             action: { id: '$pageview', type: EntityTypes.EVENTS, order: 0, name: '$pageview' },
-            days: [10, 20, 30] as unknown as string[],
+            days: daysAsType([10, 20, 30]),
         })
         const deps = makeDeps({ openPersonsModal, indexedResults: [trendResult] })
 
