@@ -17,7 +17,6 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -33,17 +32,12 @@ import {
 import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
-import {
-    FilterLogicalOperator,
-    InsightShortId,
-    RecordingUniversalFilters,
-    ReplayTabs,
-    UniversalFilterValue,
-} from '~/types'
+import { InsightShortId, ReplayTabs } from '~/types'
 
 import { MessageStatus } from '../maxLogic'
 import { visualizationTypeToQuery } from '../utils'
 import { MessageTemplate } from './MessageTemplate'
+import { buildRecordingFiltersFromQuery, deriveInsightName } from './visualizationArtifactAnswer.helpers'
 
 interface VisualizationArtifactAnswerProps {
     message: ArtifactMessage & { status?: MessageStatus }
@@ -84,50 +78,18 @@ const QUERY_CONTEXT_POSTHOG_AI: QueryContext = { limitContext: 'posthog_ai' } as
 
 type FollowupAction = 'open_new_tab' | 'save_as_insight' | 'add_to_dashboard' | 'see_recordings'
 
-function captureFollowupAction(action: FollowupAction, extra: Record<string, unknown> = {}): void {
-    posthog.capture('max artifact action clicked', { action, ...extra })
+interface FollowupCaptureContext {
+    followup_actions_enabled: boolean
+    is_saved_insight: boolean
+    post_save?: boolean
 }
 
-function buildRecordingFiltersFromQuery(
-    query: InsightVizNode | DataVisualizationNode
-): Partial<RecordingUniversalFilters> | null {
-    if (!isInsightVizNode(query)) {
-        return null
-    }
-    const source = query.source
-    if (!('series' in source) || !Array.isArray(source.series)) {
-        return null
-    }
-    const filters: UniversalFilterValue[] = []
-    source.series.forEach((series) => {
-        if ('event' in series && series.event) {
-            filters.push({
-                id: series.event,
-                name: series.event,
-                type: 'events',
-            } as UniversalFilterValue)
-        }
-    })
-    if (filters.length === 0) {
-        return null
-    }
-    return {
-        filter_group: {
-            type: FilterLogicalOperator.And,
-            values: [{ type: FilterLogicalOperator.And, values: filters }],
-        },
-        duration: [],
-    }
-}
-
-function deriveInsightName(query: InsightVizNode | DataVisualizationNode): string {
-    if (isInsightVizNode(query) && 'series' in query.source) {
-        const firstEvent = query.source.series.find((s) => 'event' in s && s.event)
-        if (firstEvent && 'event' in firstEvent && firstEvent.event) {
-            return `Max — ${firstEvent.event}`
-        }
-    }
-    return 'Max-generated insight'
+function captureFollowupAction(
+    action: FollowupAction,
+    context: FollowupCaptureContext,
+    extra: Record<string, unknown> = {}
+): void {
+    posthog.capture('max artifact action clicked', { action, ...context, ...extra })
 }
 
 export const VisualizationArtifactAnswer = React.memo(function VisualizationArtifactAnswer({
@@ -167,11 +129,16 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
         [insightQuery]
     )
 
+    const captureContext: FollowupCaptureContext = {
+        followup_actions_enabled: followupActionsEnabled,
+        is_saved_insight: Boolean(effectiveShortId),
+    }
+
     const handleSaveAsInsight = async (followWith: FollowupAction = 'save_as_insight'): Promise<void> => {
         if (!insightQuery || isSaving || effectiveShortId) {
             return
         }
-        captureFollowupAction(followWith)
+        captureFollowupAction(followWith, captureContext)
         setIsSaving(true)
         try {
             const insight = await insightsApi.create({
@@ -190,8 +157,12 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
             } else if (followWith === 'add_to_dashboard') {
                 setAddToDashboardModalOpen(true)
             }
-        } catch {
-            lemonToast.error('Could not save insight')
+        } catch (error) {
+            const detail =
+                error && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string'
+                    ? error.detail
+                    : null
+            lemonToast.error(detail ?? 'Could not save insight')
         } finally {
             setIsSaving(false)
         }
@@ -269,14 +240,13 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                             />
                             {recordingFilters && (
                                 <LemonButton
+                                    to={urls.replay(ReplayTabs.Home, recordingFilters)}
+                                    targetBlank
                                     icon={<IconRewindPlay />}
                                     size="xsmall"
                                     data-attr="max-artifact-see-recordings"
                                     tooltip="See recordings of these events"
-                                    onClick={() => {
-                                        captureFollowupAction('see_recordings')
-                                        newInternalTab(urls.replay(ReplayTabs.Home, recordingFilters))
-                                    }}
+                                    onClick={() => captureFollowupAction('see_recordings', captureContext)}
                                 />
                             )}
                         </>
@@ -289,12 +259,14 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                             size="xsmall"
                             icon={<IconOpenInNew />}
                             data-attr="max-artifact-open-saved-insight"
-                            onClick={() => captureFollowupAction('open_new_tab', { post_save: true })}
+                            onClick={() =>
+                                captureFollowupAction('open_new_tab', { ...captureContext, post_save: true })
+                            }
                         >
                             Open insight
                         </LemonButton>
                     )}
-                    {!isEditingInsight && !(followupActionsEnabled && effectiveShortId) && (
+                    {!isEditingInsight && !followupActionsEnabled && (
                         <LemonButton
                             to={
                                 isSavedInsight
@@ -308,12 +280,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                             size="xsmall"
                             tooltip={isSavedInsight ? 'Open insight' : 'Open as new insight'}
                             data-attr="max-artifact-open-as-new-insight"
-                            onClick={() =>
-                                captureFollowupAction('open_new_tab', {
-                                    followup_actions_enabled: followupActionsEnabled,
-                                    is_saved_insight: isSavedInsight,
-                                })
-                            }
+                            onClick={() => captureFollowupAction('open_new_tab', captureContext)}
                         />
                     )}
                     <LemonButton
