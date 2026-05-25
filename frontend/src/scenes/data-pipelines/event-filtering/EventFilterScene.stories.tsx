@@ -519,9 +519,12 @@ Expected to show:
         },
     },
     play: async () => {
+        // Wait for the API mock to load the tree — `add-condition-root` is present
+        // immediately on mount with an empty default tree, so we must wait for the
+        // loaded conditions or `afterMount` will overwrite our edits mid-play.
         await waitFor(() => {
-            if (!document.querySelector('[data-attr="add-condition-root"]')) {
-                throw new Error('Tree not rendered')
+            if (!document.querySelector('input[value="$drop_me"]')) {
+                throw new Error('Tree not loaded')
             }
         })
 
@@ -582,9 +585,11 @@ Expected to show:
         },
     },
     play: async () => {
+        // Wait for the API mock to load the tree — otherwise `afterMount` can resolve
+        // after our click and overwrite the mode back to "disabled".
         await waitFor(() => {
-            if (!document.querySelector('[data-attr="add-condition-root"]')) {
-                throw new Error('Tree not rendered')
+            if (!document.querySelector('input[value="$drop_me"]')) {
+                throw new Error('Tree not loaded')
             }
         })
 
@@ -678,9 +683,11 @@ Expected to show:
         },
     },
     play: async () => {
+        // Wait for the API mock to load the tree before opening the modal — otherwise
+        // the snapshot can capture the modal rendered over the still-empty default tree.
         await waitFor(() => {
-            if (!document.querySelector('[data-attr="add-condition-root"]')) {
-                throw new Error('Tree not rendered')
+            if (!document.querySelector('input[value="$drop_me"]')) {
+                throw new Error('Tree not loaded')
             }
         })
 
