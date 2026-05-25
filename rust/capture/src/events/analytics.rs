@@ -51,29 +51,33 @@ fn has_heatmap_data(event: &RawEvent) -> bool {
 
 /// Build a stripped-down `$$heatmap` event from a non-`$$heatmap` event that
 /// carries heatmap data. The redirect gets a fresh UUID so it does not
-/// deduplicate against the original.
+/// deduplicate against the original. Returns `Ok(None)` if the source event
+/// has no resolvable `distinct_id` — the original event will fail validation
+/// downstream anyway, so no point emitting a redirect that will also fail.
 fn create_heatmap_redirect(
     event: &RawEvent,
     historical_cfg: router::HistoricalConfig,
     context: &ProcessingContext,
-) -> Result<ProcessedEvent, CaptureError> {
+) -> Result<Option<ProcessedEvent>, CaptureError> {
+    let Some(distinct_id) = event.extract_distinct_id() else {
+        return Ok(None);
+    };
+
     let mut properties = HashMap::new();
     for key in HEATMAP_PROPERTY_KEYS {
         if let Some(value) = event.properties.get(*key) {
             properties.insert((*key).to_string(), value.clone());
         }
     }
-    // Preserve distinct_id and $cookieless_mode — needed for routing key generation.
-    if let Some(value) = event.properties.get("distinct_id") {
-        properties.insert("distinct_id".to_string(), value.clone());
-    }
+    // $cookieless_mode shapes the routing key (token:ip vs token:distinct_id);
+    // extract_is_cookieless_mode reads it from properties.
     if let Some(value) = event.properties.get("$cookieless_mode") {
         properties.insert("$cookieless_mode".to_string(), value.clone());
     }
 
     let heatmap_event = RawEvent {
         token: event.token.clone(),
-        distinct_id: event.distinct_id.clone(),
+        distinct_id: Some(serde_json::Value::String(distinct_id)),
         uuid: Some(uuid_v7()),
         event: "$$heatmap".to_string(),
         properties,
@@ -83,7 +87,7 @@ fn create_heatmap_redirect(
         set_once: None,
     };
 
-    process_single_event(&heatmap_event, historical_cfg, context)
+    process_single_event(&heatmap_event, historical_cfg, context).map(Some)
 }
 
 /// Process a single analytics event from RawEvent to ProcessedEvent
@@ -230,7 +234,11 @@ pub async fn process_events<'a>(
             continue;
         }
         let redirect = match create_heatmap_redirect(raw, historical_cfg, context) {
-            Ok(redirect) => redirect,
+            Ok(Some(redirect)) => redirect,
+            Ok(None) => {
+                events.push(process_single_event(raw, historical_cfg, context)?);
+                continue;
+            }
             Err(err) => {
                 error!("failed to create heatmap redirect: {err:#}");
                 events.push(process_single_event(raw, historical_cfg, context)?);
@@ -1862,7 +1870,9 @@ mod tests {
         let event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
         let historical_cfg = router::HistoricalConfig::new(false, 1);
 
-        let redirect = create_heatmap_redirect(&event, historical_cfg, &context).unwrap();
+        let redirect = create_heatmap_redirect(&event, historical_cfg, &context)
+            .unwrap()
+            .expect("redirect should be created when distinct_id is resolvable");
 
         assert_eq!(redirect.metadata.data_type, DataType::HeatmapMain);
         assert_eq!(redirect.metadata.event_name, "$$heatmap");
@@ -1876,11 +1886,45 @@ mod tests {
         assert!(data.properties.contains_key("$viewport_width"));
         assert!(data.properties.contains_key("$session_id"));
         assert!(data.properties.contains_key("$current_url"));
-        assert!(data.properties.contains_key("distinct_id"));
+        assert_eq!(data.distinct_id, Some(json!("test_user")));
+        assert!(
+            !data.properties.contains_key("distinct_id"),
+            "distinct_id lives on the top-level field, not in properties"
+        );
         assert!(
             !data.properties.contains_key("other_prop"),
             "redirect should only contain heatmap properties"
         );
+    }
+
+    #[test]
+    fn test_create_heatmap_redirect_returns_none_when_distinct_id_missing() {
+        let now = Utc::now();
+        let context = create_test_context(now, None);
+        let mut event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
+        event.distinct_id = None;
+        event.properties.remove("distinct_id");
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        let result = create_heatmap_redirect(&event, historical_cfg, &context).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_create_heatmap_redirect_resolves_distinct_id_from_properties() {
+        let now = Utc::now();
+        let context = create_test_context(now, None);
+        let event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
+        // Carrier event has distinct_id only in properties (top-level is None).
+        assert!(event.distinct_id.is_none());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        let redirect = create_heatmap_redirect(&event, historical_cfg, &context)
+            .unwrap()
+            .expect("redirect should fall back to properties for distinct_id");
+
+        let data: RawEvent = serde_json::from_str(&redirect.event.data).unwrap();
+        assert_eq!(data.distinct_id, Some(json!("test_user")));
     }
 
     #[rstest]
@@ -2131,10 +2175,12 @@ mod tests {
             redirect_raw.properties.get("$current_url"),
             Some(&json!("https://example.com")),
         );
-        // distinct_id is required for routing-key generation.
-        assert_eq!(
-            redirect_raw.properties.get("distinct_id"),
-            Some(&json!("test_user")),
+        // distinct_id is required for routing-key generation; it's pre-resolved
+        // onto the top-level field rather than left in properties.
+        assert_eq!(redirect_raw.distinct_id, Some(json!("test_user")));
+        assert!(
+            !redirect_raw.properties.contains_key("distinct_id"),
+            "distinct_id is on the top-level field, not in properties"
         );
         // The redirect must NOT carry unrelated user properties — only what the heatmap pipeline reads.
         assert!(
