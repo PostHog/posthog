@@ -422,6 +422,108 @@ export function defineResilienceTests(
     })
 }
 
+// Session ID tracking: the server mints an `Mcp-Session-Id` on initialize and
+// echoes it on every response. Clients echo it back so the server can correlate
+// requests to a logical session for analytics and cache scoping.
+//
+// These tests use the real MCP SDK client to verify the session ID flows through
+// the full transport lifecycle — the SDK's StreamableHTTPClientTransport
+// automatically captures the header from the init response and echoes it on
+// every subsequent request.
+export function defineSessionTrackingTests(
+    label: string,
+    getHarness: () => Promise<ProtocolTestHarness> | ProtocolTestHarness
+): void {
+    describe(`MCP session tracking (${label})`, () => {
+        let client: Client
+        let transport: StreamableHTTPClientTransport
+
+        afterEach(async () => {
+            await safeClose(client)
+        })
+
+        async function connectClient(
+            harness: ProtocolTestHarness,
+            extraHeaders: Record<string, string> = {}
+        ): Promise<void> {
+            transport = new StreamableHTTPClientTransport(new URL('/mcp', harness.baseUrl), {
+                fetch: harness.fetch,
+                requestInit: {
+                    headers: {
+                        Authorization: `Bearer ${harness.token}`,
+                        ...extraHeaders,
+                    },
+                },
+            })
+            client = new Client({ name: 'session-tracking-test', version: '0.0.1' }, { capabilities: {} })
+            await client.connect(transport as ConnectableTransport)
+        }
+
+        it('SDK transport captures a UUID session ID after init', async () => {
+            const harness = await getHarness()
+            await connectClient(harness)
+
+            expect(transport.sessionId).toBeTruthy()
+            expect(transport.sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+        })
+
+        it('session ID persists through tools/list after init', async () => {
+            const harness = await getHarness()
+            await connectClient(harness)
+            const sessionId = transport.sessionId
+
+            const { tools } = await client.listTools()
+            expect(tools.length).toBeGreaterThan(0)
+            expect(transport.sessionId).toBe(sessionId)
+        })
+
+        it('session ID persists through a tool call', async () => {
+            const harness = await getHarness()
+            await connectClient(harness)
+            const sessionId = transport.sessionId
+
+            await client.callTool({ name: 'organization-get', arguments: {} })
+            expect(transport.sessionId).toBe(sessionId)
+        })
+
+        it('session ID persists through multiple sequential tool calls', async () => {
+            const harness = await getHarness()
+            await connectClient(harness)
+            const sessionId = transport.sessionId
+
+            await client.listTools()
+            await client.callTool({ name: 'organization-get', arguments: {} })
+            await client.listResources()
+            expect(transport.sessionId).toBe(sessionId)
+        })
+
+        it('exec mode gets a session ID that persists through calls', async () => {
+            const harness = await getHarness()
+            await connectClient(harness, { 'x-posthog-mcp-mode': 'cli' })
+            const sessionId = transport.sessionId
+
+            expect(sessionId).toBeTruthy()
+            await client.callTool({ name: 'exec', arguments: { command: 'tools' } })
+            expect(transport.sessionId).toBe(sessionId)
+        })
+
+        it('two independent clients get different session IDs', async () => {
+            const harness = await getHarness()
+
+            await connectClient(harness)
+            const sessionId1 = transport.sessionId
+            await safeClose(client)
+
+            await connectClient(harness)
+            const sessionId2 = transport.sessionId
+
+            expect(sessionId1).toBeTruthy()
+            expect(sessionId2).toBeTruthy()
+            expect(sessionId1).not.toBe(sessionId2)
+        })
+    })
+}
+
 // Raw JSON-RPC dispatcher behavior that bypasses the SDK client. The SDK
 // normalizes / hides a lot of the wire format, so we drop down to fetch() to
 // assert on the contract MCP clients in the wild actually depend on:

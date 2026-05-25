@@ -68,7 +68,7 @@ describe('RequestContext', () => {
 
         it('returns cached distinctId without calling API', async () => {
             const redis = fakeRedis()
-            await redis.set('mcp:user:test-user:distinctId', JSON.stringify('cached-id'))
+            await redis.set('mcp:token:test-user:distinctId', JSON.stringify('cached-id'))
             mockMe.mockClear()
 
             const ctx = new RequestContext(redis, env, makeProps())
@@ -84,7 +84,7 @@ describe('RequestContext', () => {
             const ctx = new RequestContext(redis, env, makeProps())
 
             await ctx.getDistinctId()
-            const cached = await redis.get('mcp:user:test-user:distinctId')
+            const cached = await redis.get('mcp:token:test-user:distinctId')
             expect(JSON.parse(cached!)).toBe('fresh-id')
         })
 
