@@ -3026,84 +3026,84 @@ export const NotebookArtifactWithLoadingAndErrors: Story = {
 
 // Visualization Artifact Stories
 
-function buildVisualizationArtifactStoryRender(prompt: string): () => JSX.Element {
-    return function VisualizationArtifactStory(): JSX.Element {
-        const visualizationContent: VisualizationArtifactContent = {
-            content_type: ArtifactContentType.Visualization,
-            name: 'Pageviews — last 30 days',
-            query: {
-                kind: 'TrendsQuery',
-                series: [{ event: '$pageview', name: 'Pageviews' }],
-                dateRange: { date_from: '-30d' },
-            } as TrendsQuery,
-        }
+const VISUALIZATION_ARTIFACT_PROMPT = 'Show me pageviews for the last 30 days'
 
-        const visualizationArtifactMessage = {
-            type: AssistantMessageType.Artifact,
-            artifact_id: 'visualization-artifact-1',
-            source: 'artifact',
-            content: visualizationContent,
-            id: 'visualization-artifact-msg-1',
-        }
-
-        useStorybookMocks({
-            post: {
-                '/api/environments/:team_id/query/:kind/': () => [
-                    200,
-                    {
-                        results: [[100, 120, 130, 140, 150]],
-                        columns: ['count'],
-                        types: ['integer'],
-                        hogql: 'SELECT count() FROM events',
-                    },
-                ],
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({ ...humanMessage, content: prompt })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(visualizationArtifactMessage)}`,
-                            ])
-                        )
-                    ),
-            },
-        })
-
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
-        const { askMax } = useActions(threadLogic)
-        const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(prompt)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
-
-        if (!dataProcessingAccepted) {
-            return <></>
-        }
-
-        return <Template />
+function VisualizationArtifactStoryRender(): JSX.Element {
+    const visualizationContent: VisualizationArtifactContent = {
+        content_type: ArtifactContentType.Visualization,
+        name: 'Pageviews — last 30 days',
+        query: {
+            kind: 'TrendsQuery',
+            series: [{ event: '$pageview', name: 'Pageviews' }],
+            dateRange: { date_from: '-30d' },
+        } as TrendsQuery,
     }
+
+    const visualizationArtifactMessage = {
+        type: AssistantMessageType.Artifact,
+        artifact_id: 'visualization-artifact-1',
+        source: 'artifact',
+        content: visualizationContent,
+        id: 'visualization-artifact-msg-1',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/query/:kind/': () => [
+                200,
+                {
+                    results: [[100, 120, 130, 140, 150]],
+                    columns: ['count'],
+                    types: ['integer'],
+                    hogql: 'SELECT count() FROM events',
+                },
+            ],
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: VISUALIZATION_ARTIFACT_PROMPT })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(visualizationArtifactMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(VISUALIZATION_ARTIFACT_PROMPT)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
 }
 
 export const VisualizationArtifactInThread: Story = {
-    render: buildVisualizationArtifactStoryRender('Show me pageviews for the last 30 days'),
+    render: () => <VisualizationArtifactStoryRender />,
     parameters: {
         testOptions: { waitForLoadersToDisappear: false },
     },
 }
 
 export const VisualizationArtifactInThreadWithFollowupActions: Story = {
-    render: buildVisualizationArtifactStoryRender('Show me pageviews for the last 30 days'),
+    render: () => <VisualizationArtifactStoryRender />,
     parameters: {
         testOptions: { waitForLoadersToDisappear: false },
         featureFlags: { [FEATURE_FLAGS.MAX_FOLLOWUP_ACTIONS]: 'test' },
