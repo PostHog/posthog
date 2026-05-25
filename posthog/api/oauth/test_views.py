@@ -204,7 +204,7 @@ class TestOAuthAPI(APIBaseTest):
         grant = OAuthGrant.objects.get(code=code)
 
         self.assertEqual(grant.scoped_teams, [])
-        self.assertIn(str(self.organization.id), grant.scoped_organizations)
+        self.assertEqual(grant.scoped_organizations, [str(self.organization.id)])
 
     def test_authorize_missing_client_id(self):
         url = self.base_authorization_url
@@ -2244,7 +2244,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["client_id"], "test_confidential_client_id")
         self.assertEqual(data["client_name"], "Test Confidential App")
         self.assertIn("scoped_organizations", data)
-        self.assertNotIn("scoped_teams", data)
+        self.assertIn("scoped_teams", data)
 
         if token_type == "access_token":
             self.assertEqual(data["token_type"], "access_token")

@@ -585,9 +585,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # First-party apps skip consent screen entirely
         if application.is_first_party:
             try:
-                # Auto-approve with all user's accessible organizations.
-                org_ids = request.user.organizations.values_list("id", flat=True)
-                credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
+                current_organization = request.user.organization
+                if current_organization is None:
+                    return self.error_response(
+                        OAuthToolkitError("No active organization for user."),
+                        application,
+                        state=request.query_params.get("state"),
+                    )
+                credentials["scoped_organizations"] = [str(current_organization.id)]
                 credentials["scoped_teams"] = []
 
                 uri, headers, body, status_code = self.create_authorization_response(
@@ -924,6 +929,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 "active": True,
                 "token_type": "access_token",
                 "scope": access_token.scope,
+                "scoped_teams": access_token.scoped_teams or [],
                 "scoped_organizations": access_token.scoped_organizations or [],
                 "exp": int(calendar.timegm(access_token.expires.timetuple())),
             }
@@ -945,6 +951,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             data = {
                 "active": True,
                 "token_type": "refresh_token",
+                "scoped_teams": refresh_token.scoped_teams or [],
                 "scoped_organizations": refresh_token.scoped_organizations or [],
             }
             if refresh_token.application:
