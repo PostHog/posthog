@@ -645,8 +645,8 @@ class TestObserveActionFeatureFlag(APIBaseTest):
 class TestSessionReplayObservationViewSet(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.scanner_a = self._create_lens(name="scanner-a")
-        self.scanner_b = self._create_lens(name="scanner-b")
+        self.scanner_a = self._create_scanner(name="scanner-a")
+        self.scanner_b = self._create_scanner(name="scanner-b")
 
     @property
     def session_observations_url(self) -> str:
