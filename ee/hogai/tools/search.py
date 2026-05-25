@@ -62,6 +62,8 @@ Use this tool to find PostHog entities using full-text search.
 Full-text search is a more powerful way to find entities than natural language search. It relies on the PostgreSQL full-text search capabilities.
 So the query used in this tool should be a natural language query that is optimized for full-text search, consider tokenizing of the query and using synonyms.
 If you want to search for all entities, you should use kind="all".
+
+Do not use this tool to search error tracking issues, exceptions, or stack traces — use the `search_error_tracking_issues` tool instead, which queries live issues with status, date range, and aggregations.
 """.strip()
 
 INVALID_ENTITY_KIND_PROMPT = """
