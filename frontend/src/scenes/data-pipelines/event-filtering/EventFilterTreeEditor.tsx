@@ -1,7 +1,7 @@
 import { useDroppable, useDndMonitor } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
@@ -9,7 +9,7 @@ import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 
-import { eventFilterLogic, FilterNode, TreePath } from './eventFilterLogic'
+import { EVENT_FILTER_MAX_CONDITIONS, eventFilterLogic, FilterNode, TreePath } from './eventFilterLogic'
 import { NodeIdMap } from './NodeIdMap'
 
 const FIELD_OPTIONS = [
@@ -105,6 +105,12 @@ function GroupEditor({
     nodeIds: NodeIdMap
 }): JSX.Element {
     const { updateTreeNode, removeChild, wrapInNot, addChild } = useActions(eventFilterLogic)
+    const { conditionCount } = useValues(eventFilterLogic)
+
+    const atMaxConditions = conditionCount >= EVENT_FILTER_MAX_CONDITIONS
+    const maxConditionsReason = atMaxConditions
+        ? `Maximum of ${EVENT_FILTER_MAX_CONDITIONS} conditions reached`
+        : undefined
 
     const pathAttr = path.length === 0 ? 'root' : path.join('-')
     const droppableId = `drop:${nodeIds.nidOf(node)}`
@@ -197,6 +203,7 @@ function GroupEditor({
                         icon={<IconPlusSmall />}
                         data-attr={`add-condition-${pathAttr}`}
                         onClick={() => addChild(path)}
+                        disabledReason={maxConditionsReason}
                     >
                         Add condition
                     </LemonButton>
@@ -212,6 +219,7 @@ function GroupEditor({
                             }
                             updateTreeNode(path, { ...node, children: [...node.children, newGroup] })
                         }}
+                        disabledReason={maxConditionsReason}
                     >
                         Add group
                     </LemonButton>

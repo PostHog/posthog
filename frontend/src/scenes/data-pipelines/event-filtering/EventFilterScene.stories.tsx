@@ -405,8 +405,8 @@ are disabled and the limit hint surfaces.
 
 Expected to show:
 - Root OR with 20 condition rows alternating between \`event_name\` and \`distinct_id\` fields
-- "Add condition" / "Add group" buttons disabled or hidden at the root
-- Limit hint visible somewhere near the buttons
+- "Add condition" and "Add group" buttons rendered in their disabled state
+  (hovering them surfaces "Maximum of 20 conditions reached")
 - Two test cases, both with green "Pass" tags
                 `,
             },

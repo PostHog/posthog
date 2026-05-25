@@ -1,4 +1,11 @@
-import { evaluateFilterTree, treeHasConditions, treeHasEmptyValues, updateAtPath, FilterNode } from './eventFilterLogic'
+import {
+    countConditions,
+    evaluateFilterTree,
+    FilterNode,
+    treeHasConditions,
+    treeHasEmptyValues,
+    updateAtPath,
+} from './eventFilterLogic'
 import { cond, and, or, not } from './testHelpers'
 
 describe('evaluateFilterTree', () => {
@@ -275,6 +282,21 @@ describe('treeHasConditions', () => {
         ['not with empty child', not(or()), false],
     ])('%s', (_name, tree, expected) => {
         expect(treeHasConditions(tree)).toBe(expected)
+    })
+})
+
+describe('countConditions', () => {
+    it.each([
+        ['bare condition', cond(), 1],
+        ['empty and', and(), 0],
+        ['empty or', or(), 0],
+        ['flat or of three', or(cond(), cond(), cond()), 3],
+        ['nested and inside or', or(cond(), and(cond(), cond())), 3],
+        ['not wrapping condition', not(cond()), 1],
+        ['not wrapping empty group', not(or()), 0],
+        ['deeply nested', and(or(cond(), not(cond())), and(cond())), 3],
+    ])('%s', (_name, tree, expected) => {
+        expect(countConditions(tree)).toBe(expected)
     })
 })
 

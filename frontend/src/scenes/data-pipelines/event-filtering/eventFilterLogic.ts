@@ -172,6 +172,19 @@ export function treeHasConditions(node: FilterNode): boolean {
     }
 }
 
+/** Counts the total number of condition leaves in the tree. */
+export function countConditions(node: FilterNode): number {
+    switch (node.type) {
+        case 'condition':
+            return 1
+        case 'not':
+            return countConditions(node.child)
+        case 'and':
+        case 'or':
+            return node.children.reduce((sum, child) => sum + countConditions(child), 0)
+    }
+}
+
 /** Returns true if any condition leaf has an empty or whitespace-only value. */
 export function treeHasEmptyValues(node: FilterNode): boolean {
     switch (node.type) {
@@ -276,6 +289,12 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
 
     selectors({
         currentTeamId: [() => [teamLogic.selectors.currentTeamId], (id: number) => id],
+
+        /** Total number of condition leaves in the current tree. */
+        conditionCount: [
+            (s) => [s.filterForm],
+            (form: EventFilterFormValues): number => countConditions(form.filter_tree),
+        ],
 
         /** Run each test case against the current tree client-side for live preview. */
         testResults: [
