@@ -218,8 +218,11 @@ class TestObjectLevelAccessControl(BaseTest):
     def _enable_ac(self):
         from posthog.constants import AvailableFeature
 
+        # `ROLE_BASED_ACCESS` is required for `UserAccessControl._user_role_ids`
+        # to load — without it role-based ACL rows are silently ignored.
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
@@ -475,6 +478,181 @@ class TestObjectLevelAccessControl(BaseTest):
         assert INTERNAL_ACCESS_CONTROL_TABLE_NAME not in database.get_posthog_table_names(include_hidden=True)
         assert INTERNAL_ACCESS_CONTROL_TABLE_NAME not in database.get_system_table_names()
         assert INTERNAL_ACCESS_CONTROL_TABLE_NAME not in database.get_all_table_names()
+
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_deny_includes_default_row(self):
+        """A default ACL row (member IS NULL AND role IS NULL) with
+        access_level='none' on a specific resource_id must be honored — the
+        defaults-only branch of the HAVING clause is what catches it.
+        """
+        from ee.models import AccessControl
+
+        self._enable_ac()
+        # Default "none" on dashboard 7, no member or role attached.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="7",
+            access_level="none",
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        ctx = HogQLContext(
+            team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True, database=database
+        )
+        sql = self._compile_select("SELECT id FROM system.dashboards", ctx)
+
+        assert "notIn" in sql, "deny-list should fire for default 'none' on a resource_id"
+        # Both the explicit-branch and defaults-branch of the HAVING clause
+        # need to be present; the latter is what catches the default row.
+        assert "countIf" in sql
+
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_deny_includes_role_match(self):
+        """When the user is in a role and an ACL denies that role on a
+        specific resource_id, the predicate must include the role in the
+        user-relevance filter (`role_id IN tuple(...)`)."""
+        from ee.models import AccessControl
+        from ee.models.rbac.role import Role, RoleMembership
+
+        membership = self._enable_ac()
+        role = Role.objects.create(name="smoke-role", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=membership)
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="5",
+            access_level="none",
+            role=role,
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        ctx = HogQLContext(
+            team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True, database=database
+        )
+        sql = self._compile_select("SELECT id FROM system.dashboards", ctx)
+
+        assert "notIn" in sql
+        # The role_id IN tuple(...) clause is rendered as `in(...role_id, tuple(...))`.
+        assert "role_id" in sql
+        assert "tuple(" in sql, "role_ids tuple missing from subquery"
+
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_parity_with_filter_queryset_by_access_level(self):
+        """The HogQL predicate must filter the same resource_ids as the Python
+        `filter_queryset_by_access_level` queryset filter would.
+
+        We can't execute the rendered ClickHouse SQL in this test (the printer
+        emits `postgresql(...)` table-function calls that only ClickHouse can
+        run). Instead we re-derive what the predicate's inner subquery
+        *would* return — the blocked or allowed `resource_id` set — using the
+        same access-control rows it would query, and compare that set to the
+        IDs `filter_queryset_by_access_level` actually excludes (or restricts
+        to).
+        """
+        from posthog.models.dashboard import Dashboard
+        from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+
+        from ee.models import AccessControl
+        from ee.models.rbac.role import Role, RoleMembership
+
+        membership = self._enable_ac()
+        role = Role.objects.create(name="parity-role", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=membership)
+
+        # Build a corpus of dashboards in this team — Dashboard IDs are
+        # autoincremented and global, so we cannot hard-code them.
+        d_member_denied = Dashboard.objects.create(team=self.team, name="member-denied")
+        d_role_denied = Dashboard.objects.create(team=self.team, name="role-denied")
+        d_default_denied = Dashboard.objects.create(team=self.team, name="default-denied")
+        d_member_allowed_via_explicit = Dashboard.objects.create(team=self.team, name="member-allow-explicit")
+        d_unfiltered = Dashboard.objects.create(team=self.team, name="unfiltered")
+
+        # Member-specific deny on one dashboard.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(d_member_denied.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        # Role-specific deny on another.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(d_role_denied.id),
+            access_level="none",
+            role=role,
+        )
+        # Default deny on a third (no member, no role).
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(d_default_denied.id),
+            access_level="none",
+        )
+        # Default deny plus explicit allow for this member — should NOT block.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(d_member_allowed_via_explicit.id),
+            access_level="none",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(d_member_allowed_via_explicit.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+
+        uac = UserAccessControl(user=self.user, team=self.team)
+        # Sanity: this user has resource-level access (default editor).
+        assert uac.access_level_for_resource("dashboard") != NO_ACCESS_LEVEL
+
+        # 1) Reference set — IDs the Python filter retains.
+        queryset = Dashboard.objects.filter(team=self.team)
+        queryset_allowed_ids = set(uac.filter_queryset_by_access_level(queryset).values_list("id", flat=True))
+
+        # 2) Re-derive the SAME set using only the data the printer's subquery
+        # would see — the cached access controls. Mirrors the HAVING logic.
+        filters = uac.access_controls_filters_for_queryset("dashboard")
+        rows = uac.get_access_controls(filters)
+        by_resource_id: dict[str, list] = {}
+        for ac in rows:
+            by_resource_id.setdefault(ac.resource_id, []).append(ac)
+
+        blocked: set[str] = set()
+        for resource_id, group in by_resource_id.items():
+            explicit = [ac for ac in group if ac.organization_member is not None or ac.role is not None]
+            if explicit:
+                if all(ac.access_level == NO_ACCESS_LEVEL for ac in explicit):
+                    blocked.add(resource_id)
+            else:
+                # Defaults only.
+                if all(ac.access_level == NO_ACCESS_LEVEL for ac in group):
+                    blocked.add(resource_id)
+
+        # The Python filter also bypasses for the creator, but for Dashboard
+        # we set `created_by` to None implicitly, so no bypass applies.
+        all_ids = set(Dashboard.objects.filter(team=self.team).values_list("id", flat=True))
+        predicate_allowed_ids = all_ids - {int(rid) for rid in blocked if rid.isdigit()}
+
+        assert queryset_allowed_ids == predicate_allowed_ids, (
+            f"queryset filter and predicate diverge:\n"
+            f"  queryset: {sorted(queryset_allowed_ids)}\n"
+            f"  predicate: {sorted(predicate_allowed_ids)}\n"
+            f"  blocked-by-predicate: {sorted(blocked)}\n"
+            f"  rows: {[(ac.resource_id, ac.access_level, ac.organization_member_id, ac.role_id) for ac in rows]}"
+        )
+
+        # Also assert this excludes exactly the dashboards we expect.
+        assert d_member_denied.id not in queryset_allowed_ids
+        assert d_role_denied.id not in queryset_allowed_ids
+        assert d_default_denied.id not in queryset_allowed_ids
+        assert d_member_allowed_via_explicit.id in queryset_allowed_ids
+        assert d_unfiltered.id in queryset_allowed_ids
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_predicate_does_not_pollute_shared_module_singletons(self):
