@@ -4,11 +4,12 @@ import { cleanup, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ensureJsdom, waitForHogChartTooltip } from 'lib/hog-charts/testing'
-import { FUNNEL_CONVERSION_SERIES_LABEL } from 'scenes/funnels/viz/shared/funnelSeriesMeta'
 
 import { buildFunnelsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope } from '~/types'
+
+import { FUNNEL_CONVERSION_SERIES_LABEL } from '../shared/funnelSeriesMeta'
 
 ensureJsdom()
 
