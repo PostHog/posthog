@@ -35,7 +35,12 @@ export async function refreshOAuthTokens(
                     http_status: response.status,
                     duration_ms: Math.round(performance.now() - startTime),
                 })
-                captureToolbarException(err, 'token_refresh')
+                // 4xx is the normal end-of-session signal (revoked/expired refresh token,
+                // bad client_id). withTokenRefresh recovers via tokenExpired() + toast.
+                // Only promote 5xx / unexpected statuses to error tracking.
+                if (response.status >= 500) {
+                    captureToolbarException(err, 'token_refresh', { http_status: response.status })
+                }
                 throw err
             }
 
