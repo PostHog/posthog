@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
+import funnelHistoricalTrendsFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -94,22 +95,17 @@ function renderFunnelLineChart(insightFixture: any, funnelsFilterOverrides?: Par
     )
 }
 
-/* eslint-disable @typescript-eslint/no-var-requires */
-const funnelTrendsInsight = (): any =>
-    require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json')
-
 export const Default: Story = {
-    render: () => renderFunnelLineChart(funnelTrendsInsight()),
+    render: () => renderFunnelLineChart(funnelHistoricalTrendsFixture),
 }
 
 export const ValueLabels: Story = {
-    render: () => renderFunnelLineChart(funnelTrendsInsight(), { showValuesOnSeries: true }),
+    render: () => renderFunnelLineChart(funnelHistoricalTrendsFixture, { showValuesOnSeries: true }),
 }
 
 export const GoalLine: Story = {
     render: () =>
-        renderFunnelLineChart(funnelTrendsInsight(), {
+        renderFunnelLineChart(funnelHistoricalTrendsFixture, {
             goalLines: [{ label: 'Target', value: 10, displayIfCrossed: true }],
         }),
 }
-/* eslint-enable @typescript-eslint/no-var-requires */

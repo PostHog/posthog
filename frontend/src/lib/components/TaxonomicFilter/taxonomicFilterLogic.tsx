@@ -54,6 +54,7 @@ import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isString, objectsEqual, pluralize, toParams } from 'lib/utils'
+import { isDefinitionStale } from 'lib/utils/definitions'
 import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import {
     getEventDefinitionIcon,
@@ -375,6 +376,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             items,
         }),
         openRevealBarrier: true,
+        setIncludeStaleEvents: (includeStaleEvents: boolean) => ({ includeStaleEvents }),
     })),
     reducers(({ props, selectors }) => ({
         searchQuery: [
@@ -454,6 +456,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             {
                 setSearchQuery: (_, { searchQuery }: { searchQuery: string }) => !(searchQuery ?? '').trim(),
                 openRevealBarrier: () => true,
+            },
+        ],
+        includeStaleEvents: [
+            // Per-session opt-in to surface event definitions whose last ingested occurrence
+            // is older than STALE_EVENT_DAYS. Resets back to false on every fresh search so
+            // the user re-opts in deliberately rather than carrying stale results across
+            // unrelated queries.
+            false,
+            {
+                setIncludeStaleEvents: (_, { includeStaleEvents }: { includeStaleEvents: boolean }) =>
+                    includeStaleEvents,
+                setSearchQuery: () => false,
+                setActiveTab: () => false,
             },
         ],
     })),
@@ -1803,6 +1818,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const wasFromRecents = hasRecentContext(item)
                 const wasFromPinnedList = hasPinnedContext(item)
 
+                const isEventTab =
+                    sourceGroupType === TaxonomicFilterGroupType.Events ||
+                    sourceGroupType === TaxonomicFilterGroupType.CustomEvents
+                const wasStale =
+                    isEventTab && item && typeof item === 'object' && 'last_seen_at' in item
+                        ? isDefinitionStale(item)
+                        : undefined
+
                 posthog.capture('taxonomic filter item selected', {
                     groupType: values.activeTab,
                     sourceGroupType,
@@ -1812,6 +1835,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     hadSearchInput,
                     position: meta?.position,
                     query: values.searchQuery || undefined,
+                    wasStale,
                     ...(wasQuickFilter && {
                         filterName: item.name,
                         propertyKey: item.propertyKey,
@@ -1960,8 +1984,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     groupType: activeTaxonomicGroup?.type,
                     inputMode,
                     pastedFraction: totalLength > 0 ? Math.min(1, pastedChars / totalLength) : 0,
+                    excludeStale: !values.includeStaleEvents,
                 })
             }
+        },
+
+        setIncludeStaleEvents: ({ includeStaleEvents }) => {
+            posthog.capture('taxonomic filter include stale toggled', {
+                includeStaleEvents,
+                groupType: values.activeTab,
+                searchQuery: values.searchQuery || undefined,
+            })
         },
 
         infiniteListResultsReceived: async ({ groupType, results }, breakpoint) => {

@@ -124,7 +124,8 @@ export const EXPERIMENT_DEFAULT_DURATION = 14 // days
 // Event constants
 export const ACTION_TYPE = 'action_type'
 export const EVENT_TYPE = 'event_type'
-export const STALE_EVENT_SECONDS = 30 * 24 * 60 * 60 // 30 days
+export const STALE_EVENT_DAYS = 30
+export const STALE_EVENT_SECONDS = STALE_EVENT_DAYS * 24 * 60 * 60
 
 /**
  * @deprecated should be removed once backend is updated
@@ -418,6 +419,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_HIDE_WEEKENDS: 'product-analytics-hide-weekends', // owner: @kliment-slice #team-irl-events
     PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS: 'product-analytics-hog-charts-trends', // owner: @sampennington #team-product-analytics
     PRODUCT_ANALYTICS_HOG_CHARTS_FUNNEL: 'product-analytics-hog-charts-funnel', // owner: @sampennington #team-product-analytics
+    PRODUCT_ANALYTICS_HOG_CHARTS_LIFECYCLE: 'product-analytics-hog-charts-lifecycle', // owner: @sampennington #team-product-analytics
     PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION: 'product-analytics-hog-charts-retention', // owner: @sampennington #team-product-analytics
     PRODUCT_ANALYTICS_HOG_CHARTS_STICKINESS: 'product-analytics-hog-charts-stickiness', // owner: @sampennington #team-product-analytics
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics

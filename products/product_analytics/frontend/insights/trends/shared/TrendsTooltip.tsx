@@ -32,6 +32,11 @@ interface TrendsTooltipProps {
      *  is an interval-count integer, not a date — letting InsightTooltip format it as
      *  a calendar date produces a wrong "Thursday, 1 Jan 1970" header. */
     altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
+    // Overrides the default SeriesLetter + InsightLabel row renderer. Mirrors the
+    // legacy ActionsLineGraph escape hatch used for lifecycle, where the label
+    // is the lifecycle status itself (e.g. "New") and InsightLabel's action.name
+    // would otherwise mask it.
+    renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
 }
 
 /** Bridges hog-charts TooltipContext to the legacy InsightTooltip.
@@ -53,6 +58,7 @@ export function TrendsTooltip({
     onRowClick,
     showHeader,
     altTitle,
+    renderSeriesOverride,
 }: TrendsTooltipProps): React.ReactElement {
     const seriesData = useMemo<SeriesDatum[]>(
         () =>
@@ -96,6 +102,9 @@ export function TrendsTooltip({
 
     const renderSeries = useCallback(
         (value: React.ReactNode, datum: SeriesDatum): React.ReactElement => {
+            if (renderSeriesOverride) {
+                return <div className="datum-label-column">{renderSeriesOverride(datum)}</div>
+            }
             const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
 
             if (hasBreakdown && !hasMultipleSeries) {
@@ -117,7 +126,7 @@ export function TrendsTooltip({
                 </div>
             )
         },
-        [hasMultipleSeries, breakdownFilter, formatCompareLabel, formula]
+        [hasMultipleSeries, breakdownFilter, formatCompareLabel, formula, renderSeriesOverride]
     )
 
     return (
