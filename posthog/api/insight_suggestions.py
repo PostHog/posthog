@@ -18,6 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql.ai import hit_openai
 
+from posthog.api.annotation_context import build_annotations_block, resolve_query_date_range
 from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
@@ -190,6 +191,7 @@ def get_insight_analysis(
     insight_result: Optional[dict[str, Any]],
     insight_name: Optional[str] = None,
     insight_description: Optional[str] = None,
+    insight_id: Optional[int] = None,
 ) -> str:
     """Generate an AI analysis of the insight, highlighting main points and actionable items."""
     try:
@@ -208,6 +210,12 @@ def get_insight_analysis(
         if insight_description:
             context_str += f"Insight Description: {insight_description}\n"
 
+        annotations_block = build_annotations_block(
+            team,
+            resolve_query_date_range(query, team),
+            insight_ids=[insight_id] if insight_id else None,
+        )
+
         prompt = (
             "You are a senior product data analyst. "
             "Your goal is to explain *what* is happening in this insight and *why* it matters. "
@@ -224,6 +232,7 @@ def get_insight_analysis(
             "- Focus on *changes* and *differences*.\n"
             "- Use plain text only (no markdown formatting like bold/italics) as the output will be rendered as raw text.\n"
             "\n"
+            f"{annotations_block}"
             f"Query Configuration: {query.model_dump_json(exclude_none=True)}\n\n"
             f"Results Summary: {result_summary}"
         )

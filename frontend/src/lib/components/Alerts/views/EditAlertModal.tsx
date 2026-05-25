@@ -1,102 +1,40 @@
 import { useActions, useValues } from 'kea'
-import { Form, Group } from 'kea-forms'
+import { Form } from 'kea-forms'
 import { useCallback, useMemo } from 'react'
 
-import { IconCalendar, IconChevronLeft, IconClock, IconInfo } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonCheckbox,
-    LemonCollapse,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSelect,
-    Link,
-    SpinnerOverlay,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { IconCalendar, IconChevronLeft } from '@posthog/icons'
+import { LemonCheckbox, LemonInput, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
-import { TZLabel } from 'lib/components/TZLabel'
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { alphabet, formatDate } from 'lib/utils'
+import { formatDate } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import {
-    AlertCalculationInterval,
-    AlertConditionType,
-    AlertState,
-    InsightThresholdType,
-} from '~/queries/schema/schema-general'
-import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
+import { AvailableFeature, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { alertFormLogic, canCheckOngoingInterval, getDefaultSimulationRange } from '../alertFormLogic'
+import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
+import { AlertDefinitionSection } from 'products/alerts/frontend/components/editAlertModal/AlertDefinitionSection'
+import { AlertIntervalRow } from 'products/alerts/frontend/components/editAlertModal/AlertIntervalRow'
+import { AlertNotificationSection } from 'products/alerts/frontend/components/editAlertModal/AlertNotificationSection'
+import { isHighFrequencyAlertInterval } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+
+import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
 import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
 import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
 import type { AlertType } from '../types'
-import { AlertDestinationSelector } from './AlertDestinationSelector'
 import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
-import { DetectorSelector, getDefaultWindow } from './DetectorSelector'
-import { InlineAlertNotifications } from './InlineAlertNotifications'
-import { QuietHoursFields } from './QuietHoursFields'
-import { SimulationSummary } from './SimulationSummary'
-
-function getSimulationRangeOptions(interval: AlertCalculationInterval): { label: string; value: string }[] {
-    switch (interval) {
-        case AlertCalculationInterval.EVERY_15_MINUTES:
-        case AlertCalculationInterval.HOURLY:
-            return [
-                { label: 'Last 24h', value: '-24h' },
-                { label: 'Last 48h', value: '-48h' },
-                { label: 'Last 72h', value: '-72h' },
-                { label: 'Last 7d', value: '-168h' },
-            ]
-        case AlertCalculationInterval.DAILY:
-            return [
-                { label: 'Last 14d', value: '-14d' },
-                { label: 'Last 30d', value: '-30d' },
-                { label: 'Last 60d', value: '-60d' },
-                { label: 'Last 90d', value: '-90d' },
-            ]
-        case AlertCalculationInterval.WEEKLY:
-            return [
-                { label: 'Last 8w', value: '-8w' },
-                { label: 'Last 12w', value: '-12w' },
-                { label: 'Last 26w', value: '-26w' },
-                { label: 'Last 52w', value: '-52w' },
-            ]
-        case AlertCalculationInterval.MONTHLY:
-            return [
-                { label: 'Last 6m', value: '-6m' },
-                { label: 'Last 12m', value: '-12m' },
-                { label: 'Last 24m', value: '-24m' },
-            ]
-    }
-}
-
-function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
-    switch (interval) {
-        case AlertCalculationInterval.EVERY_15_MINUTES:
-            return '15 minutes'
-        case AlertCalculationInterval.HOURLY:
-            return 'hour'
-        case AlertCalculationInterval.DAILY:
-            return 'day'
-        case AlertCalculationInterval.WEEKLY:
-            return 'week'
-        case AlertCalculationInterval.MONTHLY:
-            return 'month'
-    }
-}
 
 interface EditAlertModalProps {
     isOpen: boolean | undefined
@@ -117,8 +55,6 @@ export function EditAlertModal({
     onEditSuccess,
     insightLogicProps,
 }: EditAlertModalProps): JSX.Element {
-    const alerts15MinuteIntervalEnabled = useFeatureFlag('ALERTS_15_MINUTE_INTERVAL')
-
     const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
 
@@ -164,6 +100,11 @@ export function EditAlertModal({
     const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
+    const alerts15MinuteIntervalEnabled = useFeatureFlag('ALERTS_15_MINUTE_INTERVAL')
+
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const hasHighFrequencyAlertsEntitlement = hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
 
     const { pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
@@ -183,7 +124,6 @@ export function EditAlertModal({
     }, [insightLogicProps, insightId])
 
     const creatingNewAlert = alertForm.id === undefined
-    // can only check ongoing interval for absolute value/increase alerts with upper threshold
     const can_check_ongoing_interval = canCheckOngoingInterval(alertForm)
     const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
     const nextPlannedEvaluationStale = useMemo(
@@ -210,9 +150,8 @@ export function EditAlertModal({
             n += 1
         }
         if (
-            (alertForm.calculation_interval === AlertCalculationInterval.EVERY_15_MINUTES ||
-                alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
-                alertForm.calculation_interval === AlertCalculationInterval.HOURLY) &&
+            (alertForm.calculation_interval === AlertCalculationInterval.DAILY ||
+                isHighFrequencyAlertInterval(alertForm.calculation_interval)) &&
             alertForm.skip_weekend
         ) {
             n += 1
@@ -277,398 +216,34 @@ export function EditAlertModal({
                             <div className="deprecated-space-y-3">
                                 <h3 className="mb-0">Definition</h3>
                                 <div className="deprecated-space-y-3">
-                                    {isBreakdownValid && (
-                                        <LemonBanner type="warning">
-                                            {alertMode === 'detector'
-                                                ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-                                                : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'}
-                                        </LemonBanner>
-                                    )}
-                                    <div className="flex gap-3 items-center">
-                                        <div>When</div>
-                                        <Group name={['config']}>
-                                            <LemonField name="series_index" className="flex-auto">
-                                                <LemonSelect
-                                                    fullWidth
-                                                    data-attr="alertForm-series-index"
-                                                    options={
-                                                        formulaNodes?.length > 0
-                                                            ? formulaNodes.map(({ formula, custom_name }, index) => ({
-                                                                  label: `${
-                                                                      custom_name ? custom_name : 'Formula'
-                                                                  } (${formula})`,
-                                                                  value: index,
-                                                              }))
-                                                            : (alertSeries?.map(
-                                                                  ({ custom_name, name, event }, index) => ({
-                                                                      label: isBreakdownValid
-                                                                          ? 'any breakdown value'
-                                                                          : `${alphabet[index]} - ${
-                                                                                custom_name ?? name ?? event
-                                                                            }`,
-                                                                      value: isBreakdownValid ? 0 : index,
-                                                                  })
-                                                              ) ?? [])
-                                                    }
-                                                    disabledReason={
-                                                        isBreakdownValid &&
-                                                        (alertMode === 'detector'
-                                                            ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-                                                            : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.')
-                                                    }
-                                                />
-                                            </LemonField>
-                                        </Group>
-                                    </div>
-
-                                    {anomalyDetectionEnabled && (
-                                        <LemonSegmentedButton
-                                            fullWidth
-                                            value={alertMode}
-                                            onChange={(value) => {
-                                                if (value === 'detector') {
-                                                    setAlertFormValue('detector_config', {
-                                                        type: 'zscore',
-                                                        threshold: 0.95,
-                                                        window: getDefaultWindow(alertForm.calculation_interval),
-                                                        preprocessing: { diffs_n: 1 },
-                                                    })
-                                                } else {
-                                                    setAlertFormValue('detector_config', null)
-                                                }
-                                            }}
-                                            options={[
-                                                {
-                                                    value: 'threshold',
-                                                    label: 'Threshold',
-                                                    tooltip:
-                                                        'Alert when a value goes above or below a fixed threshold you define.',
-                                                },
-                                                {
-                                                    value: 'detector',
-                                                    label: 'Anomaly detection',
-                                                    tooltip:
-                                                        'Automatically detect unusual changes using AI (ohhh fancy, jk its just good old stats and ml stuff). No manual thresholds needed.',
-                                                },
-                                            ]}
-                                        />
-                                    )}
-
-                                    {alertMode === 'threshold' ? (
-                                        <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                                            <Group name={['condition']}>
-                                                <LemonField name="type">
-                                                    <LemonSelect
-                                                        fullWidth
-                                                        className="w-40"
-                                                        data-attr="alertForm-condition"
-                                                        options={[
-                                                            {
-                                                                label: 'has value',
-                                                                value: AlertConditionType.ABSOLUTE_VALUE,
-                                                            },
-                                                            {
-                                                                label: 'increases by',
-                                                                value: AlertConditionType.RELATIVE_INCREASE,
-                                                                disabledReason:
-                                                                    isNonTimeSeriesDisplay &&
-                                                                    'This condition is only supported for time series trends',
-                                                            },
-                                                            {
-                                                                label: 'decreases by',
-                                                                value: AlertConditionType.RELATIVE_DECREASE,
-                                                                disabledReason:
-                                                                    isNonTimeSeriesDisplay &&
-                                                                    'This condition is only supported for time series trends',
-                                                            },
-                                                        ]}
-                                                    />
-                                                </LemonField>
-                                            </Group>
-                                            <div>less than</div>
-                                            <LemonField name="lower">
-                                                <LemonInput
-                                                    type="number"
-                                                    className="w-30"
-                                                    data-attr="alertForm-lower-threshold"
-                                                    value={
-                                                        alertForm.threshold.configuration.type ===
-                                                            InsightThresholdType.PERCENTAGE &&
-                                                        alertForm.threshold.configuration.bounds?.lower
-                                                            ? alertForm.threshold.configuration.bounds?.lower * 100
-                                                            : alertForm.threshold.configuration.bounds?.lower
-                                                    }
-                                                    onChange={(value) =>
-                                                        setAlertFormValue('threshold', {
-                                                            configuration: {
-                                                                type: alertForm.threshold.configuration.type,
-                                                                bounds: {
-                                                                    ...alertForm.threshold.configuration.bounds,
-                                                                    lower:
-                                                                        value &&
-                                                                        alertForm.threshold.configuration.type ===
-                                                                            InsightThresholdType.PERCENTAGE
-                                                                            ? value / 100
-                                                                            : value,
-                                                                },
-                                                            },
-                                                        })
-                                                    }
-                                                />
-                                            </LemonField>
-                                            <div>or more than</div>
-                                            <LemonField name="upper">
-                                                <LemonInput
-                                                    type="number"
-                                                    className="w-30"
-                                                    data-attr="alertForm-upper-threshold"
-                                                    value={
-                                                        alertForm.threshold.configuration.type ===
-                                                            InsightThresholdType.PERCENTAGE &&
-                                                        alertForm.threshold.configuration.bounds?.upper
-                                                            ? alertForm.threshold.configuration.bounds?.upper * 100
-                                                            : alertForm.threshold.configuration.bounds?.upper
-                                                    }
-                                                    onChange={(value) =>
-                                                        setAlertFormValue('threshold', {
-                                                            configuration: {
-                                                                type: alertForm.threshold.configuration.type,
-                                                                bounds: {
-                                                                    ...alertForm.threshold.configuration.bounds,
-                                                                    upper:
-                                                                        value &&
-                                                                        alertForm.threshold.configuration.type ===
-                                                                            InsightThresholdType.PERCENTAGE
-                                                                            ? value / 100
-                                                                            : value,
-                                                                },
-                                                            },
-                                                        })
-                                                    }
-                                                />
-                                            </LemonField>
-                                            {alertForm.condition.type !== AlertConditionType.ABSOLUTE_VALUE && (
-                                                <Group name={['threshold', 'configuration']}>
-                                                    <LemonField name="type">
-                                                        <LemonSegmentedButton
-                                                            options={[
-                                                                {
-                                                                    value: InsightThresholdType.PERCENTAGE,
-                                                                    label: '%',
-                                                                    tooltip: 'Percent',
-                                                                },
-                                                                {
-                                                                    value: InsightThresholdType.ABSOLUTE,
-                                                                    label: '#',
-                                                                    tooltip: 'Absolute number',
-                                                                },
-                                                            ]}
-                                                        />
-                                                    </LemonField>
-                                                </Group>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <DetectorSelector
-                                            value={alertForm.detector_config ?? null}
-                                            onChange={(config) => {
-                                                setAlertFormValue('detector_config', config)
-                                                clearSimulation()
-                                                clearSimulationOverlay()
-                                            }}
-                                            calculationInterval={alertForm.calculation_interval}
-                                        />
-                                    )}
-
-                                    {alertMode === 'detector' &&
-                                        alertForm.detector_config &&
-                                        investigationAgentEnabled && (
-                                            <div className="deprecated-space-y-2">
-                                                <div className="flex items-center gap-1">
-                                                    <h4 className="m-0">Investigation agent</h4>
-                                                    <Tooltip
-                                                        title="An optional AI agent that investigates anomaly fires against this insight's own data. It runs read-only HogQL queries, looks at the metric chart, and writes its findings — verdict, hypotheses, recommendations — to a notebook linked from the alert history. You can also have it gate notifications so false positives don't page you."
-                                                        placement="right"
-                                                        delayMs={0}
-                                                    >
-                                                        <IconInfo />
-                                                    </Tooltip>
-                                                </div>
-                                                <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                                                    <LemonCheckbox
-                                                        data-attr="alertForm-investigation-agent-enabled"
-                                                        checked={!!alertForm.investigation_agent_enabled}
-                                                        onChange={(checked) =>
-                                                            setAlertFormValue('investigation_agent_enabled', checked)
-                                                        }
-                                                        label={
-                                                            <span className="flex items-center gap-1">
-                                                                Run investigation agent when this alert fires
-                                                                <Tooltip
-                                                                    title="On the transition to firing, an agent validates the anomaly with read-only queries, writes a notebook with its findings, and links it from the alert check history. Runs once per transition."
-                                                                    placement="right"
-                                                                    delayMs={0}
-                                                                >
-                                                                    <IconInfo />
-                                                                </Tooltip>
-                                                            </span>
-                                                        }
-                                                    />
-                                                    <LemonCheckbox
-                                                        data-attr="alertForm-investigation-gates-notifications"
-                                                        checked={!!alertForm.investigation_gates_notifications}
-                                                        onChange={(checked) =>
-                                                            setAlertFormValue(
-                                                                'investigation_gates_notifications',
-                                                                checked
-                                                            )
-                                                        }
-                                                        disabledReason={
-                                                            !alertForm.investigation_agent_enabled
-                                                                ? 'Enable the investigation agent first'
-                                                                : undefined
-                                                        }
-                                                        label={
-                                                            <span className="flex items-center gap-1">
-                                                                Wait for the verdict before notifying
-                                                                <Tooltip
-                                                                    title="Notifications are delayed ~30–90s while the agent investigates. False-positive verdicts are suppressed. A safety-net task force-fires after a few minutes if the investigation stalls, so real fires can't be silently missed."
-                                                                    placement="right"
-                                                                    delayMs={0}
-                                                                >
-                                                                    <IconInfo />
-                                                                </Tooltip>
-                                                            </span>
-                                                        }
-                                                    />
-                                                </div>
-                                                {alertForm.investigation_agent_enabled &&
-                                                    alertForm.investigation_gates_notifications && (
-                                                        <div className="flex flex-wrap items-center gap-2 text-sm text-secondary">
-                                                            <span>On inconclusive verdict</span>
-                                                            <LemonSegmentedButton
-                                                                size="xsmall"
-                                                                value={
-                                                                    alertForm.investigation_inconclusive_action ??
-                                                                    'notify'
-                                                                }
-                                                                onChange={(value) =>
-                                                                    setAlertFormValue(
-                                                                        'investigation_inconclusive_action',
-                                                                        value
-                                                                    )
-                                                                }
-                                                                options={[
-                                                                    {
-                                                                        value: 'notify',
-                                                                        label: 'Notify',
-                                                                        tooltip:
-                                                                            'Safe default — an unsure agent is itself signal.',
-                                                                    },
-                                                                    {
-                                                                        value: 'suppress',
-                                                                        label: 'Suppress',
-                                                                        tooltip: 'Only notify on true positives.',
-                                                                    },
-                                                                ]}
-                                                            />
-                                                        </div>
-                                                    )}
-                                            </div>
-                                        )}
-
-                                    {alertMode === 'detector' && alertForm.detector_config && (
-                                        <div className="deprecated-space-y-2">
-                                            <div className="flex gap-2 items-center">
-                                                <h4 className="m-0">Simulation</h4>
-                                                <LemonSelect
-                                                    size="small"
-                                                    data-attr="alertForm-simulate-range"
-                                                    value={
-                                                        simulationDateFrom ??
-                                                        getDefaultSimulationRange(alertForm.calculation_interval)
-                                                    }
-                                                    onChange={(value) => setSimulationDateFrom(value)}
-                                                    options={getSimulationRangeOptions(alertForm.calculation_interval)}
-                                                />
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="small"
-                                                    data-attr="alertForm-simulate"
-                                                    onClick={simulateAlert}
-                                                    loading={simulationResultLoading}
-                                                    tooltip="Run the detector on historical data to preview which points would be flagged as anomalies"
-                                                >
-                                                    Simulate
-                                                </LemonButton>
-                                            </div>
-                                            {simulationResult && (
-                                                <SimulationSummary
-                                                    result={simulationResult}
-                                                    detectorConfig={alertForm.detector_config}
-                                                />
-                                            )}
-                                        </div>
-                                    )}
-
-                                    <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                                        <div>Run alert every</div>
-                                        <LemonField name="calculation_interval">
-                                            <LemonSelect
-                                                fullWidth
-                                                className="w-28"
-                                                data-attr="alertForm-calculation-interval"
-                                                options={Object.values(AlertCalculationInterval).map((interval) => ({
-                                                    label: alertCalculationIntervalToLabel(interval),
-                                                    value: interval,
-                                                    hidden:
-                                                        interval === AlertCalculationInterval.EVERY_15_MINUTES &&
-                                                        !alerts15MinuteIntervalEnabled,
-                                                }))}
-                                            />
-                                        </LemonField>
-                                        <div>
-                                            and check {alertForm?.config.check_ongoing_interval ? 'current' : 'last'}
-                                        </div>
-                                        <LemonSelect
-                                            fullWidth
-                                            className="w-28"
-                                            data-attr="alertForm-trend-interval"
-                                            disabledReason={
-                                                <>
-                                                    To change the interval being checked, edit and <b>save</b> the
-                                                    interval which the insight is 'grouped by'
-                                                </>
-                                            }
-                                            value={trendInterval ?? 'day'}
-                                            options={[
-                                                {
-                                                    label: trendInterval ?? 'day',
-                                                    value: trendInterval ?? 'day',
-                                                },
-                                            ]}
-                                        />
-                                    </div>
-                                    {!creatingNewAlert && alert ? (
-                                        <div className="text-sm text-muted flex flex-wrap items-center gap-x-2 gap-y-0">
-                                            <IconClock
-                                                className={`size-4 shrink-0 text-muted motion-reduce:animate-none${
-                                                    !nextPlannedEvaluationStale && !alert.next_check_at
-                                                        ? ' animate-spin'
-                                                        : ''
-                                                }`}
-                                                aria-hidden
-                                            />
-                                            <span className="shrink-0">Next planned evaluation:</span>
-                                            {nextPlannedEvaluationStale ? (
-                                                <span>We'll recalculate this after you save.</span>
-                                            ) : alert.next_check_at ? (
-                                                <TZLabel time={alert.next_check_at} />
-                                            ) : (
-                                                <span>We're calculating this. This can take a few minutes.</span>
-                                            )}
-                                        </div>
-                                    ) : null}
+                                    <AlertDefinitionSection
+                                        alertForm={alertForm}
+                                        alertMode={alertMode}
+                                        isBreakdownValid={isBreakdownValid}
+                                        isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+                                        alertSeries={alertSeries}
+                                        formulaNodes={formulaNodes}
+                                        anomalyDetectionEnabled={anomalyDetectionEnabled}
+                                        investigationAgentEnabled={investigationAgentEnabled}
+                                        simulationResult={simulationResult}
+                                        simulationResultLoading={simulationResultLoading}
+                                        simulationDateFrom={simulationDateFrom}
+                                        onSetAlertFormValue={setAlertFormValue}
+                                        onSimulateAlert={simulateAlert}
+                                        onSetSimulationDateFrom={setSimulationDateFrom}
+                                        onClearSimulation={clearSimulation}
+                                        onClearSimulationOverlay={clearSimulationOverlay}
+                                    />
+                                    <AlertIntervalRow
+                                        alertForm={alertForm}
+                                        creatingNewAlert={creatingNewAlert}
+                                        alert={alert}
+                                        trendInterval={trendInterval}
+                                        alerts15MinuteIntervalEnabled={alerts15MinuteIntervalEnabled}
+                                        hasHighFrequencyAlertsEntitlement={hasHighFrequencyAlertsEntitlement}
+                                        guardAvailableFeature={guardAvailableFeature}
+                                        nextPlannedEvaluationStale={nextPlannedEvaluationStale}
+                                    />
                                 </div>
                             </div>
 
@@ -686,131 +261,24 @@ export function EditAlertModal({
                                 </span>
                             </div>
 
-                            <div>
-                                <h3>Notification</h3>
-                                <div className="flex gap-4 items-center mt-2">
-                                    <div>E-mail</div>
-                                    <div className="flex-auto">
-                                        <MemberSelectMultiple
-                                            value={alertForm.subscribed_users?.map((u) => u.id) ?? []}
-                                            idKey="id"
-                                            onChange={(value) => setAlertFormValue('subscribed_users', value)}
-                                        />
-                                    </div>
-                                </div>
+                            <AlertNotificationSection
+                                alertForm={alertForm}
+                                alertId={alertId}
+                                insightShortId={insightShortId}
+                                inlineNotificationsEnabled={inlineNotificationsEnabled}
+                                onSetAlertFormValue={setAlertFormValue}
+                            />
 
-                                <h4 className="mt-4">Destinations</h4>
-                                <div className="mt-4">
-                                    {inlineNotificationsEnabled ? (
-                                        <InlineAlertNotifications alertId={alertId} />
-                                    ) : alertId ? (
-                                        <div className="flex flex-col">
-                                            <AlertDestinationSelector
-                                                alertId={alertId}
-                                                insightShortId={insightShortId}
-                                            />
-                                        </div>
-                                    ) : (
-                                        <div className="text-muted-alt">
-                                            Save alert first to add destinations (e.g. Slack, Webhooks)
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="deprecated-space-y-2">
-                                <LemonCollapse
-                                    panels={[
-                                        {
-                                            key: 'advanced',
-                                            header: {
-                                                type: enabledAdvancedOptionsCount > 0 ? 'primary' : 'tertiary',
-                                                children: (
-                                                    <span className="flex w-full min-w-0 items-center justify-between gap-2">
-                                                        <span className="min-w-0">Advanced options</span>
-                                                        {enabledAdvancedOptionsCount > 0 ? (
-                                                            <span
-                                                                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-current/20 bg-current/10 text-xs font-semibold tabular-nums leading-none"
-                                                                aria-label={`${enabledAdvancedOptionsCount} advanced option${
-                                                                    enabledAdvancedOptionsCount === 1 ? '' : 's'
-                                                                } on`}
-                                                            >
-                                                                {enabledAdvancedOptionsCount}
-                                                            </span>
-                                                        ) : null}
-                                                    </span>
-                                                ),
-                                            },
-                                            content: (
-                                                <div className="space-y-2">
-                                                    <Group name={['config']}>
-                                                        <div className="flex gap-1">
-                                                            <LemonField name="check_ongoing_interval">
-                                                                <LemonCheckbox
-                                                                    checked={
-                                                                        can_check_ongoing_interval &&
-                                                                        alertForm?.config.check_ongoing_interval
-                                                                    }
-                                                                    data-attr="alertForm-check-ongoing-interval"
-                                                                    fullWidth
-                                                                    label="Check ongoing period"
-                                                                    disabledReason={
-                                                                        !can_check_ongoing_interval &&
-                                                                        'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
-                                                                    }
-                                                                />
-                                                            </LemonField>
-                                                            <Tooltip
-                                                                title="Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"
-                                                                placement="right"
-                                                                delayMs={0}
-                                                            >
-                                                                <IconInfo />
-                                                            </Tooltip>
-                                                        </div>
-                                                    </Group>
-                                                    <LemonField name="skip_weekend">
-                                                        <LemonCheckbox
-                                                            checked={
-                                                                (alertForm?.calculation_interval ===
-                                                                    AlertCalculationInterval.EVERY_15_MINUTES ||
-                                                                    alertForm?.calculation_interval ===
-                                                                        AlertCalculationInterval.DAILY ||
-                                                                    alertForm?.calculation_interval ===
-                                                                        AlertCalculationInterval.HOURLY) &&
-                                                                alertForm?.skip_weekend
-                                                            }
-                                                            data-attr="alertForm-skip-weekend"
-                                                            fullWidth
-                                                            label="Skip checking on weekends"
-                                                            disabledReason={
-                                                                alertForm?.calculation_interval !==
-                                                                    AlertCalculationInterval.EVERY_15_MINUTES &&
-                                                                alertForm?.calculation_interval !==
-                                                                    AlertCalculationInterval.DAILY &&
-                                                                alertForm?.calculation_interval !==
-                                                                    AlertCalculationInterval.HOURLY &&
-                                                                'Can only skip weekend checking for 15-minute, hourly, or daily alerts'
-                                                            }
-                                                        />
-                                                    </LemonField>
-                                                    <QuietHoursFields
-                                                        scheduleRestriction={alertForm.schedule_restriction}
-                                                        calculationInterval={alertForm.calculation_interval}
-                                                        teamTimezone={projectTimezone}
-                                                        onChange={(next) =>
-                                                            setAlertFormValue('schedule_restriction', next)
-                                                        }
-                                                    />
-                                                </div>
-                                            ),
-                                        },
-                                    ]}
-                                />
-                            </div>
+                            <AlertAdvancedOptionsSection
+                                alertForm={alertForm}
+                                canCheckOngoingInterval={can_check_ongoing_interval}
+                                projectTimezone={projectTimezone}
+                                enabledAdvancedOptionsCount={enabledAdvancedOptionsCount}
+                                onSetAlertFormValue={setAlertFormValue}
+                            />
                         </div>
 
-                        {!creatingNewAlert && alertId ? (
+                        {alertId ? (
                             alert ? (
                                 <AlertHistorySection alertId={alert.id} />
                             ) : alertLoading ? (

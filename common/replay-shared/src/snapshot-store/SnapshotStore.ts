@@ -1,4 +1,4 @@
-import { EventType, eventWithTime } from '@posthog/rrweb-types'
+import { EventType, eventWithTime } from 'posthog-js/rrweb-types'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '../types'
 import { SourceEntry, SourceLoadingState } from './types'

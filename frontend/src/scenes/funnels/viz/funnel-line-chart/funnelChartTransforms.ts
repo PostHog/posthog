@@ -1,12 +1,13 @@
 import type { Series, TimeSeriesLineChartConfig, TooltipConfig } from 'lib/hog-charts'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import {
-    buildTrendsLineTimeSeriesConfig,
-    buildTrendsSeries,
-} from 'scenes/trends/viz/trends-line-chart/trendsChartTransforms'
 
 import type { GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithNestedBreakdown, IntervalType } from '~/types'
+
+import {
+    buildTrendsLineTimeSeriesConfig,
+    buildTrendsSeries,
+} from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
 import type { FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 
