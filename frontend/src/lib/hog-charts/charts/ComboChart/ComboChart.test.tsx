@@ -76,12 +76,7 @@ describe('ComboChart', () => {
             { key: 'b', label: 'B', data: [42, 55, 53], type: 'line' },
         ]
         const { chart } = renderHogChart(
-            <ComboChart
-                series={series}
-                labels={LABELS}
-                theme={THEME}
-                config={{ defaultSeriesType: 'bar' }}
-            />
+            <ComboChart series={series} labels={LABELS} theme={THEME} config={{ defaultSeriesType: 'bar' }} />
         )
         // Both render — bar tooltip uses band-axis hit; line is always in tooltip.
         expect(chart.seriesCount).toBe(2)

@@ -1,16 +1,12 @@
 import React from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
-import type { ComboScaleSet } from '../../core/combo-scales'
+import type { ComboChartPrivate } from '../../core/combo-scales'
 import { resolveSeriesType } from '../../core/combo-scales'
 import type { StackedBand } from '../../core/scales'
 import type { SeriesType, TooltipContext } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
-import { barKeysAtCursor } from './utils/combo-hit-test'
-
-interface ComboChartPrivate {
-    __comboChart: ComboScaleSet
-}
+import { barKeysAtCursor } from './utils/combo-bar-hit'
 
 export interface ComboTooltipProps<Meta> {
     ctx: TooltipContext<Meta>

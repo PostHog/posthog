@@ -21,6 +21,13 @@ export interface ComboScaleSet {
     group?: d3.ScaleBand<string>
 }
 
+/** Brand for the ComboChart `ChartScales._private` slot — populated by ComboChart and
+ *  narrowed by its draw callbacks and tooltip wrapper. Single source of truth so a
+ *  shape change in `ComboScaleSet` doesn't drift between consumers. */
+export interface ComboChartPrivate {
+    __comboChart: ComboScaleSet
+}
+
 export interface CreateComboScalesOptions {
     scaleType?: 'linear' | 'log'
     barLayout?: 'stacked' | 'grouped'
@@ -68,9 +75,7 @@ export function createComboScales(
     // grouped-bar offsets, so they do not contribute keys here.
     let group: d3.ScaleBand<string> | undefined
     if (barLayout === 'grouped') {
-        const barKeys = series
-            .filter((s) => !s.visibility?.excluded && seriesTypeOf(s) === 'bar')
-            .map((s) => s.key)
+        const barKeys = series.filter((s) => !s.visibility?.excluded && seriesTypeOf(s) === 'bar').map((s) => s.key)
         group = d3.scaleBand<string>().domain(barKeys).range([0, band.bandwidth()]).padding(groupPadding)
     }
 
@@ -161,4 +166,3 @@ export function partitionByType<S extends Pick<Series, 'visibility'>>(
     }
     return { bars, lines }
 }
-

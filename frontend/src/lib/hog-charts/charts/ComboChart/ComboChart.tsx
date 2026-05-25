@@ -15,7 +15,13 @@ import {
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import { type ComboScaleSet, createComboScales, partitionByType, resolveSeriesType } from '../../core/combo-scales'
+import {
+    type ComboChartPrivate,
+    type ComboScaleSet,
+    createComboScales,
+    partitionByType,
+    resolveSeriesType,
+} from '../../core/combo-scales'
 import {
     type BarScaleSet,
     buildSegmentResolveValue,
@@ -41,11 +47,7 @@ import type {
 import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { computeVisibleXLabels } from '../../overlays/AxisLabels'
 import { ComboTooltip } from './ComboTooltip'
-import { barKeysAtCursor } from './utils/combo-hit-test'
-
-interface ComboChartPrivate {
-    __comboChart: ComboScaleSet
-}
+import { barKeysAtCursor } from './utils/combo-bar-hit'
 
 export interface ComboChartProps<Meta = unknown> {
     series: Series<Meta>[]
@@ -239,19 +241,27 @@ function ComboChartInner<Meta = unknown>({
             )
             ctx.clip()
 
-            // ── 2. Area fills, then lines, then points (per series, so points sit above lines) ──
+            // ── 2. Area fills first, then lines + points. Two passes so every area sits
+            //      below every line regardless of input order — a single per-series loop
+            //      would paint a later area over an earlier line.
             for (const s of lineSeries) {
+                const stype = seriesTypeOf(s)
+                if (stype !== 'area' && !s.fill) {
+                    continue
+                }
+                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+                const yScale = comboScales.yAxes[axisId]?.scale ?? comboScales.y
+                drawArea({ ...baseDrawCtx, yScale }, s, undefined, s.fill?.lowerData)
+            }
+            for (const s of lineSeries) {
+                if (s.fill?.lowerData) {
+                    continue
+                }
                 const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
                 const yScale = comboScales.yAxes[axisId]?.scale ?? comboScales.y
                 const drawCtx: DrawContext = { ...baseDrawCtx, yScale }
-                const stype = seriesTypeOf(s)
-                if (stype === 'area' || s.fill) {
-                    drawArea(drawCtx, s, undefined, s.fill?.lowerData)
-                }
-                if (!s.fill?.lowerData) {
-                    drawLine(drawCtx, s)
-                    drawPoints(drawCtx, s)
-                }
+                drawLine(drawCtx, s)
+                drawPoints(drawCtx, s)
             }
 
             ctx.restore()
@@ -260,7 +270,15 @@ function ComboChartInner<Meta = unknown>({
     )
 
     const drawHover = useCallback(
-        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition, theme }: ChartDrawArgs) => {
+        ({
+            ctx,
+            scales,
+            series: coloredSeries,
+            labels: drawLabels,
+            hoverIndex,
+            hoverPosition,
+            theme,
+        }: ChartDrawArgs) => {
             if (hoverIndex < 0) {
                 return
             }

@@ -1,10 +1,5 @@
 import { dimensions, makeSeries } from '../testing'
-import {
-    createComboScales,
-    isLineLike,
-    partitionByType,
-    resolveSeriesType,
-} from './combo-scales'
+import { createComboScales, isLineLike, partitionByType, resolveSeriesType } from './combo-scales'
 import { computeStackData } from './scales'
 import type { Series, SeriesType } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
@@ -73,7 +68,10 @@ describe('hog-charts combo-scales', () => {
             ]
             const scales = createComboScales(series, ['a', 'b', 'c'], dimensions, {
                 seriesTypeOf: typeOfWithDefault('line'),
-                barStackedData: computeStackData(series.filter((s) => s.type === 'bar'), ['a', 'b', 'c']),
+                barStackedData: computeStackData(
+                    series.filter((s) => s.type === 'bar'),
+                    ['a', 'b', 'c']
+                ),
             })
             // For each label, the d3 band scale gives the start; center = start + bandwidth/2.
             const bw = scales.band.bandwidth()
@@ -96,7 +94,7 @@ describe('hog-charts combo-scales', () => {
                 barLayout: 'grouped',
                 seriesTypeOf: typeOfWithDefault('line'),
             })
-            expect(scales.group).toBeDefined()
+            expect(scales.group).not.toBeUndefined()
             expect(scales.group!.domain()).toEqual(['b1', 'b2'])
         })
 
@@ -154,8 +152,8 @@ describe('hog-charts combo-scales', () => {
             const scales = createComboScales([leftBar, leftLine, rightLine], ['a'], dimensions, {
                 seriesTypeOf: typeOfWithDefault('line'),
             })
-            expect(scales.yAxes[DEFAULT_Y_AXIS_ID]).toBeDefined()
-            expect(scales.yAxes.y1).toBeDefined()
+            expect(scales.yAxes[DEFAULT_Y_AXIS_ID]).not.toBeUndefined()
+            expect(scales.yAxes.y1).not.toBeUndefined()
             expect(scales.yAxes.y1.position).toBe('right')
             // Left axis must not absorb the right series's huge value.
             const [, leftMax] = scales.yAxes[DEFAULT_Y_AXIS_ID].scale.domain()

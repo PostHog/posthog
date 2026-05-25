@@ -1,9 +1,9 @@
-import { findNearestIndex } from '../../../core/interaction'
 import { createComboScales } from '../../../core/combo-scales'
+import { findNearestIndex } from '../../../core/interaction'
 import { computeStackData } from '../../../core/scales'
-import { dimensions, makeSeries } from '../../../testing'
 import type { Series, SeriesType } from '../../../core/types'
-import { barKeysAtCursor } from './combo-hit-test'
+import { dimensions, makeSeries } from '../../../testing'
+import { barKeysAtCursor } from './combo-bar-hit'
 
 const seriesTypeOf =
     (defaultType: SeriesType): ((s: Pick<Series, 'type'>) => SeriesType) =>

@@ -107,6 +107,24 @@ export const DualYAxisBarAndLine: Story = {
     },
 }
 
+/** Line series declared before an area series in the input — covers the two-pass z-order:
+ *  the area fill must paint behind the line regardless of series order. */
+export const LineBeforeArea: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'line', label: 'Trend', color: '', data: [10, 14, 12, 22, 18, 26, 20], type: 'line' },
+            { key: 'area', label: 'Range', color: '', data: [16, 20, 18, 28, 24, 32, 26], type: 'area' },
+        ]
+        const config: ComboChartConfig = { showGrid: true }
+        return (
+            <Stage>
+                <ComboChart series={series} labels={DAYS} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const Empty: Story = {
     render: () => {
         const theme = useReactiveTheme()
