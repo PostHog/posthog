@@ -536,16 +536,18 @@ def _execute_count_with_split(
     (lowercase + alphanumerics only) so a raw value matches the alias keys.
     """
     hogql = f"""
-        WITH
-            lower(trim(coalesce(properties.utm_source, ''))) AS raw_utm,
-            replaceRegexpAll(raw_utm, '[^a-z0-9]', '') AS norm_utm
         SELECT
             count() AS total,
             countIf(norm_utm IN {{aliases}}) AS integrated,
             countIf(raw_utm = '') AS without_utm,
             countIf(raw_utm != '' AND norm_utm NOT IN {{aliases}}) AS unmatched_with_utm
-        FROM events
-        WHERE {where} AND timestamp >= {{since}}
+        FROM (
+            SELECT
+                lower(trim(coalesce(properties.utm_source, ''))) AS raw_utm,
+                replaceRegexpAll(lower(trim(coalesce(properties.utm_source, ''))), '[^a-z0-9]', '') AS norm_utm
+            FROM events
+            WHERE {where} AND timestamp >= {{since}}
+        )
     """
     query_placeholders: dict[str, ast.Expr] = {
         **placeholders,
