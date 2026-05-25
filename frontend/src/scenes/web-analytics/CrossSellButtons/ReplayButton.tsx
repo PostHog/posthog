@@ -164,17 +164,17 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
                             buildBreakdownPropertyFilter(
                                 '$entry_utm_source',
                                 PropertyFilterType.Session,
-                                values[0] || ''
+                                values[0] ?? BREAKDOWN_NULL_DISPLAY
                             ),
                             buildBreakdownPropertyFilter(
                                 '$entry_utm_medium',
                                 PropertyFilterType.Session,
-                                values[1] || ''
+                                values[1] ?? BREAKDOWN_NULL_DISPLAY
                             ),
                             buildBreakdownPropertyFilter(
                                 '$entry_utm_campaign',
                                 PropertyFilterType.Session,
-                                values[2] || ''
+                                values[2] ?? BREAKDOWN_NULL_DISPLAY
                             ),
                         ],
                     },
