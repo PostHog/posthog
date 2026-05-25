@@ -200,30 +200,44 @@ export const sqlEditorTabsLogic = kea<sqlEditorTabsLogicType>([
         }
         const existingIds = new Set(values.allSceneTabs.map((t) => t.id))
         const existingUrls = new Set(values.allSceneTabs.map(tabUrl))
-
-        const tabsToAdd = persisted.filter((tab) => !existingIds.has(tab.id) && !existingUrls.has(tabUrl(tab)))
-
-        for (const tab of tabsToAdd) {
-            actions.sceneNewTab(tabUrl(tab), {
-                id: tab.id,
-                skipNavigate: true,
-                activate: false,
-                source: 'restore',
-            })
-        }
-
-        // Mirror persisted customTitle onto restored tabs so labels survive reload.
         const restoredById = new Map(persisted.map((t) => [t.id, t]))
-        const merged = values.allSceneTabs.map((tab) => {
+
+        // Build full SceneTab records for missing persisted tabs and inject them via
+        // `setTabs` directly. Going through `newTab` would emit a `posthog.capture('tab opened')`
+        // event carrying `tab.hash` — and SQL editor hashes include the raw query text under
+        // `#q=…`, which would leak query content into analytics on every page reload.
+        const tabsToAdd: SceneTab[] = persisted
+            .filter((tab) => !existingIds.has(tab.id) && !existingUrls.has(tabUrl(tab)))
+            .map((persistedTab) => ({
+                id: persistedTab.id,
+                pathname: persistedTab.pathname,
+                search: persistedTab.search ?? '',
+                hash: persistedTab.hash ?? '',
+                title: persistedTab.title ?? 'SQL query',
+                customTitle: persistedTab.customTitle,
+                iconType: persistedTab.iconType ?? 'sql_editor',
+                sceneId: persistedTab.sceneId,
+                sceneKey: persistedTab.sceneKey,
+                pinned: persistedTab.pinned ?? false,
+                active: false,
+            }))
+
+        // Mirror persisted customTitle onto any already-present tabs (the one that came from URL).
+        const mergedExisting = values.allSceneTabs.map((tab) => {
             const persistedMatch = restoredById.get(tab.id) ?? persisted.find((p) => tabUrl(p) === tabUrl(tab))
-            if (!persistedMatch?.customTitle) {
+            if (!persistedMatch?.customTitle || tab.customTitle) {
                 return tab
             }
             return { ...tab, customTitle: persistedMatch.customTitle }
         })
-        const changed = merged.some((tab, i) => tab.customTitle !== values.allSceneTabs[i]?.customTitle)
-        if (changed) {
-            actions.sceneSetTabs(merged)
+
+        if (tabsToAdd.length === 0) {
+            const changed = mergedExisting.some((tab, i) => tab.customTitle !== values.allSceneTabs[i]?.customTitle)
+            if (changed) {
+                actions.sceneSetTabs(mergedExisting)
+            }
+        } else {
+            actions.sceneSetTabs([...mergedExisting, ...tabsToAdd])
         }
 
         cache.hydrated = true
