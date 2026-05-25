@@ -191,21 +191,12 @@ export const productToursLogic = kea<productToursLogicType>([
             [] as ProductTour[],
             {
                 loadTours: async () => {
-                    try {
-                        const response = await toolbarFetch('/api/projects/@current/product_tours/')
-                        if (!response.ok) {
-                            return []
-                        }
-                        const data = await response.json()
-                        return data.results ?? data
-                    } catch (e) {
-                        // Degrade silently — a failed product-tours load (network error,
-                        // CORS, ad-blocker) must not crash the toolbar React tree on mount.
-                        toolbarLogger.warn('product_tours', 'Failed to load tours', {
-                            error: e instanceof Error ? e.message : String(e),
-                        })
+                    const response = await toolbarFetch('/api/projects/@current/product_tours/')
+                    if (!response.ok) {
                         return []
                     }
+                    const data = await response.json()
+                    return data.results ?? data
                 },
             },
         ],

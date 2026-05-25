@@ -1,6 +1,6 @@
 import './CodeEditor.scss'
 
-import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
+import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor } from '@monaco-editor/react'
 import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
@@ -23,10 +23,6 @@ import { inStorybookTestRunner } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
-
-if (loader) {
-    loader.config({ monaco: monacoModule })
-}
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {
     queryKey?: string

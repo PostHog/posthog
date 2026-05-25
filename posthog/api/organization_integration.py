@@ -132,12 +132,12 @@ class OrganizationIntegrationViewSet(
         from posthog.models.integration import Integration as TeamIntegration
 
         from ee.vercel.client import VercelAPIClient
-        from ee.vercel.integration import VercelIntegration
 
         teams_by_id: dict[int, Team] = {}
+        resources: dict[int, TeamIntegration] = {}
         for tid in {production_id, preview_id, development_id}:
             teams_by_id[tid] = Team.objects.get(pk=tid, organization=org)
-            TeamIntegration.objects.get_or_create(
+            resources[tid], _ = TeamIntegration.objects.get_or_create(
                 team=teams_by_id[tid],
                 kind=TeamIntegration.IntegrationKind.VERCEL,
                 integration_id=str(tid),
@@ -152,44 +152,17 @@ class OrganizationIntegrationViewSet(
         integration.save(update_fields=["config"])
 
         production_team = teams_by_id[production_id]
-        preview_team = teams_by_id[preview_id]
-        dev_team = teams_by_id[development_id]
-
-        production_resource = TeamIntegration.objects.filter(
-            team=production_team, kind=TeamIntegration.IntegrationKind.VERCEL
-        ).first()
-
-        if not production_resource:
-            return Response(
-                {"detail": "Failed to find or create production resource. Please reconnect the integration."},
-                status=500,
-            )
+        production_resource = resources[production_id]
 
         access_token = integration.sensitive_config.get("credentials", {}).get(
             "access_token"
         ) or integration.config.get("credentials", {}).get("access_token")
         if access_token and integration.integration_id:
-            all_same = production_id == preview_id == development_id
-            secrets: list[dict[str, Any]] = [
-                {
-                    "name": "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN",
-                    "value": production_team.api_token,
-                    **(
-                        {}
-                        if all_same
-                        else {
-                            "environmentOverrides": {
-                                **({"preview": preview_team.api_token} if preview_id != production_id else {}),
-                                **({"development": dev_team.api_token} if development_id != production_id else {}),
-                            }
-                        }
-                    ),
-                },
-                {
-                    "name": "NEXT_PUBLIC_POSTHOG_HOST",
-                    "value": VercelIntegration._build_secrets(production_team)[1]["value"],
-                },
-            ]
+            from ee.api.vercel.vercel_connect import VercelConnectLinkViewSet
+
+            secrets = VercelConnectLinkViewSet._build_env_secrets(
+                teams_by_id, production_id, preview_id, development_id
+            )
             client = VercelAPIClient(bearer_token=access_token)
             client.import_resource(
                 integration_config_id=integration.integration_id,

@@ -27,6 +27,7 @@ CRITERIA_FIELDS = {
     "events",
     "delete_all_events",
     "properties",
+    "person_properties",
     "start_time",
     "end_time",
     "hogql_predicate",
@@ -154,7 +155,12 @@ class DataDeletionRequestForm(forms.ModelForm):
     )
     properties = ArrayTextareaField(
         required=False,
-        help_text="One property name per line. You can also paste a JSON array. Required for property removal requests.",
+        help_text="One property name per line. You can also paste a JSON array. Required for property removal requests when person_properties is empty.",
+    )
+    person_properties = ArrayTextareaField(
+        required=False,
+        help_text="One property name per line. You can also paste a JSON array. "
+        "Properties to remove from events.person_properties. Required for property removal requests when properties is empty.",
     )
     hogql_predicate = forms.CharField(
         required=False,
@@ -194,20 +200,48 @@ def _build_event_filter(obj) -> tuple[str, dict]:
 
 
 def _build_property_filter(obj) -> tuple[str, dict]:
-    """Build the WHERE clause addition and params for matching properties."""
+    """Build the WHERE clause addition and params for matching properties.
+
+    Covers both ``events.properties`` (using ``fp_`` param prefix) and
+    ``events.person_properties`` (using ``pp_`` param prefix).  The two
+    presence checks are ORed so the stats count includes every event that
+    carries at least one target key in either column.
+    """
     event_clause = event_match_sql_fragment(obj)
     params: dict = event_match_params(obj)
-    properties = obj.properties
-    if len(properties) == 1:
-        property_clause = f"AND {jsonhas_expr(properties[0], 'fp_0')}"
-    else:
-        exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
-        property_clause = f"AND ({' OR '.join(exprs)})"
 
-    for i, prop in enumerate(properties):
-        for j, part in enumerate(prop.split(".")):
-            params[f"fp_{i}_{j}"] = part
+    presence_clauses: list[str] = []
 
+    properties = obj.properties or []
+    if properties:
+        if len(properties) == 1:
+            presence_clauses.append(jsonhas_expr(properties[0], "fp_0"))
+        else:
+            exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
+            presence_clauses.append(f"({' OR '.join(exprs)})")
+        for i, prop in enumerate(properties):
+            for j, part in enumerate(prop.split(".")):
+                params[f"fp_{i}_{j}"] = part
+
+    person_properties = obj.person_properties or []
+    if person_properties:
+        if len(person_properties) == 1:
+            presence_clauses.append(jsonhas_expr(person_properties[0], "pp_0", column="person_properties"))
+        else:
+            exprs = [
+                jsonhas_expr(prop, f"pp_{i}", column="person_properties") for i, prop in enumerate(person_properties)
+            ]
+            presence_clauses.append(f"({' OR '.join(exprs)})")
+        for i, prop in enumerate(person_properties):
+            for j, part in enumerate(prop.split(".")):
+                params[f"pp_{i}_{j}"] = part
+
+    if not presence_clauses:
+        raise ValueError("Cannot build property filter: both properties and person_properties are empty.")
+
+    property_clause = (
+        f"AND ({' OR '.join(presence_clauses)})" if len(presence_clauses) > 1 else f"AND {presence_clauses[0]}"
+    )
     filter_clause = f"{event_clause} {property_clause}".strip()
     return _append_hogql_predicate(filter_clause, params, obj)
 
@@ -324,8 +358,10 @@ def fetch_event_deletion_stats(obj: DataDeletionRequest):
 
 def fetch_property_deletion_stats(obj: DataDeletionRequest):
     """Count events with matching properties and affected parts for a property removal request."""
-    if not obj.properties:
-        raise ValueError("Cannot fetch stats for a property removal request with no properties specified.")
+    if not obj.properties and not obj.person_properties:
+        raise ValueError(
+            "Cannot fetch stats for a property removal request with no properties or person_properties specified."
+        )
     extra_filter, params = _build_property_filter(obj)
     return _fetch_stats(obj.team_id, extra_filter, params)
 
@@ -355,7 +391,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("request_type", "status", "requires_approval", "approved")
-    search_fields = ("team_id", "events", "properties", "notes")
+    search_fields = ("team_id", "events", "properties", "person_properties", "notes")
     readonly_fields = (
         "status",
         "count",
@@ -395,6 +431,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "events",
                     "delete_all_events",
                     "properties",
+                    "person_properties",
                     "hogql_predicate",
                     "notes",
                     "requires_approval",
@@ -486,8 +523,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             if obj.status != RequestStatus.DRAFT:
                 obj.status = RequestStatus.DRAFT
                 messages.warning(request, "Deletion criteria were changed — status has been reset to draft.")
-        if obj.request_type == RequestType.EVENT_REMOVAL and obj.properties:
+        if obj.request_type == RequestType.EVENT_REMOVAL and (obj.properties or obj.person_properties):
             obj.properties = []
+            obj.person_properties = []
             messages.info(request, "Properties cleared — event removal requests do not use properties.")
         if obj.request_type == RequestType.PERSON_REMOVAL and (
             obj.events or obj.delete_all_events or obj.hogql_predicate
@@ -518,8 +556,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
         if obj:
-            if obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties:
-                messages.warning(request, "This is a property removal request but no properties are specified.")
+            if obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties and not obj.person_properties:
+                messages.warning(
+                    request, "This is a property removal request but no properties or person_properties are specified."
+                )
             if obj.request_type == RequestType.PERSON_REMOVAL:
                 if not (obj.person_uuids or obj.person_distinct_ids):
                     messages.warning(request, "This is a person removal request but no person targets are specified.")
@@ -585,7 +625,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only draft requests can be submitted.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        missing_properties = obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties
+        missing_properties = (
+            obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties and not obj.person_properties
+        )
         missing_person_selectors = obj.request_type == RequestType.PERSON_REMOVAL and not (
             obj.person_uuids or obj.person_distinct_ids
         )
@@ -596,7 +638,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
 
         if request.method == "POST":
             if missing_properties:
-                messages.error(request, "Cannot submit: property removal request requires at least one property.")
+                messages.error(
+                    request,
+                    "Cannot submit: property removal request requires at least one property or person_property.",
+                )
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
             if missing_person_selectors:
                 messages.error(

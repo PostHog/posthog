@@ -860,45 +860,33 @@ export async function toolbarFetch(
     const startTime = performance.now()
     let didRetry = false
 
-    let response: Response
-    try {
-        response = await fetch(fullUrl, {
-            method,
-            headers: buildHeaders(accessToken),
-            ...(body !== undefined ? { body } : {}),
-        })
-
-        response = await withTokenRefresh(response, async (newAccessToken) => {
-            didRetry = true
+    // `fetch` throws on dispatch failures (offline, DNS, CORS preflight rejection, server unreachable).
+    // Convert those rejections into a synthetic non-OK Response so callers can rely on the
+    // `response.ok` check instead of needing their own try/catch, mirroring the `origin_mismatch`
+    // fallback above.
+    const safeFetch = async (token: string): Promise<Response> => {
+        try {
             return await fetch(fullUrl, {
                 method,
-                headers: buildHeaders(newAccessToken),
+                headers: buildHeaders(token),
                 ...(body !== undefined ? { body } : {}),
             })
-        })
-    } catch (err) {
-        // `fetch()` rejects with `TypeError: Failed to fetch` for network failures,
-        // CORS rejections, and ad-blocker interception. Returning a synthetic Response
-        // here lets callers fail soft via `response.ok` / `response.status` instead of
-        // propagating an unhandled rejection out of loaders and crashing the toolbar.
-        // Status 503 keeps `response.ok === false` and stays within the Response
-        // constructor's valid 200-599 range (status 0 throws a RangeError).
-        const { pathname } = combineUrl(url)
-        toolbarLogger.warn('fetch', 'Network error during toolbar request', {
-            pathname,
-            method,
-            error: err instanceof Error ? err.message : String(err),
-        })
-        toolbarPosthogJS.capture('toolbar api request', {
-            method,
-            pathname,
-            status: 0,
-            duration_ms: Math.round(performance.now() - startTime),
-            did_token_retry: didRetry,
-            network_error: true,
-        })
-        return new Response(JSON.stringify({ results: [], detail: 'network_error' }), { status: 503 })
+        } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err)
+            toolbarLogger.warn('fetch', 'network error', { url: fullUrl, error: detail })
+            return new Response(JSON.stringify({ results: [], detail: 'network_error', error: detail }), {
+                status: 503,
+                statusText: 'network_error',
+            })
+        }
     }
+
+    let response = await safeFetch(accessToken)
+
+    response = await withTokenRefresh(response, async (newAccessToken) => {
+        didRetry = true
+        return await safeFetch(newAccessToken)
+    })
 
     const durationMs = Math.round(performance.now() - startTime)
     const { pathname } = combineUrl(url)
