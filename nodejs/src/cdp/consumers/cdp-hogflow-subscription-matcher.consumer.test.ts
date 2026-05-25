@@ -327,7 +327,12 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                         filters: {},
                         bytecode: [],
                         events: [
-                            { filters: { events: [{ id: 'wuc_subscribed' }], bytecode: eventBytecode('wuc_subscribed') } },
+                            {
+                                filters: {
+                                    events: [{ id: 'wuc_subscribed' }],
+                                    bytecode: eventBytecode('wuc_subscribed'),
+                                },
+                            },
                         ],
                     },
                 } as any),
