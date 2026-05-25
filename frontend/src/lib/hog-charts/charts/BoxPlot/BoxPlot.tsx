@@ -114,10 +114,13 @@ function BoxPlotInner<Meta = unknown>({
 
     const grouped = useMemo(() => series.filter((s) => !s.visibility?.excluded).length > 1, [series])
 
-    /** Map of original series → median[] (length = labels.length, may include NaN where
-     *  the datum is `null` so the inner Series.data has stable length). Used to build the
-     *  Series adapter `data` array — the tooltip's `value` falls back to this when the
-     *  consumer doesn't override `resolveValue`. */
+    /** The inner Series.data is medians at indices `[0, labels.length)` (matches interaction's
+     *  per-label addressing, and lets the default `resolveValue` return the median for the
+     *  tooltip). Per-series whisker min/max are appended past `labels.length` so
+     *  `useChartMargins` — which sizes the y-tick column from `seriesValueRange(series)` —
+     *  sees the real value extent and doesn't undersize the left margin when whiskers are
+     *  much larger than medians. Extra entries are never indexed (interaction reads
+     *  `labels.length`, draw reads `meta.datums`). */
     const adaptedSeries = useMemo<Series<BoxPlotAdaptedMeta<Meta>>[]>(
         () =>
             series.map((s) => {
@@ -125,11 +128,31 @@ function BoxPlotInner<Meta = unknown>({
                     const datum = s.data[i]
                     return datum && isFinite(datum.median) ? datum.median : Number.NaN
                 })
+                let seriesMin = Infinity
+                let seriesMax = -Infinity
+                for (const datum of s.data) {
+                    if (!datum) {
+                        continue
+                    }
+                    if (isFinite(datum.min) && datum.min < seriesMin) {
+                        seriesMin = datum.min
+                    }
+                    if (isFinite(datum.max) && datum.max > seriesMax) {
+                        seriesMax = datum.max
+                    }
+                }
+                const data = medians.slice()
+                if (isFinite(seriesMin)) {
+                    data.push(seriesMin)
+                }
+                if (isFinite(seriesMax)) {
+                    data.push(seriesMax)
+                }
                 return {
                     key: s.key,
                     label: s.label,
                     color: s.color,
-                    data: medians,
+                    data,
                     meta: { datums: s.data, user: s.meta },
                     visibility: s.visibility,
                 }

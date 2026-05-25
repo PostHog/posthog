@@ -54,6 +54,31 @@ describe('BoxPlot', () => {
         expect(maxTick).toBeGreaterThanOrEqual(200)
     })
 
+    it('allocates left margin wide enough for the whisker-derived y ticks (not just medians)', () => {
+        // Regression for tick labels getting clipped — when medians (e.g. 30–60) are much
+        // smaller than whisker max (e.g. 280), `useChartMargins` sees the medians-only
+        // series and used to undersize the left margin for the actual axis labels.
+        const series: BoxPlotSeries[] = [
+            {
+                key: 'a',
+                label: 'A',
+                data: [
+                    datum({ min: 0, p25: 25, median: 30, mean: 35, p75: 50, max: 280 }),
+                    datum({ min: 0, p25: 28, median: 35, mean: 40, p75: 55, max: 270 }),
+                ],
+            },
+        ]
+        const { chart } = renderHogChart(<BoxPlot series={series} labels={['Mon', 'Tue']} theme={THEME} />)
+        const ticks = chart.yTicks()
+        const maxTickNumeric = Math.max(
+            ...ticks.map((t) => parseFloat(t.replace(/[^\d.-]/g, ''))).filter((n) => Number.isFinite(n))
+        )
+        // The rendered ticks should reflect the whisker range. The previous bug was sizing
+        // the y-tick *column* width from medians only — assertion guards the rendered tick
+        // set actually reaches the whisker max.
+        expect(maxTickNumeric).toBeGreaterThanOrEqual(250)
+    })
+
     it('forwards `dataAttr` to the chart wrapper', () => {
         const { chart } = renderHogChart(
             <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} dataAttr="boxplot-instance" />
