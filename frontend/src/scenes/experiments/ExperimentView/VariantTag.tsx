@@ -30,6 +30,19 @@ export function VariantTag({
         ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)
         : 'var(--text-muted)'
 
+    /**
+     * this is only used on the distribution table, to display the holdout name
+     */
+    if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
+        return (
+            <span className={clsx('flex items-center min-w-0', className)}>
+                <LemonTag type="option" className="ml-2">
+                    {experiment.holdout.name}
+                </LemonTag>
+            </span>
+        )
+    }
+
     return (
         <span className={clsx('flex items-center min-w-0', className)}>
             <div
