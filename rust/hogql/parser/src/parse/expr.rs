@@ -346,20 +346,28 @@ impl<'a> Parser<'a> {
                 // as a Field and `<` as less-than, stranding the tag. Plain
                 // `not < 2` (peek-next `<` not a tag) still falls through there.
                 if self.peek_next_starts_hogqlx_tag() {
+                    // `<…` is the tag operand only when it forms a *complete* tag
+                    // (`not <a/>` -> `Not(<a/>)`); an incomplete `< ident`
+                    // (`not < a`) is the less-than operator with NOT as a Field.
+                    // Try the tag and fall through to the Field path on failure.
+                    let cp = self.checkpoint();
                     self.bump()?; // NOT
-                    let rhs = self.parse_expr_bp(BP_NOT)?;
-                    return Ok(emit::not_(rhs));
+                    match self.parse_expr_bp(BP_NOT) {
+                        Ok(rhs) => return Ok(emit::not_(rhs)),
+                        Err(_) => self.restore(cp)?,
+                    }
                 }
                 // Bare `NOT` followed by a token that can't start an
-                // expression (alias / list-terminator / EOF) is the
-                // identifier "not" — cpp's `keyword` rule admits NOT
-                // as an identifier and falls back to a Field. Without
-                // this check, parse_prefix would eagerly consume NOT
-                // and then error on the unexpected following token.
+                // expression (list-terminator / EOF) is the identifier
+                // "not" — cpp's `keyword` rule admits NOT as an identifier
+                // and falls back to a Field. Without this check, parse_prefix
+                // would eagerly consume NOT and then error on the unexpected
+                // following token. (`not as` is NOT here: `AS` parses as a
+                // Field operand, so cpp keeps `Not(Field('AS'))` via the
+                // general fallback below.)
                 if matches!(
                     self.peek_next(),
-                    TokenKind::Keyword(Kw::As)
-                        | TokenKind::Comma
+                    TokenKind::Comma
                         | TokenKind::RParen
                         | TokenKind::RBracket
                         | TokenKind::RBrace
@@ -407,6 +415,60 @@ impl<'a> Parser<'a> {
                         | TokenKind::ColonEquals
                 ) {
                     return self.parse_ident_lead();
+                }
+                // At a STATEMENT boundary cpp takes the shortest leading
+                // statement, so a `not <op-keyword> <rhs>` is `Not(Field(<kw>))`
+                // (statement 1) with `<rhs>` opening the next statement, rather
+                // than the greedy single expression `Field(not) <op> <rhs>`.
+                // Skip all the expression-context NOT-flip probes below and go
+                // straight to the general fallback, which produces exactly that
+                // split (`not like 'a'` → `Not(Field(like))`; then `'a'`).
+                if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                    let cp = self.checkpoint();
+                    self.bump()?; // NOT
+                    return match self.parse_expr_bp(BP_NOT) {
+                        Ok(rhs) => Ok(emit::not_(rhs)),
+                        Err(_) => {
+                            self.restore(cp)?;
+                            self.parse_ident_lead()
+                        }
+                    };
+                }
+                // EXPRESSION context below: cpp's single-expression parse greedily
+                // reads NOT as a Field so a following infix / alias binds to it.
+                // `not as <alias>` → `Field(not) AS <alias>`; a bare `not as` (no
+                // alias after `AS`) stays `Not(Field('as'))`. Aliases are
+                // IDENTIFIER / QUOTED_IDENTIFIER / keywordForAlias (date/first/id/key).
+                if self.peek_next() == TokenKind::Keyword(Kw::As) {
+                    let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+                    if matches!(
+                        probe.next_token().map(|t| t.kind),
+                        Ok(TokenKind::Ident
+                            | TokenKind::QuotedIdent
+                            | TokenKind::Keyword(Kw::Date | Kw::First | Kw::Id | Kw::Key))
+                    ) {
+                        return self.parse_ident_lead();
+                    }
+                }
+                // `not in a` → binary `in` (`Compare(Field(not), "in", a)`), but
+                // `not in (1,2)` keeps the unary `Not(Call(in, [1,2]))` via the
+                // LParen exclusion.
+                if self.peek_next() == TokenKind::Keyword(Kw::In) {
+                    let mut probe = Lexer::with_pos(self.src, self.peek1.end);
+                    if let Ok(after) = probe.next_token() {
+                        if !matches!(
+                            after.kind,
+                            TokenKind::Eof
+                                | TokenKind::Comma
+                                | TokenKind::RParen
+                                | TokenKind::RBracket
+                                | TokenKind::RBrace
+                                | TokenKind::Semicolon
+                                | TokenKind::LParen
+                        ) {
+                            return self.parse_ident_lead();
+                        }
+                    }
                 }
                 // `not <kw-infix> <rhs>`: cpp's ALL(*) prefers
                 // `Field([not]) <kw-infix> <rhs>` over `Not(Field([kw]))`
@@ -520,27 +582,26 @@ impl<'a> Parser<'a> {
                         return self.parse_ident_lead();
                     }
                 }
-                // At a statement boundary (recover flag set) a NOT whose operand
-                // can't parse — `not let x` / `not throw x`, where the next token
-                // is a statement keyword that isn't a valid expression primary —
-                // is cpp's "`not` is a bare Field statement, the keyword opens
-                // the next statement" shape, not an error. Roll back and fall to
-                // the identifier path so `not` becomes a Field. Expression level
-                // (flag off) keeps the hard error (`not let` rejects).
-                if self.stmt_rhs_recover_on_pratt_rhs_failure {
-                    let cp = self.checkpoint();
-                    self.bump()?; // NOT
-                    return match self.parse_expr_bp(BP_NOT) {
-                        Ok(rhs) => Ok(emit::not_(rhs)),
-                        Err(_) => {
-                            self.restore(cp)?;
-                            self.parse_ident_lead()
-                        }
-                    };
+                // General NOT fallback (cpp ALL(*) parity): try NOT as the unary
+                // prefix; if its operand can't parse, cpp re-reads NOT as a bare
+                // Field and the following infix/postfix binds to it — `not < a` ->
+                // `(Field not) < a`, `not + a` -> `(Field not) + a`, `not in a` ->
+                // `(Field not) in a`. `not AS` keeps `Not(Field('AS'))` because the
+                // operand parses. The earlier probes already diverted the cases
+                // where the operand parses but cpp still prefers Field(not), so the
+                // fallback only fires on a genuine operand failure. At a statement
+                // boundary this is also the `not let x` shape (`not` Field stmt then
+                // the `let x` statement). rust rejects only when both the unary and
+                // the Field interpretation fail — exactly as cpp does.
+                let cp = self.checkpoint();
+                self.bump()?; // NOT
+                match self.parse_expr_bp(BP_NOT) {
+                    Ok(rhs) => Ok(emit::not_(rhs)),
+                    Err(_) => {
+                        self.restore(cp)?;
+                        self.parse_ident_lead()
+                    }
                 }
-                self.bump()?;
-                let rhs = self.parse_expr_bp(BP_NOT)?;
-                Ok(emit::not_(rhs))
             }
             _ => {
                 // `<Tag ...>` — HogQLX tag in column position (cpp's

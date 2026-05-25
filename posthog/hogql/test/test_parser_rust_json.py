@@ -812,3 +812,47 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_expr(f"< {kw} />", backend="rust-json"),
                 msg=kw,
             )
+
+    @no_memory_leak_check
+    def test_not_falls_back_to_field_when_operand_invalid(self):
+        # In EXPRESSION context cpp's single-expression parse reads a leading NOT
+        # as a Field when its operand can't parse, so a following infix binds to
+        # it: `not < a` -> `(Field not) < a`, `not + a` -> `(Field not) + a`,
+        # `not in a` -> `(Field not) in a`, `not as x` -> `Field(not) AS x`. A bare
+        # `not as` keeps `Not(Field('as'))` (the operand parses). rust used to
+        # commit NOT to the unary operator and reject. `not in (1,2)` stays the
+        # unary `Not(Call(in, …))`.
+        for query in (
+            "not < a",
+            "not + a",
+            "not in a",
+            "not as",
+            "not as x",
+            "not as date",
+            "not like 'a'",
+            "not in (1,2)",
+            "not x",
+            "a not in b",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+        # At a STATEMENT boundary cpp takes the shortest leading statement, so
+        # `not <op-keyword> <rhs>` is `Not(Field(<kw>))` (statement 1) and `<rhs>`
+        # opens the next statement (two declarations), not the greedy single
+        # expression. rust used to glue it into one statement.
+        for query in (
+            "not in a",
+            "not like 'a'",
+            "not and a",
+            "not is null",
+            "not * a",
+            "not ignore nulls",
+        ):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )
