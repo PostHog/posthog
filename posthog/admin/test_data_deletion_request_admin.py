@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -359,6 +360,7 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         self.assertTrue(resp_empty.context_data["missing_properties"])
 
 
+@freeze_time("2025-01-15 12:00:00")
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
 class TestDataDeletionRequestAdminSaveModel(BaseTest):
     def setUp(self):
@@ -443,6 +445,7 @@ class TestDataDeletionRequestAdminSaveModel(BaseTest):
         self.assertEqual(obj.person_properties, ["email"])
 
 
+@freeze_time("2025-01-15 12:00:00")
 class TestDataDeletionRequestModelValidation(BaseTest):
     def test_person_removal_rejects_person_properties_field(self):
         from django.core.exceptions import ValidationError
