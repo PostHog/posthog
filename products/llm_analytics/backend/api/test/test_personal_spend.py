@@ -275,18 +275,16 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         # Scoped total stays $3.50 — the multi-tool generation is only counted once there.
         assert response.json()["summary"]["scoped_cost_usd"] == 3.5
 
-    def test_top_traces_ordered_by_cost(self) -> None:
+    def test_top_traces_always_empty(self) -> None:
+        # `top_traces` is deprecated — kept in the response shape so existing consumers don't
+        # crash, but always returns empty. Trace IDs are opaque strings that aren't actionable
+        # in the UI.
         self._create_generation(trace_id="cheap", cost=0.5)
         self._create_generation(trace_id="expensive", cost=5.0)
-        self._create_generation(trace_id="expensive", cost=3.0)
         flush_persons_and_events()
 
         response = self.client.get(ENDPOINT)
-        traces = response.json()["top_traces"]["items"]
-        assert traces[0]["trace_id"] == "expensive"
-        assert traces[0]["cost_usd"] == 8.0
-        assert traces[0]["generation_count"] == 2
-        assert traces[1]["trace_id"] == "cheap"
+        assert response.json()["top_traces"] == {"items": [], "truncated": False}
 
     def test_other_users_spend_is_not_visible(self) -> None:
         other_email = "other-user@example.com"
@@ -315,8 +313,9 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"{ENDPOINT}?date_from=-7d")
 
         assert response.status_code == status.HTTP_200_OK
-        # All 5 fetchers should run once.
-        assert mock_exec.call_count == 5
+        # 4 fetchers run once (summary, by_product, by_tool, by_model). top_traces is
+        # deprecated and returned empty without a query.
+        assert mock_exec.call_count == 4
 
     def test_second_call_serves_from_cache(self) -> None:
         with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
