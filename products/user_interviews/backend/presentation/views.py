@@ -527,11 +527,14 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict) -> UserInterviewTopic:
         request = self.context["request"]
         team = self.context["get_team"]()
-        return UserInterviewTopic.objects.create(
-            team=team,
-            created_by=request.user,
-            **validated_data,
-        )
+        with transaction.atomic():
+            topic = UserInterviewTopic.objects.create(
+                team=team,
+                created_by=request.user,
+                **validated_data,
+            )
+            _ensure_author_test_context(topic=topic, team=team, author=request.user)
+        return topic
 
     def update(self, instance: UserInterviewTopic, validated_data: dict) -> UserInterviewTopic:
         old_emails = set(instance.interviewee_emails or [])
@@ -559,6 +562,33 @@ def _merge_agent_context(topic_context: str, personal_context: str) -> str:
     return "\n\n".join(parts)
 
 
+class LatestTestInterviewSerializer(serializers.Serializer):
+    completed_at = serializers.DateTimeField(
+        help_text="When the test interview was completed.",
+    )
+    transcript = serializers.CharField(
+        allow_blank=True,
+        help_text="Full transcript of the test call, if Vapi delivered one. May be empty.",
+    )
+    summary = serializers.CharField(
+        allow_blank=True,
+        help_text="AI-generated summary of the test call, if Vapi delivered one. May be empty.",
+    )
+
+
+class TestInterviewLinkSerializer(serializers.Serializer):
+    interview_url = serializers.URLField(
+        help_text=(
+            "Public, unauthenticated URL the topic author opens to dogfood the voice "
+            "interview themselves — does not count against the targeted interviewees."
+        ),
+    )
+    latest_test_interview = LatestTestInterviewSerializer(
+        allow_null=True,
+        help_text="Most recent test interview completed by the topic author, or null if none yet.",
+    )
+
+
 class InterviewLinkSerializer(serializers.Serializer):
     interviewee_identifier = serializers.CharField(
         max_length=400,
@@ -573,6 +603,47 @@ class InterviewLinkSerializer(serializers.Serializer):
     agent_context = serializers.CharField(
         help_text="The merged topic + per-interviewee context the voice agent will see during the call.",
     )
+
+
+def _author_test_identifier(author: User) -> str:
+    """Pick the identifier we'll use for the author's dogfood interviewee context.
+
+    Prefer the user's email so the existing identifier-parsing surfaces a friendly
+    display name in the assistant greeting; fall back to their distinct_id so a user
+    without a real email still gets a working test link.
+    """
+    return author.email or str(author.distinct_id)
+
+
+def _ensure_author_test_context(
+    *, topic: UserInterviewTopic, team: Any, author: User
+) -> tuple[IntervieweeContext, SharingConfiguration]:
+    """Idempotently create the author's `IntervieweeContext` + enabled `SharingConfiguration`
+    for a topic. Used at topic creation and as a self-healing get-or-create on the
+    `test_link` endpoint so older topics created before this field existed still work."""
+    ic, _ = IntervieweeContext.objects.get_or_create(
+        topic=topic,
+        is_author_test=True,
+        defaults={
+            "team": team,
+            "interviewee_identifier": _author_test_identifier(author),
+            "agent_context": "",
+            "created_by": author,
+        },
+    )
+    sharing_config = (
+        SharingConfiguration.objects.filter(team=team, interviewee_context=ic, enabled=True)
+        .filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
+        .order_by("-created_at")
+        .first()
+    )
+    if sharing_config is None:
+        sharing_config = SharingConfiguration.objects.create(
+            team=team,
+            interviewee_context=ic,
+            enabled=True,
+        )
+    return ic, sharing_config
 
 
 def _materialize_links_for_topic(*, topic: UserInterviewTopic, team: Any, created_by: Any) -> list[dict[str, Any]]:
@@ -740,6 +811,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "send_invites",
         "add_interviewee",
         "remove_interviewee",
+        "test_link",
     ]
     queryset = UserInterviewTopic.objects.select_related("created_by").all()
     serializer_class = UserInterviewTopicSerializer
@@ -913,6 +985,46 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 results.append({**base, "sent": False, "reason": f"error:{type(e).__name__}"})
 
         return response.Response(InterviewInviteResultSerializer(results, many=True).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=TestInterviewLinkSerializer)},
+        description=(
+            "Return the topic author's personal dogfood interview link plus the latest test "
+            "interview they have completed for this topic. Materializes the author's "
+            "IntervieweeContext (`is_author_test=True`) and an enabled SharingConfiguration on "
+            "first call, so the link is stable across calls. The author's interviews stay tied "
+            "to the topic but are excluded from the targeted-interviewee aggregates."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="test_link")
+    def test_link(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
+        topic = self.get_object()
+        ic, sharing_config = _ensure_author_test_context(topic=topic, team=self.team, author=request.user)
+
+        latest = (
+            UserInterview.objects.filter(
+                team_id=self.team_id,
+                topic_id=topic.id,
+                interviewee_identifier=ic.interviewee_identifier,
+            )
+            .order_by("-created_at")
+            .only("created_at", "transcript", "summary")
+            .first()
+        )
+        latest_payload: dict[str, Any] | None = None
+        if latest is not None:
+            latest_payload = {
+                "completed_at": latest.created_at,
+                "transcript": latest.transcript or "",
+                "summary": latest.summary or "",
+            }
+
+        payload = {
+            "interview_url": absolute_uri(f"/interview/{sharing_config.access_token}"),
+            "latest_test_interview": latest_payload,
+        }
+        return response.Response(TestInterviewLinkSerializer(payload).data)
 
     @extend_schema(
         request=IntervieweeIdentifierRequestSerializer,
