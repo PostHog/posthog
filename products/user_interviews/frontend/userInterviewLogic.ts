@@ -22,6 +22,7 @@ import type {
     UserInterviewApi,
     UserInterviewTopicApi,
 } from './generated/api.schemas'
+import type { userInterviewLogicType } from './userInterviewLogicType'
 
 export interface LatestTestInterview {
     completed_at: string
@@ -33,7 +34,6 @@ export interface TestInterviewLink {
     interview_url: string
     latest_test_interview: LatestTestInterview | null
 }
-import type { userInterviewLogicType } from './userInterviewLogicType'
 
 export interface UserInterviewLogicProps {
     id: string
@@ -98,15 +98,11 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
         },
         testLink: {
             __default: null as TestInterviewLink | null,
-            loadTestLink: async (): Promise<TestInterviewLink | null> => {
+            loadTestLink: async (): Promise<TestInterviewLink> => {
                 const projectId = String(teamLogic.values.currentTeamId)
-                try {
-                    return await api.create<TestInterviewLink>(
-                        `/api/environments/${projectId}/user_interview_topics/${props.id}/test_link/`
-                    )
-                } catch {
-                    return null
-                }
+                return await api.get<TestInterviewLink>(
+                    `/api/environments/${projectId}/user_interview_topics/${props.id}/test_link/`
+                )
             },
         },
     })),

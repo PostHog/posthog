@@ -12,6 +12,7 @@ import {
 import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -282,8 +283,8 @@ function TestInterviewWidget({
         >
             <div className="p-3 space-y-3">
                 <p className="text-muted text-sm mb-0">
-                    Open this link to try the AI voice interview yourself — no real user is consumed. Each completed
-                    test call replaces the previous test transcript shown below.
+                    Open this link to try the AI voice interview yourself — your test calls are kept separate from the
+                    targeted interviewees and the most recent one appears below.
                 </p>
                 {testLinkLoading && !testLink ? (
                     <LemonSkeleton.Text className="h-4 w-[80%]" />
@@ -318,7 +319,9 @@ function TestInterviewWidget({
                     </div>
                     {latest ? (
                         <div className="text-sm space-y-2">
-                            <div className="text-muted">Recorded {latest.completed_at.split('T')[0]}</div>
+                            <div className="text-muted">
+                                Recorded {dayjs(latest.completed_at).format('MMM D, YYYY [at] HH:mm')}
+                            </div>
                             {latest.summary ? (
                                 <div>
                                     <div className="text-xs font-semibold uppercase text-muted tracking-wide mb-1">
