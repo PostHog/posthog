@@ -193,7 +193,11 @@ export function DataTable({
         'usedPreAggregatedTables' in response &&
         response.usedPreAggregatedTables &&
         response?.hogql
-    const usedWebAnalyticsLazyPrecompute = response && 'usedLazyPrecompute' in response && response.usedLazyPrecompute
+    // Lazy precompute can be on without the v2 pre-agg flag, so check it
+    // independently of `canUseWebAnalyticsPreAggregatedTables`.
+    const usedWebAnalyticsLazyPrecompute = Boolean(
+        response && 'usedLazyPrecompute' in response && response.usedLazyPrecompute
+    )
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
