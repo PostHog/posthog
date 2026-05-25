@@ -75,7 +75,9 @@ export class RequestContext {
     }
 
     async getSessionUuid(sessionId: string | undefined): Promise<string | undefined> {
-        if (!sessionId) {return undefined}
+        if (!sessionId) {
+            return undefined
+        }
         return this.sessionManager.getSessionUuid(sessionId)
     }
 
@@ -88,7 +90,9 @@ export class RequestContext {
 
     private async resolveDistinctId(): Promise<string> {
         const cached = await this.cache.get('distinctId')
-        if (cached) {return cached}
+        if (cached) {
+            return cached
+        }
         const userResult = await (await this.api()).users().me()
         if (!userResult.success) {
             throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
@@ -116,9 +120,7 @@ export class RequestContext {
         return { ...partialContext, trackEvent }
     }
 
-    async getAnalyticsContextSafe(
-        context: Pick<Context, 'stateManager'>
-    ): Promise<MCPAnalyticsContext | undefined> {
+    async getAnalyticsContextSafe(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {
         try {
             return await context.stateManager.getAnalyticsContext()
         } catch {
@@ -132,7 +134,9 @@ export class RequestContext {
         previousContext: MCPAnalyticsContext | undefined
     ): Promise<void> {
         const resolvedContext = await this.getAnalyticsContextSafe(context)
-        if (!resolvedContext) {return}
+        if (!resolvedContext) {
+            return
+        }
 
         const event =
             toolName === 'switch-project'
@@ -140,7 +144,9 @@ export class RequestContext {
                 : toolName === 'switch-organization'
                   ? AnalyticsEvent.MCP_ORGANIZATION_SWITCHED
                   : undefined
-        if (!event) {return}
+        if (!event) {
+            return
+        }
 
         const distinctId = await this.getDistinctId()
         await this.trackEvent(event, {}, resolvedContext, previousContext, distinctId, this.props)

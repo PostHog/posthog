@@ -91,9 +91,8 @@ export class RequestStateResolver {
         ])
 
         const flagVersion = allFlags['mcp-version-2'] ? 2 : undefined
-        const toolFeatureFlags = toolFlagKeys.length > 0
-            ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]]))
-            : undefined
+        const toolFeatureFlags =
+            toolFlagKeys.length > 0 ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]])) : undefined
 
         const oauthClientName = (await reqCtx.cache.get('clientName')) || undefined
         const mcpClientName = props.mcpClientName || (await reqCtx.cache.get('mcpClientName')) || undefined
@@ -151,7 +150,9 @@ export class RequestStateResolver {
         flagKeys: string[],
         groups?: FlagGroups
     ): Promise<Record<string, boolean>> {
-        if (flagKeys.length === 0) {return {}}
+        if (flagKeys.length === 0) {
+            return {}
+        }
         try {
             const distinctId = await reqCtx.getDistinctId()
             return await evaluateFeatureFlags(flagKeys, distinctId, groups)

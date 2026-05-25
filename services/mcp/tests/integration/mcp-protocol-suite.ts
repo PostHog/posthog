@@ -1111,17 +1111,12 @@ export function defineToolBehaviorTests(
                 fetch: harness.fetch,
                 requestInit: { headers: { Authorization: `Bearer ${harness.token}` } },
             })
-            const pinnedClient = new Client(
-                { name: 'pinned-project-test', version: '0.0.0' },
-                { capabilities: {} }
-            )
+            const pinnedClient = new Client({ name: 'pinned-project-test', version: '0.0.0' }, { capabilities: {} })
             try {
                 await pinnedClient.connect(transport as ConnectableTransport)
                 const result = await pinnedClient.callTool({ name: 'feature-flag-get-all', arguments: {} })
                 if (result.isError) {
-                    throw new Error(
-                        `feature-flag-get-all errored with pinned projectId: ${decodeText(result.content)}`
-                    )
+                    throw new Error(`feature-flag-get-all errored with pinned projectId: ${decodeText(result.content)}`)
                 }
             } finally {
                 await safeClose(pinnedClient)
@@ -1234,10 +1229,7 @@ export function defineCatalogFilterTests(
 
         it('pins the catalog to specific tools when ?tools= is set', async () => {
             const harness = await getHarness()
-            const { tools } = await listToolsWithQuery(
-                harness,
-                '?tools=organization-get,projects-get'
-            )
+            const { tools } = await listToolsWithQuery(harness, '?tools=organization-get,projects-get')
             expect(tools.length).toBeGreaterThan(0)
             const names = tools.map((t) => t.name)
             // Pinned tools must appear; non-pinned ones must not.

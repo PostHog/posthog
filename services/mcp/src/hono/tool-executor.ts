@@ -28,6 +28,10 @@ interface ResolvedTool {
     _meta?: { ui?: { resourceUri?: string }; [key: string]: unknown } | undefined
 }
 
+interface ExecMetricState {
+    innerToolName: string | undefined
+}
+
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
@@ -68,7 +72,7 @@ export class ToolExecutor {
         }
 
         if (state.useSingleExec && toolName === 'exec') {
-            return this.callTool(this.resolveExecTool(state, props), params, props, state)
+            return this.callExecTool(params, props, state)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -108,11 +112,7 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
         }
 
-        // In single-exec mode, the inner trackInnerCall callback emits
-        // per-inner-tool Prometheus metrics. Skip the outer exec-level
-        // metrics to avoid double-counting.
-        const isExecWrapper = tool.name === 'exec' && state.useSingleExec
-        const stop = isExecWrapper ? undefined : toolCallDurationSeconds.startTimer({ tool: tool.name })
+        const stop = toolCallDurationSeconds.startTimer({ tool: tool.name })
         const startMs = Date.now()
 
         try {
@@ -127,10 +127,8 @@ export class ToolExecutor {
                 void state.reqCtx.trackContextSwitchEvent(tool.name, state.context, previousContext)
             }
 
-            if (!isExecWrapper) {
-                toolCallsTotal.inc({ tool: tool.name, status: 'success' })
-                stop?.({ status: 'success' })
-            }
+            toolCallsTotal.inc({ tool: tool.name, status: 'success' })
+            stop({ status: 'success' })
 
             void trackToolCall(tool.name, Date.now() - startMs, false, props, state)
 
@@ -151,11 +149,9 @@ export class ToolExecutor {
                 distinctId,
             })
         } catch (error: unknown) {
-            if (!isExecWrapper) {
-                toolCallsTotal.inc({ tool: tool.name, status: 'error' })
-                stop?.({ status: 'error' })
-                classifyToolError(error, tool.name)
-            }
+            toolCallsTotal.inc({ tool: tool.name, status: 'error' })
+            stop({ status: 'error' })
+            classifyToolError(error, tool.name)
 
             void trackToolCall(tool.name, Date.now() - startMs, true, props, state)
 
@@ -164,16 +160,66 @@ export class ToolExecutor {
         }
     }
 
-    private resolveExecTool(state: ResolvedState, props: RequestProperties): ResolvedTool {
+    private async callExecTool(
+        params: Record<string, unknown> | undefined,
+        props: RequestProperties,
+        state: ResolvedState
+    ): Promise<unknown> {
+        const execMetrics: ExecMetricState = { innerToolName: undefined }
+        const resolved = this.resolveExecTool(state, props, execMetrics)
+
+        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        const validation = resolved.schema.safeParse(toolArgs)
+        if (!validation.success) {
+            toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
+            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+        }
+
+        const startMs = Date.now()
+
+        try {
+            const handlerResult = await resolved.handler(state.context, validation.data)
+
+            void trackToolCall('exec', Date.now() - startMs, false, props, state)
+
+            if (isToolCallPayload(handlerResult)) {
+                return handlerResult
+            }
+
+            return buildToolResultPayload({
+                handlerResult,
+                toolMeta: resolved._meta,
+                toolName: 'exec',
+                params: validation.data,
+                clientName: props.mcpClientName,
+                distinctId: undefined,
+            })
+        } catch (error: unknown) {
+            const metricTool = execMetrics.innerToolName ?? 'exec'
+            if (!execMetrics.innerToolName) {
+                toolCallsTotal.inc({ tool: 'exec', status: 'error' })
+            }
+            classifyToolError(error, metricTool)
+
+            void trackToolCall('exec', Date.now() - startMs, true, props, state)
+
+            const sessionUuid = await state.reqCtx.getSessionUuid(props.sessionId)
+            return handleToolError(error, 'exec', state.distinctId, sessionUuid)
+        }
+    }
+
+    private resolveExecTool(
+        state: ResolvedState,
+        props: RequestProperties,
+        execMetrics: ExecMetricState
+    ): ResolvedTool {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
         const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
+            execMetrics.innerToolName = toolName
             const status = properties.success ? 'success' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
             toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
-            if (!properties.success && properties.error_message) {
-                classifyToolError(new Error(properties.error_message), toolName)
-            }
 
             void (async () => {
                 const freshContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
