@@ -27480,6 +27480,7 @@
         "ProductKey": {
             "enum": [
                 "actions",
+                "llm_analytics",
                 "alerts",
                 "annotations",
                 "cohorts",
@@ -27501,7 +27502,6 @@
                 "integrations",
                 "links",
                 "live_debugger",
-                "llm_analytics",
                 "llm_clusters",
                 "llm_datasets",
                 "llm_evaluations",
