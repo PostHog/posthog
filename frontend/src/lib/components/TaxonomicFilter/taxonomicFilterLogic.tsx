@@ -16,8 +16,6 @@ import {
 import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconCursor } from '@posthog/icons'
-
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import {
@@ -30,7 +28,6 @@ import {
     DataWarehousePopoverField,
     ExcludedProperties,
     ListStorage,
-    QuickFilterItem,
     SelectedProperties,
     SimpleOption,
     SkeletonItem,
@@ -43,10 +40,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { isString, objectsEqual, pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import {
-    getEventDefinitionIcon,
-    getPropertyDefinitionIcon,
-} from 'scenes/data-management/events/DefinitionHeader'
+import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { getProductEventPropertyFilterOptions } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -54,13 +48,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
     CoreFilterDefinition,
     EventDefinition,
-    EventDefinitionType,
     PersonProperty,
     PersonType,
     PropertyDefinition,
@@ -228,50 +220,6 @@ export const propertyTaxonomicGroupProps = (
     },
     getIcon: getPropertyDefinitionIcon,
 })
-
-function keywordShortcutValue(item: QuickFilterItem): string {
-    // Synthetic identity string used only as a React/selection key. Never parsed by consumers.
-    return JSON.stringify({
-        q: item.propertyKey,
-        v: item.filterValue,
-        e: item.eventName ?? null,
-    })
-}
-
-type BaseGroupFns<T> = {
-    getName: (instance: T) => string
-    getValue: (instance: T) => TaxonomicFilterValue
-    getIcon?: (instance: T) => JSX.Element
-    getPopoverHeader: (instance: T) => string
-}
-
-/** Extend a group's presentation methods so they also handle `QuickFilterItem`s (keyword
- *  shortcuts), and attach a `keywordShortcuts` builder. `popoverHeader` lets each group label
- *  its own shortcut kind (e.g. "Autocapture shortcut" for series, "Event type shortcut" for
- *  property filters). */
-function withKeywordShortcuts<T>(
-    base: BaseGroupFns<T>,
-    {
-        popoverHeader,
-        buildShortcuts,
-    }: {
-        popoverHeader: string
-        buildShortcuts: (searchQuery: string) => QuickFilterItem[]
-    }
-): Pick<TaxonomicFilterGroup, 'getName' | 'getValue' | 'getIcon' | 'getPopoverHeader' | 'keywordShortcuts'> {
-    const baseGetIcon = base.getIcon
-    return {
-        getName: (item: T | QuickFilterItem) => (isQuickFilterItem(item) ? item.name : base.getName(item)),
-        getValue: (item: T | QuickFilterItem) =>
-            isQuickFilterItem(item) ? keywordShortcutValue(item) : base.getValue(item),
-        getIcon: baseGetIcon
-            ? (item: T | QuickFilterItem) => (isQuickFilterItem(item) ? <IconCursor /> : baseGetIcon(item))
-            : undefined,
-        getPopoverHeader: (item: T | QuickFilterItem) =>
-            isQuickFilterItem(item) ? popoverHeader : base.getPopoverHeader(item),
-        keywordShortcuts: buildShortcuts,
-    }
-}
 
 export const defaultDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     {
