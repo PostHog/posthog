@@ -13,6 +13,7 @@ EventKind = Literal["firing", "resolved", "broken", "errored"]
 @dataclass(frozen=True)
 class EventKindSpec:
     event_id: str
+    display_kind: str
     header: str
     body: str
     button_url: str
@@ -46,6 +47,7 @@ _BROKEN_ERRORED_BASE_DATA: dict[str, str] = {
 EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "firing": EventKindSpec(
         event_id="$logs_alert_firing",
+        display_kind="firing",
         header="🔴 Log alert '{event.properties.alert_name}' is firing",
         body=(
             "*Threshold breached:* {event.properties.result_count} logs in "
@@ -63,6 +65,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     ),
     "resolved": EventKindSpec(
         event_id="$logs_alert_resolved",
+        display_kind="resolved",
         header="🟢 Log alert '{event.properties.alert_name}' has resolved",
         body=(
             "*Current count:* {event.properties.result_count} logs in "
@@ -80,6 +83,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     ),
     "broken": EventKindSpec(
         event_id="$logs_alert_auto_disabled",
+        display_kind="auto-disabled",
         header="⚠️ Log alert '{event.properties.alert_name}' was auto-disabled",
         body=(
             "*Reason:* {event.properties.consecutive_failures} consecutive check failures.\n"
@@ -99,6 +103,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     ),
     "errored": EventKindSpec(
         event_id="$logs_alert_errored",
+        display_kind="errored",
         header="🟡 Log alert '{event.properties.alert_name}' couldn't evaluate",
         body=("*Reason:* {event.properties.error_message}\n*Failure count:* {event.properties.consecutive_failures}"),
         button_url="{project.url}/logs/alerts/{event.properties.alert_id}",
@@ -187,7 +192,8 @@ def build_slack_config(
         "type": "internal_destination",
         "enabled": True,
         "filters": _filter_for(alert, kind),
-        "name": f"{alert.name}: {kind} → Slack #{channel_display}",
+        "name": f"Logs alert — {alert.name} ({spec.display_kind}) → Slack #{channel_display}",
+        "description": f'Sends {spec.display_kind} notifications for logs alert "{alert.name}".',
         "template_id": "template-slack",
         "inputs": {
             "blocks": {"value": _slack_blocks(spec)},
@@ -209,7 +215,8 @@ def build_webhook_config(
         "type": "internal_destination",
         "enabled": True,
         "filters": _filter_for(alert, kind),
-        "name": f"{alert.name}: {kind} → Webhook {webhook_url}",
+        "name": f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {webhook_url}",
+        "description": f'Sends {spec.display_kind} notifications for logs alert "{alert.name}".',
         "template_id": "template-webhook",
         "inputs": {
             "body": {"value": spec.webhook_body},
