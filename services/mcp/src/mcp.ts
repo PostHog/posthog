@@ -553,9 +553,7 @@ export class MCP extends McpAgent<Env> {
         // `resolveClientInfo` is only reachable post-init.
         await this.resolveClientInfo()
 
-        // User-level flags resolve in parallel with cache seeding. Tool flags are
-        // deferred until orgId is known so org-group rollouts evaluate correctly.
-        const singleExecPromise = this.resolveSingleExecFlag()
+        // Tool flags are deferred until orgId is known so org-group rollouts evaluate correctly.
 
         // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
@@ -590,9 +588,8 @@ export class MCP extends McpAgent<Env> {
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
         const toolFlagsPromise = this.resolveToolFeatureFlags(flagGroups)
 
-        const [toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
+        const [toolFeatureFlags, _apiKey] = await Promise.all([
             toolFlagsPromise,
-            singleExecPromise,
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
         ])
@@ -608,7 +605,6 @@ export class MCP extends McpAgent<Env> {
 
         const { useSingleExec } = this.resolveMode({
             mode,
-            singleExecFlagOn,
             clientProfile,
         })
 
@@ -848,19 +844,17 @@ export class MCP extends McpAgent<Env> {
      * wrapped client's reported name. Vibe-coding platforms (Lovable, Replit)
      * are detected by OAuth client name since they typically connect through a
      * generic MCP client wrapper. An explicit `mode` from the caller (header
-     * `x-posthog-mcp-mode` or query param `mode`) wins over the flag +
-     * client-profile heuristic.
+     * `x-posthog-mcp-mode` or query param `mode`) wins over the client-profile
+     * heuristic.
      */
     private resolveMode(args: {
         mode: McpMode | undefined
-        singleExecFlagOn: boolean
         clientProfile: MCPClientProfile
     }): { useSingleExec: boolean } {
-        const { mode, singleExecFlagOn, clientProfile } = args
+        const { mode, clientProfile } = args
         const useSingleExec =
             mode === 'cli' ||
             (mode !== 'tools' &&
-                singleExecFlagOn &&
                 (clientProfile.isCodingAgent() ||
                     clientProfile.isPostHogCodeConsumer() ||
                     clientProfile.isVibeCodingClient()))
@@ -868,15 +862,6 @@ export class MCP extends McpAgent<Env> {
         this.mcpMode = useSingleExec ? 'cli' : 'tools'
 
         return { useSingleExec }
-    }
-
-    private async resolveSingleExecFlag(): Promise<boolean> {
-        try {
-            const distinctId = await this.getDistinctId()
-            return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
-        } catch {
-            return false
-        }
     }
 
     private async resolveToolFeatureFlags(groups?: FlagGroups): Promise<Record<string, boolean> | undefined> {

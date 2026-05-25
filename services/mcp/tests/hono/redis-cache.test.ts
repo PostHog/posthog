@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { RedisCache, type RedisLike } from '@/hono/cache/RedisCache'
 
+import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+
 type TestState = {
     region: string | undefined
     projectId: string | undefined
@@ -40,6 +42,7 @@ function createMockRedis(): MockRedis {
             })
             return ['0', matching] as [string, string[]]
         }),
+        ...makeRedisRateLimitStubs(),
         _store: store,
     }
 }

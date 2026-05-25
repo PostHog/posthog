@@ -1,9 +1,9 @@
 import type { TooltipContext } from 'lib/hog-charts'
+import { FunnelTooltip } from 'scenes/funnels/FunnelTooltip'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
-import { FunnelTooltip } from '../../FunnelTooltip'
 import type { FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
 interface FunnelStepsBarTooltipProps {

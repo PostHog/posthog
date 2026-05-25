@@ -1,6 +1,8 @@
 import re
 from typing import Literal, NotRequired, TypedDict
 
+STALE_EVENT_DAYS = 30
+
 
 class CoreFilterDefinition(TypedDict):
     """Like the CoreFilterDefinition type in the frontend, except no JSX.Element allowed."""

@@ -4,19 +4,20 @@ import { useState } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import funnelTimeToConvertFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { FunnelStepsBarChart } from './FunnelStepsBarChart'
+import { FunnelHistogramChart } from './FunnelHistogramChart'
 
 type Story = StoryObj<{}>
 
 const meta: Meta = {
-    title: 'Insights/FunnelStepsBarChart',
-    component: FunnelStepsBarChart,
+    title: 'Insights/FunnelHistogramChart',
+    component: FunnelHistogramChart,
     parameters: {
         layout: 'centered',
         mockDate: '2022-03-12',
@@ -30,12 +31,12 @@ let uniqueNode = 0
 function Stage({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ height: 420, width: 720, display: 'flex', flexDirection: 'column' }}>{children}</div>
+        <div style={{ height: 360, width: 720, display: 'flex', flexDirection: 'column' }}>{children}</div>
     )
 }
 
-function StoryRender({ insightFixture }: { insightFixture: any }): JSX.Element {
-    const [dashboardItemId] = useState(() => `FunnelStepsBarChartStory.${uniqueNode++}` as InsightShortId)
+function renderFunnelHistogramChart(insightFixture: any): JSX.Element {
+    const [dashboardItemId] = useState(() => `FunnelHistogramChartStory.${uniqueNode++}` as InsightShortId)
     const source = insightFixture.query.source
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
@@ -51,24 +52,13 @@ function StoryRender({ insightFixture }: { insightFixture: any }): JSX.Element {
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <Stage>
-                    <FunnelStepsBarChart />
+                    <FunnelHistogramChart />
                 </Stage>
             </BindLogic>
         </BindLogic>
     )
 }
 
-/* eslint-disable @typescript-eslint/no-var-requires */
-const funnelStepsInsight = (): any =>
-    require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json')
-const funnelStepsBreakdownInsight = (): any =>
-    require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
-
 export const Default: Story = {
-    render: () => <StoryRender insightFixture={funnelStepsInsight()} />,
+    render: () => renderFunnelHistogramChart(funnelTimeToConvertFixture),
 }
-
-export const Breakdown: Story = {
-    render: () => <StoryRender insightFixture={funnelStepsBreakdownInsight()} />,
-}
-/* eslint-enable @typescript-eslint/no-var-requires */

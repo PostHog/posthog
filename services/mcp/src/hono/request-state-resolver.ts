@@ -27,14 +27,12 @@ export interface ResolvedState {
 
 export function resolveMode(args: {
     mode: McpMode | undefined
-    singleExecFlagOn: boolean
     clientProfile: MCPClientProfile
 }): { useSingleExec: boolean } {
-    const { mode, singleExecFlagOn, clientProfile } = args
+    const { mode, clientProfile } = args
     const useSingleExec =
         mode === 'cli' ||
         (mode !== 'tools' &&
-            singleExecFlagOn &&
             (clientProfile.isCodingAgent() ||
                 clientProfile.isPostHogCodeConsumer() ||
                 clientProfile.isVibeCodingClient()))
@@ -42,8 +40,6 @@ export function resolveMode(args: {
 }
 
 // ─── Resolver ───
-
-const SYSTEM_FLAGS = ['mcp-single-exec-tool'] as const
 
 export class RequestStateResolver {
     private readonly catalog: ToolCatalog
@@ -77,18 +73,16 @@ export class RequestStateResolver {
         }
 
         const toolFlagKeys = getRequiredFeatureFlags()
-        const allFlagKeys = [...SYSTEM_FLAGS, ...toolFlagKeys]
 
         const flagAnalyticsContext = await reqCtx.getAnalyticsContextSafe(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
         const [allFlags, _apiKey, distinctId] = await Promise.all([
-            this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
+            this.resolveAllFlags(reqCtx, toolFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
 
-        const singleExecFlagOn = !!allFlags['mcp-single-exec-tool']
         const toolFeatureFlags = toolFlagKeys.length > 0
             ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]]))
             : undefined
@@ -105,7 +99,6 @@ export class RequestStateResolver {
 
         const { useSingleExec } = resolveMode({
             mode,
-            singleExecFlagOn,
             clientProfile,
         })
 

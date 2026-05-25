@@ -12,6 +12,8 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestContext } from '@/hono/request-context'
 import type { RequestProperties } from '@/lib/request-properties'
 
+import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
+
 function fakeRedis(): RedisLike {
     const store = new Map<string, string>()
     return {
@@ -30,6 +32,7 @@ function fakeRedis(): RedisLike {
             return n
         },
         scan: async () => ['0', [...store.keys()]],
+        ...makeRedisRateLimitStubs(),
     }
 }
 
@@ -55,11 +58,7 @@ describe('RequestContext', () => {
             mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-123' } })
             const ctx = new RequestContext(fakeRedis(), env, makeProps())
 
-            const [a, b, c] = await Promise.all([
-                ctx.getDistinctId(),
-                ctx.getDistinctId(),
-                ctx.getDistinctId(),
-            ])
+            const [a, b, c] = await Promise.all([ctx.getDistinctId(), ctx.getDistinctId(), ctx.getDistinctId()])
 
             expect(a).toBe('user-123')
             expect(b).toBe('user-123')
@@ -123,13 +122,17 @@ describe('RequestContext', () => {
 
     describe('buildClientProperties', () => {
         it('includes all request properties', () => {
-            const ctx = new RequestContext(fakeRedis(), env, makeProps({
-                mcpClientName: 'claude-code',
-                mcpClientVersion: '2.0',
-                mcpProtocolVersion: '2025-03-26',
-                mcpConsumer: 'posthog-code',
-                transport: 'streamable-http',
-            }))
+            const ctx = new RequestContext(
+                fakeRedis(),
+                env,
+                makeProps({
+                    mcpClientName: 'claude-code',
+                    mcpClientVersion: '2.0',
+                    mcpProtocolVersion: '2025-03-26',
+                    mcpConsumer: 'posthog-code',
+                    transport: 'streamable-http',
+                })
+            )
 
             expect(ctx.buildClientProperties()).toEqual({
                 mcp_runtime: 'hono',
@@ -142,13 +145,17 @@ describe('RequestContext', () => {
         })
 
         it('omits undefined properties', () => {
-            const ctx = new RequestContext(fakeRedis(), env, makeProps({
-                mcpClientName: undefined,
-                mcpClientVersion: undefined,
-                mcpProtocolVersion: undefined,
-                mcpConsumer: undefined,
-                transport: undefined,
-            }))
+            const ctx = new RequestContext(
+                fakeRedis(),
+                env,
+                makeProps({
+                    mcpClientName: undefined,
+                    mcpClientVersion: undefined,
+                    mcpProtocolVersion: undefined,
+                    mcpConsumer: undefined,
+                    transport: undefined,
+                })
+            )
 
             expect(ctx.buildClientProperties()).toEqual({ mcp_runtime: 'hono' })
         })

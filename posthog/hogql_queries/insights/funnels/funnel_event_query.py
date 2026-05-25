@@ -160,6 +160,15 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         if len(queries) == 1:
             return queries[0]
 
+        # Multiple source tables are combined with UNION ALL, which needs a common
+        # column type. Different sources resolve aggregation_target to different
+        # types (e.g. a person_id UUID and a warehouse string column), so coerce
+        # every branch's aggregation_target to a string.
+        for query in queries:
+            for select_expr in query.select:
+                if isinstance(select_expr, ast.Alias) and select_expr.alias == "aggregation_target":
+                    select_expr.expr = ast.Call(name="toString", args=[select_expr.expr])
+
         # Take the field and alias names from the first query. UNION enforces identical column sets
         # across all selects, which makes this reliable.
         aliased_fields = alias_columns_in_select(queries[0].select, self.EVENT_TABLE_ALIAS)
