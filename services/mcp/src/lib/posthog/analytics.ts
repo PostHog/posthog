@@ -228,7 +228,10 @@ export async function initMcpAnalytics(
             context: options.contextEnabled,
             enableAITracing: true,
             enableConversationId: false,
-            enableTracing: true,
+            // Disabled — see comment in MCP.init in src/mcp.ts. The high-level
+            // path's per-tool wrapper drives a per-DO startup cost spike that
+            // currently isn't worth the per-call tracing events.
+            enableTracing: false,
             identify: { userId: distinctId },
             reportMissing: options.reportMissingEnabled,
             eventTags: () => buildEventTags(identity),

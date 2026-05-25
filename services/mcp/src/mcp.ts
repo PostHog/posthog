@@ -24,8 +24,6 @@ import {
     AnalyticsEvent,
     buildMCPAnalyticsGroups,
     buildMCPContextProperties,
-    initMcpAnalytics,
-    McpAnalyticsInitResult,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
 import { evaluateFeatureFlags, type FlagGroups, isFeatureFlagEnabled } from '@/lib/posthog/flags'
@@ -35,7 +33,7 @@ import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
@@ -77,7 +75,7 @@ export type RequestProperties = {
     transport?: 'streamable-http' | 'sse'
     viaSseRedirect?: boolean
     requestStartTime?: number
-    mcpAnalyticsInitAction?: McpAnalyticsInitResult['action']
+    mcpAnalyticsInitAction?: string
     mcpAnalyticsInitReason?: string
     mcpAnalyticsInitErrorName?: string
     mcpAnalyticsInitErrorMessage?: string
@@ -772,68 +770,11 @@ export class MCP extends McpAgent<Env> {
             }
         }
 
-        const mcpAnalyticsIdentity = {
-            getDistinctId: () => this.getDistinctId(),
-            getSessionUuid: async () =>
-                this.requestProperties.sessionId
-                    ? this.sessionManager.getSessionUuid(this.requestProperties.sessionId)
-                    : undefined,
-            getMcpClientName: async () => this.mcpClientName,
-            getMcpClientVersion: async () => this.mcpClientVersion,
-            getMcpProtocolVersion: async () => this.mcpProtocolVersion,
-            // Prefer the cached region (set on init after detection) so we don't miss it
-            // when the inbound request didn't include the `region` hint.
-            getRegion: async () => (await this.cache.get('region')) ?? this.requestProperties.region,
-            getAnalyticsContext: async () => this.getAnalyticsContextSafe(await this.getContext()),
-            getClientUserAgent: async () => this.requestProperties.clientUserAgent,
-            // Server-resolved version (may differ from the client-reported one because of
-            // the `mcp-version-2` feature flag), so observability events line up with ours.
-            getMcpVersion: async () => version,
-            getOAuthClientName: async () => (await this.cache.get('clientName')) || undefined,
-            getReadOnly: async () => readOnly,
-            getTransport: async () => this.requestProperties.transport,
-            getMcpConsumer: async () => this.requestProperties.mcpConsumer,
-            getMcpMode: async () => this.mcpMode,
-            getMcpSessionId: async () => this.requestProperties.mcpSessionId,
-            getMcpConversationId: async () => this.requestProperties.mcpConversationId,
-        }
-
-        // In single-exec mode every event's `$mcp_tool_name` is `exec`, so the
-        // SDK's `$mcp_tool_description` would be the dispatcher's static text on
-        // every call. Resolve the inner tool the agent was actually invoking
-        // from the command and surface its name + description as
-        // `$mcp_exec_tool_call_name` / `$mcp_exec_tool_call_description`.
-        const resolveExecInnerToolCall = useSingleExec ? createExecInnerToolCallResolver(allTools) : undefined
-
-        // In single-exec mode the SDK's $mcp_listed_tool_names collapses to
-        // just `exec`, so we can't compute "advertised but never called"
-        // (zombie tools) from SDK data alone. Pass the inner-tool catalog
-        // here so analytics can attach it as $mcp_exec_inner_tool_names on
-        // mcp_tools_list events. Dashboards can then diff it against
-        // $mcp_exec_tool_call_name from mcp_tool_call.
-        const execInnerToolNames = useSingleExec ? allTools.map((t) => t.name) : undefined
-
-        const initResult = await initMcpAnalytics(this.server, mcpAnalyticsIdentity, {
-            contextEnabled: true,
-            resolveExecInnerToolCall,
-            execInnerToolNames,
-            // `get_more_tools` only earns its keep outside single-exec mode — there
-            // it lets the model report a gap in our discrete tool catalog. In
-            // single-exec mode the wrapper handles every call, so the missing-tool
-            // signal has nothing to map to and the extra slot is pure noise.
-            reportMissingEnabled: !useSingleExec,
-        })
-
-        Object.assign(this.requestProperties, {
-            mcpAnalyticsInitAction: initResult.action,
-            ...(initResult.action === 'skipped' ? { mcpAnalyticsInitReason: initResult.reason } : {}),
-            ...(initResult.action === 'failed'
-                ? {
-                      mcpAnalyticsInitErrorName: initResult.errorName,
-                      mcpAnalyticsInitErrorMessage: initResult.errorMessage,
-                  }
-                : {}),
-        } as RequestProperties)
+        // mcp-analytics (per-tool wrapper + tracing) is disabled — the per-DO
+        // wrapping pass was the dominant per-DO startup cost (see profile-ram
+        // numbers in services/mcp/.heapsnapshots). Re-enable once upstream
+        // dedupes the wrap across DOs, or once we move tracing into a
+        // dispatcher-level interceptor that doesn't allocate per tool.
 
         const initDurationMs = this.requestProperties.requestStartTime
             ? Date.now() - this.requestProperties.requestStartTime
