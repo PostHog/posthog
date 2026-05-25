@@ -1028,3 +1028,25 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_select(query, backend="rust-json"),
                 msg=query,
             )
+
+    @no_memory_leak_check
+    def test_between_span_includes_parenthesized_high_closing_paren(self):
+        # A simple BETWEEN spans through the high operand's last consumed token,
+        # so a parenthesized `high` (`1 between 2 and (3)`) must include the
+        # trailing `)`. rust used `high.end` (the inner expr, parens stripped),
+        # leaving the BetweenExpr end one byte short. The comparison keeps
+        # positions.
+        for query in (
+            "1 between (2) and (3)",
+            "1 between 2 and (3)",
+            "1 between (2) and 3",
+            "1 not between 2 and (3)",
+            "a between (b) and (c)",
+            "1 between (2+3) and (4)",
+            "1 between (2) and (3) + 4",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )

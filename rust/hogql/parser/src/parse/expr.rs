@@ -4665,13 +4665,18 @@ impl<'a> Parser<'a> {
                     // at line ~126 stamps positions onto the OUTERMOST wrapper, but the BetweenExpr
                     // is now buried inside (e.g. as `Call(if, [BetweenExpr, …])` for the ternary hoist)
                     // and would not otherwise receive a span. cpp emits position info on BetweenExpr
-                    // unconditionally — match that. Use `high.end` (not `last_consumed_end`) — see
-                    // the BETWEEN arm below for the rationale.
+                    // unconditionally — match that. Simple BETWEEN spans through the high operand's
+                    // last consumed token (incl. a parenthesized high's trailing `)`); only the
+                    // WIDE/hoist case needs `high.end` (last_consumed_end overshoots there).
                     let high_end = high.get("end").cloned();
                     let between_inner = emit::between(prev, low, high, true);
-                    let mut between = match high_end {
-                        Some(end) => emit::with_pos(between_inner, self.pos_obj(lhs_start), end),
-                        None => self.wrap_pos(between_inner, lhs_start),
+                    let mut between = if hoisted.is_empty() {
+                        self.wrap_pos(between_inner, lhs_start)
+                    } else {
+                        match high_end {
+                            Some(end) => emit::with_pos(between_inner, self.pos_obj(lhs_start), end),
+                            None => self.wrap_pos(between_inner, lhs_start),
+                        }
                     };
                     for hoist in hoisted {
                         between = apply_between_hoist(between, hoist);
@@ -4723,15 +4728,21 @@ impl<'a> Parser<'a> {
                 self.bump()?;
                 let (low, high, hoisted) = self.parse_between_body(min_bp)?;
                 let prev = lhs.take();
-                // The inner BetweenExpr's structural end is `high.end`, not `self.last_consumed_end`.
-                // When `parse_between_body`'s WIDE arm absorbs a nested BETWEEN and the split hoists
-                // it back out (`BetweenHoist::Between`), `last_consumed_end` is past the high we'll
-                // actually use; mirror cpp's per-ctx span by reading the end off `high` directly.
+                // The simple BETWEEN spans through the high operand's *last consumed*
+                // token — including a trailing `)` that a parenthesized high
+                // (`… and (3)`) strips from `high.end`. Only the WIDE/hoist case
+                // (`parse_between_body` absorbed a nested BETWEEN that is now hoisted
+                // back out) needs `high.end`, because there `last_consumed_end` is
+                // past the high we actually keep.
                 let high_end = high.get("end").cloned();
                 let between_inner = emit::between(prev, low, high, false);
-                let mut between = match high_end {
-                    Some(end) => emit::with_pos(between_inner, self.pos_obj(lhs_start), end),
-                    None => self.wrap_pos(between_inner, lhs_start),
+                let mut between = if hoisted.is_empty() {
+                    self.wrap_pos(between_inner, lhs_start)
+                } else {
+                    match high_end {
+                        Some(end) => emit::with_pos(between_inner, self.pos_obj(lhs_start), end),
+                        None => self.wrap_pos(between_inner, lhs_start),
+                    }
                 };
                 for hoist in hoisted {
                     between = apply_between_hoist(between, hoist);
