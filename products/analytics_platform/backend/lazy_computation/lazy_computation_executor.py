@@ -30,8 +30,7 @@ from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RES
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
-from posthog.settings.utils import get_from_env
-from posthog.utils import relative_date_parse_with_delta_mapping, str_to_bool
+from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
     has_ch_query_started,
@@ -66,25 +65,13 @@ DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 60  # 1 minute
 # Grace period before declaring a job "not started" as stale. Covers executor boot time.
 DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
 
-
-def _get_preaggregation_insert_quorum() -> str | int:
-    """Resolve the ClickHouse insert_quorum value for preaggregation INSERTs.
-
-    "auto" = majority of replicas must acknowledge writes before the INSERT returns; this
-    ensures data is replicated before the subsequent SELECT reads it, preventing stale
-    reads. ``0`` disables quorum.
-
-    Default is "auto" in prod and ``0`` in tests / local dev (DEBUG=True), because those
-    environments typically run against a single-node ClickHouse without replica topology —
-    "auto" quorum would hang waiting for acknowledgments that never arrive. Resolved per
-    call instead of at import so a deployment that flips DEBUG/TEST after process start
-    sees the change, and so ``PREAGGREGATION_INSERT_QUORUM_ENABLED`` can override the
-    DEBUG-based heuristic for single-node staging or multi-replica debug environments.
-    """
-    override = get_from_env("PREAGGREGATION_INSERT_QUORUM_ENABLED", optional=True)
-    if override is not None:
-        return "auto" if str_to_bool(override) else 0
-    return 0 if (TEST or DEBUG) else "auto"
+# Quorum for INSERT queries. "auto" = majority of replicas must acknowledge writes before
+# the INSERT returns. This ensures data is replicated before the subsequent SELECT reads it,
+# preventing stale reads from hitting a replica that hasn't received the data yet.
+# Disabled in tests AND local dev (DEBUG) — both run against a single-node ClickHouse
+# where `insert_quorum=auto` waits 600s for an acknowledgement that never comes (the local
+# replica writes immediately but ClickHouse still blocks on the quorum protocol).
+PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST or DEBUG else "auto"
 
 
 # Mirrors the `lazy_computation.executed` structured log so the same outcomes
@@ -115,7 +102,7 @@ def _get_insert_settings(team_id: int) -> dict:
     settings.update(
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-            "insert_quorum": _get_preaggregation_insert_quorum(),
+            "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
             **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
         }
     )
