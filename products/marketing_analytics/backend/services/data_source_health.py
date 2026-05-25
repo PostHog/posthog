@@ -12,9 +12,6 @@ from posthog.schema import NativeMarketingSource
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.marketing_analytics.backend.hogql_queries.constants import (
     MARKETING_ANALYTICS_SCHEMA,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
@@ -23,6 +20,9 @@ from products.marketing_analytics.backend.services.native_integrations import (
     DISPLAY_NAMES,
     EXTERNAL_SOURCE_TYPE_TO_NATIVE,
 )
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 

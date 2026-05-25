@@ -10,7 +10,7 @@ are not applied. Both deviations are surfaced via `ConversionGoalSummary.is_appr
 import re
 import asyncio
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, cast
 
 from django.utils import timezone
@@ -23,10 +23,10 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models.action.action import Action, ActionStepJSON
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
+from products.actions.backend.models.action import Action, ActionStepJSON
 from products.marketing_analytics.backend.services.native_integrations import (
     NativeIntegration,
     build_combined_alias_map,
@@ -45,6 +45,9 @@ _DW_COLUMN_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 GoalKind = Literal["EventsNode", "ActionsNode", "DataWarehouseNode"]
 DEFAULT_LOOKBACK_DAYS = 30
+# Hard cap on how far back `explain_conversion_goal` will scan, so an LLM- or
+# user-supplied date range can't trigger an unbounded multi-year events scan.
+MAX_LOOKBACK_DAYS = 365
 EXPLAIN_SAMPLE_LIMIT = 10
 EXPLAIN_BREAKDOWN_LIMIT = 20
 # Max events scanned by `explain_conversion_goal`. When a goal exceeds this in
@@ -131,15 +134,42 @@ async def list_conversion_goals(team: Team) -> ConversionGoalsListResponse:
     goals_raw, attribution_window, attribution_mode = await _read_team_goal_config(team)
     alias_map = await _build_team_alias_map(team)
 
-    summaries = await asyncio.gather(
-        *(_summarize_goal(team, goal, alias_map, attribution_window) for goal in goals_raw)
+    results = await asyncio.gather(
+        *(_summarize_goal(team, goal, alias_map, attribution_window) for goal in goals_raw),
+        return_exceptions=True,
     )
+    # Degrade a failing goal to a misconfigured entry instead of failing the whole list.
+    summaries: list[ConversionGoalSummary] = []
+    for goal, result in zip(goals_raw, results):
+        if isinstance(result, BaseException):
+            logger.error("conversion_goal_summary_failed", goal=goal.get("conversion_goal_id"), error=str(result))
+            summaries.append(_failed_goal_summary(goal, result))
+        else:
+            summaries.append(result)
 
     return ConversionGoalsListResponse(
-        goals=list(summaries),
+        goals=summaries,
         attribution_window_days=attribution_window,
         attribution_mode=attribution_mode,
         has_misconfigured=any(s.is_misconfigured for s in summaries),
+    )
+
+
+def _failed_goal_summary(goal: dict[str, Any], exc: BaseException) -> ConversionGoalSummary:
+    goal_id = str(goal.get("conversion_goal_id") or goal.get("id") or "")
+    return ConversionGoalSummary(
+        id=goal_id,
+        name=goal.get("conversion_goal_name") or goal.get("name") or goal_id,
+        kind=cast(GoalKind, goal.get("kind", "EventsNode")),
+        target_label="(unavailable)",
+        last_30d_count=0,
+        integrated_count=None,
+        events_without_utm_source=None,
+        events_with_unmatched_utm_source=None,
+        non_integrated_count=None,
+        integrated_pct=None,
+        is_misconfigured=True,
+        misconfig_reason=f"Failed to summarize goal: {exc}",
     )
 
 
@@ -444,26 +474,15 @@ def _count_event_goal(
     `goal["event"]` may be None, meaning "match any event" (rare but valid)."""
     since = timezone.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
     event_name = goal.get("event")
-    placeholders: dict[str, ast.Expr]
-
     if event_name:
-        hogql = """
-            SELECT lower(trim(properties.utm_source)) AS utm_source, count() AS c
-            FROM events
-            WHERE event = {event_name} AND timestamp >= {since}
-            GROUP BY utm_source
-        """
-        placeholders = {"event_name": ast.Constant(value=event_name), "since": ast.Constant(value=since)}
-    else:
-        hogql = """
-            SELECT lower(trim(properties.utm_source)) AS utm_source, count() AS c
-            FROM events
-            WHERE timestamp >= {since}
-            GROUP BY utm_source
-        """
-        placeholders = {"since": ast.Constant(value=since)}
-
-    return _execute_count_with_split(team, hogql, placeholders, alias_map)
+        return _execute_count_with_split(
+            team,
+            "event = {event_name}",
+            {"event_name": ast.Constant(value=event_name), "since": ast.Constant(value=since)},
+            alias_map,
+        )
+    # `goal["event"]` is None — "match any event".
+    return _execute_count_with_split(team, "1 = 1", {"since": ast.Constant(value=since)}, alias_map)
 
 
 @database_sync_to_async
@@ -484,17 +503,13 @@ def _count_action_goal(
         return 0, 0, 0, 0, has_step_filters
 
     since = timezone.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
-    hogql = """
-        SELECT lower(trim(properties.utm_source)) AS utm_source, count() AS c
-        FROM events
-        WHERE event IN {events} AND timestamp >= {since}
-        GROUP BY utm_source
-    """
     placeholders: dict[str, ast.Expr] = {
         "events": ast.Tuple(exprs=[ast.Constant(value=e) for e in step_events]),
         "since": ast.Constant(value=since),
     }
-    total, integrated, without_utm, unmatched_with_utm = _execute_count_with_split(team, hogql, placeholders, alias_map)
+    total, integrated, without_utm, unmatched_with_utm = _execute_count_with_split(
+        team, "event IN {events}", placeholders, alias_map
+    )
     return total, integrated, without_utm, unmatched_with_utm, has_step_filters
 
 
@@ -506,30 +521,43 @@ def _step_has_filters(step: ActionStepJSON) -> bool:
 
 
 def _execute_count_with_split(
-    team: Team, hogql: str, placeholders: dict[str, ast.Expr], alias_map: dict[str, NativeIntegration]
+    team: Team, where: str, placeholders: dict[str, ast.Expr], alias_map: dict[str, NativeIntegration]
 ) -> tuple[int, int, int, int]:
     """Returns (total, integrated, without_utm, unmatched_with_utm).
 
-    The two non-integrated buckets have OPPOSITE fixes (UTM tagging on the page
-    vs. custom_source_mappings), so they're surfaced separately.
+    The split is computed in ClickHouse via `countIf`, not `GROUP BY utm_source`
+    plus a Python sum — a `GROUP BY` inherits the default query row limit and
+    would silently undercount goals with a long utm_source tail (>100 distinct
+    values). The two non-integrated buckets have OPPOSITE fixes (UTM tagging vs.
+    custom_source_mappings), so they're surfaced separately.
+
+    `where` is a trusted query fragment built by the caller; user values flow in
+    through `placeholders`. `norm_utm` mirrors `native_integrations.normalize()`
+    (lowercase + alphanumerics only) so a raw value matches the alias keys.
     """
+    hogql = f"""
+        WITH
+            lower(trim(coalesce(properties.utm_source, ''))) AS raw_utm,
+            replaceRegexpAll(raw_utm, '[^a-z0-9]', '') AS norm_utm
+        SELECT
+            count() AS total,
+            countIf(norm_utm IN {{aliases}}) AS integrated,
+            countIf(raw_utm = '') AS without_utm,
+            countIf(raw_utm != '' AND norm_utm NOT IN {{aliases}}) AS unmatched_with_utm
+        FROM events
+        WHERE {where} AND timestamp >= {{since}}
+    """
+    query_placeholders: dict[str, ast.Expr] = {
+        **placeholders,
+        "aliases": ast.Tuple(exprs=[ast.Constant(value=key) for key in alias_map]),
+    }
     with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=team.pk):
-        result = execute_hogql_query(hogql, team, placeholders=placeholders)
-    total = 0
-    integrated = 0
-    without_utm = 0
-    unmatched_with_utm = 0
-    for row in result.results or []:
-        utm_source = (row[0] or "").strip()
-        count = int(row[1] or 0)
-        total += count
-        if not utm_source:
-            without_utm += count
-        elif lookup_in(utm_source, alias_map) is not None:
-            integrated += count
-        else:
-            unmatched_with_utm += count
-    return total, integrated, without_utm, unmatched_with_utm
+        result = execute_hogql_query(hogql, team, placeholders=query_placeholders)
+    rows = result.results or []
+    if not rows:
+        return 0, 0, 0, 0
+    total, integrated, without_utm, unmatched_with_utm = rows[0]
+    return int(total or 0), int(integrated or 0), int(without_utm or 0), int(unmatched_with_utm or 0)
 
 
 @database_sync_to_async
@@ -662,6 +690,10 @@ def _resolve_period(period: DateRange) -> tuple[datetime, datetime]:
     now = timezone.now()
     until = _parse_date_or(period.date_to, default=now)
     since = _parse_date_or(period.date_from, default=now - timedelta(days=DEFAULT_LOOKBACK_DAYS))
+    earliest = now - timedelta(days=MAX_LOOKBACK_DAYS)
+    since = max(since, earliest)
+    if until < since:  # inverted or fully-clamped range → empty window
+        until = since
     return since, until
 
 
@@ -669,9 +701,11 @@ def _parse_date_or(raw: str | None, *, default: datetime) -> datetime:
     if not raw:
         return default
     try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         return default
+    # Keep everything timezone-aware so comparisons against `now` don't raise.
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def _default_period() -> DateRange:

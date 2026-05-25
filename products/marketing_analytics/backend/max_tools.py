@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
+import structlog
 from pydantic import BaseModel, Field
 
 from posthog.schema import DateRange
@@ -34,6 +35,8 @@ from products.marketing_analytics.backend.services.marketing_diagnostic import g
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
 
 from ee.hogai.tool import MaxTool
+
+logger = structlog.get_logger(__name__)
 
 # Cap attribution scans server-side: an unbounded utm_source scan over multi-year
 # windows can pin a ClickHouse node on a high-volume team, and this surface isn't interactive.
@@ -77,7 +80,8 @@ def _lookback_days_from_date_range(team: Team, date_range: dict | None) -> int |
     try:
         start = relative_date_parse(str(raw_from), tz)
         end = relative_date_parse(str(raw_to), tz) if raw_to else timezone.now().astimezone(tz)
-    except (ValueError, TypeError):
+    except Exception:
+        logger.warning("marketing_lookback_date_parse_failed", team_id=team.pk, date_range=date_range)
         return None
 
     delta = (end - start).days

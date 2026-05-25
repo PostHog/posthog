@@ -8,8 +8,7 @@ from django.utils import timezone
 
 from posthog.schema import DateRange
 
-from posthog.models import Action
-
+from products.actions.backend.models.action import Action
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     explain_conversion_goal,
     list_conversion_goals,

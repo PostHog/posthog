@@ -196,6 +196,13 @@ async def suggest_utm_mappings(
             "and redirects that may strip query params)."
         )
 
+    if attribution.utm_source_catalogue_truncated:
+        notes.append(
+            "This team has more distinct utm_source values than the analysis cap, so the catalogue "
+            "and the total/matched event counts are top-N subtotals, not exact totals — present them "
+            "as approximate and don't claim an exact distinct-source count."
+        )
+
     final_notes = [
         *notes,
         "Campaign clustering (campaign_name_mappings) is not yet implemented; "

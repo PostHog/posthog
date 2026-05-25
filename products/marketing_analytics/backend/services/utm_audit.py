@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from datetime import datetime
+
+from django.utils import timezone
 
 import structlog
 
@@ -8,6 +9,7 @@ from posthog.schema import DateRange, NativeMarketingSource
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
@@ -129,7 +131,7 @@ def run_utm_audit(team: Team, date_from: str = "-30d", date_to: str | None = Non
         date_range=DateRange(date_from=date_from, date_to=date_to),
         team=team,
         interval=None,
-        now=datetime.now(),
+        now=timezone.now(),
     )
 
     mappings = _load_team_mappings(team)
@@ -213,7 +215,8 @@ def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange) -> list[Ca
         limit=ast.Constant(value=500),
     )
 
-    result = execute_hogql_query(query, team)
+    with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=team.pk):
+        result = execute_hogql_query(query, team)
     campaigns = []
     for row in result.results or []:
         campaigns.append(
@@ -251,14 +254,15 @@ def _get_utm_events(team: Team, date_range: QueryDateRange) -> dict[tuple[str, s
         LIMIT 5000
     """
 
-    result = execute_hogql_query(
-        hogql,
-        team,
-        placeholders={
-            "date_from": date_range.date_from_as_hogql(),
-            "date_to": date_range.date_to_as_hogql(),
-        },
-    )
+    with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=team.pk):
+        result = execute_hogql_query(
+            hogql,
+            team,
+            placeholders={
+                "date_from": date_range.date_from_as_hogql(),
+                "date_to": date_range.date_to_as_hogql(),
+            },
+        )
     utm_map: dict[tuple[str, str], int] = {}
     for row in result.results or []:
         campaign = (row[0] or "").lower().strip()

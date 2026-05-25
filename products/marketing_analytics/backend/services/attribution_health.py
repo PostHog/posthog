@@ -104,12 +104,13 @@ class AttributionHealthResponse:
     # both matched and unmatched. Lets callers answer "what utm_sources arrive
     # on this team's events?" without a separate SQL roundtrip.
     all_utm_source_samples: list[UtmSourceSample] = field(default_factory=list)
-    # Total distinct utm_source values seen in the window. `all_utm_source_samples`
-    # is capped at MAX_GLOBAL_UNMATCHED, so this is the honest distinct count.
+    # Distinct utm_source values among the top `HOGQL_GROUP_LIMIT` by event count.
+    # When `utm_source_catalogue_truncated` is true this is a subtotal (capped at
+    # HOGQL_GROUP_LIMIT), not the true distinct count.
     total_distinct_utm_sources: int = 0
     # True when the ClickHouse aggregation hit HOGQL_GROUP_LIMIT distinct
     # utm_source values: the long tail beyond that is uncounted, so
-    # `total_events_with_utm` is a top-N subtotal, not the full total.
+    # `total_events_with_utm` and the totals above are top-N subtotals.
     utm_source_catalogue_truncated: bool = False
 
     def to_dict(self) -> dict[str, Any]:
