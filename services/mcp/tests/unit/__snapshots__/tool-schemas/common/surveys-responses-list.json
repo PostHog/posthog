@@ -10,11 +10,6 @@
             "description": "A UUID string identifying this survey.",
             "type": "string"
         },
-        "include_person_properties": {
-            "default": false,
-            "description": "When true, include the respondent's person properties at event time in each row. Off by default.",
-            "type": "boolean"
-        },
         "limit": {
             "default": 100,
             "description": "Maximum number of rows to return (1-500). Defaults to 100.",
