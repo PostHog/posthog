@@ -1192,3 +1192,44 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
         for backend in ("cpp-json", "rust-json"):
             with self.assertRaises(BaseHogQLError):
                 parse_expr("count() filter ()", backend=backend)
+
+    @no_memory_leak_check
+    def test_cast_type_enum_vs_param_fallback(self):
+        # A cast type `q(...)` is `ColumnTypeExprEnum` only when every entry is a
+        # `string '=' numberLiteral` (the visitor then rejects it as unsupported).
+        # If any value isn't a numberLiteral (`''`, an ident, `1 + 2`) or the
+        # separator is `==`, ANTLR falls back to `ColumnTypeExprParam` (a
+        # columnExpr param), which cpp accepts. rust used to commit to the enum
+        # path on a `string =` head and reject these.
+        for query in (
+            "cast(1 as q('a' = ''))",
+            "cast(1 as q('a' = 'b'))",
+            "cast(1 as q('a' = x))",
+            "cast(1 as q('a' = 1 + 2))",
+            "cast(1 as q('a' == 1))",
+            "cast(1 as q('a' = 1, 'b' = ''))",
+            "try_cast(1 as q('a' = ''))",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+        # A real enumValue list (string '=' numberLiteral, incl. floats / inf /
+        # signed / trailing comma) stays ColumnTypeExprEnum and rejects on both.
+        for value in ("1", "-1", "1.5", "1.5e3", "2447.9157e+17", "inf", "nan", "0x1f", ".5"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(f"cast(1 as q('a' = {value}))", backend=backend)
+        # Non-enum parametric / nested / complex types are unaffected.
+        for query in (
+            "cast(1 as Decimal(10, 2))",
+            "cast(1 as FixedString(5))",
+            "cast(1 as Array(Int))",
+            "cast(1 as Tuple(UInt8, String))",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )

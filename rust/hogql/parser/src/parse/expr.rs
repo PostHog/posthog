@@ -3348,6 +3348,73 @@ impl<'a> Parser<'a> {
         Ok(name)
     }
 
+    /// True when the parenthesised type body starting at `peek0` is a complete
+    /// `ColumnTypeExprEnum` list: `enumValue (COMMA enumValue)* COMMA?` where
+    /// `enumValue: string EQ_SINGLE numberLiteral`. Mirrors ANTLR committing to
+    /// the Enum alt only when EVERY entry matches; any non-numberLiteral value
+    /// (`'a' = ''`, `'a' = x`, `'a' = 1 + 2`) or a `==` separator instead of `=`
+    /// makes it fall through to `ColumnTypeExprParam` (a `columnExprList`).
+    /// NOTE: the lexer's `EqDouble` is the *single* `=` (grammar EQ_SINGLE);
+    /// `EqSingle` is `==`. numberLiteral folds to `Number` (plus optional sign)
+    /// or the `inf` / `nan` keywords.
+    fn paren_body_is_enum_value_list(&self) -> bool {
+        let mut pos = self.peek0.start;
+        loop {
+            let mut probe = Lexer::with_pos(self.src, pos);
+            // enumValue: STRING `=` numberLiteral
+            if !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::String)) {
+                return false;
+            }
+            if !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::EqDouble)) {
+                return false;
+            }
+            // numberLiteral: optional sign, then a number / leading-dot float /
+            // inf / nan. The lexer assembles a `.`-float across tokens (`1.5` is
+            // `1` `.` `5`), so after the leading number token consume the
+            // `(Dot|Number)*` continuation run before reading the separator —
+            // that keeps `'k' = 1.5e3` an enumValue while `'k' = 1 + 2` (an
+            // operator after the number) and `'k' = x` / `'k' = ''` fall through.
+            let mut t = match probe.next_token() {
+                Ok(t) => t,
+                Err(_) => return false,
+            };
+            if matches!(t.kind, TokenKind::Plus | TokenKind::Dash) {
+                t = match probe.next_token() {
+                    Ok(t) => t,
+                    Err(_) => return false,
+                };
+            }
+            if !matches!(
+                t.kind,
+                TokenKind::Number | TokenKind::Dot | TokenKind::Keyword(Kw::Inf) | TokenKind::Keyword(Kw::Nan)
+            ) {
+                return false;
+            }
+            let mut sep = match probe.next_token() {
+                Ok(t) => t,
+                Err(_) => return false,
+            };
+            while matches!(sep.kind, TokenKind::Dot | TokenKind::Number) {
+                sep = match probe.next_token() {
+                    Ok(t) => t,
+                    Err(_) => return false,
+                };
+            }
+            match sep.kind {
+                TokenKind::RParen => return true,
+                TokenKind::Comma => {
+                    pos = sep.end;
+                    // Trailing comma (`… ,)`) closes a valid enum list.
+                    let mut after = Lexer::with_pos(self.src, pos);
+                    if matches!(after.next_token().map(|t| t.kind), Ok(TokenKind::RParen)) {
+                        return true;
+                    }
+                }
+                _ => return false,
+            }
+        }
+    }
+
     fn parse_type_atom(&mut self) -> Result<String, ParseError> {
         // Decode a single type-name token, unquoting quoted-idents and
         // lowercasing the rest. The grammar's `columnTypeExpr` resolves
@@ -3380,11 +3447,16 @@ impl<'a> Parser<'a> {
             // with "Unsupported rule: ColumnTypeExprEnum", so rust must
             // also error rather than fall through to the Param raw-text
             // path (which would happily emit `enum8('a'=1)`).
-            // Detect the enumValue shape at the head of the paren body —
-            // STRING `=` Number — and short-circuit with the same error.
-            if matches!(self.peek(), TokenKind::String)
-                && matches!(self.peek_next(), TokenKind::EqDouble | TokenKind::EqSingle)
-            {
+            //
+            // But ANTLR commits to Enum only when the WHOLE body is a valid
+            // enumValue list — `string '=' numberLiteral`, comma-separated. If
+            // any entry's value is not a numberLiteral (`q('a' = '')`, `q('a' =
+            // x)`, `q('a' = 1 + 2)`) or the separator is `==` rather than `=`
+            // (`q('a' == 1)`), ANTLR falls through to `ColumnTypeExprParam` (the
+            // body is a `columnExprList`, e.g. the comparison `'a' = ''`), which
+            // cpp ACCEPTS. So gate the reject on the full enum-list shape and let
+            // the Param path below handle the rest.
+            if self.paren_body_is_enum_value_list() {
                 let start = self.peek0.start;
                 let end = self.peek0.end;
                 // Fatal so the outer `try_alt`'s parse_ident_lead
