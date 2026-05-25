@@ -594,6 +594,117 @@ export function drawHighlightPoint(
     ctx.fill()
 }
 
+/** A laid-out box-and-whisker for a single (series, x) slot. Pre-computed by BoxPlot's
+ *  geometry helper so the draw primitives below don't touch scales — same shape as the
+ *  BarRect ↔ drawBars contract. */
+export interface BoxRect {
+    x: number
+    width: number
+    top: number
+    bottom: number
+    medianY: number
+    mean: { x: number; y: number }
+    whiskerTop: number
+    whiskerBottom: number
+    dataIndex: number
+}
+
+export interface DrawBoxOptions {
+    /** Series base color — used for the box outline, whisker, median, and mean stroke. */
+    color: string
+    /** Box fill — typically the series color at reduced alpha. */
+    fillColor: string
+    /** Optional explicit median stroke color. Defaults to `color`. */
+    medianColor?: string
+    /** Optional mean marker fill. Defaults to `fillColor`. */
+    meanFillColor?: string
+    /** Mean marker radius in CSS pixels. Defaults to 3. */
+    meanRadius?: number
+    /** Line width for the box outline, whiskers, and median. Defaults to 1.5. */
+    lineWidth?: number
+    /** Width of the whisker caps (as a fraction of the box width). Defaults to 0.6. */
+    whiskerCapRatio?: number
+}
+
+/** Paint a single box-and-whisker. Takes a pre-laid-out {@link BoxRect}; no scale access. */
+export function drawBox(ctx: CanvasRenderingContext2D, box: BoxRect, options: DrawBoxOptions): void {
+    const {
+        color,
+        fillColor,
+        medianColor = color,
+        meanFillColor = fillColor,
+        meanRadius = 3,
+        lineWidth = 1.5,
+        whiskerCapRatio = 0.6,
+    } = options
+
+    const boxHeight = Math.max(0, box.bottom - box.top)
+    const centerX = box.x + box.width / 2
+    const capHalfWidth = (box.width * whiskerCapRatio) / 2
+
+    ctx.lineWidth = lineWidth
+    ctx.strokeStyle = color
+
+    // Whisker stem above the box (max -> p75) and below the box (min -> p25).
+    ctx.setLineDash([])
+    ctx.beginPath()
+    if (box.whiskerTop < box.top) {
+        ctx.moveTo(centerX, box.whiskerTop)
+        ctx.lineTo(centerX, box.top)
+    }
+    if (box.whiskerBottom > box.bottom) {
+        ctx.moveTo(centerX, box.bottom)
+        ctx.lineTo(centerX, box.whiskerBottom)
+    }
+    ctx.stroke()
+
+    // Whisker caps at min and max.
+    ctx.beginPath()
+    ctx.moveTo(centerX - capHalfWidth, box.whiskerTop)
+    ctx.lineTo(centerX + capHalfWidth, box.whiskerTop)
+    ctx.moveTo(centerX - capHalfWidth, box.whiskerBottom)
+    ctx.lineTo(centerX + capHalfWidth, box.whiskerBottom)
+    ctx.stroke()
+
+    // Box rectangle (p25 → p75) — fill then outline.
+    if (boxHeight > 0 && box.width > 0) {
+        ctx.fillStyle = fillColor
+        ctx.fillRect(box.x, box.top, box.width, boxHeight)
+        ctx.strokeRect(box.x, box.top, box.width, boxHeight)
+    }
+
+    // Median line across the box.
+    const medianClamped = Math.max(box.top, Math.min(box.bottom, box.medianY))
+    ctx.strokeStyle = medianColor
+    ctx.beginPath()
+    ctx.moveTo(box.x, medianClamped)
+    ctx.lineTo(box.x + box.width, medianClamped)
+    ctx.stroke()
+
+    // Mean marker — filled circle outlined in the series color.
+    ctx.fillStyle = meanFillColor
+    ctx.strokeStyle = color
+    ctx.beginPath()
+    ctx.arc(box.mean.x, box.mean.y, meanRadius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+}
+
+/** Translucent highlight overlay for a hovered box. Drawn on the overlay canvas so it
+ *  composites over the static box without disturbing it — mirrors {@link drawBarHighlight}. */
+export function drawBoxHighlight(
+    ctx: CanvasRenderingContext2D,
+    box: BoxRect,
+    overlayColor: string
+): void {
+    const boxHeight = Math.max(0, box.bottom - box.top)
+    if (box.width <= 0 || boxHeight <= 0) {
+        return
+    }
+    ctx.fillStyle = overlayColor
+    ctx.fillRect(box.x, box.top, box.width, boxHeight)
+}
+
 type DrawHoverFn = (args: ChartDrawArgs) => DrawHoverResult
 
 interface ComposeDrawHoverOptions {

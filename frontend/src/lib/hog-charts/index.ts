@@ -24,6 +24,17 @@ export { RadialChart, RADIAL_MARGINS } from './core/RadialChart'
 export type { RadialChartProps, RadialLayoutBuilder } from './core/RadialChart'
 export { DEFAULT_MARGINS } from './core/hooks/useChartMargins'
 
+// Box plot
+export { BoxPlot } from './charts/BoxPlot/BoxPlot'
+export type { BoxPlotClickData, BoxPlotConfig, BoxPlotProps } from './charts/BoxPlot/BoxPlot'
+export {
+    computeBoxRect,
+    computeSeriesBoxes,
+} from './charts/BoxPlot/computeBoxLayout'
+export type { BoxPlotDatum, BoxPlotSeries, BoxRect } from './charts/BoxPlot/computeBoxLayout'
+export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
+export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
+
 // Pie / donut
 export { PieChart } from './charts/PieChart/PieChart'
 export type { PieChartConfig, PieChartProps } from './charts/PieChart/PieChart'
