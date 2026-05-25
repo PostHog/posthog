@@ -310,6 +310,12 @@ class Database(BaseModel):
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
+    # Tables registered in the schema tree but hidden from users — referenced
+    # only by internal machinery (e.g. object-level access-control predicates).
+    # Direct user queries against these names are rejected by `get_table`;
+    # internal callers must briefly flip `_internal_tables_unlocked` to True.
+    _internal_table_names: set[str] = set()
+    _internal_tables_unlocked: bool = False
     _connection_id: str | None = None
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
@@ -334,6 +340,8 @@ class Database(BaseModel):
         self._warehouse_self_managed_table_names = []
         self._view_table_names = []
         self._denied_tables = set()
+        self._internal_table_names = set()
+        self._internal_tables_unlocked = False
         self._connection_id = None
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
@@ -365,6 +373,16 @@ class Database(BaseModel):
         return self.tables.get_child(table_name)
 
     def get_table(self, table_name: str | list[str]) -> Table:
+        # Block direct user resolution of internal tables (e.g., the
+        # `_posthog_internal_access_control` view backing object-level RBAC).
+        # The printer briefly flips `_internal_tables_unlocked` while resolving
+        # table predicates so its own subqueries can still reach the table.
+        name_for_check = ".".join(table_name) if isinstance(table_name, list) else table_name
+        if name_for_check in self._internal_table_names and not self._internal_tables_unlocked:
+            suggestions = self._suggest_table_names(name_for_check)
+            suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+            raise QueryError(f"Unknown table `{name_for_check}`.{suffix}")
+
         try:
             return cast(Table, self.get_table_node(table_name).get())
         except ResolutionError as e:
@@ -555,9 +573,27 @@ class Database(BaseModel):
         ]
 
     def _filter_system_tables_for_user(self, user: "User", team: "Team") -> None:
-        """Remove system tables user doesn't have resource access to."""
+        """Apply per-user access control to the system.* tables.
+
+        Resource-level layer:
+            Tables where the user has no resource-level access AND no specific
+            object-level grant are removed from the schema (referencing them
+            raises "You don't have access to table …").
+
+        Object-level layer:
+            For tables that remain in the schema, an object-level predicate is
+            attached so the rendered SQL excludes (or whitelists, when the user
+            has the resource-level "none" + specific-grant pattern) the
+            relevant rows. See `posthog/hogql/printer/access_control.py`.
+        """
         from posthog.models import OrganizationMembership
         from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+
+        from posthog.hogql.database.schema.access_control_internal import (
+            INTERNAL_ACCESS_CONTROL_TABLE_NAME,
+            build_internal_access_control_table,
+        )
+        from posthog.hogql.printer.access_control import build_object_access_control_predicate
 
         self.user_access_control = UserAccessControl(user=user, team=team)
 
@@ -570,20 +606,56 @@ class Database(BaseModel):
             return
 
         denied: set[str] = set()
-        for table_node in list(system_node.children.values()):
+        any_predicate_attached = False
+        for table_name, table_node in list(system_node.children.items()):
             table = table_node.table
             if not isinstance(table, PostgresTable) or table.access_scope is None:
-                continue  # Not access-controlled, keep it
+                continue  # Not access-controlled, keep it as-is
 
             access_level = self.user_access_control.access_level_for_resource(table.access_scope)
-            if access_level and access_level != NO_ACCESS_LEVEL:
-                continue  # User has access, keep it
+            has_resource_access = bool(access_level) and access_level != NO_ACCESS_LEVEL
+            has_specific_grant = (
+                False
+                if has_resource_access
+                else self.user_access_control.has_any_specific_access_for_resource(
+                    table.access_scope, required_level="viewer"
+                )
+            )
 
-            # No access - remove from schema
-            del system_node.children[table_node.name]
-            denied.add(f"system.{table_node.name}")
+            if not has_resource_access and not has_specific_grant:
+                del system_node.children[table_name]
+                denied.add(f"system.{table_name}")
+                continue
+
+            predicate = build_object_access_control_predicate(table, self.user_access_control)
+            if predicate is None:
+                continue
+
+            # NB: `system.py` defines the table objects as module-level
+            # singletons. Mutating `.predicates` in place would leak the
+            # user-specific filter into every other request. Replace the
+            # `TableNode.table` with a per-Database copy that owns its own
+            # `predicates` list.
+            table_node.table = table.model_copy(update={"predicates": [*table.predicates, predicate]})
+            any_predicate_attached = True
 
         self._denied_tables = denied
+
+        if any_predicate_attached:
+            self._register_internal_access_control_table(
+                INTERNAL_ACCESS_CONTROL_TABLE_NAME, build_internal_access_control_table()
+            )
+
+    def _register_internal_access_control_table(self, name: str, table: "PostgresTable") -> None:
+        """Add a hidden top-level table that backs object-level predicates.
+
+        Lives outside the `system.*` and `posthog.*` subtrees so the user-facing
+        enumeration paths (`get_posthog_table_names`, `get_system_table_names`,
+        `serialize`, autocomplete) all miss it. Direct user queries against the
+        name are rejected by `get_table` via `_internal_table_names`.
+        """
+        self.tables.children[name] = TableNode(name=name, table=table)
+        self._internal_table_names.add(name)
 
     def _filter_all_scoped_system_tables(self) -> None:
         """Remove ALL access-controlled system tables"""

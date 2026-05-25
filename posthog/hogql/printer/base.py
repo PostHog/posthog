@@ -518,7 +518,22 @@ class BasePrinter(Visitor[str]):
             return []
 
         scope = ast.SelectQueryType(tables={"t": node_type})
-        return [resolve_types(clone_expr(pred), self.context, self.DIALECT_NAME, [scope]) for pred in predicates]
+
+        # Some predicates (object-level access-control filters) reference
+        # internal HogQL tables that `Database.get_table` blocks for direct
+        # user queries. Briefly unlock them so the resolver can wire up the
+        # subquery's FROM clause, then re-lock. The flag lives on `Database`
+        # rather than on `HogQLContext` because the resolver only has the
+        # `Database` reference handy in `visit_join_expr`.
+        database = self.context.database
+        previously_unlocked = bool(database and database._internal_tables_unlocked)
+        if database is not None and not previously_unlocked:
+            database._internal_tables_unlocked = True
+        try:
+            return [resolve_types(clone_expr(pred), self.context, self.DIALECT_NAME, [scope]) for pred in predicates]
+        finally:
+            if database is not None and not previously_unlocked:
+                database._internal_tables_unlocked = False
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         """Print a table reference. Fail-fast by default: each dialect must override.
