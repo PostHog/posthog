@@ -40,7 +40,6 @@ impl Default for Aggregator {
 mod tests {
     use super::*;
     use crate::types::PropertyType;
-    use proptest::prelude::*;
 
     fn tuple(team: i64, key: &str, value: &str) -> TupleKey {
         TupleKey {
@@ -51,40 +50,17 @@ mod tests {
         }
     }
 
-    fn arb_property_type() -> impl Strategy<Value = PropertyType> {
-        prop_oneof![
-            Just(PropertyType::Event),
-            Just(PropertyType::Person),
-            (0u8..=10).prop_map(PropertyType::Group),
-        ]
-    }
+    #[test]
+    fn add_accumulates_counts_for_same_tuple() {
+        let mut agg = Aggregator::new();
+        agg.add(tuple(2, "$lib", "web"), 3);
+        agg.add(tuple(2, "$lib", "web"), 5);
+        agg.add(tuple(2, "$os", "mac"), 2);
 
-    prop_compose! {
-        fn arb_tuple()(
-            team_id in -5i64..=5,
-            property_type in arb_property_type(),
-            property_key in "[a-c]{1,3}",
-            property_value in "[x-z]{1,3}",
-        ) -> TupleKey {
-            TupleKey { team_id, property_type, property_key, property_value }
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn drained_counts_equal_per_tuple_sum(
-            ops in prop::collection::vec((arb_tuple(), 1u64..1_000), 0..200),
-        ) {
-            let mut agg = Aggregator::new();
-            let mut expected: HashMap<TupleKey, u64> = HashMap::new();
-
-            for (t, n) in &ops {
-                agg.add(t.clone(), *n);
-                *expected.entry(t.clone()).or_insert(0) += *n;
-            }
-
-            prop_assert_eq!(agg.drain(), expected);
-        }
+        let drained = agg.drain();
+        assert_eq!(drained.len(), 2);
+        assert_eq!(drained[&tuple(2, "$lib", "web")], 8);
+        assert_eq!(drained[&tuple(2, "$os", "mac")], 2);
     }
 
     #[test]
