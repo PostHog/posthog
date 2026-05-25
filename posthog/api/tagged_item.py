@@ -61,10 +61,10 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
                 ignore_conflicts=True,
             )
             # bulk_create + ignore_conflicts does not reliably populate PKs, so refetch.
-            refetched = list(Tag.objects.filter(team_id=obj.team_id, name__in=missing_tag_names))
+            # `team` is selected because handle_tag_change reads `after_update.team.organization_id`.
+            refetched = list(Tag.objects.filter(team_id=obj.team_id, name__in=missing_tag_names).select_related("team"))
             for t in refetched:
-                if t.name not in tags_by_name:
-                    newly_created_tags.append(t)
+                newly_created_tags.append(t)
                 tags_by_name[t.name] = t
 
         # `obj.tagged_items` is a reverse manager; `.field` is the FK on TaggedItem
