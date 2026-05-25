@@ -28,7 +28,6 @@ import {
     ExcludedProperties,
     ListStorage,
     SelectedProperties,
-    SimpleOption,
     SkeletonItem,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -37,20 +36,16 @@ import {
     TaxonomicFilterValue,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
-import { isString, objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
-import { getProductEventPropertyFilterOptions } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { actionsModel } from '~/models/actionsModel'
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
-import { ActionType, CoreFilterDefinition, EventDefinition, PersonType, PropertyDefinition, TeamType } from '~/types'
-
-import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
+import { CoreFilterDefinition, EventDefinition, PropertyDefinition, TeamType } from '~/types'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { apmTaxonomicGroupsLogic } from './apmTaxonomicGroupsLogic'
@@ -64,6 +59,7 @@ import { eventsTaxonomicGroupsLogic } from './eventsTaxonomicGroupsLogic'
 import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGroupsLogic'
 import { hogQLExpressionTaxonomicGroupsLogic } from './hogQLExpressionTaxonomicGroupsLogic'
 import { maxAIContextTaxonomicGroupsLogic } from './maxAIContextTaxonomicGroupsLogic'
+import { miscTaxonomicGroupsLogic } from './miscTaxonomicGroupsLogic'
 import { posthogResourcesTaxonomicGroupsLogic } from './posthogResourcesTaxonomicGroupsLogic'
 import { propertyTabsTaxonomicGroupsLogic } from './propertyTabsTaxonomicGroupsLogic'
 import { recentPinnedTaxonomicGroupsLogic } from './recentPinnedTaxonomicGroupsLogic'
@@ -276,6 +272,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['eventPropertiesTaxonomicGroups'],
             propertyTabsTaxonomicGroupsLogic,
             ['featureFlagPropertyTaxonomicGroups', 'numericalAndPersonPropertyTaxonomicGroups'],
+            miscTaxonomicGroupsLogic,
+            [
+                'activityWorkflowActionsTaxonomicGroups',
+                'elementsMetadataTaxonomicGroups',
+                'wildcardsPersonsTaxonomicGroups',
+                'sessionPropertiesTaxonomicGroups',
+            ],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -480,6 +483,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventPropertiesTaxonomicGroups,
                 s.featureFlagPropertyTaxonomicGroups,
                 s.numericalAndPersonPropertyTaxonomicGroups,
+                s.activityWorkflowActionsTaxonomicGroups,
+                s.elementsMetadataTaxonomicGroups,
+                s.wildcardsPersonsTaxonomicGroups,
+                s.sessionPropertiesTaxonomicGroups,
                 s.replayTaxonomicGroups,
                 s.posthogResourcesTaxonomicGroups,
                 s.errorTrackingTaxonomicGroups,
@@ -504,6 +511,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventPropertiesTaxonomicGroups: TaxonomicFilterGroup[],
                 featureFlagPropertyTaxonomicGroups: TaxonomicFilterGroup[],
                 numericalAndPersonPropertyTaxonomicGroups: TaxonomicFilterGroup[],
+                activityWorkflowActionsTaxonomicGroups: TaxonomicFilterGroup[],
+                elementsMetadataTaxonomicGroups: TaxonomicFilterGroup[],
+                wildcardsPersonsTaxonomicGroups: TaxonomicFilterGroup[],
+                sessionPropertiesTaxonomicGroups: TaxonomicFilterGroup[],
                 replayTaxonomicGroups: TaxonomicFilterGroup[],
                 posthogResourcesTaxonomicGroups: TaxonomicFilterGroup[],
                 errorTrackingTaxonomicGroups: TaxonomicFilterGroup[],
@@ -512,68 +523,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventsTaxonomicGroups: TaxonomicFilterGroup[],
                 customEventsTaxonomicGroups: TaxonomicFilterGroup[]
             ): TaxonomicFilterGroup[] => {
-                const { id: teamId } = currentTeam
-                const { propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
                     ...eventsTaxonomicGroups,
-                    {
-                        name: 'Activity log properties',
-                        searchPlaceholder: 'activity log properties',
-                        type: TaxonomicFilterGroupType.ActivityLogProperties,
-                        options: getProductEventPropertyFilterOptions('activity-log').map((value) => ({
-                            name: value,
-                            value,
-                            group: TaxonomicFilterGroupType.EventProperties,
-                        })),
-                        getIcon: getPropertyDefinitionIcon,
-                        getPopoverHeader: () => 'Activity log properties',
-                    },
-                    {
-                        name: 'Workflow variables',
-                        searchPlaceholder: 'variable key',
-                        type: TaxonomicFilterGroupType.WorkflowVariables,
-                        categoryLabel: () => 'Workflow variables',
-                        render: HogFlowTaxonomicFilters,
-                        // Populated via optionsFromProp from the workflow scene so the All/Suggestions
-                        // tab can aggregate workflow variables alongside other groups. The render
-                        // override above still drives the dedicated tab UI.
-                        getName: (option: SimpleOption) => option.name,
-                        getValue: (option: SimpleOption) => option.name,
-                        getPopoverHeader: () => 'Workflow variables',
-                    },
-                    {
-                        name: 'Actions',
-                        searchPlaceholder: 'actions',
-                        type: TaxonomicFilterGroupType.Actions,
-                        logic: actionsModel,
-                        value: 'actionsSorted',
-                        getName: (action: ActionType) => action.name || '',
-                        getValue: (action: ActionType) => action.id,
-                        getPopoverHeader: () => 'Action',
-                        getIcon: getEventDefinitionIcon,
-                    },
+                    ...activityWorkflowActionsTaxonomicGroups,
                     ...dataWarehouseTaxonomicGroups,
-                    {
-                        name: 'Autocapture elements',
-                        searchPlaceholder: 'autocapture elements',
-                        type: TaxonomicFilterGroupType.Elements,
-                        options: ['tag_name', 'text', 'href', 'selector'].map((option) => ({
-                            name: option,
-                        })) as SimpleOption[],
-                        getName: (option: SimpleOption) => option.name,
-                        getValue: (option: SimpleOption) => option.name,
-                        getPopoverHeader: () => 'Autocapture Element',
-                    },
-                    {
-                        name: 'Metadata',
-                        searchPlaceholder: 'metadata',
-                        type: TaxonomicFilterGroupType.Metadata,
-                        // populate options using `optionsFromProp` depending on context in which
-                        // this taxonomic group type is used
-                        getName: (option: SimpleOption) => option.name,
-                        getValue: (option: SimpleOption) => option.name,
-                        ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.metadata),
-                    },
+                    ...elementsMetadataTaxonomicGroups,
                     ...eventPropertiesTaxonomicGroups,
                     ...eventMetadataTaxonomicGroups,
                     ...featureFlagPropertyTaxonomicGroups,
@@ -584,46 +538,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     ...cohortTaxonomicGroups,
                     ...shortcutValueTaxonomicGroups,
                     ...customEventsTaxonomicGroups,
-                    {
-                        name: 'Wildcards',
-                        searchPlaceholder: 'wildcards',
-                        type: TaxonomicFilterGroupType.Wildcards,
-                        // Populated via optionsFromProp
-                        getName: (option: SimpleOption) => option.name,
-                        getValue: (option: SimpleOption) => option.name,
-                        getPopoverHeader: () => `Wildcard`,
-                    },
-                    {
-                        name: 'Persons',
-                        searchPlaceholder: 'persons',
-                        type: TaxonomicFilterGroupType.Persons,
-                        endpoint: `api/environments/${teamId}/persons/`,
-                        getName: (person: PersonType) => person.name || 'Anon user?',
-                        getValue: (person: PersonType) => person.distinct_ids?.[0],
-                        getPopoverHeader: () => `Person`,
-                    },
+                    ...wildcardsPersonsTaxonomicGroups,
                     ...posthogResourcesTaxonomicGroups,
-                    {
-                        name: 'Session properties',
-                        searchPlaceholder: 'sessions',
-                        type: TaxonomicFilterGroupType.SessionProperties,
-                        ...(propertyAllowList
-                            ? {
-                                  options: propertyAllowList[TaxonomicFilterGroupType.SessionProperties]
-                                      ?.filter(isString)
-                                      ?.map((property: string) => ({
-                                          name: property,
-                                          value: property,
-                                      })),
-                              }
-                            : {
-                                  endpoint: `api/environments/${teamId}/sessions/property_definitions`,
-                              }),
-                        getName: (option: any) => option.name,
-                        getValue: (option) => option.name,
-                        getPopoverHeader: () => 'Session',
-                        getIcon: getPropertyDefinitionIcon,
-                    },
+                    ...sessionPropertiesTaxonomicGroups,
                     ...hogQLExpressionTaxonomicGroups,
                     ...replayTaxonomicGroups,
                     ...maxAIContextTaxonomicGroups,
