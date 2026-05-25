@@ -6711,6 +6711,135 @@ class TestSurveySummarizeDispatchesToHeadline(APIBaseTest):
         mock_headline.assert_called_once()
 
 
+class TestSurveyLifecycleActions(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.survey = Survey.objects.create(
+            team=self.team,
+            name="Lifecycle",
+            type="popover",
+            questions=[{"type": "open", "question": "Q?"}],
+        )
+
+    def test_launch_sets_start_date(self):
+        self.assertIsNone(self.survey.start_date)
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/launch/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.survey.refresh_from_db()
+        self.assertIsNotNone(self.survey.start_date)
+        # Verify the response includes the updated start_date
+        self.assertIsNotNone(response.json()["start_date"])
+
+    def test_launch_is_idempotent_when_already_launched(self):
+        original_start = datetime(2024, 1, 1, tzinfo=UTC)
+        self.survey.start_date = original_start
+        self.survey.save()
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/launch/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.survey.refresh_from_db()
+        # start_date should not have moved
+        self.assertEqual(self.survey.start_date, original_start)
+
+    def test_stop_sets_end_date(self):
+        self.survey.start_date = datetime(2024, 1, 1, tzinfo=UTC)
+        self.survey.save()
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/stop/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.survey.refresh_from_db()
+        self.assertIsNotNone(self.survey.end_date)
+
+    def test_stop_is_idempotent_when_already_stopped(self):
+        original_end = datetime(2024, 1, 1, tzinfo=UTC)
+        self.survey.start_date = datetime(2023, 12, 1, tzinfo=UTC)
+        self.survey.end_date = original_end
+        self.survey.save()
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/stop/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.survey.refresh_from_db()
+        self.assertEqual(self.survey.end_date, original_end)
+
+
+class TestSurveyListTypeFilter(APIBaseTest):
+    def test_filter_by_type(self):
+        Survey.objects.create(team=self.team, name="popover survey", type="popover", questions=[])
+        Survey.objects.create(team=self.team, name="widget survey", type="widget", questions=[])
+        Survey.objects.create(team=self.team, name="hosted survey", type="external_survey", questions=[])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?type=widget")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["name"], "widget survey")
+
+
+class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.rating_qid = str(uuid.uuid4())
+        self.choice_qid = str(uuid.uuid4())
+        self.open_qid = str(uuid.uuid4())
+        self.survey = Survey.objects.create(
+            team=self.team,
+            name="Per Q",
+            type="popover",
+            questions=[
+                {"id": self.rating_qid, "type": "rating", "question": "1-10 rating?"},
+                {"id": self.choice_qid, "type": "single_choice", "question": "Pick one"},
+                {"id": self.open_qid, "type": "open", "question": "Free text"},
+            ],
+            start_date=datetime(2024, 5, 1, tzinfo=UTC),
+        )
+
+    def test_per_question_stats_excluded_by_default(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("per_question_stats", response.json())
+
+    def test_per_question_stats_when_requested(self):
+        Person.objects.create(team=self.team, distinct_ids=["u-1"])
+        Person.objects.create(team=self.team, distinct_ids=["u-2"])
+        Person.objects.create(team=self.team, distinct_ids=["u-3"])
+        for distinct_id, rating, choice, text in [
+            ("u-1", "9", "yes", "Loved it"),
+            ("u-2", "7", "yes", "Good"),
+            ("u-3", "3", "no", ""),
+        ]:
+            _create_event(
+                team=self.team,
+                event="survey sent",
+                distinct_id=distinct_id,
+                timestamp="2024-06-10 09:00:00",
+                properties={
+                    "$survey_id": str(self.survey.id),
+                    f"$survey_response_{self.rating_qid}": rating,
+                    f"$survey_response_{self.choice_qid}": choice,
+                    f"$survey_response_{self.open_qid}": text,
+                },
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/stats/?include_per_question_stats=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        per_q = {q["question_id"]: q for q in response.json()["per_question_stats"]}
+
+        # Rating: 3 responses, average should be ~6.33, distribution by value
+        self.assertEqual(per_q[self.rating_qid]["response_count"], 3)
+        self.assertEqual(per_q[self.rating_qid]["question_type"], "rating")
+        self.assertAlmostEqual(per_q[self.rating_qid]["average"], (9 + 7 + 3) / 3, places=2)
+        self.assertEqual(per_q[self.rating_qid]["distribution"], {"9": 1, "7": 1, "3": 1})
+
+        # Choice: 3 responses, distribution by choice
+        self.assertEqual(per_q[self.choice_qid]["response_count"], 3)
+        self.assertEqual(per_q[self.choice_qid]["distribution"], {"yes": 2, "no": 1})
+        self.assertIsNone(per_q[self.choice_qid]["average"])
+
+        # Open: 2 responses (one user left it blank), no distribution
+        self.assertEqual(per_q[self.open_qid]["response_count"], 2)
+        self.assertEqual(per_q[self.open_qid]["distribution"], {})
+
+
 class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
     SURVEY_PAYLOAD = {
         "name": "Scope warning survey",

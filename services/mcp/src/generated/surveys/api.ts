@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -26,6 +26,10 @@ export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.'
         ),
+    type: zod
+        .enum(['api', 'external_survey', 'popover', 'widget'])
+        .optional()
+        .describe('* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'),
 })
 
 export const SurveysCreateParams = /* @__PURE__ */ zod.object({
@@ -1607,6 +1611,18 @@ export const SurveysDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Launch a survey by setting `start_date` to the current time. No-op if the survey is already launched (start_date set in the past) — returns the existing state unchanged. Does not affect archived surveys or surveys with an end_date in the past; unarchive or extend the end_date first.
+ */
+export const SurveysLaunchParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this survey.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
  * List survey responses for a specific survey, with question text resolved server-side so callers do not have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, `submitted_at`, and an `extra` block (device, geoip, iteration) so agents can cross-pivot to recordings, persons, or paths in a single follow-up call. Person properties at event time are available opt-in via `include_person_properties=true`. Use `question_id` + `score_lte` to fetch NPS detractors and similar score-filtered cohorts.
  */
 export const SurveysResponsesListParams = /* @__PURE__ */ zod.object({
@@ -1682,6 +1698,7 @@ Args:
     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+    include_per_question_stats: Optional boolean to include per-question response counts and distributions
 
 Returns:
     Survey statistics including event counts, unique respondents, and conversion rates
@@ -1704,6 +1721,24 @@ export const SurveysStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)'),
+    include_per_question_stats: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, also return per-question response counts and answer distributions. Adds one extra HogQL query per question, so leave off unless you need the breakdown.'
+        ),
+})
+
+/**
+ * Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; existing responses remain available. No-op if the survey already has an end_date in the past.
+ */
+export const SurveysStopParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this survey.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
 })
 
 /**
@@ -1736,6 +1771,24 @@ export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(surveysSummarizeResponsesCreateBodyForceRefreshDefault)
         .describe('When true, bypass cached summaries and regenerate. Defaults to false.'),
+})
+
+/**
+ * Get response counts for all surveys.
+
+Args:
+    exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+    survey_ids: Optional comma-separated list of survey IDs to filter by
+
+Returns:
+    Dictionary mapping survey IDs to response counts
+ */
+export const SurveysResponsesCountRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
 })
 
 /**

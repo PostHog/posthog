@@ -5075,6 +5075,21 @@
             "readOnlyHint": true
         }
     },
+    "survey-launch": {
+        "description": "Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey is already launched.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Launch a survey now.",
+        "title": "Launch a survey now.",
+        "required_scopes": ["survey:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "survey-stats": {
         "description": "Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
         "category": "Surveys",
@@ -5087,6 +5102,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "survey-stop": {
+        "description": "Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; existing responses remain available. Prefer this over `survey-update` with a manual `end_date`. No-op if the survey already has an end_date in the past. To hide the survey from the list, archive it via `survey-update` with `archived=true` instead.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Stop a survey now.",
+        "title": "Stop a survey now.",
+        "required_scopes": ["survey:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "survey-update": {
@@ -5104,11 +5134,11 @@
         }
     },
     "surveys-get-all": {
-        "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
+        "description": "List surveys in the project. Use `search` for fuzzy match against survey name and description (handles typos and prefix-as-you-type). Use `type` to filter by survey kind (popover, widget, external_survey, api). Use `archived` to filter archived state. Combine with pagination via `limit`/`offset`.\nCompanion tools to avoid the recon-loop pattern: - For response volume per survey: surveys-responses-count - For individual response rows: surveys-responses-list - For aggregate event counts: surveys-stats (single survey) or surveys-global-stats (project-wide)",
         "category": "Surveys",
         "feature": "surveys",
-        "summary": "Get all surveys in the project with optional filtering.",
-        "title": "Get all surveys in the project with optional filtering.",
+        "summary": "List surveys in the project (server-side search + filters).",
+        "title": "List surveys in the project (server-side search + filters).",
         "required_scopes": ["survey:read"],
         "annotations": {
             "destructiveHint": false,
@@ -5124,6 +5154,21 @@
         "summary": "Get aggregated response statistics across all surveys.",
         "title": "Get aggregated response statistics across all surveys.",
         "required_scopes": ["survey:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "surveys-responses-count-retrieve": {
+        "description": "Batched response counts keyed by survey ID. Use this before surveys-responses-list when you want to quickly identify which surveys actually have data — avoids the pattern of paginating surveys-get-all to find non-empty surveys. Pass `survey_ids` (comma-separated) to scope to specific surveys, or omit to get counts for all surveys in the project. Set `exclude_archived=true` to skip archived responses.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Get response counts for surveys (batched, all-surveys-at-once).",
+        "title": "Get response counts for surveys (batched, all-surveys-at-once).",
+        "required_scopes": ["survey:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

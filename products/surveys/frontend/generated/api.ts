@@ -221,6 +221,20 @@ export const surveysGenerateTranslationsCreate = async (
     })
 }
 
+export const getSurveysLaunchUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/surveys/${id}/launch/`
+}
+
+/**
+ * Launch a survey by setting `start_date` to the current time. No-op if the survey is already launched (start_date set in the past) — returns the existing state unchanged. Does not affect archived surveys or surveys with an end_date in the past; unarchive or extend the end_date first.
+ */
+export const surveysLaunch = async (projectId: string, id: string, options?: RequestInit): Promise<SurveyApi> => {
+    return apiMutator<SurveyApi>(getSurveysLaunchUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getSurveysResponsesListUrl = (projectId: string, id: string, params?: SurveysResponsesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -319,6 +333,7 @@ Args:
     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+    include_per_question_stats: Optional boolean to include per-question response counts and distributions
 
 Returns:
     Survey statistics including event counts, unique respondents, and conversion rates
@@ -332,6 +347,20 @@ export const surveysStatsRetrieve = async (
     return apiMutator<SurveyStatsResponseApi>(getSurveysStatsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSurveysStopUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/surveys/${id}/stop/`
+}
+
+/**
+ * Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; existing responses remain available. No-op if the survey already has an end_date in the past.
+ */
+export const surveysStop = async (projectId: string, id: string, options?: RequestInit): Promise<SurveyApi> => {
+    return apiMutator<SurveyApi>(getSurveysStopUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

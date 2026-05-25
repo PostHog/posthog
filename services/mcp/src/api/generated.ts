@@ -38173,6 +38173,8 @@ export namespace Schemas {
       stats: SurveyStatsResponseStats;
       /** Calculated response and dismissal rates. */
       rates: SurveyStatsResponseRates;
+      /** Per-question response counts and distributions. Only present when include_per_question_stats=true was passed. For rating questions includes `average`; for choice/rating questions `distribution` maps answer value to count; for open questions `distribution` is empty (use surveys-responses-list to read free-text). */
+      per_question_stats?: unknown[];
     }
 
     export interface SurveySummarizeRequest {
@@ -49559,7 +49561,24 @@ export namespace Schemas {
      * Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
      */
     search?: string;
+    /**
+     * * `popover` - popover
+    * `widget` - widget
+    * `external_survey` - external survey
+    * `api` - api
+     */
+    type?: SurveysListType;
     };
+
+    export type SurveysListType = typeof SurveysListType[keyof typeof SurveysListType];
+
+
+    export const SurveysListType = {
+      Api: 'api',
+      ExternalSurvey: 'external_survey',
+      Popover: 'popover',
+      Widget: 'widget',
+    } as const;
 
     export type SurveysResponsesListParams = {
     /**
@@ -49613,6 +49632,10 @@ export namespace Schemas {
      * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
      */
     date_to?: string;
+    /**
+     * When true, also return per-question response counts and answer distributions. Adds one extra HogQL query per question, so leave off unless you need the breakdown.
+     */
+    include_per_question_stats?: boolean;
     };
 
     export type SurveysSummarizeResponsesCreateParams = {
