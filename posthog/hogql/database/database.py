@@ -137,6 +137,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedStatsTable,
 )
 from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -297,6 +298,9 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "conversion_goal_attributed_preaggregated": TableNode(
                         name="conversion_goal_attributed_preaggregated",
                         table=ConversionGoalAttributedPreaggregatedTable(),
+                    ),
+                    "web_stats_preaggregated": TableNode(
+                        name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()
                     ),
                 },
             ),

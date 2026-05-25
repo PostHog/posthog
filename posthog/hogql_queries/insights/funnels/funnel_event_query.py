@@ -567,7 +567,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         if self._aggregation_target_expr() == ast.Field(chain=["person_id"]):
             return None
 
-        return parse_expr("aggregation_target != '' and aggregation_target != null")
+        # toString() guards against numeric-typed aggregation keys: comparing a
+        # Float64 directly to '' makes ClickHouse try to parse '' as a number.
+        return parse_expr("toString(aggregation_target) != '' and aggregation_target != null")
 
     def _sample_expr(self) -> ast.SampleExpr | None:
         query = self.context.query

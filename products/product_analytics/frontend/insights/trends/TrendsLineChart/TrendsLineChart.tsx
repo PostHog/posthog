@@ -22,7 +22,7 @@ import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
-import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
@@ -72,13 +72,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const { aggregationLabel } = useValues(groupsModel)
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
-    const resolvedGroupTypeLabel =
-        context?.groupTypeLabel ??
-        (labelGroupType === 'people'
-            ? 'people'
-            : labelGroupType === 'none'
-              ? ''
-              : aggregationLabel(labelGroupType).plural)
+    const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
     const labels = currentPeriodResult?.labels ?? []
 

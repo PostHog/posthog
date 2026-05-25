@@ -39,6 +39,11 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     StatsTableQueryStrategy,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
+    LazyStatsResult,
+    can_use_lazy_precompute,
+    execute_lazy_precomputed_read,
+)
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
 BREAKDOWN_REFERRER_PREFIX = "referrer:"
@@ -352,7 +357,49 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
 
+    def get_lazy_precomputed_result(self) -> Optional[LazyStatsResult]:
+        if not can_use_lazy_precompute(self):
+            return None
+        return execute_lazy_precomputed_read(self)
+
+    def _build_response_from_lazy(self, result: LazyStatsResult) -> WebStatsTableQueryResponse:
+        """Shape the precompute read into a `WebStatsTableQueryResponse` identical
+        to the raw `SimpleBreakdownStrategy` path: breakdown value, visitors and
+        views tuples, the `ui_fill_fraction` bar value and a `cross_sell` column.
+
+        Ordering, filtering, and pagination already happened in ClickHouse — see
+        `execute_read_query`. This function just shapes the rows."""
+        include_previous = self.query_compare_to_date_range is not None
+
+        results: list = []
+        for r in result.rows:
+            visitors = (r.visitors_current, r.visitors_previous if include_previous else None)
+            views = (r.views_current, r.views_previous if include_previous else None)
+            current_metric = r.views_current if result.sort_metric == "views" else r.visitors_current
+            fill_fraction = current_metric / r.fill_total if r.fill_total else 0
+            results.append([r.breakdown_value, visitors, views, fill_fraction, ""])
+
+        return WebStatsTableQueryResponse(
+            columns=[
+                "context.columns.breakdown_value",
+                "context.columns.visitors",
+                "context.columns.views",
+                "context.columns.ui_fill_fraction",
+                "context.columns.cross_sell",
+            ],
+            results=results,
+            modifiers=self.modifiers,
+            usedLazyPrecompute=True,
+            hasMore=result.has_more,
+            limit=self.paginator.limit,
+            offset=self.paginator.offset,
+        )
+
     def _calculate(self):
+        lazy_result = self.get_lazy_precomputed_result()
+        if lazy_result is not None:
+            return self._build_response_from_lazy(lazy_result)
+
         query = self.to_query()
 
         # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
@@ -366,6 +413,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             query_type=self.clickhouse_query_type(),
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=modifiers,
         )
