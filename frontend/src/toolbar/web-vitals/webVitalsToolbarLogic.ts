@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, reducers } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams, router, urlToAction } from 'kea-router'
 
@@ -71,16 +71,35 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
 
                     const params = { pathname: window.location.pathname }
 
-                    const response = await toolbarFetch(
-                        `/api/environments/@current/web_vitals${encodeParams(params, '?')}`
-                    )
+                    let response: Response
+                    try {
+                        response = await toolbarFetch(
+                            `/api/environments/@current/web_vitals${encodeParams(params, '?')}`
+                        )
+                    } catch (e: any) {
+                        // `toolbarFetch` now converts network rejections to synthetic non-OK responses,
+                        // but keep this guard so a future regression (or any other thrown error) can't
+                        // bubble out of `afterMount` and crash the toolbar React tree.
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
+                    }
                     breakpoint()
 
                     if (!response.ok) {
                         return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
                     }
 
-                    const json = (await response.json()) as WebVitalsMetricsResponse
+                    let json: WebVitalsMetricsResponse
+                    try {
+                        json = (await response.json()) as WebVitalsMetricsResponse
+                    } catch (e: any) {
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
+                    }
                     breakpoint()
 
                     return {

@@ -1483,4 +1483,33 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(body.results).toEqual([])
         })
     })
+
+    describe('toolbarFetch network error handling', () => {
+        beforeEach(() => {
+            const logic = toolbarConfigLogic.build({
+                uiHost: 'https://us.posthog.com',
+                apiURL: 'https://us.posthog.com',
+                accessToken: 'pha_token',
+                refreshToken: 'phr_token',
+                clientId: 'client',
+            } as any)
+            logic.mount()
+            ;(global.fetch as jest.Mock).mockClear()
+        })
+
+        // A bare `fetch` rejection (offline, DNS failure, CORS, server unreachable) used to escape
+        // toolbarFetch and crash whichever caller's `await` was unguarded — including the toolbar's
+        // afterMount path through webVitalsToolbarLogic. The fetch must now resolve to a synthetic
+        // non-OK Response so every caller's existing `response.ok` check handles the failure path.
+        it('converts fetch rejections into a synthetic 503 response instead of throwing', async () => {
+            ;(global.fetch as jest.Mock).mockRejectedValueOnce(new TypeError('Failed to fetch'))
+            const res = await toolbarFetch('/api/environments/@current/web_vitals')
+            expect(res.ok).toBe(false)
+            expect(res.status).toBe(503)
+            const body = await res.json()
+            expect(body.detail).toBe('network_error')
+            expect(body.error).toBe('Failed to fetch')
+            expect(body.results).toEqual([])
+        })
+    })
 })

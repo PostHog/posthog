@@ -860,19 +860,32 @@ export async function toolbarFetch(
     const startTime = performance.now()
     let didRetry = false
 
-    let response = await fetch(fullUrl, {
-        method,
-        headers: buildHeaders(accessToken),
-        ...(body !== undefined ? { body } : {}),
-    })
+    // `fetch` throws on dispatch failures (offline, DNS, CORS preflight rejection, server unreachable).
+    // Convert those rejections into a synthetic non-OK Response so callers can rely on the
+    // `response.ok` check instead of needing their own try/catch, mirroring the `origin_mismatch`
+    // fallback above.
+    const safeFetch = async (token: string): Promise<Response> => {
+        try {
+            return await fetch(fullUrl, {
+                method,
+                headers: buildHeaders(token),
+                ...(body !== undefined ? { body } : {}),
+            })
+        } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err)
+            toolbarLogger.warn('fetch', 'network error', { url: fullUrl, error: detail })
+            return new Response(JSON.stringify({ results: [], detail: 'network_error', error: detail }), {
+                status: 503,
+                statusText: 'network_error',
+            })
+        }
+    }
+
+    let response = await safeFetch(accessToken)
 
     response = await withTokenRefresh(response, async (newAccessToken) => {
         didRetry = true
-        return await fetch(fullUrl, {
-            method,
-            headers: buildHeaders(newAccessToken),
-            ...(body !== undefined ? { body } : {}),
-        })
+        return await safeFetch(newAccessToken)
     })
 
     const durationMs = Math.round(performance.now() - startTime)
