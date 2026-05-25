@@ -26,7 +26,7 @@ import json
 import uuid
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from posthog.clickhouse.client import sync_execute
@@ -37,7 +37,6 @@ from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import INSERT_SINGLE_SESSION_REPLAY
 
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +148,11 @@ _ISSUE_SPECS: tuple[dict[str, Any], ...] = (
 )
 
 EVAL_ISSUE_NAMES: tuple[str, ...] = tuple(spec["name"] for spec in _ISSUE_SPECS)
+
+
+class _ErrorTrackingSeedContext(Protocol):
+    @property
+    def team_id(self) -> int: ...
 
 
 def _build_exception_properties(spec: dict[str, Any], issue_id: str, session_id: str) -> dict[str, Any]:
@@ -278,7 +282,7 @@ def _insert_session_replay_summary(
     )
 
 
-def seed_error_tracking_issues(context: CustomPromptSandboxContext) -> dict[str, Any]:
+def seed_error_tracking_issues(context: _ErrorTrackingSeedContext) -> dict[str, Any]:
     """Seed deterministic error-tracking issues + events on the per-case team.
 
     Synchronous — runs in a worker thread via ``asyncio.to_thread`` from
