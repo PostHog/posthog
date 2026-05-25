@@ -335,7 +335,9 @@ tools:
             - Per-respondent context: read distinct_id from a row, then pull recordings or events for that user.
 
             Pass include_person_properties=true only when you need person properties at event time — defaults to
-            false to keep payloads small. Use limit/offset and the has_more field to paginate.
+            false to keep payloads small. Use limit/offset and the has_more field to paginate. For surveys with
+            many thousands of responses, prefer scoping with `since` / `until` over deep offset paging (ClickHouse
+            offset cost grows with skipped rows, and new responses arriving between pages can shift boundaries).
         ui_app: survey-stats
     surveys-responses-unarchive-create:
         operation: surveys_responses_unarchive_create
