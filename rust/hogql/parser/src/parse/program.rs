@@ -738,7 +738,16 @@ impl<'a> Parser<'a> {
             // exprStmt parse; a leading-dot number (`.5`) IS a valid statement,
             // so keep the Block (`{ } .5` → Block + `.5`, not `{}.5`).
             Ok(TokenKind::Dot) => !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::Number)),
-            Ok(TokenKind::LParen) => matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::RParen)),
+            // `{…} ()` is the dict / placeholder called with empty args →
+            // exprStmt. But `{…} () -> …` is a Block followed by an empty-param
+            // lambda statement (`() -> body`), so an Arrow after the empty `()`
+            // means keep the Block (`{ } () -> 1` → Block + lambda), not force
+            // the call. A non-empty `(a) -> 1` already keeps the Block (the
+            // RParen check below fails), matching cpp.
+            Ok(TokenKind::LParen) => {
+                matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::RParen))
+                    && !matches!(probe.next_token().map(|t| t.kind), Ok(TokenKind::Arrow))
+            }
             _ => false,
         }
     }

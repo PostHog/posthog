@@ -726,3 +726,42 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_program(query, backend="rust-json"),
                 msg=query,
             )
+
+    @no_memory_leak_check
+    def test_not_before_statement_keyword_falls_back_to_field(self):
+        # At a statement boundary, `not` followed by a statement keyword that is
+        # not a valid expression operand (`let`, `throw`) is `not` as a bare
+        # Field statement followed by the keyword's statement — not a NOT whose
+        # operand fails. rust used to commit NOT to the operator and reject.
+        for query in ("not let x", "not throw x"):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )
+        # An incomplete `not let` (no value) or a keyword that is neither a
+        # valid operand nor a complete statement still rejects on both.
+        for query in ("not let", "not while x", "not fn x"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_program(query, backend=backend)
+
+    @no_memory_leak_check
+    def test_block_then_empty_param_lambda_is_two_statements(self):
+        # `{…} ()` is a dict / placeholder called with empty args (one
+        # exprStmt), but `{…} () -> body` is a Block followed by an empty-param
+        # lambda statement (two statements). rust used to force the empty-call
+        # interpretation and then reject when the block body was not a dict.
+        for query in ("{ } () -> 1", "{ let q := 1; } () -> 1;", "{ if (1) {} } () -> 1"):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )
+        # Unchanged: empty call (no arrow), non-empty params, dict, plain block.
+        for query in ("{ } ()", "{ 1 } ()", "{ } (a) -> 1", "{ } () + 1", "{1: 2}", "{ let x := 1; }"):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )

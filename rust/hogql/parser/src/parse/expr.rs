@@ -520,6 +520,24 @@ impl<'a> Parser<'a> {
                         return self.parse_ident_lead();
                     }
                 }
+                // At a statement boundary (recover flag set) a NOT whose operand
+                // can't parse — `not let x` / `not throw x`, where the next token
+                // is a statement keyword that isn't a valid expression primary —
+                // is cpp's "`not` is a bare Field statement, the keyword opens
+                // the next statement" shape, not an error. Roll back and fall to
+                // the identifier path so `not` becomes a Field. Expression level
+                // (flag off) keeps the hard error (`not let` rejects).
+                if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                    let cp = self.checkpoint();
+                    self.bump()?; // NOT
+                    return match self.parse_expr_bp(BP_NOT) {
+                        Ok(rhs) => Ok(emit::not_(rhs)),
+                        Err(_) => {
+                            self.restore(cp)?;
+                            self.parse_ident_lead()
+                        }
+                    };
+                }
                 self.bump()?;
                 let rhs = self.parse_expr_bp(BP_NOT)?;
                 Ok(emit::not_(rhs))
