@@ -2,6 +2,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
 import {
+    asString,
     costContextFromProperties,
     costContextFromTrace,
     formatAiErrorForDisplay,
@@ -10,8 +11,10 @@ import {
     getSessionStartTimestamp,
     getToolNamesCalled,
     hasCostBreakdown,
+    hasStringContentField,
     isEmptyJSONStructure,
     isLangChainMessage,
+    isTextContentItem,
     looksLikeXml,
     normalizeMessage,
     normalizeMessages,
@@ -2160,6 +2163,53 @@ describe('AI observability utils', () => {
         it('returns raw string when stringified value parses to a non-object scalar', () => {
             // partial-json may parse `"hello"` to the string "hello" — that's not a structured arg payload, fall back.
             expect(parseToolArgumentsForDisplay('"hello"')).toEqual({ kind: 'raw', value: '"hello"' })
+        })
+    })
+
+    describe('hasStringContentField', () => {
+        it.each<[name: string, input: unknown, expected: boolean]>([
+            ['accepts {content: "hi"}', { content: 'hi' }, true],
+            ['accepts {type: "text", content: "hi"} — extra fields are fine', { type: 'text', content: 'hi' }, true],
+            ['accepts {content: ""} — empty string still passes', { content: '' }, true],
+            ['rejects {content: 42} — non-string content', { content: 42 }, false],
+            ['rejects {content: null}', { content: null }, false],
+            ['rejects missing `content` property', { type: 'text' }, false],
+            ['rejects null', null, false],
+            ['rejects undefined', undefined, false],
+            ['rejects a plain string', 'hi', false],
+            ['rejects an array', [{ content: 'hi' }], false],
+        ])('%s', (_, input, expected) => {
+            expect(hasStringContentField(input)).toBe(expected)
+        })
+    })
+
+    describe('isTextContentItem', () => {
+        it.each<[name: string, input: unknown, expected: boolean]>([
+            ['accepts {type: "text", text: "hi"}', { type: 'text', text: 'hi' }, true],
+            ['accepts {type: "text", text: ""}', { type: 'text', text: '' }, true],
+            ['rejects missing `text` property', { type: 'text' }, false],
+            ['rejects wrong `type` literal', { type: 'image', text: 'hi' }, false],
+            ['rejects null', null, false],
+            ['rejects undefined', undefined, false],
+            ['rejects a plain string', 'hi', false],
+            ['rejects an array', [{ type: 'text', text: 'hi' }], false],
+        ])('%s', (_, input, expected) => {
+            expect(isTextContentItem(input)).toBe(expected)
+        })
+    })
+
+    describe('asString', () => {
+        it.each<[name: string, input: unknown, expected: string | undefined]>([
+            ['returns a non-empty string unchanged', 'hello', 'hello'],
+            ['returns an empty string as itself (caller decides via `||`)', '', ''],
+            ['returns undefined for undefined', undefined, undefined],
+            ['returns undefined for null', null, undefined],
+            ['returns undefined for a number', 42, undefined],
+            ['returns undefined for a boolean', true, undefined],
+            ['returns undefined for an object', { value: 'oops' }, undefined],
+            ['returns undefined for an array', ['oops'], undefined],
+        ])('%s', (_, input, expected) => {
+            expect(asString(input)).toBe(expected)
         })
     })
 

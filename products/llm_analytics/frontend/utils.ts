@@ -35,6 +35,7 @@ import {
     OpenAIResponsesFunctionCallOutput,
     OpenAIResponsesReasoning,
     OpenAIToolCall,
+    TextContentItem,
     VercelSDKImageMessage,
     VercelSDKInputImageMessage,
     VercelSDKInputTextMessage,
@@ -221,6 +222,17 @@ export function formatTokens(tokens: number): string {
     return tokens.toFixed(0)
 }
 
+/**
+ * Defensive narrowing for values pulled out of `LLMTraceEvent.properties` (typed
+ * as `Record<string, any>`). Returns the value when it's a string, otherwise
+ * `undefined` — safer than `as string | undefined` which silently lets numbers
+ * or objects through. Use this any time a `$ai_*` property is documented as a
+ * string by convention but the runtime data could vary.
+ */
+export function asString(value: unknown): string | undefined {
+    return typeof value === 'string' ? value : undefined
+}
+
 export function formatAiErrorForDisplay(value: unknown): string {
     if (typeof value === 'string') {
         return value || 'Unknown error'
@@ -386,8 +398,16 @@ export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCal
     return toolsWithParsedArguments
 }
 
+export function isTextContentItem(item: unknown): item is TextContentItem {
+    return !!item && typeof item === 'object' && 'type' in item && item.type === 'text' && 'text' in item
+}
+
 export function isAnthropicTextMessage(output: unknown): output is AnthropicTextMessage {
-    return !!output && typeof output === 'object' && 'type' in output && output.type === 'text' && 'text' in output
+    return isTextContentItem(output)
+}
+
+export function hasStringContentField(value: unknown): value is { content: string } {
+    return typeof value === 'object' && value !== null && 'content' in value && typeof value.content === 'string'
 }
 
 export function isAnthropicToolCallMessage(output: unknown): output is AnthropicToolCallMessage {
@@ -1317,12 +1337,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     let cajoledContent: string // Let's do what we can
     if (typeof rawMessage === 'string') {
         cajoledContent = rawMessage
-    } else if (
-        typeof rawMessage === 'object' &&
-        rawMessage !== null &&
-        'content' in rawMessage &&
-        typeof rawMessage.content === 'string'
-    ) {
+    } else if (hasStringContentField(rawMessage)) {
         cajoledContent = rawMessage.content
     } else {
         cajoledContent = JSON.stringify(rawMessage)

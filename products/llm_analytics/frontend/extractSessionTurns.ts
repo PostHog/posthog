@@ -2,7 +2,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { messageSignature } from './messageSignature'
 import { CompatMessage } from './types'
-import { formatAiErrorForDisplay, getToolNamesCalled, normalizeMessage, normalizeMessages } from './utils'
+import { asString, formatAiErrorForDisplay, getToolNamesCalled, normalizeMessage, normalizeMessages } from './utils'
 
 // Heuristic mirrors the LLMA skill script `print_summary.py` at
 // `products/llm_analytics/skills/exploring-llm-traces/scripts/` — keep in sync.
@@ -118,17 +118,14 @@ function collectDistinctErrors(events: LLMTraceEvent[]): SessionTurnError[] {
         if (!isError) {
             continue
         }
-        const label =
-            (event.properties.$ai_span_name as string | undefined) ||
-            (event.properties.$ai_model as string | undefined) ||
-            event.event
+        const label = asString(event.properties.$ai_span_name) || asString(event.properties.$ai_model) || event.event
         const rawError = event.properties.$ai_error
         const message =
             typeof rawError === 'object' &&
             rawError !== null &&
             'message' in rawError &&
-            typeof (rawError as { message: unknown }).message === 'string'
-                ? (rawError as { message: string }).message
+            typeof rawError.message === 'string'
+                ? rawError.message
                 : formatAiErrorForDisplay(rawError)
         const key = `${label}::${message}`
         if (!seen.has(key)) {

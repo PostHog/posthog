@@ -2,7 +2,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { MessageTemplate } from 'scenes/max/messages/MessageTemplate'
 
 import { CompatMessage } from '../types'
-import { AVAILABLE_TOOLS_ROLE } from '../utils'
+import { AVAILABLE_TOOLS_ROLE, hasStringContentField, isTextContentItem } from '../utils'
 
 // Roles that carry no user-visible content in a chat-app view. System prompts
 // and the synthetic "available tools" message are noise here; their effects are
@@ -22,20 +22,14 @@ function extractText(message: CompatMessage): string {
                 parts.push(part)
                 continue
             }
-            if (typeof part === 'object' && part !== null && 'type' in part && part.type === 'text') {
-                const text = (part as { text?: unknown }).text
-                if (typeof text === 'string') {
-                    parts.push(text)
-                }
+            if (isTextContentItem(part)) {
+                parts.push(part.text)
             }
         }
         return parts.join('\n')
     }
-    if (typeof content === 'object' && content !== null && 'content' in content) {
-        const inner = (content as { content?: unknown }).content
-        if (typeof inner === 'string') {
-            return inner
-        }
+    if (hasStringContentField(content)) {
+        return content.content
     }
     return ''
 }
