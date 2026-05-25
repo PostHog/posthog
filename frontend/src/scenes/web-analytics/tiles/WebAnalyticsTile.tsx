@@ -1623,7 +1623,7 @@ const FrustrationMetricsTile = ({
             emptyStateIcon: <></>,
         }
     }, [insightProps])
-    const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({ query, insightProps, context })
+    const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({ query, insightProps, context, uniqueKey })
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
@@ -1632,7 +1632,7 @@ const FrustrationMetricsTile = ({
                 dataNodeLogicProps={dataNodeLogicProps}
                 skeleton={<TableTileSkeleton numericColumns={3} />}
             >
-                <Query attachTo={attachTo} query={query} key={uniqueKey} readOnly={true} context={context} />
+                <Query uniqueKey={uniqueKey} attachTo={attachTo} query={query} readOnly={true} context={context} />
             </WebAnalyticsTileSkeletonGate>
         </div>
     )
