@@ -6627,7 +6627,7 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self._create_response_event("promoter", "2024-06-10 09:06:00", "10", "Amazing")
         flush_persons_and_events()
 
-        response = self.client.get(self.url, {"question_id": self.question_id_rating, "score_lte": 6})
+        response = self.client.get(self.url, {"question_id": self.question_id_rating, "score_lte": "6"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(len(data["results"]), 1)
@@ -6637,7 +6637,7 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data["results"][0]["answers"][0]["question_id"], self.question_id_rating)
 
     def test_score_filter_without_question_id_returns_400(self):
-        response = self.client.get(self.url, {"score_lte": 6})
+        response = self.client.get(self.url, {"score_lte": "6"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_pagination_has_more(self):
@@ -6649,13 +6649,13 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self._create_response_event("u-3", "2024-06-10 09:03:00", "8", "c")
         flush_persons_and_events()
 
-        response = self.client.get(self.url, {"limit": 2})
+        response = self.client.get(self.url, {"limit": "2"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(len(data["results"]), 2)
         self.assertTrue(data["has_more"])
 
-        response2 = self.client.get(self.url, {"limit": 2, "offset": 2})
+        response2 = self.client.get(self.url, {"limit": "2", "offset": "2"})
         data2 = response2.json()
         self.assertEqual(len(data2["results"]), 1)
         self.assertFalse(data2["has_more"])
