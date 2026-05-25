@@ -78,11 +78,8 @@ function SearchResults({
     results: UserInterviewSearchResultApi[]
     loading: boolean
 }): JSX.Element {
-    if (loading) {
-        return <p className="text-muted">Searching…</p>
-    }
     if (results.length === 0) {
-        return <p className="text-muted">No matching responses yet.</p>
+        return <p className="text-muted">{loading ? 'Searching…' : 'No matching responses yet.'}</p>
     }
     return (
         <div className={cn('flex flex-col gap-2 transition-opacity', loading && 'opacity-50')}>
