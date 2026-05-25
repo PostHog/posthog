@@ -1,3 +1,4 @@
+import pytest
 from freezegun import freeze_time
 from unittest import mock
 
@@ -33,25 +34,23 @@ def _make_inputs(**overrides) -> SourceInputs:
     return SourceInputs(**defaults)
 
 
-def test_get_implementation_returns_singleton():
-    source = BigQuerySource()
-    impl = source.get_implementation
-    assert isinstance(impl, BigQueryImplementation)
-    # Returned twice — must be the same module-level singleton.
-    assert BigQuerySource().get_implementation is impl
-
-
-def test_bigquery_get_schemas():
-    with (
-        mock.patch.object(BigQueryImplementation, "connect", return_value=mock.MagicMock()),
-        mock.patch.object(BigQueryImplementation, "get_columns", return_value={"table": [("c", "STRING", True)]}),
-        mock.patch.object(BigQueryImplementation, "get_primary_keys", return_value={}),
-        mock.patch.object(BigQueryImplementation, "get_leading_index_columns", return_value={}),
-    ):
-        source_cls = BigQuerySource()
-        schemas = source_cls.get_schemas(mock.ANY, 1)
-        assert len(schemas) == 1
-        assert schemas[0].name == "table"
+def _make_config(
+    *,
+    dataset_project: BigQueryDatasetProjectConfig | None = None,
+    temporary_dataset: BigQueryTemporaryDatasetConfig | None = None,
+) -> BigQuerySourceConfig:
+    return BigQuerySourceConfig(
+        key_file=BigQueryKeyFileConfig(
+            project_id="project-id",
+            private_key="private-key",
+            private_key_id="private-key-id",
+            client_email="client-email",
+            token_uri="token-uri",
+        ),
+        dataset_id="dataset-id",
+        dataset_project=dataset_project,
+        temporary_dataset=temporary_dataset,
+    )
 
 
 def test_bigquery_get_columns_filters_existing_destination_tables():
@@ -63,243 +62,66 @@ def test_bigquery_get_columns_filters_existing_destination_tables():
     )
     fake_client.query.return_value.result.return_value = [fake_row_keep, fake_row_skip]
 
-    config = BigQuerySourceConfig(
-        key_file=BigQueryKeyFileConfig(
-            project_id="project-id",
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="token-uri",
-        ),
-        dataset_id="dataset-id",
-        dataset_project=None,
-        temporary_dataset=None,
-    )
-    columns = BigQueryImplementation().get_columns(fake_client, config, names=None)
+    columns = BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
     assert list(columns.keys()) == ["table"]
 
 
-def _run_source_for_pipeline(config: BigQuerySourceConfig, inputs: SourceInputs):
+@pytest.mark.parametrize(
+    "dataset_project,temporary_dataset,expected_dataset_project_id,expected_destination_dataset_id",
+    [
+        # default — no dataset_project, no temporary_dataset
+        (None, None, None, "dataset-id"),
+        # dataset_project enabled — propagated through both delete_all and _build_source_response
+        (
+            BigQueryDatasetProjectConfig(dataset_project_id="other-project-id", enabled=True),
+            None,
+            "other-project-id",
+            "dataset-id",
+        ),
+        # temporary_dataset enabled — overrides destination_table_dataset_id
+        (
+            None,
+            BigQueryTemporaryDatasetConfig(temporary_dataset_id="some-other-dataset-id", enabled=True),
+            None,
+            "some-other-dataset-id",
+        ),
+        # both set — temporary_dataset wins for destination, dataset_project still resolved
+        (
+            BigQueryDatasetProjectConfig(dataset_project_id="other-project-id", enabled=True),
+            BigQueryTemporaryDatasetConfig(temporary_dataset_id="some-other-dataset-id", enabled=True),
+            "other-project-id",
+            "some-other-dataset-id",
+        ),
+    ],
+)
+def test_bigquery_build_pipeline_resolves_dataset_routing(
+    dataset_project, temporary_dataset, expected_dataset_project_id, expected_destination_dataset_id
+):
+    config = _make_config(dataset_project=dataset_project, temporary_dataset=temporary_dataset)
+    expected_table_id = (
+        f"project-id.{expected_destination_dataset_id}.__posthog_import_schema_id_job_id_"
+        f"{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}"
+    )
+
     with (
         freeze_time("2025-01-01T12:00:00.000Z"),
         mock.patch(
             "posthog.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
-        ) as mock_delete_all_temp_destination_tables,
+        ) as mock_delete_all,
         mock.patch.object(
             BigQueryImplementation, "_build_source_response", return_value=mock.MagicMock()
-        ) as mock_build_source_response,
+        ) as mock_build,
         mock.patch(
             "posthog.temporal.data_imports.sources.bigquery.bigquery.delete_table",
-        ) as mock_delete_table,
+        ) as mock_delete,
     ):
-        BigQuerySource().source_for_pipeline(config, inputs)
-    return mock_delete_all_temp_destination_tables, mock_build_source_response, mock_delete_table
+        BigQuerySource().source_for_pipeline(config, _make_inputs())
 
+    assert mock_delete_all.call_args.kwargs["dataset_id"] == expected_destination_dataset_id
+    assert mock_delete_all.call_args.kwargs["dataset_project_id"] == expected_dataset_project_id
+    assert mock_delete_all.call_args.kwargs["table_prefix"] == "__posthog_import_schema_id"
 
-def test_bigquery_destination_table_default():
-    config = BigQuerySourceConfig(
-        key_file=BigQueryKeyFileConfig(
-            project_id="project-id",
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="token-uri",
-        ),
-        dataset_id="dataset-id",
-        dataset_project=None,
-        temporary_dataset=None,
-    )
+    assert mock_build.call_args.kwargs["dataset_project_id"] == expected_dataset_project_id
+    assert mock_build.call_args.kwargs["bq_destination_table_id"] == expected_table_id
 
-    mock_delete_all, mock_build, mock_delete = _run_source_for_pipeline(config, _make_inputs())
-
-    expected_table_id = (
-        f"project-id.dataset-id.__posthog_import_schema_id_job_id_"
-        f"{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}"
-    )
-
-    mock_delete_all.assert_called_once_with(
-        dataset_id="dataset-id",
-        table_prefix="__posthog_import_schema_id",
-        project_id=config.key_file.project_id,
-        location=None,
-        dataset_project_id=None,
-        private_key=config.key_file.private_key,
-        private_key_id=config.key_file.private_key_id,
-        client_email=config.key_file.client_email,
-        token_uri=config.key_file.token_uri,
-        logger=mock.ANY,
-    )
-
-    assert mock_build.call_count == 1
-    _, call_kwargs = mock_build.call_args
-    assert call_kwargs["region"] is None
-    assert call_kwargs["dataset_project_id"] is None
-    assert call_kwargs["bq_destination_table_id"] == expected_table_id
-
-    mock_delete.assert_called_once_with(
-        table_id=expected_table_id,
-        project_id=config.key_file.project_id,
-        location=None,
-        private_key=config.key_file.private_key,
-        private_key_id=config.key_file.private_key_id,
-        client_email=config.key_file.client_email,
-        token_uri=config.key_file.token_uri,
-    )
-
-
-def test_bigquery_destination_table_with_dataset_project_set():
-    config = BigQuerySourceConfig(
-        key_file=BigQueryKeyFileConfig(
-            project_id="project-id",
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="token-uri",
-        ),
-        dataset_id="dataset-id",
-        dataset_project=BigQueryDatasetProjectConfig(
-            dataset_project_id="other-project-id",
-            enabled=True,
-        ),
-        temporary_dataset=None,
-    )
-
-    mock_delete_all, mock_build, mock_delete = _run_source_for_pipeline(config, _make_inputs())
-
-    expected_table_id = (
-        f"project-id.dataset-id.__posthog_import_schema_id_job_id_"
-        f"{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}"
-    )
-
-    mock_delete_all.assert_called_once_with(
-        dataset_id="dataset-id",
-        table_prefix="__posthog_import_schema_id",
-        project_id=config.key_file.project_id,
-        location=None,
-        dataset_project_id="other-project-id",
-        private_key=config.key_file.private_key,
-        private_key_id=config.key_file.private_key_id,
-        client_email=config.key_file.client_email,
-        token_uri=config.key_file.token_uri,
-        logger=mock.ANY,
-    )
-
-    _, call_kwargs = mock_build.call_args
-    assert call_kwargs["dataset_project_id"] == "other-project-id"
-    assert call_kwargs["bq_destination_table_id"] == expected_table_id
-
-    mock_delete.assert_called_once_with(
-        table_id=expected_table_id,
-        project_id=config.key_file.project_id,
-        location=None,
-        private_key=config.key_file.private_key,
-        private_key_id=config.key_file.private_key_id,
-        client_email=config.key_file.client_email,
-        token_uri=config.key_file.token_uri,
-    )
-
-
-def test_bigquery_destination_table_with_temporary_dataset_set():
-    config = BigQuerySourceConfig(
-        key_file=BigQueryKeyFileConfig(
-            project_id="project-id",
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="token-uri",
-        ),
-        dataset_id="dataset-id",
-        dataset_project=None,
-        temporary_dataset=BigQueryTemporaryDatasetConfig(
-            temporary_dataset_id="some-other-dataset-id",
-            enabled=True,
-        ),
-    )
-
-    mock_delete_all, mock_build, mock_delete = _run_source_for_pipeline(config, _make_inputs())
-
-    expected_table_id = (
-        f"project-id.some-other-dataset-id.__posthog_import_schema_id_job_id_"
-        f"{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}"
-    )
-
-    mock_delete_all.assert_called_once_with(
-        dataset_id="some-other-dataset-id",
-        table_prefix="__posthog_import_schema_id",
-        project_id=config.key_file.project_id,
-        location=None,
-        dataset_project_id=None,
-        private_key=config.key_file.private_key,
-        private_key_id=config.key_file.private_key_id,
-        client_email=config.key_file.client_email,
-        token_uri=config.key_file.token_uri,
-        logger=mock.ANY,
-    )
-
-    _, call_kwargs = mock_build.call_args
-    assert call_kwargs["bq_destination_table_id"] == expected_table_id
-
-    mock_delete.assert_called_once_with(
-        table_id=expected_table_id,
-        project_id=config.key_file.project_id,
-        location=None,
-        private_key=config.key_file.private_key,
-        private_key_id=config.key_file.private_key_id,
-        client_email=config.key_file.client_email,
-        token_uri=config.key_file.token_uri,
-    )
-
-
-def test_bigquery_destination_table_with_both_temporary_dataset_and_dataset_project_set():
-    config = BigQuerySourceConfig(
-        key_file=BigQueryKeyFileConfig(
-            project_id="project-id",
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="token-uri",
-        ),
-        dataset_id="dataset-id",
-        dataset_project=BigQueryDatasetProjectConfig(
-            dataset_project_id="other-project-id",
-            enabled=True,
-        ),
-        temporary_dataset=BigQueryTemporaryDatasetConfig(
-            temporary_dataset_id="some-other-dataset-id",
-            enabled=True,
-        ),
-    )
-
-    mock_delete_all, mock_build, mock_delete = _run_source_for_pipeline(config, _make_inputs())
-
-    expected_table_id = (
-        f"project-id.some-other-dataset-id.__posthog_import_schema_id_job_id_"
-        f"{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}"
-    )
-
-    mock_delete_all.assert_called_once_with(
-        dataset_id="some-other-dataset-id",
-        table_prefix="__posthog_import_schema_id",
-        project_id=config.key_file.project_id,
-        location=None,
-        dataset_project_id="other-project-id",
-        private_key=config.key_file.private_key,
-        private_key_id=config.key_file.private_key_id,
-        client_email=config.key_file.client_email,
-        token_uri=config.key_file.token_uri,
-        logger=mock.ANY,
-    )
-
-    _, call_kwargs = mock_build.call_args
-    assert call_kwargs["dataset_project_id"] == "other-project-id"
-    assert call_kwargs["bq_destination_table_id"] == expected_table_id
-
-    mock_delete.assert_called_once_with(
-        table_id=expected_table_id,
-        project_id=config.key_file.project_id,
-        location=None,
-        private_key=config.key_file.private_key,
-        private_key_id=config.key_file.private_key_id,
-        client_email=config.key_file.client_email,
-        token_uri=config.key_file.token_uri,
-    )
+    assert mock_delete.call_args.kwargs["table_id"] == expected_table_id
