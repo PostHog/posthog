@@ -33,7 +33,12 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
-from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql import (
+    BracketIdentifierQuoter,
+    Column,
+    InvalidIdentifierError,
+    Table,
+)
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
@@ -43,8 +48,25 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 __all__ = [
     "MSSQLColumn",
     "MSSQLImplementation",
+    "_sanitize_identifier",
     "filter_mssql_incremental_fields",
 ]
+
+_IDENTIFIER_QUOTER = BracketIdentifierQuoter()
+
+
+def _sanitize_identifier(identifier: str) -> str:
+    """Quote a T-SQL identifier with brackets, rejecting unsafe input.
+
+    Wraps `BracketIdentifierQuoter().quote` and re-raises the underlying
+    `InvalidIdentifierError` as a plain `ValueError` with the legacy
+    message shape (`"Invalid SQL identifier: ..."`) so any semgrep or
+    log-matching rule that keys on the old wording continues to work.
+    """
+    try:
+        return _IDENTIFIER_QUOTER.quote(identifier)
+    except InvalidIdentifierError as e:
+        raise ValueError(f"Invalid SQL identifier: {identifier}") from e
 
 
 def filter_mssql_incremental_fields(
@@ -72,11 +94,15 @@ def _build_query(
     db_incremental_field_last_value: Any | None,
     add_limit: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    base_query = "SELECT {top} * FROM [{schema}].[{table_name}]"
+    # Every identifier interpolated below is validated by the bracket
+    # quoter — bad input (`;`, `]`, whitespace, etc.) raises before any
+    # SQL is built. Parameter values still flow through pymssql binding.
+    qualified_table = _IDENTIFIER_QUOTER.quote_qualified(schema, table_name)
+    top = "TOP 100 " if add_limit else ""
+    base_query = f"SELECT {top}* FROM {qualified_table}"
 
     if not should_use_incremental_field:
-        query = base_query.format(top="TOP 100" if add_limit else "", schema=schema, table_name=table_name)
-        return query, {}
+        return base_query, {}
 
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
@@ -85,12 +111,12 @@ def _build_query(
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     operator = incremental_type_to_operator(incremental_field_type)
-    query = base_query.format(top="TOP 100" if add_limit else "", schema=schema, table_name=table_name)
-    query = f"{query} WHERE [{incremental_field}] {operator} %(incremental_value)s"
+    quoted_incremental = _IDENTIFIER_QUOTER.quote(incremental_field)
+    query = f"{base_query} WHERE {quoted_incremental} {operator} %(incremental_value)s"
     # it is only safe to have this order by nested in a CTE if TOP is also specified
     # ordering for incremental sync purposes where TOP is not specified is handled in get_rows()
     if add_limit:
-        query = f"{query} ORDER BY [{incremental_field}] ASC"
+        query = f"{query} ORDER BY {quoted_incremental} ASC"
 
     return query, {
         "incremental_value": db_incremental_field_last_value,
@@ -462,7 +488,11 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         Falls back to the older single-arg form for SQL Server versions before 2012.
         Returns `None` on any failure so the base class falls back to safe defaults.
         """
-        full_table_name = f"[{schema}].[{table_name}]"
+        # `sp_spaceused` receives the qualified name as a *parameter* (not
+        # interpolated), but validate it through the quoter anyway so an
+        # injection attempt in `schema` / `table_name` is rejected at the
+        # boundary rather than leaning on driver parameter binding.
+        full_table_name = _IDENTIFIER_QUOTER.quote_qualified(schema, table_name)
         try:
             try:
                 cursor.execute(
@@ -542,9 +572,12 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 return None
 
             columns = [row[0] for row in rows]
-            datalength_sum = " + ".join(f"DATALENGTH([{col}])" for col in columns)
+            # Column names come from INFORMATION_SCHEMA but must still be
+            # validated before SQL interpolation — `DATALENGTH(...)` has no
+            # parameterized form.
+            datalength_sum = " + ".join(f"DATALENGTH({_IDENTIFIER_QUOTER.quote(col)})" for col in columns)
 
-            sample_query = f"SELECT TOP 100 * FROM [{schema}].[{table_name}]"
+            sample_query = f"SELECT TOP 100 * FROM {_IDENTIFIER_QUOTER.quote_qualified(schema, table_name)}"
             size_query = f"SELECT AVG({datalength_sum}) as avg_row_size FROM ({sample_query}) as t"
 
             cursor.execute(size_query)
@@ -616,7 +649,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                         db_incremental_field_last_value,
                     )
                     if incremental_field:
-                        query = f"{query} ORDER BY [{incremental_field}] ASC"
+                        query = f"{query} ORDER BY {_IDENTIFIER_QUOTER.quote(incremental_field)} ASC"
 
                     logger.debug(f"MS SQL query: {query.format(args)}")
 

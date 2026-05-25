@@ -8,6 +8,7 @@ from posthog.temporal.data_imports.sources.mssql.mssql import (
     MSSQLColumn,
     MSSQLImplementation,
     _build_query,
+    _sanitize_identifier,
     filter_mssql_incremental_fields,
 )
 from posthog.temporal.data_imports.sources.mssql.source import MSSQLSource
@@ -142,6 +143,63 @@ class TestBuildQuery:
                 incremental_field_type=None,
                 db_incremental_field_last_value=None,
             )
+
+    @pytest.mark.parametrize(
+        "schema,table_name",
+        [
+            ("dbo]; DROP TABLE foo; --", "users"),
+            ("dbo", "users]; DROP TABLE foo; --"),
+            ("dbo with space", "users"),
+            ("dbo", "users'name"),
+        ],
+    )
+    def test_rejects_unsafe_schema_or_table(self, schema, table_name):
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _build_query(
+                schema=schema,
+                table_name=table_name,
+                should_use_incremental_field=False,
+                incremental_field=None,
+                incremental_field_type=None,
+                db_incremental_field_last_value=None,
+            )
+
+    def test_rejects_unsafe_incremental_field(self):
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _build_query(
+                schema="dbo",
+                table_name="users",
+                should_use_incremental_field=True,
+                incremental_field="created_at]; DROP TABLE foo; --",
+                incremental_field_type=IncrementalFieldType.DateTime,
+                db_incremental_field_last_value="2025-01-01",
+            )
+
+
+class TestSanitizeIdentifier:
+    @pytest.mark.parametrize(
+        "identifier,expected",
+        [
+            ("users", "[users]"),
+            ("851", "[851]"),
+            ("$col", "[$col]"),
+        ],
+    )
+    def test_accepts_safe_identifiers(self, identifier, expected):
+        assert _sanitize_identifier(identifier) == expected
+
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "bad;id",
+            "a]b",
+            "a'b",
+            'a"b',
+        ],
+    )
+    def test_rejects_unsafe_identifiers(self, identifier):
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            _sanitize_identifier(identifier)
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +363,15 @@ class TestFetchAverageRowSize:
         size_query = cursor.execute.call_args_list[1].args[0]
         assert "TOP 100" in size_query
         assert "DATALENGTH([id])" in size_query
+
+    def test_rejects_malformed_column_names(self, impl, cursor, logger):
+        # If INFORMATION_SCHEMA returns a weird column name, the quoter
+        # must reject it rather than splice it into SQL. Method catches
+        # and returns None.
+        cursor.fetchall.return_value = [("bad;col",)]
+        cursor.fetchone.return_value = (1,)
+        result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
+        assert result is None
 
     def test_returns_none_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
