@@ -73,7 +73,6 @@ from posthog.models.feature_flag import (
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker
-from posthog.models.feature_flag.flag_validation import check_flag_evaluation_query_is_ok
 from posthog.models.feature_flag.local_evaluation import (
     DATABASE_FOR_LOCAL_EVALUATION,
     _get_flag_properties_from_filters,
@@ -98,6 +97,7 @@ from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, C
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
+from posthog.utils import is_valid_regex
 from posthog.views import format_bytes
 
 from products.dashboards.backend.api.dashboard import Dashboard
@@ -1051,7 +1051,22 @@ class FeatureFlagSerializer(
             if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
                 raise serializers.ValidationError(f"{path} must be an integer or null, got {type(value).__name__}")
 
+        def _validate_regex_pattern(value: Any, path: str, existing_patterns: set[str]) -> None:
+            if not isinstance(value, str):
+                return
+            if value not in existing_patterns and not is_valid_regex(value):
+                raise serializers.ValidationError(f"{path}: invalid regex pattern")
+
         _validate_integer(flag_level_aggregation, "aggregation_group_type_index")
+
+        # Collect existing regex patterns so we don't reject unchanged patterns on
+        # PATCH — flags may contain regexes valid in fancy_regex/PG ARE but not Python re.
+        existing_patterns: set[str] = set()
+        if self.instance is not None:
+            for g in (self.instance.filters or {}).get("groups", []) or []:
+                for p in g.get("properties", []) or []:
+                    if p.get("operator") in ("regex", "not_regex") and isinstance(p.get("value"), str):
+                        existing_patterns.add(p["value"])
 
         for group_index, group in enumerate(filters.get("groups", [])):
             variant = group.get("variant")
@@ -1071,6 +1086,13 @@ class FeatureFlagSerializer(
                     prop.get("group_type_index"),
                     f"groups[{group_index}].properties[{prop_index}].group_type_index",
                 )
+
+                if prop.get("operator") in ("regex", "not_regex"):
+                    _validate_regex_pattern(
+                        prop.get("value"),
+                        f"groups[{group_index}].properties[{prop_index}].value",
+                        existing_patterns,
+                    )
 
         for var_index, variant in enumerate((filters.get("multivariate") or {}).get("variants", [])):
             _validate_rollout_percentage(
@@ -1462,30 +1484,6 @@ class FeatureFlagSerializer(
         for dep_flag_key in flag_dependencies:
             has_cycle(dep_flag_key, [current_flag_key])
 
-    def check_flag_evaluation(self, data):
-        # TODO: Once we move to no DB level evaluation, can get rid of this.
-
-        temporary_flag = FeatureFlag(**data)
-        team_id = self.context["team_id"]
-        project_id = self.context["project_id"]
-
-        # Skip validation for flags with flag dependencies since the evaluation
-        # engine doesn't support flag dependencies yet
-        filters = data.get("filters", {})
-        flag_dependencies = self._extract_flag_dependencies(filters)
-        if flag_dependencies:
-            return  # Skip validation for flag dependencies
-
-        try:
-            check_flag_evaluation_query_is_ok(
-                temporary_flag,
-                team_id,
-                project_id,
-                allow_realtime_backfilled=self._allow_realtime_backfilled,
-            )
-        except Exception:
-            raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
-
     def _free_key_held_by_soft_deleted_flags(self, key: str, exclude_pk: int | None = None) -> None:
         # The (team, key) unique constraint spans soft-deleted rows, so we must
         # clear any tombstone holding `key`. Hard-delete first; if an FK blocks
@@ -1555,8 +1553,6 @@ class FeatureFlagSerializer(
         self._free_key_held_by_soft_deleted_flags(validated_data["key"])
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
-
-        self.check_flag_evaluation(validated_data)
 
         with ImpersonatedContext(request):
             instance: FeatureFlag = super().create(validated_data)
