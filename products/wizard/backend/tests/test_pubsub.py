@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import transaction
+
 from products.wizard.backend.facade.contracts import WizardSessionDTO, WizardTaskDTO
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.logic.pubsub import channel_name, publish_session_update
@@ -34,8 +36,6 @@ def test_publish_session_update_publishes_after_commit():
     """In transaction.atomic, the publish should defer to on_commit."""
     redis_mock = MagicMock()
     with patch("products.wizard.backend.logic.pubsub.get_client", return_value=redis_mock):
-        from django.db import transaction
-
         with transaction.atomic():
             publish_session_update(_dto())
             assert redis_mock.publish.call_count == 0  # not yet committed
@@ -53,8 +53,6 @@ def test_publish_session_update_publishes_after_commit():
 def test_publish_session_update_does_not_publish_on_rollback():
     redis_mock = MagicMock()
     with patch("products.wizard.backend.logic.pubsub.get_client", return_value=redis_mock):
-        from django.db import transaction
-
         try:
             with transaction.atomic():
                 publish_session_update(_dto())
