@@ -2344,6 +2344,48 @@ class TestEmailVerificationAPI(APIBaseTest):
         assert self.user.is_email_verified
         assert self.client.session.get("_auth_user_id") is None
 
+    @patch("posthog.api.email_verification.check_esp_suppression")
+    @patch("posthog.api.email_verification.is_http_email_service_available", return_value=True)
+    def test_request_verification_email_returns_undeliverable_when_suppressed(
+        self, mock_is_http_available, mock_check_suppression
+    ):
+        from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
+
+        mock_check_suppression.return_value = ESPSuppressionResult(
+            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
+        )
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["code"], "email_undeliverable")
+        self.assertIn("contact support", body["detail"].lower())
+        # The send path must not have run, and no SMTP fallback either.
+        self.assertEqual(len(mail.outbox), 0)
+        mock_check_suppression.assert_called_once_with(self.user.email)
+
+    @patch("posthog.api.email_verification.check_esp_suppression")
+    @patch("posthog.api.email_verification.is_http_email_service_available", return_value=True)
+    def test_request_verification_email_proceeds_on_api_failure_fallback(
+        self, mock_is_http_available, mock_check_suppression
+    ):
+        # When the suppression API itself fails, `check_esp_suppression` returns
+        # is_suppressed=True with reason=API_FAILURE_FALLBACK. We treat that as
+        # "unknown — attempt send anyway" because the recipient might be fine
+        # and we don't want to block users during a Customer.io outage.
+        from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
+
+        mock_check_suppression.return_value = ESPSuppressionResult(
+            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.API_FAILURE_FALLBACK
+        )
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post(f"/api/users/request_email_verification/", {"uuid": self.user.uuid})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_cant_request_verification_for_already_verified_email(self):
         self.user.is_email_verified = True
         self.user.save()

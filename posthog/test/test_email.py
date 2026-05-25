@@ -178,10 +178,14 @@ class TestEmail(BaseTest):
             )
             message.add_recipient("test@posthog.com")
 
-            # The error should be caught and logged, not raised
-            message.send(send_async=False)
+            # Customer.io non-2xx responses must propagate so synchronous callers
+            # (e.g. the email verification flow) can distinguish a real send from
+            # a silent failure. The transaction wrapping each recipient ensures
+            # the MessagingRecord is not committed when the request fails.
+            with self.assertRaises(Exception) as exc:
+                message.send(send_async=False)
+            self.assertIn("Customer.io API error", str(exc.exception))
 
-            # Verify the message wasn't marked as sent
             record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
             self.assertIsNone(record)
 

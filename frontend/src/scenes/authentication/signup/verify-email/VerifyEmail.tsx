@@ -124,7 +124,8 @@ const GetHelp = (): JSX.Element => {
 }
 
 export function VerifyEmail(): JSX.Element {
-    const { view } = useValues(verifyEmailLogic)
+    const { view, undeliverableMessage } = useValues(verifyEmailLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     return (
         <div className="flex h-full flex-col">
@@ -168,6 +169,25 @@ export function VerifyEmail(): JSX.Element {
                                     If you've already verified your email, then{' '}
                                     <Link to={urls.login()}>log in here</Link>.
                                 </p>
+                            </>
+                        ) : view === 'undeliverable' ? (
+                            <>
+                                <h1 className="text-3xl font-bold">We couldn't deliver to your email</h1>
+                                <div className="max-w-60 mb-12">
+                                    <SurprisedHog className="w-full h-full" />
+                                </div>
+                                <p className="mb-6">
+                                    {undeliverableMessage ||
+                                        "Our email provider is rejecting messages to this address (it may have previously bounced or unsubscribed). Please contact support so we can get you sorted."}
+                                </p>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => {
+                                        openSupportForm({ kind: 'bug', target_area: 'login' })
+                                    }}
+                                >
+                                    Contact support
+                                </LemonButton>
                             </>
                         ) : (
                             <Spinner className="text-4xl" />

@@ -39,8 +39,9 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
     path(['scenes', 'authentication', 'verifyEmailLogic']),
     connect(() => ({ values: [userLogic, ['user']] })),
     actions({
-        setView: (view: 'verify' | 'pending' | 'invalid' | 'success' | null) => ({ view }),
+        setView: (view: 'verify' | 'pending' | 'invalid' | 'success' | 'undeliverable' | null) => ({ view }),
         setUuid: (uuid: string | null) => ({ uuid }),
+        setUndeliverableMessage: (message: string | null) => ({ message }),
         requestVerificationLink: (uuid: string) => ({ uuid }),
     }),
     loaders(({ actions, values }) => ({
@@ -107,6 +108,11 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                             )
                             return false
                         }
+                        if (e.code === 'email_undeliverable') {
+                            actions.setUndeliverableMessage(e.detail ?? null)
+                            actions.setView('undeliverable')
+                            return false
+                        }
                         lemonToast.error(
                             'Requesting verification link failed. Please try again later or contact support.'
                         )
@@ -118,7 +124,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
     })),
     reducers({
         view: [
-            null as 'pending' | 'verify' | 'invalid' | 'success' | null,
+            null as 'pending' | 'verify' | 'invalid' | 'success' | 'undeliverable' | null,
             {
                 setView: (_, { view }) => view,
             },
@@ -127,6 +133,12 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             null as string | null,
             {
                 setUuid: (_, { uuid }) => uuid,
+            },
+        ],
+        undeliverableMessage: [
+            null as string | null,
+            {
+                setUndeliverableMessage: (_, { message }) => message,
             },
         ],
     }),

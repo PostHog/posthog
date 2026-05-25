@@ -196,8 +196,13 @@ def _send_via_http(
                 record.save()
 
     except Exception as err:
+        # Propagate so synchronous callers (e.g. verification flow) can distinguish
+        # "queued by Customer.io" from "failed". Celery tasks dispatched async still
+        # get retried via EMAIL_TASK_KWARGS.autoretry_for; we keep `capture_exception`
+        # for observability on both paths.
         print("Could not send email via http:", err, file=sys.stderr)
         capture_exception(err)
+        raise
 
 
 def _send_via_smtp(
@@ -471,4 +476,8 @@ class EmailMessage:
         if send_async:
             _send_email.apply_async(kwargs=kwargs)
         else:
-            _send_email.apply(kwargs=kwargs)
+            # `throw=True` makes the eager apply propagate exceptions instead of
+            # parking them on the EagerResult. Synchronous callers (verification
+            # flow, MFA flow) need to distinguish a real send from a Customer.io
+            # / SMTP failure so they don't capture a misleading "sent" event.
+            _send_email.apply(kwargs=kwargs, throw=True)

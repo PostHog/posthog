@@ -61,3 +61,17 @@ export const VerifyEmailInvalid: Story = {
         return <VerifyEmail />
     },
 }
+
+export const VerifyEmailUndeliverable: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            verifyEmailLogic.actions.setView('undeliverable')
+            verifyEmailLogic.actions.setUuid('12345678')
+            verifyEmailLogic.actions.setUndeliverableMessage(
+                "We couldn't deliver a verification email to this address. Please contact support to continue."
+            )
+        })
+
+        return <VerifyEmail />
+    },
+}

@@ -1,14 +1,36 @@
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 
+import structlog
 import posthoganalytics
-from rest_framework import exceptions
+from rest_framework import exceptions, status
 
+from posthog.email import is_http_email_service_available
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
 from posthog.models.user import User
 from posthog.tasks.email import send_email_verification
 
+logger = structlog.get_logger(__name__)
+
 VERIFICATION_DISABLED_FLAG = "email-verification-disabled"
+
+
+class EmailUndeliverableError(exceptions.APIException):
+    """Raised when an outbound verification email is known to be undeliverable.
+
+    Currently the only known case is the ESP (Customer.io) suppression list:
+    bounces, spam complaints, and manual unsubscribes land here, and the ESP
+    will silently drop subsequent sends. Surfacing this as a distinct error
+    code lets the verify-email UI tell the user to contact support instead of
+    showing an infinitely-retriable success state.
+    """
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = (
+        "We couldn't deliver a verification email to this address. Please contact support to continue."
+    )
+    default_code = "email_undeliverable"
 
 
 def is_email_verification_disabled(user: User) -> bool:
@@ -34,9 +56,45 @@ class EmailVerificationTokenGenerator(PasswordResetTokenGenerator):
 email_verification_token_generator = EmailVerificationTokenGenerator()
 
 
+def _check_recipient_deliverable(user: User) -> None:
+    """Block the send when the recipient is on the ESP suppression list.
+
+    Only meaningful when Customer.io is the configured sender — the suppression
+    list lives there, and SMTP fallback can't be checked. API-failure fallbacks
+    return ``is_suppressed=True`` too (so login flows aren't blocked when CIO is
+    down), so we narrow to the confirmed ``SUPPRESSED`` reason only.
+    """
+    if not is_http_email_service_available():
+        return
+
+    recipient_email = user.pending_email or user.email
+    if not recipient_email:
+        return
+
+    suppression_result = check_esp_suppression(recipient_email)
+    if not suppression_result.is_suppressed or suppression_result.reason != ESPSuppressionReason.SUPPRESSED:
+        return
+
+    logger.info(
+        "Email verification skipped due to ESP suppression",
+        user_id=user.pk,
+        cached=suppression_result.from_cache,
+    )
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(user.distinct_id),
+            event="verification email skipped due to suppression",
+            properties={"cached": suppression_result.from_cache},
+        )
+    except Exception as e:
+        logger.warning("Failed to capture verification suppression event", error=str(e))
+    raise EmailUndeliverableError()
+
+
 class EmailVerifier:
     @staticmethod
     def create_token_and_send_email_verification(user: User, next_url: str | None = None) -> None:
+        _check_recipient_deliverable(user)
         token = email_verification_token_generator.make_token(user)
         try:
             send_email_verification(user.pk, token, next_url)
