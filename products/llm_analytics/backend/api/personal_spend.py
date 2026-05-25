@@ -45,6 +45,8 @@ logger = structlog.get_logger(__name__)
 MAX_PRODUCT_KEY_LENGTH = 64
 MAX_DATE_STRING_LENGTH = 32
 
+SUPPORTED_PRODUCTS = frozenset({"posthog_code"})
+
 DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90
 _RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqyHDWMQY](Start|End)?$")
@@ -124,9 +126,9 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         max_length=MAX_PRODUCT_KEY_LENGTH,
         default=None,
         help_text=(
-            "Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product "
-            "(e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across "
-            "every product captured for the user."
+            "Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product. "
+            f"Only the following products are currently supported: {', '.join(sorted(SUPPORTED_PRODUCTS))}. "
+            "When omitted, those breakdowns aggregate across every product captured for the user."
         ),
     )
     limit = serializers.IntegerField(
@@ -145,6 +147,15 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         default=False,
         help_text="If true, bypass the result cache and re-run the underlying queries against ClickHouse.",
     )
+
+    def validate_product(self, value: str | None) -> str | None:
+        if value is None:
+            return value
+        if value not in SUPPORTED_PRODUCTS:
+            raise serializers.ValidationError(
+                f"product `{value}` is not supported. Supported products: {', '.join(sorted(SUPPORTED_PRODUCTS))}."
+            )
+        return value
 
 
 class _ProductBreakdownRowSerializer(serializers.Serializer):

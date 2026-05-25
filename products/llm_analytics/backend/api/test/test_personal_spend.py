@@ -131,6 +131,22 @@ class TestPersonalSpendValidation(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("supported_posthog_code", "posthog_code", status.HTTP_200_OK),
+            ("unsupported_background_agents", "background_agents", status.HTTP_400_BAD_REQUEST),
+            ("unsupported_arbitrary", "wibble", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_product_param_restricted_to_supported_products(
+        self, _label: str, product: str, expected: int
+    ) -> None:
+        response = self.client.get(f"{ENDPOINT}?product={product}")
+        assert response.status_code == expected
+        if expected == status.HTTP_400_BAD_REQUEST:
+            body = response.json()
+            assert "is not supported" in str(body)
+
+    @parameterized.expand(
+        [
             ("zero", "0", status.HTTP_400_BAD_REQUEST),
             ("negative", "-1", status.HTTP_400_BAD_REQUEST),
             ("over_max", "1000", status.HTTP_400_BAD_REQUEST),
