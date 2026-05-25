@@ -304,9 +304,9 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     elif outcome.status == "no_match":
                         repository = None
                     else:
-                        # Agent crashed, timed out, or hallucinated — fall
-                        # back to the interactive picker so the user can
-                        # resolve manually.
+                        # Agent crashed/timed out/hallucinated — italicize its reason
+                        # above the picker guidance so the user sees why.
+                        picker_guidance = f"_{outcome.reason}_\n\n{POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE}"
                         await _execute_posthog_code_activity(
                             post_posthog_code_repo_picker_activity,
                             inputs,
@@ -315,7 +315,7 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             slack_user_id,
                             event,
                             workflow.info().workflow_id,
-                            POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
+                            picker_guidance,
                             True,
                         )
                         try:
