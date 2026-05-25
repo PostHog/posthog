@@ -1826,12 +1826,38 @@ impl<'a> Parser<'a> {
         // a bare top-level attempt (a function argument, a tuple element, …) — which cpp
         // rejects, since bare `* … REPLACE` is not a columnExpr.
         let cp_before_decorators = self.checkpoint();
-        let (exclude, replace) = self.parse_columns_decorators()?;
-        if replace.is_some() {
-            self.restore(cp_before_decorators)?;
-            return Err(self.err(
-                "REPLACE after a bare `*` is only valid inside `(* REPLACE …)` / `COLUMNS(* REPLACE …)`",
-            ));
+        let exclude = match self.parse_exclude_clause() {
+            Ok(e) => e,
+            Err(e) if e.fatal => return Err(e),
+            Err(e) => {
+                // The EXCLUDE list needs >=1 identifier, so a string / empty list
+                // fails the columns-exclude. At a statement boundary cpp re-reads
+                // `*` as a bare Field statement and `exclude(<…>)` as the next
+                // statement (a call): `* exclude ('j')` -> `*` ; `exclude('j')`.
+                // Outside a statement boundary (a SELECT column, an arg, …) there
+                // is no split, so propagate the rejection — matching cpp.
+                self.restore(cp_before_decorators)?;
+                if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                    return Ok(emit::field(vec![Value::String("*".into())]));
+                }
+                return Err(e);
+            }
+        };
+        // A bare `*` / `* EXCLUDE(...)` admits no trailing REPLACE (that needs the
+        // paren-wrapped `(* REPLACE …)` / `COLUMNS(* … REPLACE …)`). At a statement
+        // boundary cpp keeps the `*` / `* EXCLUDE(...)` as this statement and
+        // re-reads `replace(...)` as the next statement's call (`* replace (1 as b)`
+        // -> `*` ; `replace(1 as b)`); elsewhere it's a hard reject.
+        let cp_before_replace = self.checkpoint();
+        if self.parse_replace_clause()?.is_some() {
+            if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                self.restore(cp_before_replace)?;
+            } else {
+                self.restore(cp_before_decorators)?;
+                return Err(self.err(
+                    "REPLACE after a bare `*` is only valid inside `(* REPLACE …)` / `COLUMNS(* REPLACE …)`",
+                ));
+            }
         }
         if exclude.is_none() {
             Ok(emit::field(vec![Value::String("*".into())]))

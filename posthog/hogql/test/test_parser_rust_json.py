@@ -1122,14 +1122,41 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 msg=query,
             )
 
-    @pytest.mark.xfail(
-        strict=True, reason="cpp accepts a string / empty EXCLUDE list in some contexts; rust requires identifiers"
-    )
     @no_memory_leak_check
-    def test_xfail_exclude_list_string_or_empty(self):
-        for query in ("x := * exclude ('j')", "osl := * exclude ()"):
+    def test_bare_star_decorator_splits_at_statement_boundary(self):
+        # A bare `*` admits only a valid `EXCLUDE (<identifiers>)` (no REPLACE, no
+        # string/empty list). At a statement boundary an invalid decorator is cpp's
+        # `*` (or `* EXCLUDE(...)`) statement followed by `exclude(...)` / `replace(...)`
+        # as the NEXT statement's call: `* exclude ('j')` -> `*` ; `exclude('j')`,
+        # `* replace (1 as b)` -> `*` ; `replace(1 as b)`, `* exclude (a) replace (b as c)`
+        # -> `ColumnsExpr(exclude=[a])` ; `replace(b as c)`. rust used to reject.
+        for query in (
+            "* exclude ('j')",
+            "* exclude ()",
+            "x := * exclude ('j')",
+            "osl := * exclude ()",
+            "* replace (1 as b)",
+            "* exclude (a) replace (1 as b)",
+            "x := * replace (1 as b)",
+        ):
             self.assertEqual(
                 parse_program(query, backend="cpp-json"),
                 parse_program(query, backend="rust-json"),
                 msg=query,
             )
+        # A valid `* EXCLUDE (<idents>)` stays one columns-expr; outside a statement
+        # boundary (a SELECT column) an invalid / REPLACE decorator rejects on both,
+        # and the paren-wrapped `(* REPLACE …)` form stays valid.
+        for query in (
+            "select * exclude (a) from t",
+            "select (* replace (1 as b)) from t",
+        ):
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )
+        for query in ("select * exclude ('j') from t", "select * replace (1 as b) from t"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_select(query, backend=backend)
