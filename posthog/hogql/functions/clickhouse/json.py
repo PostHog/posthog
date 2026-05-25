@@ -177,3 +177,9 @@ JSON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "JSON_VALUE": HogQLFunctionMeta("JSON_VALUE", 2, 2, signatures=[((StringType(), StringType()), StringType())]),
 }
+
+# Most ClickHouse JSON functions are CamelCase (JSONExtractString etc.), but ANSI-style
+# uppercase spellings (JSONEXTRACTSTRING) flow in from user SQL and Max-generated SQL.
+# Treat the whole family as case-insensitive so we accept both shapes.
+for _json_func in JSON_FUNCTIONS.values():
+    _json_func.case_sensitive = False

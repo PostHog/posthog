@@ -1,3 +1,4 @@
+from difflib import get_close_matches
 from itertools import chain
 from typing import Optional
 
@@ -250,33 +251,95 @@ ALL_EXPOSED_FUNCTION_NAMES = [
 ]
 
 
-def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> Optional[HogQLFunctionMeta]:
+def _build_case_insensitive_index(
+    functions: dict[str, HogQLFunctionMeta],
+) -> dict[str, HogQLFunctionMeta]:
+    """Index case-insensitive functions by their lowercased name so that mixed-case dict
+    keys (e.g. `dateTrunc`) can be found by users typing `DATETRUNC` or `datetrunc`."""
+    return {name.lower(): func for name, func in functions.items() if not func.case_sensitive}
+
+
+_CASE_INSENSITIVE_HOGQL_CLICKHOUSE_FUNCTIONS = _build_case_insensitive_index(HOGQL_CLICKHOUSE_FUNCTIONS)
+_CASE_INSENSITIVE_HOGQL_AGGREGATIONS = _build_case_insensitive_index(HOGQL_AGGREGATIONS)
+_CASE_INSENSITIVE_HOGQL_POSTHOG_FUNCTIONS = _build_case_insensitive_index(HOGQL_POSTHOG_FUNCTIONS)
+
+
+def _find_function(
+    name: str,
+    functions: dict[str, HogQLFunctionMeta],
+    case_insensitive_lookup: dict[str, HogQLFunctionMeta] | None = None,
+) -> Optional[HogQLFunctionMeta]:
     func = functions.get(name)
     if func is not None:
         return func
 
-    func = functions.get(name.lower())
-    if func is None:
-        return None
+    lowered = name.lower()
 
-    # If we haven't found a function with the case preserved, but we have found it in lowercase,
-    # then the function names are different case-wise only.
-    if func.case_sensitive:
-        return None
+    # 1. Direct lowercase-key hit (the historical path: keeps lowercase-named functions
+    #    like `not`/`if`/`isnull` case-insensitive without extra bookkeeping).
+    func = functions.get(lowered)
+    if func is not None and not func.case_sensitive:
+        return func
 
-    return func
+    # 2. Case-insensitive lookup against mixed-case keys (e.g. `dateTrunc`, `splitByChar`),
+    #    which the historical path could not find when the user typed all-uppercase.
+    if case_insensitive_lookup is not None:
+        return case_insensitive_lookup.get(lowered)
+
+    return None
 
 
 def find_hogql_aggregation(name: str) -> Optional[HogQLFunctionMeta]:
-    return _find_function(name, HOGQL_AGGREGATIONS)
+    return _find_function(name, HOGQL_AGGREGATIONS, _CASE_INSENSITIVE_HOGQL_AGGREGATIONS)
 
 
 def find_hogql_function(name: str) -> Optional[HogQLFunctionMeta]:
-    return _find_function(name, HOGQL_CLICKHOUSE_FUNCTIONS)
+    return _find_function(name, HOGQL_CLICKHOUSE_FUNCTIONS, _CASE_INSENSITIVE_HOGQL_CLICKHOUSE_FUNCTIONS)
 
 
 def find_hogql_posthog_function(name: str) -> Optional[HogQLFunctionMeta]:
-    return _find_function(name, HOGQL_POSTHOG_FUNCTIONS)
+    return _find_function(name, HOGQL_POSTHOG_FUNCTIONS, _CASE_INSENSITIVE_HOGQL_POSTHOG_FUNCTIONS)
+
+
+def suggest_function_name(name: str, n: int = 1) -> list[str]:
+    """Return up to `n` likely intended function names for an unrecognized function call.
+
+    Improves over a raw difflib.SequenceMatcher pass by:
+      1. Treating the lookup as case-insensitive — so `TOINT64` suggests `toInt64`.
+      2. Preferring case-insensitive prefix matches over generic similarity scores —
+         so `toIntOrNull` suggests `toIntOrZero`, not `countOrNull`.
+      3. Falling back to difflib for distant typos.
+    """
+    if not name:
+        return []
+
+    lowered = name.lower()
+
+    # Exact case-insensitive hit takes precedence: a user typing `TOINT64` clearly meant
+    # `toInt64`, and the close-match heuristic should not derail to a longer-name candidate.
+    for candidate in ALL_EXPOSED_FUNCTION_NAMES:
+        if candidate.lower() == lowered:
+            return [candidate]
+
+    prefix_candidates: list[tuple[int, str]] = []
+    for candidate in ALL_EXPOSED_FUNCTION_NAMES:
+        candidate_lower = candidate.lower()
+        # Prefix-match length: longer shared prefix beats vague similarity.
+        prefix_len = 0
+        while (
+            prefix_len < len(lowered)
+            and prefix_len < len(candidate_lower)
+            and lowered[prefix_len] == candidate_lower[prefix_len]
+        ):
+            prefix_len += 1
+        if prefix_len >= 3:
+            prefix_candidates.append((prefix_len, candidate))
+
+    if prefix_candidates:
+        prefix_candidates.sort(key=lambda pair: (-pair[0], len(pair[1]), pair[1]))
+        return [candidate for _, candidate in prefix_candidates[:n]]
+
+    return get_close_matches(name, ALL_EXPOSED_FUNCTION_NAMES, n)
 
 
 def is_allowed_parametric_function(name: str) -> bool:

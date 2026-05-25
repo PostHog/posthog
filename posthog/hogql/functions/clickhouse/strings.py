@@ -111,10 +111,10 @@ STRING_SEARCH_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 STRING_REPLACE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "replace": HogQLFunctionMeta("replace", 3, 3, case_sensitive=False),
-    "replaceAll": HogQLFunctionMeta("replaceAll", 3, 3),
-    "replaceOne": HogQLFunctionMeta("replaceOne", 3, 3),
-    "replaceRegexpAll": HogQLFunctionMeta("replaceRegexpAll", 3, 3),
-    "replaceRegexpOne": HogQLFunctionMeta("replaceRegexpOne", 3, 3),
+    "replaceAll": HogQLFunctionMeta("replaceAll", 3, 3, case_sensitive=False),
+    "replaceOne": HogQLFunctionMeta("replaceOne", 3, 3, case_sensitive=False),
+    "replaceRegexpAll": HogQLFunctionMeta("replaceRegexpAll", 3, 3, case_sensitive=False),
+    "replaceRegexpOne": HogQLFunctionMeta("replaceRegexpOne", 3, 3, case_sensitive=False),
     "regexpQuoteMeta": HogQLFunctionMeta("regexpQuoteMeta", 1, 1),
     "translate": HogQLFunctionMeta("translate", 3, 3),
     "translateUTF8": HogQLFunctionMeta("translateUTF8", 3, 3),
@@ -123,9 +123,9 @@ STRING_REPLACE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 # splitting strings
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 STRING_SPLIT_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
-    "splitByChar": HogQLFunctionMeta("splitByChar", 2, 3),
-    "splitByString": HogQLFunctionMeta("splitByString", 2, 3),
-    "splitByRegexp": HogQLFunctionMeta("splitByRegexp", 2, 3),
+    "splitByChar": HogQLFunctionMeta("splitByChar", 2, 3, case_sensitive=False),
+    "splitByString": HogQLFunctionMeta("splitByString", 2, 3, case_sensitive=False),
+    "splitByRegexp": HogQLFunctionMeta("splitByRegexp", 2, 3, case_sensitive=False),
     "splitByWhitespace": HogQLFunctionMeta("splitByWhitespace", 1, 2),
     "splitByNonAlpha": HogQLFunctionMeta("splitByNonAlpha", 1, 2),
     "alphaTokens": HogQLFunctionMeta("alphaTokens", 1, 2),

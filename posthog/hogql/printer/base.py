@@ -1,7 +1,6 @@
 import re
 from collections.abc import Iterable
 from datetime import date, datetime
-from difflib import get_close_matches
 from typing import Any, ClassVar, Literal, Optional, Union, cast, get_args
 from uuid import UUID
 
@@ -26,9 +25,9 @@ from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_strin
 from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.mapping import (
-    ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
     is_allowed_parametric_function,
+    suggest_function_name,
 )
 from posthog.hogql.printer.types import (
     JoinExprResponse,
@@ -1072,7 +1071,7 @@ class BasePrinter(Visitor[str]):
             if passthrough is not None:
                 return passthrough
 
-            close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
+            close_matches = suggest_function_name(node.name, 1)
             if len(close_matches) > 0:
                 raise QueryError(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
@@ -1710,9 +1709,11 @@ class BasePrinter(Visitor[str]):
 
     def visit_type_cast(self, node: ast.TypeCast):
         match node.type_name.lower():
-            case "int" | "integer":
+            case "int" | "integer" | "int8" | "int16" | "int32" | "int64":
                 return f"toInt64({self.visit(node.expr)})"
-            case "float" | "double" | "double precision" | "real":
+            case "uint8" | "uint16" | "uint32" | "uint64":
+                return f"toInt64({self.visit(node.expr)})"
+            case "float" | "double" | "double precision" | "real" | "float32" | "float64":
                 return f"toFloat64({self.visit(node.expr)})"
             case "text" | "varchar" | "char" | "string":
                 return f"toString({self.visit(node.expr)})"

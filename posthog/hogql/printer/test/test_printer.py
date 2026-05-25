@@ -3908,11 +3908,22 @@ class TestPrinter(BaseTest):
             ("int", "event::int", "toInt64(events.event)"),
             ("integer", "event::integer", "toInt64(events.event)"),
             ("int_upper", "event::INT", "toInt64(events.event)"),
+            # ClickHouse-native bit-width integer cast keywords
+            ("int8", "event::int8", "toInt64(events.event)"),
+            ("int16", "event::int16", "toInt64(events.event)"),
+            ("int32", "event::int32", "toInt64(events.event)"),
+            ("int64", "event::int64", "toInt64(events.event)"),
+            ("uint8", "event::uint8", "toInt64(events.event)"),
+            ("uint16", "event::uint16", "toInt64(events.event)"),
+            ("uint32", "event::uint32", "toInt64(events.event)"),
+            ("uint64", "event::uint64", "toInt64(events.event)"),
             # Float types
             ("float", "event::float", "toFloat64(events.event)"),
             ("double", "event::double", "toFloat64(events.event)"),
             ("double_precision", 'event::"double precision"', "toFloat64(events.event)"),
             ("real", "event::real", "toFloat64(events.event)"),
+            ("float32", "event::float32", "toFloat64(events.event)"),
+            ("float64", "event::float64", "toFloat64(events.event)"),
             # String types
             ("text", "event::text", "toString(events.event)"),
             ("varchar", "event::varchar", "toString(events.event)"),
@@ -3925,7 +3936,10 @@ class TestPrinter(BaseTest):
             ("date", "event::date", "toDate(events.event)"),
             # Constant cast
             ("const_int", "'123'::int", "toInt64(%(hogql_val_0)s)"),
+            ("const_int64", "'123'::int64", "toInt64(%(hogql_val_0)s)"),
+            ("const_uint8", "'123'::uint8", "toInt64(%(hogql_val_0)s)"),
             ("const_float", "123.45::float", "toFloat64(123.45)"),
+            ("const_float64", "123.45::float64", "toFloat64(123.45)"),
         ]
     )
     def test_postgres_style_cast(self, name, expr, expected):
@@ -3941,6 +3955,64 @@ class TestPrinter(BaseTest):
         with self.assertRaises(QueryError) as ctx:
             self._expr("event::unsupported_type")
         self.assertIn("Unsupported type cast", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            # Bit-width Int aliases — all route through accurateCastOrNull (matches toInt's behavior)
+            ("toInt8", "toInt8('1')", "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)"),
+            ("toInt16", "toInt16('1')", "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)"),
+            ("toInt32", "toInt32('1')", "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)"),
+            ("toInt64", "toInt64('1')", "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)"),
+            ("toUInt8", "toUInt8('1')", "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)"),
+            ("toUInt64", "toUInt64('1')", "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)"),
+            # OrZero/OrNull variants pass straight through
+            ("toInt32OrZero", "toInt32OrZero('1')", "toInt32OrZero(%(hogql_val_0)s)"),
+            ("toInt64OrNull", "toInt64OrNull('1')", "toInt64OrNull(%(hogql_val_0)s)"),
+            ("toUInt64OrZero", "toUInt64OrZero('1')", "toUInt64OrZero(%(hogql_val_0)s)"),
+            ("toFloat64", "toFloat64('1')", "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)"),
+            ("toFloat64OrNull", "toFloat64OrNull('1')", "toFloat64OrNull(%(hogql_val_0)s)"),
+            ("toFloat64OrZero", "toFloat64OrZero('1')", "toFloat64OrZero(%(hogql_val_0)s)"),
+        ]
+    )
+    def test_clickhouse_bit_width_conversion_aliases(self, name, expr, expected):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            # ANSI-style uppercase forms should now resolve to their CamelCase canonical
+            ("DATEDIFF", "DATEDIFF('day', now(), now())"),
+            ("DATETRUNC", "DATETRUNC('day', now())"),
+            ("TODAY", "TODAY()"),
+            ("SPLITBYCHAR", "SPLITBYCHAR(',', 'a,b,c')"),
+            ("NOTEMPTY", "NOTEMPTY('hello')"),
+            ("REPLACEREGEXPONE", "REPLACEREGEXPONE('aaa', 'a', 'b')"),
+            ("JSONEXTRACTSTRING", "JSONEXTRACTSTRING('{\"a\":1}', 'a')"),
+            ("TODATETIME", "TODATETIME('2024-01-01')"),
+            ("TOINT64", "TOINT64('1')"),
+            ("TOFLOAT64", "TOFLOAT64('1')"),
+            # CamelCase variant that ClickHouse doesn't expose under that exact spelling
+            ("toTimezone", "toTimezone(now(), 'UTC')"),
+        ]
+    )
+    def test_uppercase_and_alternate_case_function_names(self, name, expr):
+        # Should not raise — we only care that the printer accepts these spellings.
+        self._expr(expr)
+
+    def test_uppercase_aggregate(self):
+        # Aggregation lookup is also case-insensitive for the popular ones.
+        self._select("SELECT COUNTIF(event = 'pageview') FROM events")
+        self._select("SELECT COUNT_IF(event = 'pageview') FROM events")
+        self._select("SELECT ANY(event) FROM events")
+
+    def test_unknown_function_suggestion_prefers_prefix(self):
+        # The old SequenceMatcher heuristic suggested unrelated names like "countOrNull"
+        # for "toIntOrNull". The new prefix-aware suggester should propose a toInt* match.
+        with self.assertRaises(QueryError) as ctx:
+            self._expr("toIntPottyName('1')")
+        message = str(ctx.exception)
+        self.assertIn("Unsupported function call", message)
+        # The suggestion should start with toInt
+        self.assertIn("toInt", message)
 
     def test_cte_materialization_hint_not_supported(self):
         with self.assertRaises(ImpossibleASTError) as ctx:

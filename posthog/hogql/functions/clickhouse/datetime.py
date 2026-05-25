@@ -156,6 +156,7 @@ DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             "dateDiff",
             3,
             3,
+            case_sensitive=False,
             signatures=[
                 ((StringType(), DateTimeType(), DateTimeType()), IntegerType()),
             ],
@@ -248,6 +249,7 @@ DATE_GENERATOR_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             "today",
             0,
             0,
+            case_sensitive=False,
             signatures=[
                 ((), DateType(nullable=False)),
             ],
@@ -345,6 +347,7 @@ POSTGRESQL_DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             "dateTrunc",
             2,
             3,  # Allow optional timezone parameter
+            case_sensitive=False,
             signatures=[
                 # Units that return Date (year/quarter/month/week)
                 ((StringLiteralType(values=DATE_TRUNCATION_UNITS), DateTimeType()), DateType()),
@@ -436,6 +439,7 @@ POSTGRESQL_DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             "dateDiff",
             3,
             3,
+            case_sensitive=False,
             signatures=[
                 ((StringType(), DateTimeType(), DateTimeType()), IntegerType()),
             ],
@@ -484,15 +488,20 @@ POSTGRESQL_DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         using_placeholder_arguments=True,
         using_positional_arguments=True,
     ),
-    "toTimeZone": HogQLFunctionMeta(
-        "toTimeZone",
-        1,
-        2,
-        tz_aware=True,
-        signatures=[
-            ((DateTimeType(), StringType()), DateTimeType()),
-        ],
-    ),
+    **{
+        # ClickHouse only exposes toTimeZone (capital Z), but users — and Max AI — often
+        # write the more conventional CamelCase toTimezone. Accept both spellings.
+        name: HogQLFunctionMeta(
+            "toTimeZone",
+            1,
+            2,
+            tz_aware=True,
+            signatures=[
+                ((DateTimeType(), StringType()), DateTimeType()),
+            ],
+        )
+        for name in ["toTimeZone", "toTimezone"]
+    },
 }
 
 # Combined datetime functions

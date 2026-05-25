@@ -39,14 +39,69 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "reinterpretAsUUID": HogQLFunctionMeta("reinterpretAsUUID", 1, 1),
     "toInt": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Int64")]),
     "toIntOrZero": HogQLFunctionMeta("toInt64OrZero", 1, 1, signatures=[((StringType(),), IntegerType())]),
+    "toIntOrNull": HogQLFunctionMeta("toInt64OrNull", 1, 1, signatures=[((StringType(),), IntegerType())]),
     "_toInt8": HogQLFunctionMeta("toInt8", 1, 1),
     "_toInt16": HogQLFunctionMeta("toInt16", 1, 1),
     "_toInt32": HogQLFunctionMeta("toInt32", 1, 1),
     "_toInt64": HogQLFunctionMeta("toInt64", 1, 1),
     "_toUInt64": HogQLFunctionMeta("toUInt64", 1, 1, signatures=[((UnknownType(),), IntegerType())]),
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
+    # User-facing bit-width Int/UInt cast aliases. ClickHouse exposes toInt8/16/32/64 (and
+    # unsigned + OrZero/OrNull variants) directly; we route them through accurateCastOrNull
+    # for the bare form to match toInt's "return NULL on overflow/parse failure" behavior,
+    # and pass OrZero/OrNull straight through. These aliases land here so users (and Max AI)
+    # don't have to learn HogQL's reduced toInt/toFloat shorthand.
+    **{
+        name: HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value=ch_type)])
+        for name, ch_type in [
+            ("toInt8", "Int8"),
+            ("toInt16", "Int16"),
+            ("toInt32", "Int32"),
+            ("toInt64", "Int64"),
+            ("toUInt8", "UInt8"),
+            ("toUInt16", "UInt16"),
+            ("toUInt32", "UInt32"),
+            ("toUInt64", "UInt64"),
+        ]
+    },
+    **{
+        name: HogQLFunctionMeta(name, 1, 1)
+        for name in [
+            "toInt8OrZero",
+            "toInt16OrZero",
+            "toInt32OrZero",
+            "toInt64OrZero",
+            "toInt8OrNull",
+            "toInt16OrNull",
+            "toInt32OrNull",
+            "toInt64OrNull",
+            "toUInt8OrZero",
+            "toUInt16OrZero",
+            "toUInt32OrZero",
+            "toUInt64OrZero",
+            "toUInt8OrNull",
+            "toUInt16OrNull",
+            "toUInt32OrNull",
+            "toUInt64OrNull",
+        ]
+    },
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
     "toFloatOrZero": HogQLFunctionMeta("toFloat64OrZero", 1, 1, signatures=[((StringType(),), FloatType())]),
+    "toFloatOrNull": HogQLFunctionMeta("toFloat64OrNull", 1, 1, signatures=[((StringType(),), FloatType())]),
+    # Bit-width Float cast aliases — mirror the Int aliases above.
+    **{
+        name: HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value=ch_type)])
+        for name, ch_type in [("toFloat32", "Float32"), ("toFloat64", "Float64")]
+    },
+    **{
+        name: HogQLFunctionMeta(name, 1, 1)
+        for name in [
+            "toFloat32OrZero",
+            "toFloat64OrZero",
+            "toFloat32OrNull",
+            "toFloat64OrNull",
+        ]
+    },
     "toFloatOrDefault": HogQLFunctionMeta(
         # ClickHouse's toFloat64OrDefault requires the default value to already be
         # Float64 — passing e.g. an integer 0 raises "Default value type should be
@@ -100,6 +155,10 @@ TYPE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toJSONString": HogQLFunctionMeta("toJSONString", 1, 1),
     "parseDateTime": HogQLFunctionMeta("parseDateTimeOrNull", 2, 3, tz_aware=True),
     "parseDateTimeBestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
+    # ClickHouse exposes both parseDateTime64BestEffort (and OrNull) and parseDateTimeBestEffort —
+    # users mix the two. Route the 64-suffixed forms to the same underlying implementation.
+    "parseDateTime64BestEffort": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
+    "parseDateTime64BestEffortOrNull": HogQLFunctionMeta("parseDateTime64BestEffortOrNull", 1, 2, tz_aware=True),
     "toTypeName": HogQLFunctionMeta("toTypeName", 1, 1),
     "cityHash64": HogQLFunctionMeta("cityHash64", 1, 1),
     "UUIDv7ToDateTime": HogQLFunctionMeta("UUIDv7ToDateTime", 1, 1, tz_aware=True),
@@ -237,6 +296,14 @@ NULLABILITY_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         ],
     ),
 }
+
+# Type conversions are routinely typed in uppercase (TOINT64, TODATETIME) — particularly
+# by Max AI translating from other dialects — and we lose nothing by accepting any casing.
+# Apply case_sensitive=False uniformly; explicit per-function overrides above remain in place.
+for _conv_func in TYPE_CONVERSION_FUNCTIONS.values():
+    _conv_func.case_sensitive = False
+for _conv_func in DATE_CONVERSION_FUNCTIONS.values():
+    _conv_func.case_sensitive = False
 
 # Combined conversion functions
 CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {

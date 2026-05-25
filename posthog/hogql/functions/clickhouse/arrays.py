@@ -20,6 +20,7 @@ ARRAY_STRING_COMMON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         "empty",
         1,
         1,
+        case_sensitive=False,
         signatures=[
             ((ArrayType(),), IntegerType()),
             ((StringType(),), IntegerType()),
@@ -30,6 +31,7 @@ ARRAY_STRING_COMMON_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         "notEmpty",
         1,
         1,
+        case_sensitive=False,
         signatures=[
             ((ArrayType(),), IntegerType()),
             ((StringType(),), IntegerType()),
