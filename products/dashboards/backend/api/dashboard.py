@@ -166,6 +166,77 @@ class CopyDashboardTileRequestSerializer(serializers.Serializer):
     tileId = serializers.IntegerField(help_text="Dashboard tile id to copy.")
 
 
+class TileLayoutSerializer(serializers.Serializer):
+    x = serializers.IntegerField(required=False, help_text="Column position on the grid (0-indexed).")
+    y = serializers.IntegerField(required=False, help_text="Row position on the grid (0-indexed).")
+    w = serializers.IntegerField(required=False, help_text="Tile width in grid columns.")
+    h = serializers.IntegerField(required=False, help_text="Tile height in grid rows.")
+
+
+class TileLayoutsSerializer(serializers.Serializer):
+    sm = TileLayoutSerializer(
+        required=False,
+        help_text="Standard layout (desktop). Defaults to a 6x5 cell on the left of the next free row.",
+    )
+    xs = TileLayoutSerializer(required=False, help_text="Mobile layout. Defaults to a 6x5 cell stacked vertically.")
+
+
+class CreateTextTileRequestSerializer(serializers.Serializer):
+    body = serializers.CharField(
+        max_length=4000,
+        allow_blank=True,
+        help_text=(
+            "Markdown body to render in the text tile. Used for dividers, headings, and section commentary on a"
+            " dashboard. Maximum 4000 characters."
+        ),
+    )
+    layouts = TileLayoutsSerializer(
+        required=False,
+        help_text=(
+            "Optional per-breakpoint grid layout. Omit to let the frontend place the tile at the next available"
+            " position; provide explicit coordinates only when reproducing a specific layout."
+        ),
+    )
+    color = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=400,
+        help_text="Optional accent color for the tile.",
+    )
+    transparent_background = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="When true, the tile renders without a background panel.",
+    )
+
+
+class UpdateTextTileRequestSerializer(serializers.Serializer):
+    body = serializers.CharField(
+        required=False,
+        max_length=4000,
+        allow_blank=True,
+        allow_null=True,
+        help_text="New markdown body. Omit to keep the current body unchanged. Maximum 4000 characters.",
+    )
+    layouts = TileLayoutsSerializer(
+        required=False,
+        help_text="Optional updated per-breakpoint grid layout.",
+    )
+    color = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=400,
+        help_text="Updated accent color. Pass null to clear.",
+    )
+    transparent_background = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="When true, the tile renders without a background panel.",
+    )
+
+
 class CanEditDashboard(BasePermission):
     message = "You don't have edit permissions for this dashboard."
 
@@ -1600,6 +1671,132 @@ class DashboardsViewSet(
             }
 
         DashboardTile.objects.bulk_update(tile_map.values(), ["layouts"])
+
+        return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
+
+    def _text_tile_or_404(self, dashboard: Dashboard, tile_id: int) -> DashboardTile:
+        try:
+            # nosemgrep: idor-lookup-without-team (scoped via dashboard=dashboard already team-checked by get_object)
+            tile = DashboardTile.objects.get(dashboard=dashboard, id=tile_id)
+        except DashboardTile.DoesNotExist:
+            raise exceptions.NotFound("Text tile not found on this dashboard.")
+        if tile.text is None:
+            raise exceptions.ValidationError("Tile is not a text tile.")
+        return tile
+
+    @extend_schema(
+        operation_id="dashboards_create_text_tile",
+        request=CreateTextTileRequestSerializer,
+        responses={201: DashboardSerializer},
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"], url_path="create_text_tile")
+    def create_text_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Create a new text tile on this dashboard. Text tiles render markdown and are commonly used as dividers
+        or section headers when authoring a dashboard. Returns the dashboard with all tiles."""
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+
+        serializer = CreateTextTileRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        tile_data: dict[str, Any] = {"text": {"body": validated["body"]}}
+        for field in ("layouts", "color", "transparent_background"):
+            if field in validated:
+                tile_data[field] = validated[field]
+
+        user = cast(User, request.user)
+        tile_type, created = self._update_tiles(dashboard, tile_data, user)
+        if created and tile_type:
+            report_user_action(
+                user,
+                "dashboard tile added",
+                {"tile_type": tile_type, "insight_type": None, "dashboard_id": dashboard.id},
+                team=dashboard.team,
+                request=request,
+            )
+
+        return Response(
+            DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        operation_id="dashboards_update_text_tile",
+        request=UpdateTextTileRequestSerializer,
+        responses={200: DashboardSerializer},
+        parameters=[
+            OpenApiParameter(
+                "tile_id",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                description="ID of the text tile to update.",
+            ),
+        ],
+    )
+    # Both PATCH and DELETE on this URL require dashboard:write, so setting required_scopes on
+    # @action is safe; DELETE inherits the same initkwargs via update_text_tile.mapping.delete.
+    @action(
+        methods=["PATCH"],
+        detail=True,
+        required_scopes=["dashboard:write"],
+        url_path="text_tiles/(?P<tile_id>[0-9]+)",
+    )
+    def update_text_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Update an existing text tile (body, layout, or display options). Returns the dashboard with all tiles."""
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+
+        tile_id = int(kwargs["tile_id"])
+        tile = self._text_tile_or_404(dashboard, tile_id)
+
+        serializer = UpdateTextTileRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        if not validated:
+            raise exceptions.ValidationError("Provide at least one field to update.")
+
+        tile_data: dict[str, Any] = {"id": tile.id}
+        if "body" in validated:
+            tile_data["text"] = {"id": tile.text_id, "body": validated["body"]}
+        for field in ("layouts", "color", "transparent_background"):
+            if field in validated:
+                tile_data[field] = validated[field]
+
+        # _update_tiles only routes to the Text update branch if "text" is present in the
+        # payload. Layout/display-only updates take the display-field branch below.
+        self._update_tiles(dashboard, tile_data, cast(User, request.user))
+
+        return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        operation_id="dashboards_delete_text_tile",
+        request=None,
+        responses={200: DashboardSerializer},
+        parameters=[
+            OpenApiParameter(
+                "tile_id",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                description="ID of the text tile to delete.",
+            ),
+        ],
+    )
+    @update_text_tile.mapping.delete
+    def delete_text_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Soft-delete a text tile from this dashboard. Returns the dashboard with the remaining tiles."""
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+
+        tile_id = int(kwargs["tile_id"])
+        tile = self._text_tile_or_404(dashboard, tile_id)
+
+        tile.deleted = True
+        tile.save(update_fields=["deleted"])
 
         return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
 

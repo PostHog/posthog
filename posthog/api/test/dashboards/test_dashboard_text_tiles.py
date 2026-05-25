@@ -322,3 +322,135 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             {"tiles": [tile]},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_can_create_text_tile_via_dedicated_endpoint(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/create_text_tile/",
+            {"body": "# Section header"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        body = response.json()
+        assert len(body["tiles"]) == 1
+        assert body["tiles"][0]["text"]["body"] == "# Section header"
+        assert body["tiles"][0]["insight"] is None
+        assert body["tiles"][0]["button_tile"] is None
+
+    def test_can_create_text_tile_with_layout_and_color(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/create_text_tile/",
+            {
+                "body": "hello",
+                "color": "purple",
+                "transparent_background": True,
+                "layouts": {"sm": {"x": 0, "y": 0, "w": 6, "h": 2}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        tile = response.json()["tiles"][0]
+        assert tile["color"] == "purple"
+        assert tile["transparent_background"] is True
+        assert tile["layouts"]["sm"] == {"x": 0, "y": 0, "w": 6, "h": 2}
+
+    def test_create_text_tile_rejects_oversize_body(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/create_text_tile/",
+            {"body": "a" * 4001},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_can_update_text_tile_via_dedicated_endpoint(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="initial")
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/text_tiles/{tile_id}/",
+            {"body": "updated", "color": "green"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        tiles = response.json()["tiles"]
+        assert len(tiles) == 1
+        assert tiles[0]["text"]["body"] == "updated"
+        assert tiles[0]["color"] == "green"
+
+    def test_update_text_tile_layout_only(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="initial")
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/text_tiles/{tile_id}/",
+            {"layouts": {"sm": {"x": 3, "y": 5, "w": 6, "h": 2}}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        tile = response.json()["tiles"][0]
+        assert tile["layouts"]["sm"] == {"x": 3, "y": 5, "w": 6, "h": 2}
+        assert tile["text"]["body"] == "initial"
+
+    def test_update_text_tile_rejects_empty_payload(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="initial")
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/text_tiles/{tile_id}/",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_text_tile_404_for_missing_tile(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/text_tiles/9999999/",
+            {"body": "x"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_text_tile_400_when_tile_is_not_text(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_button_tile(dashboard_id, url="https://example.com", text="Click")
+        button_tile_id = dashboard_json["tiles"][0]["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/text_tiles/{button_tile_id}/",
+            {"body": "x"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_can_delete_text_tile_via_dedicated_endpoint(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="first")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="second")
+        tile_to_delete = dashboard_json["tiles"][0]
+        survivor_body = dashboard_json["tiles"][1]["text"]["body"]
+
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/text_tiles/{tile_to_delete['id']}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        remaining = response.json()["tiles"]
+        assert len(remaining) == 1
+        assert remaining[0]["text"]["body"] == survivor_body
+
+    def test_delete_text_tile_404_for_missing_tile(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/text_tiles/9999999/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
