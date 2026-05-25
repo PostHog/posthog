@@ -1,9 +1,14 @@
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.tagged_item import set_tags_on_object
 from posthog.models import Insight, Organization, Tag, Team
+from posthog.models.signals import mute_selected_signals
 from posthog.models.tagged_item import TaggedItem
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -94,6 +99,78 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/tags")
         assert response.status_code == status.HTTP_200_OK
         assert sorted(response.json()) == ["dashboard tag", "insight tag"]
+
+
+class TestSetTagsOnObject(APIBaseTest):
+    def test_diff_only_creates_missing_tags_and_removes_orphans(self):
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="d")
+        keep = Tag.objects.create(name="keep", team_id=self.team.id)
+        old = Tag.objects.create(name="drop", team_id=self.team.id)
+        dashboard.tagged_items.create(tag=keep)
+        dashboard.tagged_items.create(tag=old)
+
+        result = set_tags_on_object(["keep", "new-1", "new-2"], dashboard)
+
+        names = sorted(ti.tag.name for ti in result)
+        assert names == ["keep", "new-1", "new-2"]
+        assert sorted(dashboard.tagged_items.values_list("tag__name", flat=True)) == [
+            "keep",
+            "new-1",
+            "new-2",
+        ]
+
+    def test_handles_tags_already_existing_for_other_objects(self):
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="d")
+        Tag.objects.create(name="shared", team_id=self.team.id)
+
+        set_tags_on_object(["shared"], dashboard)
+
+        assert Tag.objects.filter(name="shared", team_id=self.team.id).count() == 1
+        assert dashboard.tagged_items.count() == 1
+
+    def test_idempotent_when_tags_unchanged(self):
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="d")
+        set_tags_on_object(["a", "b"], dashboard)
+
+        result = set_tags_on_object(["a", "b"], dashboard)
+
+        assert sorted(ti.tag.name for ti in result) == ["a", "b"]
+        assert dashboard.tagged_items.count() == 2
+
+    def test_read_write_cost_is_constant_in_tag_count(self):
+        # Activity-log signals still fan out per-row, so we mute them here and
+        # measure only the read/write portion that should be batched.
+        small_dashboard = Dashboard.objects.create(team_id=self.team.id, name="small")
+        large_dashboard = Dashboard.objects.create(team_id=self.team.id, name="large")
+
+        with mute_selected_signals():
+            with CaptureQueriesContext(connection) as small_ctx:
+                set_tags_on_object(["a", "b"], small_dashboard)
+            with CaptureQueriesContext(connection) as large_ctx:
+                set_tags_on_object(["a", "b", "c", "d", "e", "f"], large_dashboard)
+
+        small_count = len(small_ctx.captured_queries)
+        large_count = len(large_ctx.captured_queries)
+        assert small_count == large_count, (
+            f"set_tags_on_object should issue a constant number of read/write queries "
+            f"regardless of tag count, but 2 tags = {small_count}, 6 tags = {large_count}"
+        )
+
+    def test_delete_path_is_a_single_statement(self):
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="d")
+        for name in ["a", "b", "c", "d", "e"]:
+            tag = Tag.objects.create(name=name, team_id=self.team.id)
+            dashboard.tagged_items.create(tag=tag)
+
+        with mute_selected_signals():
+            with CaptureQueriesContext(connection) as ctx:
+                set_tags_on_object([], dashboard)
+
+        deletes = [q for q in ctx.captured_queries if q["sql"].lstrip().upper().startswith("DELETE")]
+        assert len(deletes) == 1, (
+            f"expected a single batched DELETE for orphan TaggedItems, got {len(deletes)}: "
+            f"{[q['sql'] for q in deletes]}"
+        )
 
 
 class TestBulkUpdateTags(APIBaseTest):

@@ -19,6 +19,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
+from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.tag import tagify
@@ -28,23 +29,88 @@ from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
     """Set tags on a taggable object, creating/deleting TaggedItems as needed.
 
-    This is the core tag-setting logic extracted for reuse across serializers
-    and bulk operations.
+    Batches the Tag + TaggedItem reads and writes so the DB cost is constant
+    per call rather than O(tags). `bulk_create` and queryset `.delete()` bypass
+    the model save/delete hooks, so the activity-log signal is fired manually
+    for each added/removed row to preserve the existing per-row activity log
+    fanout (including the related-object mirror on Ticket / Account streams).
     """
-    deduped_tags = list({tagify(t) for t in tags})
-    tagged_item_objects = []
+    deduped_names = {tagify(t) for t in tags}
 
-    for tag in deduped_tags:
-        tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=obj.team_id)
-        tagged_item_instance, _ = obj.tagged_items.get_or_create(tag_id=tag_instance.id)
-        tagged_item_objects.append(tagged_item_instance)
+    # `tag__team` is prefetched because the activity-log signal handler reads
+    # `tagged_item.tag.team` to resolve organization_id for each fired signal.
+    existing_items = list(obj.tagged_items.select_related("tag", "tag__team"))
+    existing_names = {ti.tag.name for ti in existing_items}
 
-    # Delete tags that are missing (use individual deletes to trigger activity logging)
-    tagged_items_to_delete = obj.tagged_items.exclude(tag__name__in=deduped_tags)
-    for tagged_item in tagged_items_to_delete:
-        tagged_item.delete()
+    to_add = deduped_names - existing_names
+    to_keep = [ti for ti in existing_items if ti.tag.name in deduped_names]
+    to_remove = [ti for ti in existing_items if ti.tag.name not in deduped_names]
 
-    return tagged_item_objects
+    current_user = get_current_user()
+    was_impersonated = get_was_impersonated()
+
+    new_items: list[TaggedItem] = []
+    if to_add:
+        tags_by_name: dict[str, Tag] = {t.name: t for t in Tag.objects.filter(team_id=obj.team_id, name__in=to_add)}
+        missing_tag_names = to_add - tags_by_name.keys()
+        newly_created_tags: list[Tag] = []
+        if missing_tag_names:
+            # ignore_conflicts swallows races with parallel inserts of the same (team_id, name)
+            Tag.objects.bulk_create(
+                [Tag(name=name, team_id=obj.team_id) for name in missing_tag_names],
+                ignore_conflicts=True,
+            )
+            # bulk_create + ignore_conflicts does not reliably populate PKs, so refetch.
+            refetched = list(Tag.objects.filter(team_id=obj.team_id, name__in=missing_tag_names))
+            for t in refetched:
+                if t.name not in tags_by_name:
+                    newly_created_tags.append(t)
+                tags_by_name[t.name] = t
+
+        # `obj.tagged_items` is a reverse manager; `.field` is the FK on TaggedItem
+        # pointing back at `obj` (e.g. `account`, `dashboard`, `insight`).
+        fk_attname = obj.tagged_items.field.attname
+        TaggedItem.objects.bulk_create(
+            [TaggedItem(tag=tags_by_name[name], **{fk_attname: obj.pk}) for name in to_add],
+            ignore_conflicts=True,
+        )
+        new_items = list(obj.tagged_items.filter(tag__name__in=to_add).select_related("tag", "tag__team"))
+
+        for tag in newly_created_tags:
+            model_activity_signal.send(
+                sender=Tag,
+                scope="Tag",
+                before_update=None,
+                after_update=tag,
+                activity="created",
+                user=current_user,
+                was_impersonated=was_impersonated,
+            )
+        for ti in new_items:
+            model_activity_signal.send(
+                sender=TaggedItem,
+                scope="TaggedItem",
+                before_update=None,
+                after_update=ti,
+                activity="created",
+                user=current_user,
+                was_impersonated=was_impersonated,
+            )
+
+    if to_remove:
+        obj.tagged_items.filter(pk__in=[ti.pk for ti in to_remove]).delete()
+        for ti in to_remove:
+            model_activity_signal.send(
+                sender=TaggedItem,
+                scope="TaggedItem",
+                before_update=ti,
+                after_update=None,
+                activity="deleted",
+                user=current_user,
+                was_impersonated=was_impersonated,
+            )
+
+    return to_keep + new_items
 
 
 def cleanup_orphan_tags(team_id: int) -> None:
