@@ -525,9 +525,9 @@ snapshots:
     components-hogcharts-linechart--hovering-multi-series--light:
         hash: v1.k794b7964.fbfe3904fa22e1871488ca2f9ddb30b569100259708a16b6fcb722a450857b1c.-4mxJ92opWKeOvWoHto-KHEH6pTxG56-q0ddN3nxW7Q
     components-hogcharts-linechart--hovering-over-aux-series--dark:
-        hash: v1.k794b7964.d46c99622b4b827d5c2da33319fa0402cbb9baf09312c7ec5607d72e37d8f94e.PCWYwyukdoDRqeWm8NbgeThG5ZMZmKJJvPXR7aPaJus
+        hash: v1.k794b7964.6b522e2b58799b5e9dbb17bee0e99b42c2ffc788c88cabe8f44e68ef82388086.7qlPt0jhAFGfLQ1whJLLTmgeJu1SIWk5rh7RVuUnJio
     components-hogcharts-linechart--hovering-over-aux-series--light:
-        hash: v1.k794b7964.28d13d323e89f671ba3a868d67cca8f1070a83baf5c410baa00594239d5b2b6e.zBY4nnskbwCGCaqWr1WF03wMbD6fSVnhQhZ-gDSxJJs
+        hash: v1.k794b7964.3c2769b13db2f7447396f79660f704885e2e378a3cfd5968d61e6c72703a2f18.MjtcmlOjrin3pCpNGPJ7awvzw0FGv1x3qF3MkRPA0-Y
     components-hogcharts-linechart--in-progress-tail--dark:
         hash: v1.k794b7964.c1f47391f93db83d4d9943cc8dec3bd9fcbbe8084ca3df54a1a74ebdf5afc656.q1YrKA5xq1YQMAYEh27agv4WfGjiWgVU5KaPC5LOLIM
     components-hogcharts-linechart--in-progress-tail--light:
@@ -4599,7 +4599,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-breakdown-edit--light:
         hash: v1.k794b7964.414326f685dca45885b93d728ae8a75c7d8b600af35d76c9512a74a27e453006.IyZ8qHUwOv6qsBYvdUR1ZsK1Md_GNFCftDGvNZj78BQ
     scenes-app-insights-funnels--funnel-left-to-right-edit--dark:
-        hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.xupnP9sdcp25xPBOMzrhSHwtRpKPLKHaqLDBncapvQA
+        hash: v1.k794b7964.c47bdb853ef9b6becfb675e2ca0bdbdb0c1b4385cf2442d50dd92752d90f7906.gaL7vRk-pWoOUkiPi-NGCd1W72x-M5l9jk5Qu-UcjwI
     scenes-app-insights-funnels--funnel-left-to-right-edit--light:
         hash: v1.k794b7964.c63132bb5b13cbe97938ebdb2e59e320ebc338bd12b2d3bfd6af81e56270650a.3gc3UBg-8GVo4HkNBH7UrogK2q1uh9pXPDjTdYGT8nc
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--medium--dark:
@@ -4609,7 +4609,7 @@ snapshots:
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--superwide--dark:
         hash: v1.k794b7964.a5b932cb8770bae7203313301e6d82642abab2793cf1933cb2989bf9c92158b8.i2aZRg7zfr3AlQxv3uhnKZxydkU-GKdInMrfbIFfkns
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--superwide--light:
-        hash: v1.k794b7964.c8cfc83215d08266525562e0f8ba98f089c5bba859a315e4171f17e33844d15f.zs-Vgs90ougz0BhCr0TcPwaYk0WyWho2WvF8rv_5zTg
+        hash: v1.k794b7964.c95c5a49f7a20b7fcb1041dd26c73ee87c9a906cb229247a44fd4633bbdc9173.StrJ2VBA5acLqvnsiO2CS_o6qadxeaeO6ST8lxf5UdI
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--dark:
         hash: v1.k794b7964.293297b83994468984576e5c15fa2cbbb2c4c0a7a8234959b9deba539efa383b.O7SwG4Drfr3z02hcLNC1LsLsGWddouhybBp4xZaUE-A
     scenes-app-insights-funnels--funnel-left-to-right-edit-viewports--wide--light:
