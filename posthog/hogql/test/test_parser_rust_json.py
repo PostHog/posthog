@@ -1077,20 +1077,25 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_select("select 1, from f, using sample 1", backend=backend)
 
     @no_memory_leak_check
-    def test_date_literal_tolerated_in_discarded_order_by(self):
-        # A `selectStmtWithParens` trailing `orderByClause?` is grammar-parsed but
-        # cpp's `VISIT(SelectSetStmt)` never visits the subtree, so an unsupported
-        # `date`/`timestamp` literal anywhere inside it (incl. nested selects /
-        # calls) is tolerated. rust used to commit to the date literal and fatally
-        # reject. The whole discarded ORDER BY subtree is unvisited, so the
-        # suppression leaks into nested constructs — matching cpp.
+    def test_date_literal_tolerated_in_discarded_set_decorators(self):
+        # A `selectSetStmt`'s trailing `orderByClause?` is always grammar-parsed
+        # but never emitted by cpp's `VISIT(SelectSetStmt)`, and its trailing
+        # LIMIT / OFFSET are dropped when the body is a `{placeholder}` (which
+        # can't carry them). cpp never visits those discarded subtrees, so an
+        # unsupported `date`/`timestamp` literal anywhere inside (incl. nested
+        # selects / calls) is tolerated. rust used to commit to the date literal
+        # and fatally reject; the suppression now leaks into the whole discarded
+        # subtree, matching cpp.
         for query in (
             "( {x} order by date 'z' )",
             "( {x} order by (select 1 order by date 'z') )",
             "( {x} order by f(date 'z') )",
             "( {x} order by date 'z' + 1 )",
-            "( (select 1) order by (select date 'z') )",
+            "( (select 1) order by (select date 'z') )",  # ORDER BY discarded even for a real subquery
             "( {x} order by date 'z' limit 1 )",
+            "( {x} limit date 'z' )",  # placeholder LIMIT dropped -> tolerated
+            "( {x} offset date 'z' )",
+            "( {x} limit date 'z' with ties )",
         ):
             self.assertEqual(
                 parse_expr(query, backend="cpp-json"),
@@ -1102,12 +1107,16 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             parse_program(program, backend="cpp-json"),
             parse_program(program, backend="rust-json"),
         )
-        # A KEPT order by (a real SelectQuery's) DOES visit the date and rejects,
-        # and a bare date literal / placeholder-block date is unaffected by the
-        # suppression — all four must still reject on both backends.
+        # Still strict where cpp DOES visit: a real SelectQuery's kept order by /
+        # limit / offset, and a bare / placeholder-block date literal. All must
+        # reject on both backends (the placeholder LIMIT suppression must not
+        # leak to a real `(select …)` body).
         for query, fn in (
             ("select 1 order by date 'x'", parse_select),
             ("select 1 order by (select date 'z')", parse_select),
+            ("select 1 limit date 'x'", parse_select),
+            ("(select 1) limit date 'x'", parse_select),
+            ("(select 1) offset date 'x'", parse_select),
             ("date 'x'", parse_expr),
             ("{ date 'x' }", parse_program),
         ):

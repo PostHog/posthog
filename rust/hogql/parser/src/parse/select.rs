@@ -50,7 +50,17 @@ impl<'a> Parser<'a> {
                 | TokenKind::Keyword(Kw::Limit)
                 | TokenKind::Keyword(Kw::Offset)
         );
-        let trailing = self.parse_trailing_set_decorators()?;
+        // A `{placeholder}` body can't carry set-level LIMIT / OFFSET (only
+        // SelectQuery / SelectSetQuery do), so cpp drops them and never visits
+        // the subtree — see the `body_takes_decorators` drop below. Tell the
+        // decorator parser so it tolerates an unsupported date literal in that
+        // discarded LIMIT / OFFSET, the same way the always-discarded ORDER BY
+        // does. A real `(select …)` body keeps them, so it stays strict.
+        let body_is_placeholder = !matches!(
+            first.get("node").and_then(Value::as_str),
+            Some("SelectQuery") | Some("SelectSetQuery")
+        );
+        let trailing = self.parse_trailing_set_decorators(body_is_placeholder)?;
 
         if subsequent.is_empty() {
             // cpp's `VISIT(SelectSetStmt)` only writes `limit_percent`
@@ -214,7 +224,10 @@ impl<'a> Parser<'a> {
         Ok(Some(op))
     }
 
-    fn parse_trailing_set_decorators(&mut self) -> Result<Vec<(String, Value)>, ParseError> {
+    fn parse_trailing_set_decorators(
+        &mut self,
+        body_is_placeholder: bool,
+    ) -> Result<Vec<(String, Value)>, ParseError> {
         let mut out: Vec<(String, Value)> = Vec::new();
         // `selectSetStmt`'s `orderByClause?` slot at this level is
         // parsed by ANTLR but cpp's `VISIT(SelectSetStmt)` never emits
@@ -263,11 +276,35 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        // Trailing LIMIT/OFFSET on the set. Mirrors
-        // `limitAndOffsetClauseOptional` in the grammar:
-        //   `LIMIT columnExpr PERCENT? (COMMA columnExpr)? (WITH TIES)?`
-        //   `LIMIT columnExpr PERCENT? (WITH TIES)? OFFSET columnExpr`
-        //   `OFFSET columnExpr`
+        // Trailing LIMIT / OFFSET. For a `{placeholder}` body these are
+        // dropped (the body can't carry them) and cpp never visits them, so —
+        // exactly like the ORDER BY above — tolerate an unsupported date
+        // literal inside. Gate on `body_is_placeholder` so a real `(select …)`
+        // body, whose LIMIT / OFFSET ARE kept and visited, stays strict.
+        // Restore the flag on every exit (incl. errors an outer `try_alt` may
+        // roll back) before propagating.
+        let prev_date = self.suppress_date_literal_check;
+        if body_is_placeholder {
+            self.suppress_date_literal_check = true;
+        }
+        let limit_offset_result = self.parse_set_trailing_limit_offset(&mut out);
+        self.suppress_date_literal_check = prev_date;
+        limit_offset_result?;
+        Ok(out)
+    }
+
+    /// Parse the trailing `limitAndOffsetClauseOptional` of a `selectSetStmt`,
+    /// pushing any `limit` / `offset` / `limit_percent` / `limit_with_ties`
+    /// decorators onto `out`. Split out of `parse_trailing_set_decorators` so
+    /// the caller can scope the date-literal-check suppression around it.
+    /// Mirrors the grammar:
+    ///   `LIMIT columnExpr PERCENT? (COMMA columnExpr)? (WITH TIES)?`
+    ///   `LIMIT columnExpr PERCENT? (WITH TIES)? OFFSET columnExpr`
+    ///   `OFFSET columnExpr`
+    fn parse_set_trailing_limit_offset(
+        &mut self,
+        out: &mut Vec<(String, Value)>,
+    ) -> Result<(), ParseError> {
         if self.eat_kw(Kw::Limit)? {
             // The initial parse stops at BP_MULT+1 so `limit_resolve_percent`
             // sees `%` undigested and can decide PERCENT-marker vs modulo.
@@ -327,7 +364,7 @@ impl<'a> Parser<'a> {
             let off = self.parse_expr_bp(0)?;
             out.push(("offset".into(), off));
         }
-        Ok(out)
+        Ok(())
     }
 
     fn parse_select_stmt_with_parens(&mut self) -> Result<Value, ParseError> {
