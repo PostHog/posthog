@@ -20,6 +20,9 @@ class EventKindSpec:
     button_label: str
     webhook_body: dict[str, Any]
 
+    def destination_description(self, alert_name: str) -> str:
+        return f'Sends {self.display_kind} notifications for logs alert "{alert_name}".'
+
 
 _FIRE_RESOLVE_DATA: dict[str, str] = {
     "alert_id": "{event.properties.alert_id}",
@@ -193,7 +196,7 @@ def build_slack_config(
         "enabled": True,
         "filters": _filter_for(alert, kind),
         "name": f"Logs alert — {alert.name} ({spec.display_kind}) → Slack #{channel_display}",
-        "description": f'Sends {spec.display_kind} notifications for logs alert "{alert.name}".',
+        "description": spec.destination_description(alert.name),
         "template_id": "template-slack",
         "inputs": {
             "blocks": {"value": _slack_blocks(spec)},
@@ -216,7 +219,7 @@ def build_webhook_config(
         "enabled": True,
         "filters": _filter_for(alert, kind),
         "name": f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {webhook_url}",
-        "description": f'Sends {spec.display_kind} notifications for logs alert "{alert.name}".',
+        "description": spec.destination_description(alert.name),
         "template_id": "template-webhook",
         "inputs": {
             "body": {"value": spec.webhook_body},
