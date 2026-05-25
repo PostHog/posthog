@@ -32,7 +32,7 @@ export const getWizardSessionsListUrl = (projectId: string, params?: WizardSessi
 }
 
 /**
- * List wizard sessions for the project, ordered by started_at desc. Optional filters: ?workflow_id=<id> and ?skill_id=<id>.
+ * List wizard sessions for the project, ordered by started_at desc. This should only be called by the PostHog Wizard.Optional filters: ?workflow_id=<id> and ?skill_id=<id>.
  */
 export const wizardSessionsList = async (
     projectId: string,
@@ -65,19 +65,19 @@ export const wizardSessionsCreate = async (
     })
 }
 
-export const getWizardSessionsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/wizard/sessions/${id}/`
+export const getWizardSessionsRetrieveUrl = (projectId: string, sessionId: string) => {
+    return `/api/projects/${projectId}/wizard/sessions/${sessionId}/`
 }
 
 /**
- * Retrieve a single wizard session by its session_id (path parameter {id}).
+ * Retrieve a single wizard session by its session_id.
  */
 export const wizardSessionsRetrieve = async (
     projectId: string,
-    id: string,
+    sessionId: string,
     options?: RequestInit
 ): Promise<WizardSessionDTOApi> => {
-    return apiMutator<WizardSessionDTOApi>(getWizardSessionsRetrieveUrl(projectId, id), {
+    return apiMutator<WizardSessionDTOApi>(getWizardSessionsRetrieveUrl(projectId, sessionId), {
         ...options,
         method: 'GET',
     })

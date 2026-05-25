@@ -72,6 +72,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create"]
     http_method_names = ["get", "post", "head", "options"]
+    lookup_field = "session_id"
     lookup_value_regex = r"[^/]+"
 
     def check_permissions(self, request: Request) -> None:
@@ -82,7 +83,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         description=(
-            "List wizard sessions for the project, ordered by started_at desc. "
+            "List wizard sessions for the project, ordered by started_at desc. This should only be called by the PostHog Wizard."
             "Optional filters: ?workflow_id=<id> and ?skill_id=<id>."
         ),
         responses={200: WizardSessionSerializer(many=True)},
@@ -99,14 +100,14 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(WizardSessionSerializer(sessions, many=True).data)
 
     @extend_schema(
-        description="Retrieve a single wizard session by its session_id (path parameter {id}).",
+        description="Retrieve a single wizard session by its session_id.",
         responses={
             200: WizardSessionSerializer,
             404: OpenApiResponse(description="No session with that id for this project."),
         },
     )
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        session_id = kwargs.get("pk")
+        session_id = kwargs.get("session_id")
         if not session_id:
             return Response({"detail": "session_id is required."}, status=status.HTTP_400_BAD_REQUEST)
         dto = wizard_facade.get(self.team_id, session_id)
