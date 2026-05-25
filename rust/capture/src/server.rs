@@ -93,6 +93,7 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         app,
         server_handle,
         sink,
+        v1_sink_router,
         http1_header_read_timeout_ms,
     } = components;
 
@@ -235,6 +236,14 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
             error!("Sink flush failed: {e:#}");
         }
         info!("Sink flush complete");
+
+        if let Some(ref v1_router) = v1_sink_router {
+            info!("Flushing v1 sink router...");
+            if let Err(e) = v1_router.flush().await {
+                error!("V1 sink router flush failed: {e:#}");
+            }
+            info!("V1 sink router flush complete");
+        }
 
         // _scope drops here -> ProcessScopeGuard signals WorkCompleted
     }
