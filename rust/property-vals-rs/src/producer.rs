@@ -110,4 +110,3 @@ impl Producer for AggregatedProducer {
         Ok(())
     }
 }
-
