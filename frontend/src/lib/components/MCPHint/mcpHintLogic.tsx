@@ -1,7 +1,10 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { toast } from 'react-toastify'
 
+import { IconX } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -11,6 +14,10 @@ import { UserType } from '~/types'
 import type { mcpHintLogicType } from './mcpHintLogicType'
 import { MCPHintToast } from './MCPHintToast'
 import type { SurfaceKey, SurfacePromptContext } from './prompts'
+
+// In production the toast auto-dismisses after a few seconds so it doesn't linger;
+// in development we keep it open so it's easier to inspect.
+const AUTO_DISMISS_MS = process.env.NODE_ENV === 'development' ? false : 15000
 
 // A full week between hints, regardless of surface — these are promotional,
 // so we err heavily on the side of not overloading people.
@@ -92,11 +99,25 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
             try {
                 toast.info(<MCPHintToast surfaceKey={surfaceKey} context={context} />, {
                     toastId: `mcp-hint-${surfaceKey}-${now}`,
-                    autoClose: false,
+                    autoClose: AUTO_DISMISS_MS,
                     closeOnClick: false,
                     draggable: false,
                     hideProgressBar: true,
                     icon: false,
+                    // Clicking the X is the only way to permanently hide this surface — auto-dismiss
+                    // (timeout) shouldn't count, so we wire dismissSurface here, not in onClose.
+                    closeButton: ({ closeToast }) => (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={<IconX />}
+                            onClick={(e) => {
+                                actions.dismissSurface(surfaceKey)
+                                closeToast(e)
+                            }}
+                            data-attr="mcp-hint-close"
+                        />
+                    ),
                 })
                 actions.recordShown(now)
                 actions.reportMCPHintShown(surfaceKey)
