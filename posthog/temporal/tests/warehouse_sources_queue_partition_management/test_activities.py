@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -226,7 +226,7 @@ def test_appends_error_for_each_failed_delete() -> None:
         f"{BASE}/dt=2020-01-02",
     ]
     errors: list[str] = []
-    delete_raises = {
+    delete_raises: dict[str, Exception] = {
         f"{BASE}/dt=2020-01-01": OSError("first"),
         f"{BASE}/dt=2020-01-02": OSError("second"),
     }
@@ -302,7 +302,7 @@ class _FakePgConn:
     def __enter__(self) -> _FakePgConn:
         return self
 
-    def __exit__(self, *args: Any) -> bool:
+    def __exit__(self, *args: Any) -> Literal[False]:
         return False
 
     def execute(self, _sql: Any, _params: Any = None) -> MagicMock:
@@ -340,7 +340,7 @@ async def test_activity_result_includes_s3_deleted(activity_environment) -> None
 @pytest.mark.asyncio
 async def test_activity_s3_failure_marks_success_false_and_triggers_slack(activity_environment) -> None:
     entries = [f"{BASE}/dt=2000-01-01"]
-    delete_raises = {f"{BASE}/dt=2000-01-01": OSError("kaboom")}
+    delete_raises: dict[str, Exception] = {f"{BASE}/dt=2000-01-01": OSError("kaboom")}
 
     with (
         _patched_pg(),
