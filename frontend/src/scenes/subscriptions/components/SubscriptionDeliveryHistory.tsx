@@ -52,8 +52,8 @@ function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
             label = row.status
             tagType = 'default'
     }
-    const failureMessage = (row.error as { message: string; type: string } | null)?.message
-    if (row.status === SubscriptionDeliveryStatusEnumApi.Failed && failureMessage) {
+    const failureMessage = (row.error as { message?: unknown } | null)?.message
+    if (row.status === SubscriptionDeliveryStatusEnumApi.Failed && typeof failureMessage === 'string') {
         return (
             <Tooltip title={failureMessage}>
                 <LemonTag type={tagType} className="cursor-help">
