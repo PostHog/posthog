@@ -147,4 +147,3 @@ class TestQuotaLimitsAPI(APIBaseTest):
 
         self.assertEqual(resp_self.json()["limited"]["ai_credits"], {"limited": True})
         self.assertEqual(resp_other.json()["limited"]["ai_credits"], {"limited": False})
-
