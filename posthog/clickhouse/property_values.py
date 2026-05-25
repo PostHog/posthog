@@ -50,7 +50,7 @@ SETTINGS
         table_name=TABLE_NAME,
         engine=AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED),
         extra_fields=""",
-    INDEX idx_property_value lower(property_value) TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1""",
+    INDEX idx_property_value_ngrambf lower(property_value) TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1""",
     )
 
 
