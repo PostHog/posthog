@@ -1,4 +1,4 @@
-import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
+import { EventType, eventWithTime, fullSnapshotEvent } from 'posthog-js/rrweb-types'
 
 import { transformEventToWeb } from '../mobile'
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'

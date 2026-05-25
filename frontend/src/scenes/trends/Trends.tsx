@@ -39,6 +39,13 @@ const TrendsPieChart = lazy(() =>
         default: m.TrendsPieChart,
     }))
 )
+const TrendsLifecycleChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart').then(
+        (m) => ({
+            default: m.TrendsLifecycleChart,
+        })
+    )
+)
 
 interface Props {
     view: InsightType
@@ -66,8 +73,13 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
 
     const hogChartsTrendsEnabled =
         featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS] && !isLifecycle && !isStickiness
+    const hogChartsLifecycleEnabled =
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_LIFECYCLE] && isLifecycle
 
     const renderViz = (): JSX.Element | undefined => {
+        if (hogChartsLifecycleEnabled) {
+            return <TrendsLifecycleChart context={context} inSharedMode={inSharedMode} />
+        }
         if (
             !display ||
             display === ChartDisplayType.ActionsLineGraph ||

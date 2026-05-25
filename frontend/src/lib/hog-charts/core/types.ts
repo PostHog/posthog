@@ -197,6 +197,9 @@ export interface BarChartConfig extends ChartConfig {
      *  `barLayout: 'grouped'`; ignored for stacked/percent (the "share of a whole"
      *  semantics don't apply when bars share a band). Defaults to `false`. */
     barTrack?: boolean
+    /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack
+     *  below the zero baseline (positives above). Default `false` clamps negatives to 0. */
+    divergingStack?: boolean
 }
 
 export interface LineChartConfig extends ChartConfig {

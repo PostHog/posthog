@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
-import { useCallback, useMemo, type ErrorInfo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
@@ -20,9 +19,10 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
-import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
@@ -33,12 +33,7 @@ interface TrendsLineChartProps {
 
 const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
-const handleChartError = (error: Error, info: ErrorInfo): void => {
-    posthog.captureException(error, {
-        feature: 'trends-line-chart',
-        componentStack: info.componentStack ?? undefined,
-    })
-}
+const handleChartError = makeChartErrorHandler('trends-line-chart')
 
 export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -101,14 +96,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 isStickiness,
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
-                buildMeta: (rr) => ({
-                    action: rr.action,
-                    breakdown_value: rr.breakdown_value,
-                    compare_label: rr.compare_label,
-                    days: rr.days,
-                    order: rr.action?.order ?? rr.id,
-                    filter: rr.filter,
-                }),
+                buildMeta: buildTrendsSeriesMeta,
             }),
         [
             indexedResults,

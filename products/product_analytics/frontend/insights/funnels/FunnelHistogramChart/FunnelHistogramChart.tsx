@@ -6,12 +6,12 @@ import { buildTheme } from 'lib/charts/utils/theme'
 import { BarChart, ValueLabels } from 'lib/hog-charts'
 import type { BarChartConfig } from 'lib/hog-charts'
 import { humanFriendlyNumber } from 'lib/utils'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { funnelDataLogic } from '../../funnelDataLogic'
 import { buildFunnelHistogramData } from './funnelHistogramTransforms'
 
 const CHART_CONFIG: BarChartConfig = {
