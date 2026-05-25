@@ -769,12 +769,19 @@ Expected to show:
 }
 
 export const BuildFilterFromScratch: Story = {
-    render: withFilter({
-        id: null,
-        mode: 'disabled',
-        filter_tree: { type: 'or', children: [] },
-        test_cases: [],
-    }),
+    render: () => {
+        // 204 makes afterMount short-circuit, so the form keeps its defaults
+        // (empty OR, no test cases, disabled mode) and the play function can
+        // build the tree without racing the API load.
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/event_filter/': () => [204, null],
+                '/api/environments/:team_id/event_filter/metrics/': EMPTY_METRICS,
+                '/api/environments/:team_id/event_filter/metrics/totals/': EMPTY_TOTALS,
+            },
+        })
+        return <App />
+    },
     parameters: {
         docs: {
             description: {
