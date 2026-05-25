@@ -20,6 +20,7 @@ function createMockContext(): Context {
             POSTHOG_API_BASE_URL: undefined,
             POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
             POSTHOG_UI_APPS_TOKEN: undefined,
+            MCP_KV: undefined,
         },
         stateManager: {
             getApiKey: async () => ({ scopes: ['*'] }),

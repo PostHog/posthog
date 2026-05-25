@@ -1,34 +1,26 @@
 import { describe, expect, it } from 'vitest'
 
-import { fetchContextMillResources, loadManifestFromArchive } from '@/resources/internals'
+import { getManifest } from '@/resources/kv-store'
 
 describe('Context-Mill Manifest Integration', () => {
-    it('should fetch, unzip, and validate the manifest from GitHub releases', async () => {
-        const archive = await fetchContextMillResources()
+    it('should fetch and validate the manifest from GitHub releases', async () => {
+        // No KV binding in this test — getManifest falls back to the origin fetch.
+        const manifest = await getManifest({ MCP_KV: undefined })
 
-        // Verify archive is not empty
-        expect(Object.keys(archive).length).toBeGreaterThan(0)
+        expect(manifest.version).toBeTruthy()
+        expect(Array.isArray(manifest.resources)).toBe(true)
+        expect(manifest.resources.length).toBeGreaterThan(0)
 
-        // Verify manifest.json exists and validates
-        const validatedManifest = loadManifestFromArchive(archive)
-
-        // Verify expected structure
-        expect(validatedManifest.version).toBe('1.0')
-        expect(Array.isArray(validatedManifest.resources)).toBe(true)
-
-        // Verify we have actual resources
-        expect(validatedManifest.resources.length).toBeGreaterThan(0)
-
-        // Verify each resource has required fields and its file exists in archive
-        for (const entry of validatedManifest.resources) {
+        for (const entry of manifest.resources) {
             expect(entry.id).toBeTruthy()
             expect(entry.name).toBeTruthy()
+            expect(entry.uri).toBeTruthy()
             expect(entry.resource).toBeTruthy()
             expect(entry.resource.mimeType).toBeTruthy()
+            // `text` is required by the manifest validator — for URL-shaped
+            // entries the value is the download URL, which our `getResourceText`
+            // helper detects and follows on read.
             expect(entry.resource.text).toBeTruthy()
-            if (entry.file) {
-                expect(archive[entry.file]).toBeTruthy()
-            }
         }
     }, 30000)
 })

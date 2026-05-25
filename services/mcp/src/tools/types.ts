@@ -73,6 +73,16 @@ export type Env = {
      * Falls back to the production US host if not set.
      */
     POSTHOG_ANALYTICS_HOST: string | undefined
+    /**
+     * KV namespace used as a shared, edge-cached store for context-mill data
+     * (manifest and per-resource text) so each DO doesn't refetch and pin the
+     * 2.7 MiB bundle zip in its own heap. Bound in `wrangler.jsonc`. Declared
+     * with explicit `| undefined` (rather than `?:`) to match the generated
+     * global `Env` shape under `exactOptionalPropertyTypes: true`. Callers
+     * should fall back to an origin fetch when undefined (some test harnesses
+     * don't bind it).
+     */
+    MCP_KV: KVNamespace | undefined
 }
 
 export type Context = {

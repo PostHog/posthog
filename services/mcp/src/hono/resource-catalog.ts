@@ -1,24 +1,40 @@
 import { RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
-import type { GetPromptResult, ListPromptsResult, ListResourcesResult, Prompt, ReadResourceResult, Resource, TextResourceContents } from '@modelcontextprotocol/sdk/types.js'
+import type {
+    GetPromptResult,
+    ListPromptsResult,
+    ListResourcesResult,
+    Prompt,
+    ReadResourceResult,
+    Resource,
+    TextResourceContents,
+} from '@modelcontextprotocol/sdk/types.js'
 
-import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive, clearResourceCache } from '@/resources/internals'
 import { getPromptsFromManifest } from '@/resources'
-import { UI_APPS } from '@/resources/ui-apps.generated'
-import { buildAppStubHtml } from '@/resources/ui-apps'
+import { getManifest, getResourceText } from '@/resources/kv-store'
 import type { ContextMillResource } from '@/resources/manifest-types'
+import { buildAppStubHtml } from '@/resources/ui-apps'
+import { UI_APPS } from '@/resources/ui-apps.generated'
 import type { Env } from '@/tools/types'
 
 export class ResourceCatalog {
     private readonly env: Env
 
     private resources: Resource[] = []
-    private resourcesByUri = new Map<string, TextResourceContents>()
-    private prompts: Prompt[] = []
-    private promptsByName = new Map<string, GetPromptResult>()
-    private uiAppResources: Resource[] = []
+    /**
+     * For UI apps and prompts we materialize the text at warmup because it's
+     * generated locally and cheap. Context-mill resources are resolved lazily
+     * via {@link getResourceText} on read; only their metadata lives in this
+     * map, keyed by URI, so the Worker doesn't pin the full skill catalog in
+     * heap.
+     */
+    private contextMillEntriesByUri = new Map<string, ContextMillResource>()
+    private contextMillVersion: string | undefined
     private uiAppReadEntries = new Map<string, TextResourceContents>()
     private allResources: Resource[] = []
     private contextMillData: readonly ContextMillResource[] = []
+    private prompts: Prompt[] = []
+    private promptsByName = new Map<string, GetPromptResult>()
+    private uiAppResources: Resource[] = []
 
     constructor(env: Env) {
         this.env = env
@@ -37,22 +53,35 @@ export class ResourceCatalog {
         return { resources: this.allResources }
     }
 
-    readResource(params: Record<string, unknown> | undefined): ReadResourceResult {
+    async readResource(params: Record<string, unknown> | undefined): Promise<ReadResourceResult> {
         const uri = (params?.uri as string) ?? ''
-        const entry = this.resourcesByUri.get(uri) ?? this.uiAppReadEntries.get(uri)
-        if (!entry) {
-            return { contents: [] }
+        const uiEntry = this.uiAppReadEntries.get(uri)
+        if (uiEntry) {
+            return {
+                contents: [
+                    {
+                        uri: uiEntry.uri,
+                        mimeType: uiEntry.mimeType,
+                        text: uiEntry.text,
+                        ...(uiEntry._meta ? { _meta: uiEntry._meta } : {}),
+                    },
+                ],
+            }
         }
-        return {
-            contents: [
-                {
-                    uri: entry.uri,
-                    mimeType: entry.mimeType,
-                    text: entry.text,
-                    ...(entry._meta ? { _meta: entry._meta } : {}),
-                },
-            ],
+        const cmEntry = this.contextMillEntriesByUri.get(uri)
+        if (cmEntry && this.contextMillVersion) {
+            const text = await getResourceText(this.env, this.contextMillVersion, cmEntry)
+            return {
+                contents: [
+                    {
+                        uri,
+                        mimeType: cmEntry.resource.mimeType,
+                        text,
+                    },
+                ],
+            }
         }
+        return { contents: [] }
     }
 
     getPromptsList(): ListPromptsResult {
@@ -70,23 +99,18 @@ export class ResourceCatalog {
 
     private async warmupResources(): Promise<void> {
         try {
-            const archive = await fetchContextMillResources()
-            const manifest = loadManifestFromArchive(archive)
-            this.contextMillData = filterValidEntries(manifest.resources, archive)
-            clearResourceCache()
+            const manifest = await getManifest(this.env)
+            this.contextMillVersion = manifest.version
+            this.contextMillData = manifest.resources
 
-            for (const entry of this.contextMillEntries) {
+            for (const entry of this.contextMillData) {
                 this.resources.push({
                     name: entry.name,
                     uri: entry.uri,
                     mimeType: entry.resource.mimeType,
                     description: entry.resource.description,
                 })
-                this.resourcesByUri.set(entry.uri, {
-                    uri: entry.uri,
-                    mimeType: entry.resource.mimeType,
-                    text: entry.resource.text,
-                })
+                this.contextMillEntriesByUri.set(entry.uri, entry)
             }
         } catch (error) {
             console.error('[ResourceCatalog] Failed to pre-load context-mill resources:', error)
@@ -109,7 +133,9 @@ export class ResourceCatalog {
 
     private async warmupUiApps(): Promise<void> {
         const baseUrl = this.env.MCP_APPS_BASE_URL
-        if (!baseUrl) {return}
+        if (!baseUrl) {
+            return
+        }
 
         const analyticsBaseUrl = this.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
 

@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/resources/internals', () => ({
-    fetchContextMillResources: vi.fn(),
-    filterValidEntries: vi.fn(),
-    loadManifestFromArchive: vi.fn(),
-    clearResourceCache: vi.fn(),
+vi.mock('@/resources/kv-store', () => ({
+    getManifest: vi.fn(),
+    getResourceText: vi.fn(),
 }))
 
 vi.mock('@/resources', () => ({
@@ -14,17 +12,22 @@ vi.mock('@/resources', () => ({
 vi.mock('@/resources/ui-apps.generated', async (importOriginal) => importOriginal())
 vi.mock('@/resources/ui-apps', async (importOriginal) => importOriginal())
 
-import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive } from '@/resources/internals'
-import { getPromptsFromManifest } from '@/resources'
 import { ResourceCatalog } from '@/hono/resource-catalog'
+import { getPromptsFromManifest } from '@/resources'
+import { getManifest, getResourceText } from '@/resources/kv-store'
 
 const mockEnv = {
     MCP_APPS_BASE_URL: 'https://apps.test',
     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
 } as any
 
-function makeContextMillEntry(name: string, uri: string): { name: string; uri: string; resource: { mimeType: string; description: string; text: string } } {
+function makeContextMillEntry(
+    id: string,
+    name: string,
+    uri: string
+): { id: string; name: string; uri: string; resource: { mimeType: string; description: string; text: string } } {
     return {
+        id,
         name,
         uri,
         resource: {
@@ -35,22 +38,30 @@ function makeContextMillEntry(name: string, uri: string): { name: string; uri: s
     }
 }
 
+function mockManifestWith(entries: ReturnType<typeof makeContextMillEntry>[]): void {
+    vi.mocked(getManifest).mockResolvedValue({ version: 'v1.test', resources: entries as any } as any)
+}
+
 describe('ResourceCatalog', () => {
     beforeEach(() => {
         vi.clearAllMocks()
+        // Default: getResourceText echoes inline text so tests don't need to stub it explicitly.
+        vi.mocked(getResourceText).mockImplementation(async (_env, _version, entry) => entry.resource.text)
     })
 
     describe('warmup and resource listing', () => {
         it('serves resources and prompts after warmup', async () => {
-            const entries = [
-                makeContextMillEntry('guide', 'posthog://guide'),
-                makeContextMillEntry('faq', 'posthog://faq'),
-            ]
-            vi.mocked(fetchContextMillResources).mockResolvedValue('archive' as any)
-            vi.mocked(loadManifestFromArchive).mockReturnValue({ resources: [] } as any)
-            vi.mocked(filterValidEntries).mockReturnValue(entries as any)
+            mockManifestWith([
+                makeContextMillEntry('guide-id', 'guide', 'posthog://guide'),
+                makeContextMillEntry('faq-id', 'faq', 'posthog://faq'),
+            ])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([
-                { name: 'greet', title: 'Greet', description: 'A greeting', messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }] },
+                {
+                    name: 'greet',
+                    title: 'Greet',
+                    description: 'A greeting',
+                    messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }],
+                },
             ] as any)
 
             const catalog = new ResourceCatalog(mockEnv)
@@ -66,9 +77,7 @@ describe('ResourceCatalog', () => {
         })
 
         it('pre-merges resource list so getResourcesList returns a stable array', async () => {
-            vi.mocked(fetchContextMillResources).mockResolvedValue('archive' as any)
-            vi.mocked(loadManifestFromArchive).mockReturnValue({ resources: [] } as any)
-            vi.mocked(filterValidEntries).mockReturnValue([makeContextMillEntry('a', 'posthog://a')] as any)
+            mockManifestWith([makeContextMillEntry('a-id', 'a', 'posthog://a')])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv)
@@ -78,44 +87,60 @@ describe('ResourceCatalog', () => {
             const list2 = catalog.getResourcesList().resources
             expect(list1).toBe(list2)
         })
+
+        it('does not pre-materialize resource text — lazy fetch happens on read', async () => {
+            mockManifestWith([makeContextMillEntry('doc-id', 'doc', 'posthog://doc')])
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv)
+            await catalog.warmup()
+
+            expect(getResourceText).not.toHaveBeenCalled()
+        })
     })
 
     describe('readResource', () => {
-        it('returns contents for a known URI', async () => {
-            vi.mocked(fetchContextMillResources).mockResolvedValue('archive' as any)
-            vi.mocked(loadManifestFromArchive).mockReturnValue({ resources: [] } as any)
-            vi.mocked(filterValidEntries).mockReturnValue([makeContextMillEntry('doc', 'posthog://doc')] as any)
+        it('returns contents for a known URI by calling getResourceText with the manifest version', async () => {
+            mockManifestWith([makeContextMillEntry('doc-id', 'doc', 'posthog://doc')])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+            vi.mocked(getResourceText).mockResolvedValue('lazy-fetched-text')
 
             const catalog = new ResourceCatalog(mockEnv)
             await catalog.warmup()
 
-            const result = catalog.readResource({ uri: 'posthog://doc' }) as any
+            const result = (await catalog.readResource({ uri: 'posthog://doc' })) as any
             expect(result.contents).toHaveLength(1)
-            expect(result.contents[0].text).toBe('content of doc')
+            expect(result.contents[0].text).toBe('lazy-fetched-text')
+            expect(getResourceText).toHaveBeenCalledWith(
+                mockEnv,
+                'v1.test',
+                expect.objectContaining({ id: 'doc-id', uri: 'posthog://doc' })
+            )
         })
 
-        it('returns empty contents for unknown URI', async () => {
-            vi.mocked(fetchContextMillResources).mockResolvedValue('archive' as any)
-            vi.mocked(loadManifestFromArchive).mockReturnValue({ resources: [] } as any)
-            vi.mocked(filterValidEntries).mockReturnValue([])
+        it('returns empty contents for unknown URI without calling getResourceText', async () => {
+            mockManifestWith([])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv)
             await catalog.warmup()
 
-            const result = catalog.readResource({ uri: 'posthog://nonexistent' }) as any
+            const result = (await catalog.readResource({ uri: 'posthog://nonexistent' })) as any
             expect(result.contents).toEqual([])
+            expect(getResourceText).not.toHaveBeenCalled()
         })
     })
 
     describe('getPrompt', () => {
         it('returns messages for a known prompt name', async () => {
-            vi.mocked(fetchContextMillResources).mockResolvedValue('archive' as any)
-            vi.mocked(loadManifestFromArchive).mockReturnValue({ resources: [] } as any)
-            vi.mocked(filterValidEntries).mockReturnValue([])
+            mockManifestWith([])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([
-                { name: 'test-prompt', title: 'T', description: 'D', messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }] },
+                {
+                    name: 'test-prompt',
+                    title: 'T',
+                    description: 'D',
+                    messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+                },
             ] as any)
 
             const catalog = new ResourceCatalog(mockEnv)
@@ -126,9 +151,7 @@ describe('ResourceCatalog', () => {
         })
 
         it('returns empty messages for unknown prompt', async () => {
-            vi.mocked(fetchContextMillResources).mockResolvedValue('archive' as any)
-            vi.mocked(loadManifestFromArchive).mockReturnValue({ resources: [] } as any)
-            vi.mocked(filterValidEntries).mockReturnValue([])
+            mockManifestWith([])
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv)
@@ -140,8 +163,8 @@ describe('ResourceCatalog', () => {
     })
 
     describe('error resilience', () => {
-        it('continues serving prompts when resource fetch fails', async () => {
-            vi.mocked(fetchContextMillResources).mockRejectedValue(new Error('network'))
+        it('continues serving prompts when manifest fetch fails', async () => {
+            vi.mocked(getManifest).mockRejectedValue(new Error('network'))
             vi.mocked(getPromptsFromManifest).mockResolvedValue([
                 { name: 'p', title: 'P', description: 'D', messages: [] },
             ] as any)
@@ -155,9 +178,7 @@ describe('ResourceCatalog', () => {
         })
 
         it('continues serving resources when prompt fetch fails', async () => {
-            vi.mocked(fetchContextMillResources).mockResolvedValue('archive' as any)
-            vi.mocked(loadManifestFromArchive).mockReturnValue({ resources: [] } as any)
-            vi.mocked(filterValidEntries).mockReturnValue([makeContextMillEntry('r', 'posthog://r')] as any)
+            mockManifestWith([makeContextMillEntry('r-id', 'r', 'posthog://r')])
             vi.mocked(getPromptsFromManifest).mockRejectedValue(new Error('fail'))
 
             const catalog = new ResourceCatalog(mockEnv)

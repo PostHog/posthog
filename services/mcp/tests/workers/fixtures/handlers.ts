@@ -61,6 +61,11 @@ const contextMillManifest = {
     ],
 }
 
+// context-mill publishes a single bundle zip per release with `manifest.json`
+// inside. The MCP server fetches this zip transiently to extract just the
+// manifest, then discards the rest — per-resource content is fetched on demand
+// via each entry's `downloadUrl`. Our test fixture inlines text, so no
+// per-resource fetch is exercised here.
 const contextMillZip = zipSync({
     'manifest.json': strToU8(JSON.stringify(contextMillManifest)),
 })
