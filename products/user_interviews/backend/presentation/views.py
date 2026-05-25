@@ -816,6 +816,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "send_invites",
         "add_interviewee",
         "remove_interviewee",
+        "test_link",
     ]
     queryset = UserInterviewTopic.objects.select_related("created_by").all()
     serializer_class = UserInterviewTopicSerializer
