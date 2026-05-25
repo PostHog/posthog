@@ -250,14 +250,15 @@ class AccountNotebookViewSet(
     filter_rewrite_rules = {"account_id": "resources__account_id"}
 
     def _get_account(self) -> Account:
-        return get_object_or_404(
+        queryset = self.user_access_control.filter_queryset_by_access_level(
             Account.objects.unscoped().filter(team_id=self.team.id),
-            id=self.parents_query_dict["account_id"],
         )
+        return get_object_or_404(queryset, id=self.parents_query_dict["account_id"])
 
     def safely_get_queryset(self, queryset):
+        self._get_account()
         return (
-            queryset.filter(deleted=False)
+            queryset.filter(deleted=False, visibility=Notebook.Visibility.INTERNAL)
             .select_related("created_by", "last_modified_by")
             .order_by("-last_modified_at")
         )

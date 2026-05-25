@@ -1113,6 +1113,26 @@ class TestAccountNotebookViewSet(APIBaseTest):
                 response = getattr(self.client, method.lower())(url, format="json")
                 self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
 
+    def test_list_excludes_non_internal_notebooks_linked_to_account(self):
+        from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+        internal_notebook = Notebook.objects.create(
+            team=self.team, title="Internal", content={}, visibility=Notebook.Visibility.INTERNAL
+        )
+        ResourceNotebook.objects.create(notebook=internal_notebook, account=self.account)
+
+        default_notebook = Notebook.objects.create(
+            team=self.team, title="Default", content={}, visibility=Notebook.Visibility.DEFAULT
+        )
+        ResourceNotebook.objects.create(notebook=default_notebook, account=self.account)
+
+        response = self.client.get(self.endpoint_base)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        short_ids = [n["short_id"] for n in response.json()["results"]]
+        self.assertIn(internal_notebook.short_id, short_ids)
+        self.assertNotIn(default_notebook.short_id, short_ids)
+
 
 @pytest.mark.ee
 class TestCustomerAnalyticsAccessControl(APIBaseTest):
@@ -1347,3 +1367,28 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
         response = self.client.get(self.accounts_url)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    # -- Account notebooks inherit object-level access from the parent account --
+
+    def test_account_notebooks_404_when_parent_account_access_denied(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(
+                user=self.viewer_user, organization=self.organization
+            ),
+        )
+        self._set_access_level(self.viewer_user, resource="account", access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        url = f"{self.accounts_url}{self.account.id}/notebooks/"
+
+        list_response = self.client.get(url)
+        self.assertEqual(list_response.status_code, status.HTTP_404_NOT_FOUND)
+
+        create_response = self.client.post(url, {"title": "x"}, format="json")
+        self.assertEqual(create_response.status_code, status.HTTP_404_NOT_FOUND)
