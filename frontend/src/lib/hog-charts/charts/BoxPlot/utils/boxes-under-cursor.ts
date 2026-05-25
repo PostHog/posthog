@@ -17,12 +17,7 @@ export function cursorInsideBoxRect(
     box: { x: number; width: number; top: number; bottom: number },
     cursor: { x: number; y: number }
 ): boolean {
-    return (
-        cursor.x >= box.x &&
-        cursor.x <= box.x + box.width &&
-        cursor.y >= box.top &&
-        cursor.y <= box.bottom
-    )
+    return cursor.x >= box.x && cursor.x <= box.x + box.width && cursor.y >= box.top && cursor.y <= box.bottom
 }
 
 export interface SeriesKeysAtCursorArgs<Meta> {
@@ -68,10 +63,7 @@ export function seriesKeysAtCursor<Meta>(args: SeriesKeysAtCursorArgs<Meta>): Se
  *  center is closest on the band axis. Returns -1 if the input set is empty. Used by the
  *  hover layer to pick one box to highlight when the band-axis hit narrowed to several
  *  candidates (e.g. wide grouped slots that overlap due to negative padding). */
-export function nearestBoxIndex(
-    boxes: { x: number; width: number }[],
-    cursor: { x: number }
-): number {
+export function nearestBoxIndex(boxes: { x: number; width: number }[], cursor: { x: number }): number {
     if (boxes.length === 0) {
         return -1
     }

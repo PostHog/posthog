@@ -21,7 +21,11 @@ function datum(overrides: Partial<BoxPlotDatum> = {}): BoxPlotDatum {
     return { min: 1, p25: 2, median: 3, mean: 4, p75: 5, max: 6, ...overrides }
 }
 
-function makeContext(seriesEntries: { key: string; label: string; color: string; datums: (BoxPlotDatum | null)[] }[], dataIndex: number, label: string): TooltipContext<AdaptedMeta> {
+function makeContext(
+    seriesEntries: { key: string; label: string; color: string; datums: (BoxPlotDatum | null)[] }[],
+    dataIndex: number,
+    label: string
+): TooltipContext<AdaptedMeta> {
     return {
         dataIndex,
         label,
@@ -65,26 +69,40 @@ describe('BoxPlotTooltip', () => {
 
     it('renders the six stats in the canonical order (Max → p75 → Median → Mean → p25 → Min)', () => {
         const ctx = makeContext(
-            [{ key: 'a', label: 'A', color: '#111', datums: [datum({ min: 1, p25: 2, median: 3, mean: 4, p75: 5, max: 6 })] }],
+            [
+                {
+                    key: 'a',
+                    label: 'A',
+                    color: '#111',
+                    datums: [datum({ min: 1, p25: 2, median: 3, mean: 4, p75: 5, max: 6 })],
+                },
+            ],
             0,
             'Mon'
         )
         const { container } = renderWithLayout(<BoxPlotTooltip ctx={ctx} grouped={false} />)
-        const labels = Array.from(container.querySelectorAll('tr')).map((tr) =>
-            (tr.firstElementChild as HTMLElement)?.textContent?.trim() ?? ''
+        const labels = Array.from(container.querySelectorAll('tr')).map(
+            (tr) => (tr.firstElementChild as HTMLElement)?.textContent?.trim() ?? ''
         )
         expect(labels).toEqual(['Max', '75th percentile', 'Median', 'Mean', '25th percentile', 'Min'])
     })
 
     it('renders the values in the canonical row order', () => {
         const ctx = makeContext(
-            [{ key: 'a', label: 'A', color: '#111', datums: [datum({ min: 1, p25: 2, median: 3, mean: 4, p75: 5, max: 6 })] }],
+            [
+                {
+                    key: 'a',
+                    label: 'A',
+                    color: '#111',
+                    datums: [datum({ min: 1, p25: 2, median: 3, mean: 4, p75: 5, max: 6 })],
+                },
+            ],
             0,
             'Mon'
         )
         const { container } = renderWithLayout(<BoxPlotTooltip ctx={ctx} grouped={false} />)
-        const values = Array.from(container.querySelectorAll('tr')).map((tr) =>
-            (tr.lastElementChild as HTMLElement)?.textContent?.trim() ?? ''
+        const values = Array.from(container.querySelectorAll('tr')).map(
+            (tr) => (tr.lastElementChild as HTMLElement)?.textContent?.trim() ?? ''
         )
         expect(values).toEqual(['6', '5', '3', '4', '2', '1'])
     })
@@ -131,9 +149,7 @@ describe('BoxPlotTooltip', () => {
     it('passes through to a user-supplied tooltip when provided', () => {
         const userTooltip = jest.fn((): React.ReactElement => <div data-attr="custom-boxplot-user-tooltip">custom</div>)
         const ctx = makeContext([{ key: 'a', label: 'A', color: '#111', datums: [datum()] }], 0, 'Mon')
-        const { container } = renderWithLayout(
-            <BoxPlotTooltip ctx={ctx} grouped={false} userTooltip={userTooltip} />
-        )
+        const { container } = renderWithLayout(<BoxPlotTooltip ctx={ctx} grouped={false} userTooltip={userTooltip} />)
         expect(container.querySelector('[data-attr="custom-boxplot-user-tooltip"]')).not.toBeNull()
         expect(userTooltip).toHaveBeenCalled()
     })

@@ -136,13 +136,7 @@ export interface ComputeSeriesBoxesOptions {
 /** Lays out every renderable box for one series. Skipped indices (`null` datum or
  *  unresolvable scales) are dropped from the result — the caller can join back to the
  *  original `data` via `BoxRect.dataIndex`. */
-export function computeSeriesBoxes({
-    seriesKey,
-    data,
-    labels,
-    scales,
-    grouped,
-}: ComputeSeriesBoxesOptions): BoxRect[] {
+export function computeSeriesBoxes({ seriesKey, data, labels, scales, grouped }: ComputeSeriesBoxesOptions): BoxRect[] {
     const out: BoxRect[] = []
     const len = Math.min(data.length, labels.length)
     for (let i = 0; i < len; i++) {

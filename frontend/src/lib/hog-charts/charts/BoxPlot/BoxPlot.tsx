@@ -17,7 +17,13 @@ import type {
     TooltipContext,
 } from '../../core/types'
 import { BoxPlotTooltip } from './BoxPlotTooltip'
-import { computeSeriesBoxes, type BoxPlotDatum, type BoxPlotSeries, type BoxRect } from './computeBoxLayout'
+import {
+    computeBoxRect,
+    computeSeriesBoxes,
+    type BoxPlotDatum,
+    type BoxPlotSeries,
+    type BoxRect,
+} from './computeBoxLayout'
 import { seriesKeysAtCursor } from './utils/boxes-under-cursor'
 
 /** Stash slot — survives a render via `ChartScales._private` so drawStatic/drawHover
@@ -171,11 +177,7 @@ function BoxPlotInner<Meta = unknown>({
     }, [series])
 
     const createScales: CreateScalesFn = useCallback(
-        (
-            coloredSeries: ResolvedSeries[],
-            scaleLabels: string[],
-            dimensions: ChartDimensions
-        ): ChartScales => {
+        (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
             const barLayout = grouped ? 'grouped' : 'stacked'
             const d3Scales = createBarScales(coloredSeries, scaleLabels, dimensions, {
                 scaleType: yScaleType,
@@ -303,14 +305,14 @@ function BoxPlotInner<Meta = unknown>({
                 if (!datum) {
                     continue
                 }
-                const boxes = computeSeriesBoxes({
+                const box = computeBoxRect({
                     seriesKey: s.key,
-                    data: datums,
-                    labels: drawLabels,
+                    label: hoveredLabel,
+                    dataIndex: hoverIndex,
+                    datum,
                     scales: priv.scales,
                     grouped: priv.grouped,
                 })
-                const box = boxes.find((b) => b.dataIndex === hoverIndex)
                 if (!box) {
                     continue
                 }
@@ -411,8 +413,8 @@ function originalSeries<Meta>(series: BoxPlotSeries<Meta>[], key: string): BoxPl
     return series.find((s) => s.key === key) ?? series[0]
 }
 
-/** Best-effort hex/rgb-to-rgba conversion. Falls back to `rgba(0,0,0,alpha)` when the input
- *  isn't a recognised hex color — we don't want a malformed series color to throw mid-draw. */
+/** Best-effort hex/rgb-to-rgba conversion. Returns the original color string unchanged when
+ *  the input isn't a recognised hex/rgb/rgba color — the canvas will attempt to use it as-is. */
 function hexToRgba(color: string, alpha: number): string {
     if (color.startsWith('#')) {
         let hex = color.slice(1)

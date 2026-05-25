@@ -1,6 +1,6 @@
 import { createBarScales } from '../../core/scales'
-import { makeSeries } from '../../testing'
 import type { ChartDimensions } from '../../core/types'
+import { makeSeries } from '../../testing'
 import { computeBoxRect, computeSeriesBoxes, type BoxPlotDatum } from './computeBoxLayout'
 
 const PIXEL_TEST_DIMENSIONS: ChartDimensions = {
@@ -237,7 +237,6 @@ describe('computeBoxRect', () => {
         })!
         expect(box.dataIndex).toBe(2)
     })
-
 })
 
 describe('computeSeriesBoxes', () => {

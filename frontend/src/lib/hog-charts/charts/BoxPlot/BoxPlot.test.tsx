@@ -142,13 +142,7 @@ describe('BoxPlot', () => {
             const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
             try {
                 const { chart } = renderHogChart(
-                    <BoxPlot
-                        series={TWO_SERIES}
-                        labels={LABELS}
-                        theme={THEME}
-                        tooltip={tooltip}
-                        onError={onError}
-                    />
+                    <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} tooltip={tooltip} onError={onError} />
                 )
                 chart.hoverAtIndex(1)
                 await waitFor(() => expect(onError).toHaveBeenCalled())

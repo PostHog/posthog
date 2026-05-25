@@ -692,11 +692,7 @@ export function drawBox(ctx: CanvasRenderingContext2D, box: BoxRect, options: Dr
 
 /** Translucent highlight overlay for a hovered box. Drawn on the overlay canvas so it
  *  composites over the static box without disturbing it — mirrors {@link drawBarHighlight}. */
-export function drawBoxHighlight(
-    ctx: CanvasRenderingContext2D,
-    box: BoxRect,
-    overlayColor: string
-): void {
+export function drawBoxHighlight(ctx: CanvasRenderingContext2D, box: BoxRect, overlayColor: string): void {
     const boxHeight = Math.max(0, box.bottom - box.top)
     if (box.width <= 0 || boxHeight <= 0) {
         return
