@@ -1,21 +1,8 @@
-"""Canonical metadata for native marketing integrations.
+"""Canonical metadata for native marketing integrations: snake-case keys, display
+names, and the static UTM aliases used to recognize ad-platform traffic.
 
-Three things live here, all bound to the same domain ("what are PostHog's
-native marketing integrations and how do we identify them?"):
-
-1. The `NativeIntegration` snake-case keys used across services and APIs.
-2. Display names ("Google Ads", "Meta Ads", …) for human-facing output.
-3. Static UTM aliases used to recognize ad-platform traffic in events.
-
-Multiple services import from here:
-  - `data_source_health` — display names + source-type mapping
-  - `attribution_health` — display names + alias matching
-  - `mapping_suggester` — alias matching + display names
-  - `marketing_diagnostic` — all of the above
-  - `utm_audit` — primary-source resolution for the per-team source map
-
-Keep alias keys lowercase and alphanumeric-only — `normalize()` strips
-everything else before lookup.
+Keep alias keys lowercase and alphanumeric-only — `normalize()` strips everything
+else before lookup.
 """
 
 from collections.abc import Iterator, Mapping
@@ -90,15 +77,11 @@ def normalize(value: str) -> str:
 
 
 def _build_canonical_aliases() -> dict[str, NativeIntegration]:
-    """Build the alias table from PostHog's `INTEGRATION_DEFAULT_SOURCES` (the
-    source of truth used by every adapter and the dashboard's matching). That
-    table already includes the community-variant extras — see
-    `_EXTRA_NATIVE_INTEGRATION_ALIASES` in
-    `products/marketing_analytics/backend/hogql_queries/constants.py` — so the
-    diagnostic and the dashboard agree on what counts as integrated.
+    """Build the alias table from `INTEGRATION_DEFAULT_SOURCES` (the source of truth
+    shared with adapters and the dashboard, so they agree on what's integrated).
 
-    Computed lazily to avoid a circular import on module load — the constants
-    module imports services indirectly during Django app boot.
+    Lazy to avoid a circular import: the constants module imports services
+    indirectly during Django app boot.
     """
     from products.marketing_analytics.backend.hogql_queries.constants import INTEGRATION_DEFAULT_SOURCES
 
@@ -114,28 +97,22 @@ def _build_canonical_aliases() -> dict[str, NativeIntegration]:
 
 @cache
 def canonical_source_aliases() -> Mapping[str, NativeIntegration]:
-    """Return the canonical alias table from the official `*DefaultSources`
-    enums. Cached because the table is immutable — returned as a read-only
-    `MappingProxyType` so the shared cached instance can't be mutated by a
-    caller. Lookup keys are normalized (lowercase, alphanumeric only)."""
+    """Canonical alias table from the official `*DefaultSources` enums. Cached and
+    returned as a read-only `MappingProxyType`; keys are normalized."""
     return MappingProxyType(_build_canonical_aliases())
 
 
 def lookup_alias(raw_utm_source: str) -> NativeIntegration | None:
-    """Exact alias hit only against the canonical alias table. For matching
-    that also honors a team's `custom_source_mappings`, use
-    `build_combined_alias_map` + `lookup_in` instead — that combination
-    respects user-defined overrides like `meta2 -> MetaAds`."""
+    """Exact hit against the canonical alias table only. To also honor a team's
+    `custom_source_mappings`, use `build_combined_alias_map` + `lookup_in`."""
     return canonical_source_aliases().get(normalize(raw_utm_source))
 
 
 @cache
 def aliases_for(integration: NativeIntegration) -> frozenset[str]:
-    """All known raw values that resolve to this integration (normalized form).
+    """All known raw values resolving to this integration (normalized).
 
-    Cached because the canonical alias table is immutable — `attribution_health`
-    and `mapping_suggester` both call this in tight loops over hundreds of rows,
-    and recomputing the filter per call is measurable.
+    Cached — `attribution_health` and `mapping_suggester` call this in tight loops.
     """
     return frozenset(alias for alias, target in canonical_source_aliases().items() if target == integration)
 
@@ -144,12 +121,10 @@ def iter_custom_source_mappings(
     custom_source_mappings: dict | None,
 ) -> Iterator[tuple[NativeIntegration, str]]:
     """Yield (target_native_key, raw_utm_source) pairs from a team's
-    `custom_source_mappings` config blob, skipping unknown integration types.
+    `custom_source_mappings`, skipping unknown integration types.
 
-    Single source of truth for "iterate the config" — both the alias map
-    (normalized keys, `NativeIntegration` values) and `utm_audit` (lowered
-    keys, primary-source values) consume this so we don't drift on the
-    NativeMarketingSource enum-resolution rules.
+    Single source of truth for iterating the config — both the alias map and
+    `utm_audit` consume this so enum-resolution rules don't drift.
     """
     if not custom_source_mappings:
         return

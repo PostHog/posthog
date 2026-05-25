@@ -1,26 +1,10 @@
 """Inspect configured conversion goals: shape, last-30d counts, integrated split,
-and per-goal event breakdowns.
+and per-goal event breakdowns. Read-only.
 
-This service is read-only and answers two questions:
-
-1. `list_conversion_goals(team)` — what goals does this team have, are any of
-   them misconfigured, and how have they performed in the last 30 days?
-2. `explain_conversion_goal(team, goal_id, period)` — for a specific goal,
-   which events drove its count and how do they break down by utm_source.
-
-It deliberately does NOT compute the marketing dashboard's full attribution
-math — that lives in `conversion_goal_processor.ConversionGoalProcessor` and
-honors the team's `attribution_window_days` and `attribution_mode`. Here we
-only need quick, explainable counts that answer "what is this number?", so:
-
-  - The window is fixed at `DEFAULT_LOOKBACK_DAYS` (30) regardless of the
-    team's configured `attribution_window_days`.
-  - For ActionsNode goals, only the action's step events are matched —
-    property/URL filters from the action are NOT applied.
-
-Both differences are surfaced through `ConversionGoalSummary.is_approximate`
-and reported by the LLM-facing formatter so the user is never told "200
-conversions" when the dashboard says 174 without a hint why.
+Unlike the dashboard's attribution math (`ConversionGoalProcessor`), this uses a
+fixed 30d window (ignoring the team's `attribution_window_days`) and, for
+ActionsNode goals, matches only the action's step events — property/URL filters
+are not applied. Both deviations are surfaced via `ConversionGoalSummary.is_approximate`.
 """
 
 import re
@@ -486,15 +470,12 @@ def _count_event_goal(
 def _count_action_goal(
     team: Team, action: Action, alias_map: dict[str, NativeIntegration]
 ) -> tuple[int, int, int, int, bool]:
-    """For ActionsNode v1: count events whose `event` matches any of the action's
-    step events. Property/URL filters from the action are NOT applied here — the
-    full marketing analytics runner handles those. This is a fast approximation
-    suitable for `list` and overview surfaces.
+    """For ActionsNode: count events matching the action's step events, split by
+    utm_source. Property/URL filters are NOT applied — a fast approximation.
 
     Returns (total, integrated, without_utm, unmatched_with_utm, has_step_filters).
-    `has_step_filters` is True when at least one of the action's steps narrows
-    by URL or properties — caller surfaces this as the "approximate" caveat
-    so the LLM doesn't claim parity with the dashboard's number.
+    `has_step_filters` is True when a step narrows by URL/properties; caller surfaces
+    it as the "approximate" caveat.
     """
     steps = action.steps
     step_events = [s.event for s in steps if s.event]
@@ -555,14 +536,9 @@ def _execute_count_with_split(
 def _count_dw_goal(team: Team, goal: dict[str, Any]) -> tuple[int, str | None]:
     """For DataWarehouseNode: a row count against the configured table.
 
-    Returns (count, misconfig_reason). If the table can't be queried, count is
-    0 and misconfig_reason carries the diagnostic.
-
-    Identifiers (`table_name`, `timestamp_field`) come from team-editable JSON,
-    so they are validated against a strict identifier regex *before* being
-    placed in the HogQL AST. The query itself is built via AST nodes — the
-    constants are bound through placeholders — so neither dotted-table nor
-    column identifiers are interpolated as raw SQL.
+    Returns (count, misconfig_reason). `table_name`/`timestamp_field` come from
+    team-editable JSON, so they're validated against a strict identifier regex
+    before going into the AST (constants are bound via placeholders).
     """
     table_name = goal.get("table_name")
     timestamp_field = goal.get("timestamp_field")
@@ -604,10 +580,8 @@ def _count_dw_goal(team: Team, goal: dict[str, Any]) -> tuple[int, str | None]:
 
 
 async def _query_goal_events(team: Team, goal: dict[str, Any], period: DateRange) -> list[tuple[Any, ...]]:
-    """Return raw event rows for a goal in `period`. Used by `explain_conversion_goal`.
-    Only EventsNode and ActionsNode are supported here; DW is short-circuited
-    by the caller.
-    """
+    """Raw event rows for a goal in `period` (EventsNode/ActionsNode only; DW is
+    short-circuited by the caller)."""
     kind = goal.get("kind")
     since, until = _resolve_period(period)
     placeholders: dict[str, ast.Expr]

@@ -1,13 +1,7 @@
 """Suggest custom events that are good candidates for becoming conversion goals.
 
-Read-only. Ranks events by volume, UTM-tag coverage, and uniqueness of users,
-excludes autocaptured/system events, and de-prioritizes events that are
-already configured as goals.
-
-Used by:
-- `marketing_suggest_conversion_goals` MaxTool
-- the corresponding MCP tool
-- the Settings UI when the goal table is empty (proactively show candidates)
+Read-only. Ranks events by volume, UTM-tag coverage, and unique users; excludes
+autocaptured/system events and de-prioritizes events already configured as goals.
 """
 
 from dataclasses import asdict, dataclass, field
@@ -34,14 +28,9 @@ DEFAULT_MIN_COUNT = 50
 TOP_UTM_SOURCES_PER_EVENT = 3
 HOGQL_GROUP_LIMIT = 200
 
-# System / autocaptured events excluded by default. Conversion goals are user-
-# meaningful actions ("signup", "purchase"), not lifecycle telemetry.
-#
-# Driven from `CORE_FILTER_DEFINITIONS_BY_GROUP["events"]` so a new system
-# event added to taxonomy automatically rolls into the exclusion set — the
-# previous hard-coded list could go stale silently for ~12 months. We add a
-# small overlay for events that are convention-based rather than `$`-prefixed
-# (Surveys: "survey shown", "survey sent", "survey dismissed").
+# System/autocaptured events excluded. Driven from `CORE_FILTER_DEFINITIONS_BY_GROUP`
+# so new taxonomy events roll in automatically. Overlay covers convention-based events
+# that aren't `$`-prefixed (Surveys: "survey shown"/"sent"/"dismissed").
 _TAXONOMY_OVERLAY_EXCLUDED: frozenset[str] = frozenset(
     {
         "survey shown",
@@ -100,9 +89,8 @@ async def suggest_conversion_goals(
     existing_goal_events = await _read_existing_goal_event_names(team)
     excluded = DEFAULT_EXCLUDED_EVENTS if exclude_autocapture else frozenset()
 
-    # Compute max_volume over the post-exclusion set: an excluded high-volume
-    # event (e.g. $pageview) must not inflate the denominator and deflate the
-    # volume score of every real candidate.
+    # max_volume over the post-exclusion set, so an excluded high-volume event
+    # (e.g. $pageview) doesn't deflate every real candidate's volume score.
     candidate_rows = [r for r in rows if r["event_name"] not in excluded]
     max_volume = max((r["count"] for r in candidate_rows), default=1)
     candidates: list[CandidateEvent] = []
@@ -153,10 +141,8 @@ async def suggest_conversion_goals(
 
 @database_sync_to_async
 def _fetch_candidate_rows(team: Team, *, min_count: int, lookback_days: int) -> list[dict[str, Any]]:
-    """One pass over events: grouped by event name with UTM coverage signals
-    plus the per-event top-K utm_source via ClickHouse's `topK` aggregate.
-    Avoids the second roundtrip the previous implementation made.
-    """
+    """One pass over events: grouped by event name with UTM coverage signals plus
+    the per-event top-K utm_source via ClickHouse's `topK` aggregate."""
     since = timezone.now() - timedelta(days=lookback_days)
     aggregate_hogql = """
         SELECT
@@ -187,11 +173,8 @@ def _fetch_candidate_rows(team: Team, *, min_count: int, lookback_days: int) -> 
         event_name = row[0]
         if not event_name:
             continue
-        # `topK` returns the top values (no counts). Pair each with the event's
-        # total `with_utm_source` only if it's a single source — for multiple
-        # sources we report the value with an unknown count placeholder of 0
-        # rather than running a second query. The LLM uses these as
-        # "representative samples", not exact counts.
+        # `topK` returns values without counts. For a single source, attribute the
+        # event's total utm_source count; for multiple, use 0 (avoids a second query).
         raw_top = row[5] or []
         with_utm_total = int(row[3] or 0)
         if isinstance(raw_top, list) and len(raw_top) == 1 and raw_top[0]:

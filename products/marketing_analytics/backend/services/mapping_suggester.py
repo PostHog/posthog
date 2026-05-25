@@ -1,12 +1,8 @@
-"""Suggest `custom_source_mappings` and `campaign_name_mappings` entries for a
-team based on recent unmatched UTM-tagged events.
+"""Suggest `custom_source_mappings` entries from recent unmatched UTM-tagged events.
 
-Deterministic v1: alias lookups (from `native_integrations`) plus fuzzy match
-via `difflib.SequenceMatcher`. An LLM-assisted path for ambiguous cases is
-planned for a later PR but is not part of this service today.
-
-The suggestion math reuses `attribution_health` directly so we don't double-
-count or diverge on what counts as "unmatched".
+Deterministic: alias lookups (`native_integrations`) plus fuzzy match via
+`difflib.SequenceMatcher`. Reuses `attribution_health` so what counts as
+"unmatched" stays consistent across both surfaces.
 """
 
 from collections import defaultdict
@@ -35,13 +31,10 @@ logger = structlog.get_logger(__name__)
 
 MappingMethod = Literal["fuzzy_match", "exact_alias", "llm"]
 
-# Default minimum confidence for a fuzzy match suggestion to surface. The same
-# threshold is reused by `attribution_health` for "likely yours" attribution,
-# so consumers see consistent decisions across both surfaces.
+# Reused by `attribution_health` for "likely yours" so both surfaces stay consistent.
 DEFAULT_CONFIDENCE_THRESHOLD = 0.72
 
-# Minimum 30d event count for a raw value to be worth suggesting. Tiny tails
-# don't justify configuration changes.
+# Minimum 30d event count worth suggesting — tiny tails don't justify config changes.
 DEFAULT_MIN_EVENT_COUNT = 10
 
 # Cap suggestions per integration to keep the output digestible by LLMs and UIs.
@@ -93,8 +86,7 @@ class CurrentMapping:
 
 @dataclass
 class CatalogueEntry:
-    """Every utm_source value seen in the window. Includes matched ones too so
-    the LLM can give a complete picture (instead of recurring to ad-hoc SQL)."""
+    """Every utm_source value seen in the window, matched ones included, for a complete picture."""
 
     raw_utm_source: str
     event_count: int
@@ -131,10 +123,8 @@ async def suggest_utm_mappings(
 ) -> UtmMappingSuggestionsResponse:
     """Detect unmatched utm_source values and propose target integrations.
 
-    `lookback_days` defaults to 90 days because 7 (the attribution_health default)
-    is too narrow to catch typo'd or one-off utm_source values that the user
-    might want to map. Callers can widen further (e.g. 365) for catalog-style
-    audits.
+    `lookback_days` defaults to 90 (vs attribution_health's 7) to catch typo'd or
+    one-off values worth mapping; widen further for catalog-style audits.
     """
     attribution = await get_attribution_health(team, lookback_days=lookback_days)
     current_mappings = await _read_current_mappings(team)

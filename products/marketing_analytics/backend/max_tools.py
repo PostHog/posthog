@@ -1,8 +1,7 @@
 """MaxTool wrappers around Marketing analytics services.
 
-Each tool delegates to a service in `products/marketing_analytics/backend/services/`,
-keeping the LangChain-specific surface (args schema, descriptions, context
-templates, access checks) here and the business logic in pure Python services.
+The LangChain surface (args schema, descriptions, context, access checks) lives
+here; the business logic lives in `services/`.
 """
 
 from dataclasses import asdict
@@ -36,15 +35,12 @@ from products.marketing_analytics.backend.services.utm_audit import run_utm_audi
 
 from ee.hogai.tool import MaxTool
 
-# Hard cap for any Max-driven attribution scan. The frontend exposes 3y windows,
-# but a `WHERE properties.utm_source IS NOT NULL` scan over 3 years can pin a
-# ClickHouse node on a high-volume team. The MaxTool surface is uninteractive,
-# so the user can't dial it down; we cap it server-side.
+# Cap attribution scans server-side: an unbounded utm_source scan over multi-year
+# windows can pin a ClickHouse node on a high-volume team, and this surface isn't interactive.
 MAX_LOOKBACK_DAYS = 365
 
-# Shared context template used by tools mounted on /marketing. Spells out the
-# Web vs Marketing analytics distinction and how attribution actually works, so
-# the root node doesn't conflate the two products or misstate the model.
+# Shared context for tools mounted on /marketing — keeps the root node from
+# conflating Marketing with Web analytics or misstating the attribution model.
 MARKETING_CONTEXT_PROMPT = dedent("""
     User is on /marketing — the Marketing analytics product, NOT Web analytics.
 
@@ -68,13 +64,8 @@ def _marketing_resource() -> list[tuple[APIScopeObject, AccessControlLevel]]:
 
 
 def _lookback_days_from_date_range(team: Team, date_range: dict | None) -> int | None:
-    """Convert the frontend-supplied `current_date_range` to a lookback in days.
-
-    Accepts every shape `posthog.utils.relative_date_parse` understands —
-    relative (`-30d`, `-12h`, `-1qStart`, `-90dEnd`, etc.) and absolute ISO
-    dates — interpreted in the team's timezone. Returns None when the range
-    can't be parsed; caller falls back to its own default.
-    """
+    """Convert the frontend `current_date_range` to a lookback in days, parsed in the
+    team's timezone (relative or ISO). Returns None when unparseable."""
     if not date_range or not isinstance(date_range, dict):
         return None
     raw_from = date_range.get("date_from")
@@ -94,11 +85,8 @@ def _lookback_days_from_date_range(team: Team, date_range: dict | None) -> int |
 
 
 def _resolve_lookback_days(team: Team, self_context: dict, requested: int | None, fallback: int) -> int:
-    """Resolve a `lookback_days` argument: explicit > inferred-from-context > fallback.
-
-    All paths are clamped to MAX_LOOKBACK_DAYS — see the comment on that
-    constant for rationale.
-    """
+    """Resolve `lookback_days`: explicit > inferred-from-context > fallback, all
+    clamped to MAX_LOOKBACK_DAYS."""
     if requested is not None and requested > 0:
         return min(requested, MAX_LOOKBACK_DAYS)
     inferred = _lookback_days_from_date_range(team, self_context.get("current_date_range"))
@@ -385,30 +373,20 @@ class MarketingSuggestUtmMappingsTool(MaxTool):
 # --------------------------------------------------------------------------
 # LLM-facing content formatters
 # --------------------------------------------------------------------------
-# These take the structured response from a service and produce a string the
-# LLM will use to compose its reply. The string MUST contain every datum the
-# LLM needs to be specific — names, statuses, counts, sample values, action
-# hints. The corresponding `artifact` (dict) is for the frontend, not the LLM.
+# These turn a service response into the string the LLM uses to compose its reply,
+# so it must carry every datum the LLM needs. The `artifact` (dict) is for the frontend.
 
 
 def _sanitize_for_prompt(value: Any, max_len: int = GENERIC_VALUE_MAX_LEN) -> str:
-    """Sanitize a user-controlled event property before it lands in an LLM prompt.
-
-    Marketing-analytics convention: show `<none>` for empty fields and `…` on
-    truncation so the model treats the value as partial. Event properties can be
-    numbers or other non-string types, so coerce before sanitizing.
-    """
+    """Sanitize a user-controlled event property for an LLM prompt: `<none>` for empty,
+    `…` on truncation. Coerces non-string values (event properties can be numbers)."""
     text = str(value) if value is not None else None
     return sanitize_user_text(text, max_len, none_placeholder="<none>", truncate_marker="…")
 
 
 def _format_timestamp_for_llm(dt: datetime | None) -> str:
-    """Render a timestamp as an absolute date plus a pre-computed relative age.
-
-    LLMs do date arithmetic unreliably — handing them a bare ISO string and
-    letting them compute "how long ago" produces wrong (sometimes future)
-    dates. We compute the relative age here so the model only has to repeat it.
-    """
+    """Render a timestamp with a pre-computed relative age — LLMs do date arithmetic
+    unreliably, so we compute "how long ago" here rather than letting the model."""
     if dt is None:
         return "never"
     delta_days = (timezone.now() - dt).days

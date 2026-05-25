@@ -1,23 +1,9 @@
 """End-to-end marketing analytics diagnostic.
 
-Aggregates the per-domain health signals into a single, opinionated view of
-"is this team's marketing analytics setup healthy, and if not, what's wrong?":
-
-  data_source_health  -> sync state per integration
-  attribution_health  -> UTM-tagged events per integration
-  conversion_goals_inspector -> goal config + last-30d performance
-
-This is the only service in the package that performs cross-domain reasoning.
-The per-integration overall_status reflects whichever side is most broken,
-not a simple AND of "both ok".
-
-Used by:
-- the `marketing_diagnose_setup` MaxTool (PR 3)
-- the equivalent MCP tool (PR 4)
-- the diagnose endpoint hit by the Settings UI banner
-
-This service is the **only place** where overall_status is computed, so consumers
-get a single source of truth for the cross-domain decision.
+Aggregates `data_source_health` (sync state), `attribution_health` (UTM events),
+and `conversion_goals_inspector` (goal config) into a single per-integration
+`overall_status`. The only service that does cross-domain reasoning: status
+reflects whichever side is most broken, not an AND of "both ok".
 """
 
 import asyncio

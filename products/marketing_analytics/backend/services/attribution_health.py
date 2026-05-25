@@ -1,12 +1,8 @@
-"""Attribution-side health for marketing integrations.
+"""Attribution-side health: are `utm_source` events arriving and do their values
+match each native integration?
 
-This service answers: for each native marketing integration, are PostHog events
-with `utm_source` actually arriving, and do their utm_source values match the
-integration?
-
-This is the PostHog-events side of marketing integration health. The DW-sync
-side lives in `data_source_health`. Cross-domain correlation (e.g. "syncing
-fine but no UTM events arrive") is the job of `marketing_diagnostic`.
+The DW-sync side lives in `data_source_health`; cross-domain correlation in
+`marketing_diagnostic`.
 """
 
 from dataclasses import asdict, dataclass, field
@@ -86,10 +82,8 @@ class AttributionHealthEntry:
 
 @dataclass
 class UtmSourceSample:
-    """Catalogue entry: a raw utm_source value with its event count and how it
-    classifies against known integrations. Includes BOTH matched and unmatched
-    values so the LLM can answer "what utm_sources do I have?" without falling
-    back to ad-hoc SQL."""
+    """Catalogue entry: a raw utm_source value, its event count, and how it classifies
+    against known integrations. Includes both matched and unmatched values."""
 
     raw_value: str
     event_count: int
@@ -131,13 +125,10 @@ async def get_attribution_health(
 ) -> AttributionHealthResponse:
     """Aggregate UTM-tagged event counts per native integration over `lookback_days`.
 
-    `source_type` filters output to a single integration (using the same key
-    as data_source_health: 'GoogleAds', 'MetaAds', etc.). Aggregate totals
-    still reflect the full team activity.
-
-    `custom_source_mappings` lets callers (e.g. `marketing_diagnostic`) pass a
-    pre-loaded config blob instead of triggering another Postgres roundtrip
-    here. Defaults to None — the service loads it itself when called directly.
+    `source_type` filters output to a single integration (same key as
+    data_source_health); aggregate totals still reflect full team activity.
+    `custom_source_mappings` lets callers pass a pre-loaded config to avoid a
+    Postgres roundtrip; when None, the service loads it itself.
     """
     rows = await _fetch_utm_groups(team, lookback_days=lookback_days)
     if custom_source_mappings is None:
@@ -167,8 +158,7 @@ async def get_attribution_health(
         total_with_utm += count
 
         matched_key = lookup_in(raw_value, alias_map)
-        # Always compute the fuzzy hint — we surface it on every sample even
-        # for matched values, so the LLM can sanity-check the alias resolution.
+        # Fuzzy hint computed for every sample (even matched) so the LLM can sanity-check alias resolution.
         suggestion, ratio = _fuzzy_best_integration(raw_value, candidates=targets)
         all_samples.append(
             UtmSourceSample(
@@ -242,7 +232,6 @@ class _IntegrationAccumulator:
         if total_with_utm > 0:
             matched_pct = round((self.matched_count / total_with_utm) * 100, 2)
 
-        # Sort samples by event count descending and cap.
         self.likely_yours_samples.sort(key=lambda s: s.event_count, reverse=True)
         return AttributionHealthEntry(
             integration_key=self.key,
@@ -258,9 +247,8 @@ class _IntegrationAccumulator:
 
 @database_sync_to_async
 def _build_team_alias_map(team: Team) -> dict[str, NativeIntegration]:
-    """Combine the canonical alias table with the team's `custom_source_mappings`
-    so user-defined overrides (e.g. `meta2 -> MetaAds`) are honored when
-    classifying utm_source values as integrated vs unmatched."""
+    """Merge canonical aliases with the team's `custom_source_mappings` so user
+    overrides are honored when classifying utm_source values."""
     config = getattr(team, "marketing_analytics_config", None)
     custom = config.custom_source_mappings if config is not None else {}
     return build_combined_alias_map(custom)
@@ -268,12 +256,10 @@ def _build_team_alias_map(team: Team) -> dict[str, NativeIntegration]:
 
 @database_sync_to_async
 def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
-    """Single HogQL aggregation: for each distinct utm_source value within the
-    lookback window, count events and capture the latest timestamp.
+    """HogQL aggregation of utm_source counts and latest timestamp within the window.
 
-    We deliberately don't restrict to `$pageview` — conversion goals are often
-    custom events (`signup`, `purchase`), and attribution health should reflect
-    all UTM-tagged activity.
+    Intentionally not restricted to `$pageview` — conversion goals are often custom
+    events, so attribution should reflect all UTM-tagged activity.
     """
     since = timezone.now() - timedelta(days=lookback_days)
     hogql = """
@@ -317,11 +303,8 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
 def _fuzzy_best_integration(
     raw_utm_source: str, *, candidates: list[NativeIntegration]
 ) -> tuple[NativeIntegration | None, float]:
-    """Best fuzzy match across the aliases of each candidate integration.
-
-    Returns (best_integration, best_ratio). Ratio is 0..1. Caller decides
-    whether to act on it via FUZZY_LIKELY_THRESHOLD.
-    """
+    """Best fuzzy match across the candidates' aliases, as (integration, ratio).
+    Caller decides whether to act on it via FUZZY_LIKELY_THRESHOLD."""
     norm_raw = normalize(raw_utm_source)
     if not norm_raw or not candidates:
         return None, 0.0

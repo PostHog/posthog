@@ -45,19 +45,14 @@ _REQUIRED_SCHEMA_COLUMNS: list[str] = [
     col.value for col, cfg in MARKETING_ANALYTICS_SCHEMA.items() if cfg.get("required")
 ]
 
-# `urls.settings(section, setting)` builds `/settings/<section>#<setting>` — a hash
-# anchor, NOT a path segment. Earlier versions of this module used a path slash
-# which 404s. Keep the hash form to match what the frontend actually generates.
+# Hash anchor (#marketing-settings), not a path slash — the slash form 404s.
 _MARKETING_SETTINGS_URL = "/settings/environment-marketing-analytics#marketing-settings"
 _MARKETING_PAGE_URL = "/marketing"
 
 
 def _source_schemas_url(source_id: str | None) -> str | None:
-    """URL to the per-source Schemas tab (the place to enable/disable required
-    tables, retry failed syncs, and reconnect). The frontend prefixes the
-    ExternalDataSource UUID with `managed-` to disambiguate managed vs
-    self-managed sources at the route level (see connectionSelectorLogic.ts
-    and ExternalDataSourceConfiguration.tsx)."""
+    """URL to the per-source Schemas tab (enable/disable tables, retry syncs, reconnect).
+    Frontend prefixes the source UUID with `managed-` to disambiguate managed sources."""
     if not source_id:
         return None
     return f"/data-management/sources/managed-{source_id}/schemas"
