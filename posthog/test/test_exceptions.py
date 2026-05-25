@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase
 
@@ -10,7 +12,7 @@ from rest_framework.exceptions import (
     ValidationError,
 )
 
-from posthog.exceptions import exception_handler
+from posthog.exceptions import ExceptionContext, exception_handler
 
 
 class TestExceptionHandlerWWWAuthenticate(SimpleTestCase):
@@ -74,7 +76,7 @@ class TestExceptionHandlerWWWAuthenticate(SimpleTestCase):
             assert response["WWW-Authenticate"] == expected_header
 
     def test_no_request_in_context_falls_back_to_relative_path(self) -> None:
-        response = exception_handler(NotAuthenticated(), {})
+        response = exception_handler(NotAuthenticated(), cast(ExceptionContext, {}))
         assert response is not None
         assert response.status_code == 401
         assert response["WWW-Authenticate"] == 'Bearer resource_metadata="/.well-known/oauth-protected-resource"'
