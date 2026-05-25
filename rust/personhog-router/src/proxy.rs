@@ -9,7 +9,7 @@ use http::{HeaderMap, HeaderValue};
 use http_body::Frame;
 use http_body_util::{BodyExt, Empty, Full};
 use metrics::{counter, histogram};
-use personhog_common::grpc::{current_client_name, ClientInFlightGuard};
+use personhog_common::grpc::{current_client_name, ClientInFlightGuard, PROCESSING_TIME_HEADER};
 use personhog_proto::personhog::types::v1::{GetPersonRequest, UpdatePersonPropertiesRequest};
 use prost::Message;
 use rand::Rng;
@@ -22,7 +22,6 @@ use crate::config::RetryConfig;
 
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
-const PROCESSING_TIME_HEADER: &str = "x-processing-time-ms";
 
 const KNOWN_METHODS: &[&str] = &[
     "CheckCohortMembership",

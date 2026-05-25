@@ -197,7 +197,7 @@ fn is_fatal_accept_error(e: &io::Error) -> bool {
 /// `emit_processing_time_header` is enabled. The router reads this to
 /// compute per-request transport overhead without subtracting independent
 /// histogram quantiles.
-const PROCESSING_TIME_HEADER: &str = "x-processing-time-ms";
+pub const PROCESSING_TIME_HEADER: &str = "x-processing-time-ms";
 
 /// Tower layer that instruments gRPC requests with timing and concurrency metrics.
 ///

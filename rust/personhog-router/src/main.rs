@@ -118,7 +118,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .set_buckets(BUCKETS)
             .unwrap()
             .set_buckets_for_metric(
-                metrics_exporter_prometheus::Matcher::Prefix("personhog_router_response_size".into()),
+                metrics_exporter_prometheus::Matcher::Prefix(
+                    "personhog_router_response_size".into(),
+                ),
                 RESPONSE_SIZE_BUCKETS,
             )
             .unwrap()
