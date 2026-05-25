@@ -326,7 +326,7 @@ class TestLLMSkillAPI(APIBaseTest):
             ("with_version_query_string", "?version=1", 1),
         ]
     )
-    def test_get_skill_by_uuid_redirects_to_name(self, _name, query_suffix, _version, mock_feature_enabled):
+    def test_get_skill_by_uuid_redirects_to_name(self, mock_feature_enabled, _label, query_suffix, _version):
         skill = self.create_skill(name="uuid-redirect-target")
         skill_id = str(skill.id)
 
