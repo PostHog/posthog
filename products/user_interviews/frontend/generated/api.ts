@@ -22,6 +22,7 @@ import type {
     PatchedUserInterviewApi,
     PatchedUserInterviewTopicApi,
     SendInvitesRequestApi,
+    TestInterviewLinkApi,
     UserInterviewApi,
     UserInterviewSearchRequestApi,
     UserInterviewSearchResultApi,
@@ -276,6 +277,24 @@ export const userInterviewTopicsSendInvitesCreate = async (
             body: JSON.stringify(sendInvitesRequestApi),
         }
     )
+}
+
+export const getUserInterviewTopicsTestLinkRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/test_link/`
+}
+
+/**
+ * Return the calling user's personal dogfood interview link for this topic, plus the latest test interview they have recorded against it. Lazily get-or-creates a per-caller IntervieweeContext + enabled SharingConfiguration the first time it's called, then returns the same stable URL on subsequent calls. The caller's identifier is intentionally not added to the topic's targeting arrays — each user dogfoods under their own row, so test calls never mint a public share token on someone else's behalf.
+ */
+export const userInterviewTopicsTestLinkRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TestInterviewLinkApi> => {
+    return apiMutator<TestInterviewLinkApi>(getUserInterviewTopicsTestLinkRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getUserInterviewTopicsIntervieweesListUrl = (

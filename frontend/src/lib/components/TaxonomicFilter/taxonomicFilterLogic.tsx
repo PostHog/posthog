@@ -50,8 +50,6 @@ import {
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconCohort } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isString, objectsEqual, pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
@@ -64,7 +62,6 @@ import {
 } from 'scenes/data-management/events/DefinitionHeader'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
-import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
 import {
     getProductEventFilterOptions,
     getProductEventPropertyFilterOptions,
@@ -79,12 +76,11 @@ import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
+import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition, getFilterLabel } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
-    CohortType,
     CoreFilterDefinition,
     DashboardType,
     EventDefinition,
@@ -105,8 +101,9 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
+import { cohortTaxonomicGroupsLogic } from './cohortTaxonomicGroupsLogic'
 import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGroupsLogic'
-import { InlineHogQLEditor } from './InlineHogQLEditor'
+import { hogQLExpressionTaxonomicGroupsLogic } from './hogQLExpressionTaxonomicGroupsLogic'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 const PROPERTY_TAXONOMIC_GROUP_TYPES = new Set(Object.values(PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE))
@@ -293,15 +290,6 @@ function withKeywordShortcuts<T>(
     }
 }
 
-// Stable reference for CohortsWithAllUsers options to prevent cascading re-renders.
-// taxonomicGroups has 14 dependencies that change during initial mount. Each change creates
-// new group objects with inline options arrays, causing rawLocalItems → fuse → localItems →
-// items → selectedItem reference changes. With CohortsWithAllUsers, selectedItemHasPopover
-// returns true (getValue returns 'all'), so ControlledDefinitionPopover renders and its
-// useEffect dispatches setDefinition on every selectedItem change, triggering kea store updates
-// that combined with react-window's layout effect setState exceed React's 50-update limit.
-const COHORTS_WITH_ALL_USERS_OPTIONS: CohortType[] = [{ id: 'all', name: 'All Users*' } as unknown as CohortType]
-
 export const defaultDataWarehousePopoverFields: DataWarehousePopoverField[] = [
     {
         key: 'id_field',
@@ -341,6 +329,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['primaryProperties'],
             groupAnalyticsTaxonomicGroupsLogic,
             ['groupAnalyticsTaxonomicGroups', 'groupAnalyticsTaxonomicGroupNames'],
+            cohortTaxonomicGroupsLogic,
+            ['cohortTaxonomicGroups'],
+            hogQLExpressionTaxonomicGroupsLogic,
+            ['hogQLExpressionTaxonomicGroups'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -519,11 +511,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.suggestedFiltersLabel],
             (suggestedFiltersLabel) => suggestedFiltersLabel,
         ],
-        metadataSource: [
-            () => [(_, props) => props.metadataSource],
-            (metadataSource): AnyDataNode =>
-                metadataSource ?? { kind: NodeKind.HogQLQuery, query: 'select event from events' },
-        ],
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => (excludedProperties ?? {}) as ExcludedProperties,
@@ -548,16 +535,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.hideBehavioralCohorts],
             (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
         ],
-        hogQLExpressionComponentProps: [
-            () => [(_, props) => props.hogQLGlobals, (_, props) => props.hogQLExpressionShowBreakdownLabelHint],
-            (
-                hogQLGlobals: Record<string, any> | undefined,
-                showBreakdownLabelHint: boolean | undefined
-            ): { globals?: Record<string, any>; showBreakdownLabelHint: boolean } => ({
-                globals: hogQLGlobals,
-                showBreakdownLabelHint: showBreakdownLabelHint ?? false,
-            }),
-        ],
         endpointFilters: [
             () => [(_, props) => props.endpointFilters],
             (endpointFilters: Record<string, any>) => endpointFilters,
@@ -571,14 +548,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventNamesWithPrimaryProperties,
                 s.schemaColumns,
                 (_, props) => props.schemaColumnsLoading,
-                s.metadataSource,
+                s.hogQLExpressionTaxonomicGroups,
                 s.suggestedFiltersLabel,
                 s.propertyFilters,
                 s.eventMetadataPropertyDefinitions,
                 s.maxContextOptions,
-                s.hideBehavioralCohorts,
+                s.cohortTaxonomicGroups,
                 s.endpointFilters,
-                s.hogQLExpressionComponentProps,
                 s.featureFlags,
             ],
             (
@@ -592,17 +568,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 },
                 schemaColumns: DatabaseSchemaField[],
                 schemaColumnsLoading: boolean | undefined,
-                metadataSource: AnyDataNode,
+                hogQLExpressionTaxonomicGroups: TaxonomicFilterGroup[],
                 suggestedFiltersLabel: string | undefined,
                 propertyFilters,
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
-                hideBehavioralCohorts: boolean,
+                cohortTaxonomicGroups: TaxonomicFilterGroup[],
                 endpointFilters: Record<string, any> | undefined,
-                hogQLExpressionComponentProps: {
-                    globals?: Record<string, any>
-                    showBreakdownLabelHint: boolean
-                },
                 featureFlags: Record<string, boolean | string | undefined>
             ): TaxonomicFilterGroup[] => {
                 const { eventNames, primaryPropertiesForContextEvents } = eventNamesWithPrimaryProperties
@@ -1105,39 +1077,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
                     },
-                    {
-                        name: 'Cohorts',
-                        searchPlaceholder: 'cohorts',
-                        type: TaxonomicFilterGroupType.Cohorts,
-                        endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
-                        value: 'cohorts',
-                        getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
-                        getValue: (cohort: CohortType) => cohort.id,
-                        getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
-                        getIcon: function _getIcon(): JSX.Element {
-                            return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
-                        },
-                        footerMessage: hideBehavioralCohorts ? (
-                            <>
-                                <Link to={COHORT_BEHAVIORAL_LIMITATIONS_URL} target="_blank">
-                                    Some cohorts excluded due to containing behavioral filters.
-                                </Link>
-                            </>
-                        ) : undefined,
-                    },
-                    {
-                        name: 'Cohorts',
-                        searchPlaceholder: 'cohorts',
-                        type: TaxonomicFilterGroupType.CohortsWithAllUsers,
-                        endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
-                        options: COHORTS_WITH_ALL_USERS_OPTIONS,
-                        getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
-                        getValue: (cohort: CohortType) => cohort.id,
-                        getPopoverHeader: () => `All Users`,
-                        getIcon: function _getIcon(): JSX.Element {
-                            return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
-                        },
-                    },
+                    ...cohortTaxonomicGroups,
                     // PageviewUrls returns a URL string value, used in paths and property filters.
                     // PageviewEvents creates a $pageview event with $current_url property filter,
                     // used in trends and funnels series pickers.
@@ -1351,15 +1291,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Session',
                         getIcon: getPropertyDefinitionIcon,
                     },
-                    {
-                        name: 'SQL expression',
-                        searchPlaceholder: null,
-                        categoryLabel: () => 'SQL expression',
-                        type: TaxonomicFilterGroupType.HogQLExpression,
-                        render: InlineHogQLEditor,
-                        getPopoverHeader: () => 'SQL expression',
-                        componentProps: { metadataSource, ...hogQLExpressionComponentProps },
-                    },
+                    ...hogQLExpressionTaxonomicGroups,
                     {
                         name: 'Replay',
                         searchPlaceholder: 'Replay',
