@@ -41729,7 +41729,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across every product captured for the user.
+     * Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code. When omitted, those breakdowns aggregate across every product captured for the user.
      * @maxLength 64
      * @nullable
      */
