@@ -742,14 +742,12 @@ mod tests {
                 } else {
                     continue;
                 }
+            } else if trimmed == ")" {
+                in_macro = false;
             } else {
-                if trimmed == ")" {
-                    in_macro = false;
-                } else {
-                    macro_buf.push(' ');
-                    macro_buf.push_str(trimmed);
-                    continue;
-                }
+                macro_buf.push(' ');
+                macro_buf.push_str(trimmed);
+                continue;
             }
 
             let args: Vec<&str> = macro_buf.split(',').collect();
