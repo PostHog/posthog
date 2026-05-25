@@ -179,6 +179,22 @@ def _make_fake_session(team: Team, summary_text: str = "ok") -> tuple[MagicMock,
     return session, result
 
 
+def _fake_start_invoking_hook(session: MagicMock, result: object):
+    """Stand-in for `MultiTurnSession.start` that fires the `on_task_run_created` hook.
+
+    The real `start` awaits the hook (creating the SignalScoutRun bridge row) after the
+    TaskRun exists but before the first agent turn. A plain `return_value` mock would skip
+    that, so the bridge row would never be created — mirror the real contract here.
+    """
+
+    async def _start(*args, on_task_run_created=None, **kwargs):
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    return _start
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aerrors_skill):
@@ -188,8 +204,7 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
 
     with patch(
         "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
-        new_callable=AsyncMock,
-        return_value=(session, result),
+        new=_fake_start_invoking_hook(session, result),
     ):
         # `_spawn_and_run` reaches for sandbox env + user-id resolution; stub the helpers.
         with (

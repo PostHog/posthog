@@ -124,8 +124,9 @@ async def arun_signals_scout(
 
     started = time.monotonic()
     # Pre-mint the bridge row's UUID so the prompt can reference it before the row
-    # exists. The TaskRun is created inside `MultiTurnSession.start`; the bridge row
-    # is inserted right after with the pre-minted id + the task_run FK.
+    # exists. The TaskRun is created inside `MultiTurnSession.start`; the bridge row is
+    # inserted via its `on_task_run_created` hook — after the TaskRun exists but before
+    # the agent's first turn — so first-turn finding emits can resolve the run by id.
     run_id = uuid7()
     started_at = timezone.now()
     try:
@@ -178,7 +179,7 @@ async def _spawn_and_run(
     repository: str | None,
     verbose: bool,
 ) -> tuple[str, str]:
-    """Spawn the sandbox, create the bridge row right after session start, run the agent.
+    """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
     Returns `(last_message, task_run_id)`.
     """
@@ -218,6 +219,22 @@ async def _spawn_and_run(
             "allowed_tools": skill.allowed_tools,
         },
     )
+
+    async def _create_bridge_row(task_run: TaskRun) -> None:
+        # Create the bridge row after the TaskRun exists but BEFORE the agent's first
+        # turn runs (via MultiTurnSession's on_task_run_created hook). The scout is
+        # single-turn and may call `signals-scout-emit-signal` during that first turn;
+        # the emit endpoint resolves the run by id, so the row must already exist or
+        # first-turn emits 404. Creating it here (not after `start()` returns) also keeps
+        # the cross-link queryable mid-run and surviving both success and failure exits.
+        await database_sync_to_async(_create_run_row, thread_sensitive=False)(
+            run_id=run_id,
+            task_run=task_run,
+            team=team,
+            config=config,
+            skill=skill,
+        )
+
     session, result = await MultiTurnSession.start(
         prompt=prompt,
         context=context,
@@ -225,17 +242,7 @@ async def _spawn_and_run(
         step_name=_step_name(skill),
         verbose=verbose,
         origin_product=Task.OriginProduct.SIGNALS_SCOUT,
-    )
-    # Create the bridge row right after session start so the cross-link is queryable
-    # mid-run, survives both success and failure exits, and a partial-tick crash
-    # still leaves the row pointing at its sandbox. The bridge is the linkage to
-    # the TaskRun's chat log + the future LLM-analytics token/cost join.
-    await database_sync_to_async(_create_run_row, thread_sensitive=False)(
-        run_id=run_id,
-        task_run=session.task_run,
-        team=team,
-        config=config,
-        skill=skill,
+        on_task_run_created=_create_bridge_row,
     )
     try:
         # Persist the agent's end-of-turn close-out so non-emitting runs leave a

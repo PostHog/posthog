@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, TypeVar
 
@@ -56,8 +57,16 @@ class MultiTurnSession:
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
         internal: bool = False,
+        on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
-        """Start a multi-turn sandbox session and wait for the first response."""
+        """Start a multi-turn sandbox session and wait for the first response.
+
+        `on_task_run_created`, if given, is awaited once the `TaskRun` exists but
+        BEFORE the agent's first turn runs. Callers that need a row linked to the
+        TaskRun to be queryable during that first turn use this — e.g. the Signals
+        scout creates its `SignalScoutRun` bridge here so first-turn finding emits
+        can resolve the run by id instead of 404ing on a not-yet-created row.
+        """
         task, task_run = await create_task_and_trigger(
             prompt,
             context,
@@ -79,25 +88,26 @@ class MultiTurnSession:
             output_fn=output_fn,
             _workflow_handle=workflow_handle,
         )
-        try:
-            started_at = time.monotonic()
-            last_message, _, session.log_lines_seen, session.printed_lines = await poll_for_turn(
-                task_run, verbose=verbose, output_fn=output_fn, workflow_handle=workflow_handle
-            )
-            logger.info(
-                "multi_turn: initial turn completed run=%s duration=%.2fs",
-                task_run.id,
-                time.monotonic() - started_at,
-            )
-            parsed = cls._parse_and_validate(last_message, model, label="initial turn")
-            return session, parsed
-        except BaseException:
-            # Started the workflow but never returned a session for the caller to clean up.
-            logger.warning(
-                "multi_turn: startup failed for task=%s run=%s — cleaning up", task.id, task_run.id, exc_info=True
-            )
-            await session.end()
-            raise
+        if on_task_run_created is not None:
+            try:
+                await on_task_run_created(task_run)
+            except Exception:
+                # The TaskRun + sandbox workflow are already spawned. If the hook fails
+                # (e.g. the caller's bridge-row insert hits a transient DB error), tear the
+                # session down so we don't leak a running workflow/sandbox, then propagate.
+                await session.end()
+                raise
+        started_at = time.monotonic()
+        last_message, _, session.log_lines_seen, session.printed_lines = await poll_for_turn(
+            task_run, verbose=verbose, output_fn=output_fn, workflow_handle=workflow_handle
+        )
+        logger.info(
+            "multi_turn: initial turn completed run=%s duration=%.2fs",
+            task_run.id,
+            time.monotonic() - started_at,
+        )
+        parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+        return session, parsed
 
     async def send_followup(
         self,
