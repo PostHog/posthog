@@ -53,7 +53,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isString, objectsEqual, pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { getDistinctPrimaryPropertiesForEvents } from 'lib/utils/primaryEventProperty'
 import {
     getEventDefinitionIcon,
     getPropertyDefinitionIcon,
@@ -489,19 +489,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ): {
                 eventNames: string[]
                 primaryPropertiesForContextEvents: string[]
-            } => {
-                const distinct = new Set<string>()
-                for (const eventName of eventNames) {
-                    const primary = getPrimaryPropertyForEvent(eventName, primaryProperties)
-                    if (primary) {
-                        distinct.add(primary)
-                    }
-                }
-                return {
-                    eventNames,
-                    primaryPropertiesForContextEvents: Array.from(distinct),
-                }
-            },
+            } => ({
+                eventNames,
+                primaryPropertiesForContextEvents: getDistinctPrimaryPropertiesForEvents(eventNames, primaryProperties),
+            }),
         ],
         schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
         dataWarehousePopoverFields: [

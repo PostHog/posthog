@@ -7,7 +7,7 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { getDistinctPrimaryPropertiesForEvents } from 'lib/utils/primaryEventProperty'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 
@@ -30,16 +30,8 @@ export const suggestedFiltersTaxonomicGroupsLogic = kea<suggestedFiltersTaxonomi
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
         primaryPropertiesForContextEvents: [
             (s) => [s.eventNames, s.primaryProperties],
-            (eventNames: string[], primaryProperties: Record<string, string>): string[] => {
-                const distinct = new Set<string>()
-                for (const eventName of eventNames) {
-                    const primary = getPrimaryPropertyForEvent(eventName, primaryProperties)
-                    if (primary) {
-                        distinct.add(primary)
-                    }
-                }
-                return Array.from(distinct)
-            },
+            (eventNames: string[], primaryProperties: Record<string, string>): string[] =>
+                getDistinctPrimaryPropertiesForEvents(eventNames, primaryProperties),
         ],
         suggestedFiltersTaxonomicGroups: [
             (s) => [s.suggestedFiltersLabel, s.eventNames, s.primaryPropertiesForContextEvents],
