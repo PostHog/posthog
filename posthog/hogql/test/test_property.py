@@ -2026,7 +2026,15 @@ class TestBooleanPropertyComparisonWithData(APIBaseTest):
             ("true", "true", True),
             ("false", "false", False),
             ("bool_passthrough", True, True),
-            # only the UI's "true"/"false" resolve — anything else matches nothing
+            # case-insensitive: Python's str(True)/str(False) and any other casing must resolve too,
+            # otherwise saved cohort filters with "True"/"False" emit a NULL bytecode constant and
+            # the realtime HogVM path treats `None == None` as True for every person missing the
+            # property (see #58703 regression).
+            ("true_title", "True", True),
+            ("true_upper", "TRUE", True),
+            ("false_title", "False", False),
+            ("false_upper", "FALSE", False),
+            # only "true"/"false" (any casing) resolve — anything else matches nothing
             ("one_is_none", "1", None),
             ("yes_is_none", "yes", None),
             ("non_boolean_is_none", "not-a-boolean", None),

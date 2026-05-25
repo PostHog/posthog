@@ -268,13 +268,21 @@ class AggregationFinder(TraversingVisitor):
 def _resolve_boolean_value(value: ValueT) -> bool | None:
     """Resolve a filter value for a Boolean-typed property. Anything other than the
     'true'/'false' the UI sends returns None, so the comparison matches nothing rather
-    than failing in ClickHouse, which cannot parse e.g. 'foo' as a bool."""
+    than failing in ClickHouse, which cannot parse e.g. 'foo' as a bool.
+
+    String comparison is case-insensitive so values like Python's str(True) == "True"
+    are accepted alongside the lowercase form the UI sends — otherwise a saved
+    cohort filter with "True"/"False" resolves to a NULL bytecode constant, and
+    the HogVM-evaluated realtime backfill path treats `None == None` as True for
+    every person missing the property."""
     if isinstance(value, bool):
         return value
-    if value == "true":
-        return True
-    if value == "false":
-        return False
+    if isinstance(value, str):
+        lowered = value.lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
     return None
 
 

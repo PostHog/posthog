@@ -1,5 +1,7 @@
 from typing import Any
 
+from parameterized import parameterized
+
 from posthog.test.base import APIBaseTest
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
@@ -613,3 +615,46 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         # Should NOT have the wrapping pattern (no JUMP_IF_FALSE for null checks)
         # Should NOT have the wrapping pattern (no isNull function for null checks)
         self.assertNotIn("isNull", bytecode_eq)
+
+    @parameterized.expand(
+        [
+            ("lowercase", "true", True),
+            ("title_case", "True", True),
+            ("upper_case", "TRUE", True),
+            ("false_lowercase", "false", False),
+            ("false_title_case", "False", False),
+            ("false_upper_case", "FALSE", False),
+        ]
+    )
+    def test_boolean_person_property_filter_emits_boolean_not_null(self, _name, filter_value, expected_bool):
+        # Regression test for #58703: a Boolean-typed person property with a non-lowercase
+        # value like Python's str(True) ("True") used to resolve to None, emitting a NULL
+        # constant (opcode 31) in the bytecode. The realtime HogVM evaluator then treated
+        # `person.properties.X == None` as True for every person missing the property
+        # (None == None is True in HogVM), inflating cohort membership. The bytecode must
+        # emit a boolean constant (TRUE=29 or FALSE=30), never NULL (31).
+        from posthog.api.cohort import generate_cohort_filter_bytecode
+        from posthog.models.property_definition import PropertyDefinition
+
+        from common.hogvm.python.operation import Operation
+
+        PropertyDefinition.objects.get_or_create(
+            team=self.team,
+            name="is_internal",
+            type=PropertyDefinition.Type.PERSON,
+            defaults={"property_type": "Boolean"},
+        )
+
+        filter_data = {
+            "key": "is_internal",
+            "type": "person",
+            "value": [filter_value],
+            "operator": "exact",
+        }
+        bytecode, error, _ = generate_cohort_filter_bytecode(filter_data, self.team)
+        self.assertIsNone(error)
+        assert bytecode is not None
+
+        expected_op = Operation.TRUE if expected_bool else Operation.FALSE
+        self.assertIn(expected_op, bytecode)
+        self.assertNotIn(Operation.NULL, bytecode)
