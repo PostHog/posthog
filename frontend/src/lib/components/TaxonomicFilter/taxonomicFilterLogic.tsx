@@ -18,7 +18,6 @@ import posthog from 'posthog-js'
 
 import { IconCursor } from '@posthog/icons'
 
-import { buildEventTypeFilterShortcuts } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import {
@@ -42,8 +41,6 @@ import {
     TaxonomicFilterValue,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isString, objectsEqual, pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import {
@@ -79,6 +76,7 @@ import { customEventsTaxonomicGroupsLogic } from './customEventsTaxonomicGroupsL
 import { dataWarehouseTaxonomicGroupsLogic } from './dataWarehouseTaxonomicGroupsLogic'
 import { errorTrackingTaxonomicGroupsLogic } from './errorTrackingTaxonomicGroupsLogic'
 import { eventMetadataTaxonomicGroupsLogic } from './eventMetadataTaxonomicGroupsLogic'
+import { eventPropertiesTaxonomicGroupsLogic } from './eventPropertiesTaxonomicGroupsLogic'
 import { eventsTaxonomicGroupsLogic } from './eventsTaxonomicGroupsLogic'
 import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGroupsLogic'
 import { hogQLExpressionTaxonomicGroupsLogic } from './hogQLExpressionTaxonomicGroupsLogic'
@@ -122,7 +120,7 @@ const SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType
 export const DEFAULT_SLOTS_PER_GROUP = 5
 export const MAX_TOP_MATCHES_PER_GROUP = 10
 
-const TRAFFIC_TYPE_VIRTUAL_PROPERTIES = [
+export const TRAFFIC_TYPE_VIRTUAL_PROPERTIES = [
     '$virt_is_bot',
     '$virt_traffic_type',
     '$virt_traffic_category',
@@ -302,8 +300,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['currentTeamId', 'currentTeam'],
             projectLogic,
             ['currentProjectId'],
-            featureFlagLogic,
-            ['featureFlags'],
             groupAnalyticsTaxonomicGroupsLogic,
             ['groupAnalyticsTaxonomicGroups', 'groupAnalyticsTaxonomicGroupNames'],
             cohortTaxonomicGroupsLogic,
@@ -336,6 +332,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['eventsTaxonomicGroups'],
             customEventsTaxonomicGroupsLogic,
             ['customEventsTaxonomicGroups'],
+            eventPropertiesTaxonomicGroupsLogic,
+            ['eventPropertiesTaxonomicGroups'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -537,7 +535,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.maxAIContextTaxonomicGroups,
                 s.cohortTaxonomicGroups,
                 s.apmTaxonomicGroups,
-                s.featureFlags,
+                s.eventPropertiesTaxonomicGroups,
                 s.replayTaxonomicGroups,
                 s.posthogResourcesTaxonomicGroups,
                 s.errorTrackingTaxonomicGroups,
@@ -559,7 +557,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 maxAIContextTaxonomicGroups: TaxonomicFilterGroup[],
                 cohortTaxonomicGroups: TaxonomicFilterGroup[],
                 apmTaxonomicGroups: TaxonomicFilterGroup[],
-                featureFlags: Record<string, boolean | string | undefined>,
+                eventPropertiesTaxonomicGroups: TaxonomicFilterGroup[],
                 replayTaxonomicGroups: TaxonomicFilterGroup[],
                 posthogResourcesTaxonomicGroups: TaxonomicFilterGroup[],
                 errorTrackingTaxonomicGroups: TaxonomicFilterGroup[],
@@ -630,71 +628,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: SimpleOption) => option.name,
                         ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.metadata),
                     },
-                    {
-                        name: 'Event properties',
-                        searchPlaceholder: 'event properties',
-                        type: TaxonomicFilterGroupType.EventProperties,
-                        endpoint: combineUrl(`api/projects/${projectId}/property_definitions`, {
-                            is_feature_flag: false,
-                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
-                            properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
-                                ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
-                                : undefined,
-                            exclude_hidden: true,
-                            exclude_restricted: true,
-                        }).url,
-                        scopedEndpoint:
-                            eventNames.length > 0
-                                ? combineUrl(`api/projects/${projectId}/property_definitions`, {
-                                      event_names: eventNames,
-                                      is_feature_flag: false,
-                                      filter_by_event_names: true,
-                                      properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
-                                          ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
-                                          : undefined,
-                                      exclude_hidden: true,
-                                      exclude_restricted: true,
-                                  }).url
-                                : undefined,
-                        expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
-                            `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
-                                expandedCount - count,
-                                'has',
-                                'have',
-                                false
-                            )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
-                        excludedProperties: [
-                            ...(excludedProperties?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString) ?? []),
-                            ...(!featureFlags[FEATURE_FLAGS.TRAFFIC_TYPE_VIRTUAL_PROPERTIES]
-                                ? TRAFFIC_TYPE_VIRTUAL_PROPERTIES
-                                : []),
-                        ],
-                        propertyAllowList:
-                            propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]?.filter(isString),
-                        ...withKeywordShortcuts<PropertyDefinition>(
-                            {
-                                getName: (propertyDefinition) => propertyDefinition.name,
-                                getValue: (propertyDefinition) => propertyDefinition.name,
-                                ...propertyTaxonomicGroupProps(),
-                            },
-                            {
-                                popoverHeader: 'Event type shortcut',
-                                buildShortcuts: buildEventTypeFilterShortcuts,
-                            }
-                        ),
-                    },
-                    {
-                        name: 'Internal event properties',
-                        searchPlaceholder: 'internal event properties',
-                        type: TaxonomicFilterGroupType.InternalEventProperties,
-                        options: getProductEventPropertyFilterOptions('activity-log').map((value) => ({
-                            name: value,
-                            value,
-                            group: TaxonomicFilterGroupType.EventProperties,
-                        })),
-                        getIcon: getPropertyDefinitionIcon,
-                        getPopoverHeader: () => 'Internal event properties',
-                    },
+                    ...eventPropertiesTaxonomicGroups,
                     ...eventMetadataTaxonomicGroups,
                     {
                         name: 'Feature flags',
