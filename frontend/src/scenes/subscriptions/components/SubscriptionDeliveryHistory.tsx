@@ -28,14 +28,8 @@ import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 type DeliveryListStatusFilter =
     (typeof SubscriptionDeliveriesListStatusByValue)[keyof typeof SubscriptionDeliveriesListStatusByValue]
 
-/** Backend writes `{message: str, type: str}` to `SubscriptionDelivery.error`; schema types it as `unknown`. */
-function getDeliveryErrorMessage(error: SubscriptionDeliveryApi['error']): string | null {
-    if (!error || typeof error !== 'object') {
-        return null
-    }
-    const message = (error as { message?: unknown }).message
-    return typeof message === 'string' && message.length > 0 ? message : null
-}
+/** Shape of `SubscriptionDelivery.error`, written by `posthog/temporal/subscriptions/activities.py`. */
+type SubscriptionDeliveryError = { message: string; type: string }
 
 function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
     let label: string
@@ -61,11 +55,10 @@ function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
             label = row.status
             tagType = 'default'
     }
-    const errorMessage =
-        row.status === SubscriptionDeliveryStatusEnumApi.Failed ? getDeliveryErrorMessage(row.error) : null
-    if (errorMessage) {
+    const failureMessage = (row.error as SubscriptionDeliveryError | null)?.message
+    if (row.status === SubscriptionDeliveryStatusEnumApi.Failed && failureMessage) {
         return (
-            <Tooltip title={errorMessage}>
+            <Tooltip title={failureMessage}>
                 <LemonTag type={tagType} className="cursor-help">
                     {label}
                 </LemonTag>
