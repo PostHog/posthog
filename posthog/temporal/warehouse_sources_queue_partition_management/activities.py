@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from django.conf import settings
 
@@ -37,7 +37,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     errors: list[str] = []
 
     with psycopg.Connection.connect(database_url, autocommit=True) as conn:
-        today = date.today()
+        today = datetime.now(UTC).date()
 
         for table in PARTITIONED_TABLES:
             for offset in range(PARTITIONS_AHEAD):

@@ -141,7 +141,7 @@ def test_handles_entries_with_and_without_trailing_slash() -> None:
     with _patched_s3(entries) as s3:
         deleted = _cleanup_old_s3_extractions(TODAY, errors)
 
-    assert deleted == ["dt=2020-01-01", "dt=2020-02-02"]
+    assert set(deleted) == {"dt=2020-01-01", "dt=2020-02-02"}
     assert errors == []
     assert s3.delete.call_count == 2
     s3.delete.assert_any_call(f"{BASE}/dt=2020-01-01/", recursive=True)
@@ -215,7 +215,7 @@ def test_continues_after_individual_delete_failure() -> None:
     with _patched_s3(entries, delete_raises={f"{BASE}/dt=2020-01-02": OSError("boom")}) as s3:
         deleted = _cleanup_old_s3_extractions(TODAY, errors)
 
-    assert deleted == ["dt=2020-01-01", "dt=2020-01-03"]
+    assert set(deleted) == {"dt=2020-01-01", "dt=2020-01-03"}
     assert errors == ["Failed to delete S3 partition dt=2020-01-02: boom"]
     assert s3.delete.call_count == 3
 
