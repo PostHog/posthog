@@ -3870,6 +3870,7 @@ class ProductItemCategory(StrEnum):
 
 class ProductKey(StrEnum):
     ACTIONS = "actions"
+    LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
     COHORTS = "cohorts"
@@ -3891,7 +3892,6 @@ class ProductKey(StrEnum):
     INTEGRATIONS = "integrations"
     LINKS = "links"
     LIVE_DEBUGGER = "live_debugger"
-    LLM_ANALYTICS = "llm_analytics"
     LLM_CLUSTERS = "llm_clusters"
     LLM_DATASETS = "llm_datasets"
     LLM_EVALUATIONS = "llm_evaluations"
