@@ -1,5 +1,6 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization
@@ -144,38 +145,22 @@ class TestWizardSessionViewSet(APIBaseTest):
         response = self.client.get(self._url("does-not-exist/"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_delete_is_disallowed(self):
+    @parameterized.expand([("delete",), ("put",)])
+    def test_disallowed_verb_returns_405(self, method):
         self.client.post(self._url(), self._payload(), format="json")
 
-        response = self.client.delete(self._url("onboarding-nextjs-2026-05-19T10:00:00Z/"))
+        response = getattr(self.client, method)(self._url("onboarding-nextjs-2026-05-19T10:00:00Z/"))
 
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def test_put_is_disallowed(self):
-        self.client.post(self._url(), self._payload(), format="json")
-
-        response = self.client.put(
-            self._url("onboarding-nextjs-2026-05-19T10:00:00Z/"),
-            self._payload(run_phase="completed"),
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-
-    def test_invalid_task_status_rejected(self):
-        response = self.client.post(
-            self._url(),
-            self._payload(tasks=[{"id": "1", "title": "x", "status": "pizza"}]),
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_invalid_run_phase_rejected(self):
-        response = self.client.post(
-            self._url(),
-            self._payload(run_phase="exploded"),
-            format="json",
-        )
+    @parameterized.expand(
+        [
+            ("invalid_task_status", {"tasks": [{"id": "1", "title": "x", "status": "pizza"}]}),
+            ("invalid_run_phase", {"run_phase": "exploded"}),
+        ]
+    )
+    def test_invalid_enum_payload_rejected(self, _label, payload_overrides):
+        response = self.client.post(self._url(), self._payload(**payload_overrides), format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_other_team_cannot_see_sessions(self):
