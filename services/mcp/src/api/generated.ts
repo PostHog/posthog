@@ -2911,6 +2911,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -2950,6 +2951,8 @@ export namespace Schemas {
       samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
+      /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+      useWebAnalyticsPrecompute?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -9252,6 +9255,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -20208,6 +20212,15 @@ export namespace Schemas {
       Inactive: 'inactive',
       Never: 'never',
     } as const;
+
+    export interface LatestTestInterview {
+      /** When the test interview was completed. */
+      completed_at: string;
+      /** Full transcript of the test call, if Vapi delivered one. May be empty. */
+      transcript: string;
+      /** AI-generated summary of the test call, if Vapi delivered one. May be empty. */
+      summary: string;
+    }
 
     export interface LegalDocumentCreator {
       first_name: string;
@@ -31733,16 +31746,13 @@ export namespace Schemas {
       date_from: string;
       /** Exclusive UTC end of the spend window resolved from the request. */
       date_to: string;
-      /**
-         * The `ai_product` filter applied to tool / model / trace breakdowns. Null when unfiltered.
-         * @nullable
-         */
-      product: string | null;
+      /** The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`. */
+      product: string;
       /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
       total_cost_usd: number;
       /** Total $ai_generation + $ai_embedding events captured across every product. */
       event_count: number;
-      /** Total cost in USD for the product filter (or all products when unfiltered). Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
+      /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
       scoped_cost_usd: number;
       /** Total $ai_generation + $ai_embedding events for the scoped slice. */
       scoped_event_count: number;
@@ -33539,6 +33549,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -33914,6 +33925,7 @@ export namespace Schemas {
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       types?: unknown[] | null;
+      usedLazyPrecompute?: boolean | null;
       usedPreAggregatedTables?: boolean | null;
     }
 
@@ -36839,6 +36851,13 @@ export namespace Schemas {
       results: TestHogTaggerResultItem[];
       /** Optional message, for example when no recent AI events were found. */
       message?: string;
+    }
+
+    export interface TestInterviewLink {
+      /** Public, unauthenticated URL the topic author opens to dogfood the voice interview themselves — does not count against the targeted interviewees. */
+      interview_url: string;
+      /** Most recent test interview completed by the topic author, or null if none yet. */
+      latest_test_interview: LatestTestInterview | null;
     }
 
     export interface TextReprMetadata {
@@ -40392,7 +40411,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
      */
     tags?: string;
     };
@@ -41729,11 +41748,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across every product captured for the user.
+     * Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.
+     * @minLength 1
      * @maxLength 64
-     * @nullable
      */
-    product?: string | null;
+    product: string;
     /**
      * If true, bypass the result cache and re-run the underlying queries against ClickHouse.
      */

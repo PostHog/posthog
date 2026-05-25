@@ -4,6 +4,7 @@ from django.db.models import Q
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import viewsets
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
@@ -89,7 +90,8 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
                 required=False,
                 description=(
                     'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. '
-                    "Returns accounts that have any of the listed tags."
+                    "Returns accounts that have any of the listed tags. "
+                    "Malformed values (not a JSON-encoded list of strings) return a 400."
                 ),
             ),
             OpenApiParameter(
@@ -146,10 +148,12 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
         if tags_param:
             try:
                 tags_list = json.loads(tags_param)
-                if isinstance(tags_list, list) and tags_list:
-                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
             except json.JSONDecodeError:
-                pass
+                raise ValidationError({"tags": "Must be a JSON-encoded list of strings."})
+            if not isinstance(tags_list, list) or not all(isinstance(t, str) for t in tags_list):
+                raise ValidationError({"tags": "Must be a JSON-encoded list of strings."})
+            if tags_list:
+                queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
 
         # An unset role is serialized as JSON null, which `_properties__role__isnull`
         # does not match; probing the nested `id` matches every unassigned

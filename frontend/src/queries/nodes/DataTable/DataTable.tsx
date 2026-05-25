@@ -193,6 +193,7 @@ export function DataTable({
         'usedPreAggregatedTables' in response &&
         response.usedPreAggregatedTables &&
         response?.hogql
+    const usedWebAnalyticsLazyPrecompute = response && 'usedLazyPrecompute' in response && response.usedLazyPrecompute
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -891,7 +892,11 @@ export function DataTable({
                     ) : null}
                     {showResultsTable && (
                         <div className="relative">
-                            {usedWebAnalyticsPreAggregatedTables && <PreAggregatedBadge />}
+                            {usedWebAnalyticsLazyPrecompute ? (
+                                <PreAggregatedBadge variant="precomputed" />
+                            ) : usedWebAnalyticsPreAggregatedTables ? (
+                                <PreAggregatedBadge variant="preagg" />
+                            ) : null}
                             <LemonTable
                                 data-attr={dataAttr}
                                 className="DataTable"
