@@ -22,6 +22,7 @@ from typing import Any
 from django.db import connection, transaction
 from django.utils import timezone
 
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import SignalProjectProfile
@@ -77,9 +78,15 @@ def get_project_profile(*, team_id: int, force_refresh: bool = False) -> Project
     and persists. The lazy compute path keeps brand-new teams (no profile yet) usable
     without waiting for the daily Temporal workflow.
 
-    Cache hit is the steady-state path, so the `Team` fetch is deferred to the miss
-    branch — a hit completes with one indexed query against `signal_project_profile`
-    instead of two.
+    `SignalProjectProfile` is a `TeamScopedRootMixin` model, so `RootTeamMixin.save()`
+    stores every row under the *canonical* (root) team. Resolve the requested `team_id`
+    to its canonical id up front so the cache read keys on the same id the write used —
+    without this, a request scoped to an environment (child) team would never match its
+    own cached row and would recompute the full inventory on every call.
+
+    Cache hit is the steady-state path, so the full `Team` fetch is deferred to the miss
+    branch — a hit completes with the cheap canonical-id resolution plus one indexed query
+    against `signal_project_profile`, rather than fetching the whole `Team` row.
 
     `force_refresh=True` skips the cache lookup and goes straight to a rebuild, for
     callers that know the underlying data just changed (e.g. a dev seeded events into
@@ -88,6 +95,7 @@ def get_project_profile(*, team_id: int, force_refresh: bool = False) -> Project
     advisory lock, so concurrent force-refreshes collapse into one build with the
     losers returning the winner's freshly persisted row.
     """
+    team_id = resolve_effective_team_id(team_id)
     if not force_refresh:
         cached = _latest_fresh_profile(team_id=team_id)
         if cached is not None:
@@ -117,6 +125,12 @@ def compute_project_profile(*, team: Team, force: bool = False) -> ProjectProfil
     cost is at most one duplicate `build_inventory` per simultaneous force request —
     bounded and only paid by callers who knowingly opted into it.
     """
+    # Canonicalize: `RootTeamMixin.save()` stores the row under the root team, so the
+    # advisory lock, post-lock cache re-check, and prune must all key on the canonical
+    # id too. `get_project_profile` already passes a canonical team; this guards the
+    # direct / Phase-7 call path where an environment (child) team could be passed in.
+    if team.parent_team_id:
+        team = team.parent_team
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [_PROFILE_LOCK_NAMESPACE, team.id])
@@ -144,13 +158,18 @@ def _prune_stale_profiles(*, team_id: int) -> int:
     `compute_project_profile` transaction so prune happens under the same advisory
     lock as the insert — no risk of two workers racing to delete each other's rows.
     Returns the deleted-row count for logging/tests.
+
+    `team_id` is the canonical id (callers resolve it before getting here), so query
+    `.unscoped()` and filter on it explicitly rather than leaning on ambient team
+    context — keeps the prune correct off the request path (Phase-7 Temporal) too.
     """
     keep_ids = list(
-        SignalProjectProfile.objects.filter(team_id=team_id)
+        SignalProjectProfile.objects.unscoped()
+        .filter(team_id=team_id)
         .order_by("-computed_at")
         .values_list("id", flat=True)[:PROFILE_KEEP_N]
     )
-    deleted, _ = SignalProjectProfile.objects.filter(team_id=team_id).exclude(id__in=keep_ids).delete()
+    deleted, _ = SignalProjectProfile.objects.unscoped().filter(team_id=team_id).exclude(id__in=keep_ids).delete()
     return deleted
 
 
@@ -160,10 +179,19 @@ def _latest_fresh_profile(*, team_id: int) -> SignalProjectProfile | None:
     Both checks matter: an expired row should be recomputed even if its schema matches,
     and a row on an older `source_version` is treated as a miss so a schema bump silently
     invalidates stale shapes without a manual backfill.
+
+    `team_id` is the canonical id (callers resolve it before getting here), so query
+    `.unscoped()` and filter on it explicitly. Going through the fail-closed manager
+    would also apply the ambient `get_current_team_id()` filter, which for an environment
+    (child) team request is the canonical parent id — combined with an explicit raw
+    child-id filter that would never match the parent-scoped row, the cache would silently
+    never hit. Filtering on the resolved canonical id directly keeps read symmetric with
+    `RootTeamMixin.save()`'s canonicalized write.
     """
     now = timezone.now()
     return (
-        SignalProjectProfile.objects.filter(
+        SignalProjectProfile.objects.unscoped()
+        .filter(
             team_id=team_id,
             expires_at__gt=now,
             source_version=INVENTORY_SOURCE_VERSION,
