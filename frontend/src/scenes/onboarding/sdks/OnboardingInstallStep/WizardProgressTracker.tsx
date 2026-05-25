@@ -165,9 +165,7 @@ function TaskList(): JSX.Element {
                                     ? 'line-through text-neutral-500'
                                     : task.status === 'failed'
                                       ? 'text-brand-red'
-                                      : isActive
-                                        ? 'text-neutral-100'
-                                        : 'text-neutral-100'
+                                      : 'text-neutral-100'
                             }
                         >
                             {task.title}

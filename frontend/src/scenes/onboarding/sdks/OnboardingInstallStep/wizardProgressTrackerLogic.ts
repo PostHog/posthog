@@ -1,7 +1,7 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import type { WizardSessionApi } from 'products/wizard/frontend/generated/api.schemas'
+import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
 import type { wizardProgressTrackerLogicType } from './wizardProgressTrackerLogicType'
@@ -72,15 +72,19 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 if (!latestSession) {
                     return 'preTakeover'
                 }
-                if (connectionStatus === 'connecting' || connectionStatus === 'error') {
-                    return 'connecting'
-                }
+                // Terminal run_phase states are sticky — the wizard CLI closes the SSE
+                // connection cleanly after `completed`/`error`, which would otherwise
+                // flip the panel back to a transient "reconnecting…" state right when
+                // the user is supposed to see the completion screen.
                 const phase = latestSession.run_phase
                 if (phase === 'completed') {
                     return 'completed'
                 }
                 if (phase === 'error') {
                     return 'error'
+                }
+                if (connectionStatus === 'connecting' || connectionStatus === 'error') {
+                    return 'connecting'
                 }
                 return 'running'
             },
@@ -99,9 +103,6 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             },
         ],
     }),
-    listeners(() => ({
-        // No imperative listeners; reducers + subscriptions cover state changes.
-    })),
     subscriptions(({ actions }) => ({
         connectionStatus: (status, prev) => {
             if (status === prev) {
@@ -119,7 +120,7 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 actions.appendActivity(text)
             }
         },
-        latestSession: (session: WizardSessionApi | null, prev: WizardSessionApi | null) => {
+        latestSession: (session: WizardSessionDTOApi | null, prev: WizardSessionDTOApi | null) => {
             if (!session) {
                 return
             }
