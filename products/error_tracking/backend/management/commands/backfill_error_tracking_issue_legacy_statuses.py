@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import time
 import logging
+from uuid import UUID
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -154,17 +155,32 @@ class Command(BaseCommand):
         return counts
 
     def _backfill_team(self, *, team_id: int, statuses: tuple[str, ...]) -> int:
-        issue_ids = list(
-            ErrorTrackingIssue.objects.filter(team_id=team_id, status__in=statuses).values_list("id", flat=True)
-        )
-        if not issue_ids:
-            return 0
-
         with transaction.atomic():
-            # Skip ModelActivityMixin signals — this is a janitorial fix, not user activity.
-            updated = ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids).update(status=TARGET_STATUS)
+            issue_ids = self._get_legacy_issue_ids_for_update(team_id=team_id, statuses=statuses)
+            if not issue_ids:
+                return 0
 
-        # Re-produce fingerprint state to Kafka so ClickHouse mirrors the new status promptly,
-        # rather than waiting for the next ingested event to refresh each row.
-        sync_issues_to_clickhouse(issue_ids=issue_ids, team_id=team_id)
-        return updated
+            updated_issue_ids = list(
+                ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids, status__in=statuses).values_list(
+                    "id", flat=True
+                )
+            )
+            if not updated_issue_ids:
+                return 0
+
+            # Emit while the legacy status is still a durable retry marker.
+            # sync_issues_to_clickhouse maps deprecated statuses to resolved.
+            sync_issues_to_clickhouse(issue_ids=updated_issue_ids, team_id=team_id)
+
+            # Skip ModelActivityMixin signals — this is a janitorial fix, not user activity.
+            updated = ErrorTrackingIssue.objects.filter(
+                team_id=team_id, id__in=updated_issue_ids, status__in=statuses
+            ).update(status=TARGET_STATUS)
+            return updated
+
+    def _get_legacy_issue_ids_for_update(self, *, team_id: int, statuses: tuple[str, ...]) -> list[UUID]:
+        return list(
+            ErrorTrackingIssue.objects.select_for_update()
+            .filter(team_id=team_id, status__in=statuses)
+            .values_list("id", flat=True)
+        )

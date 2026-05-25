@@ -1,10 +1,18 @@
+from uuid import UUID
+
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Organization, Team
 
 from products.error_tracking.backend.management.commands.backfill_error_tracking_issue_legacy_statuses import Command
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    sync_issues_to_clickhouse,
+)
 
 
 class TestBackfillErrorTrackingIssueLegacyStatuses(ClickhouseTestMixin, BaseTest):
@@ -74,6 +82,15 @@ class TestBackfillErrorTrackingIssueLegacyStatuses(ClickhouseTestMixin, BaseTest
         # The active issue was not touched, so no CH row was produced for it by the backfill.
         assert self._ch_status_for(team_id=self.team.pk, fingerprint="fp_active") is None
 
+    def test_clickhouse_sync_maps_legacy_statuses_to_resolved(self):
+        archived = self._make_issue(team=self.team, status=ErrorTrackingIssue.Status.ARCHIVED, fingerprint="fp_a")
+
+        sync_issues_to_clickhouse(issue_ids=[archived.id], team_id=self.team.pk)
+
+        archived.refresh_from_db()
+        assert archived.status == ErrorTrackingIssue.Status.ARCHIVED
+        assert self._ch_status_for(team_id=self.team.pk, fingerprint="fp_a") == "resolved"
+
     def test_status_filter_limits_scope(self):
         archived = self._make_issue(team=self.team, status=ErrorTrackingIssue.Status.ARCHIVED, fingerprint="fp_a")
         pending = self._make_issue(team=self.team, status=ErrorTrackingIssue.Status.PENDING_RELEASE, fingerprint="fp_p")
@@ -98,6 +115,43 @@ class TestBackfillErrorTrackingIssueLegacyStatuses(ClickhouseTestMixin, BaseTest
         other.refresh_from_db()
         assert own.status == ErrorTrackingIssue.Status.RESOLVED
         assert other.status == ErrorTrackingIssue.Status.ARCHIVED
+
+    def test_live_run_does_not_clobber_issue_changed_after_selection(self):
+        issue = self._make_issue(team=self.team, status=ErrorTrackingIssue.Status.ARCHIVED, fingerprint="fp_a")
+        command = Command()
+
+        def get_stale_issue_ids(**_kwargs: object) -> list[UUID]:
+            ErrorTrackingIssue.objects.filter(id=issue.id).update(status=ErrorTrackingIssue.Status.ACTIVE)
+            return [issue.id]
+
+        with patch.object(command, "_get_legacy_issue_ids_for_update", side_effect=get_stale_issue_ids):
+            updated = command._backfill_team(team_id=self.team.pk, statuses=(ErrorTrackingIssue.Status.ARCHIVED,))
+
+        issue.refresh_from_db()
+        assert updated == 0
+        assert issue.status == ErrorTrackingIssue.Status.ACTIVE
+        assert self._ch_status_for(team_id=self.team.pk, fingerprint="fp_a") is None
+
+    def test_live_run_rolls_back_status_update_when_clickhouse_sync_fails(self):
+        issue = self._make_issue(team=self.team, status=ErrorTrackingIssue.Status.ARCHIVED, fingerprint="fp_a")
+
+        with (
+            patch(
+                "products.error_tracking.backend.management.commands.backfill_error_tracking_issue_legacy_statuses.sync_issues_to_clickhouse",
+                side_effect=RuntimeError("sync failed"),
+            ),
+            pytest.raises(RuntimeError, match="sync failed"),
+        ):
+            self._run(live_run=True)
+
+        issue.refresh_from_db()
+        assert issue.status == ErrorTrackingIssue.Status.ARCHIVED
+        assert self._ch_status_for(team_id=self.team.pk, fingerprint="fp_a") is None
+
+        self._run(live_run=True)
+        issue.refresh_from_db()
+        assert issue.status == ErrorTrackingIssue.Status.RESOLVED
+        assert self._ch_status_for(team_id=self.team.pk, fingerprint="fp_a") == "resolved"
 
     def test_idempotent_on_clean_dataset(self):
         # Re-running on a dataset with no legacy statuses should be a no-op.
