@@ -62,6 +62,23 @@ function applyOrder(shortcuts: FileSystemEntry[], orderedIds: string[]): FileSys
     return [...reordered, ...trailing]
 }
 
+function moveOrderedId(orderedIds: string[], shortcutId: string, direction: 'up' | 'down'): string[] | null {
+    const fromIndex = orderedIds.indexOf(shortcutId)
+    if (fromIndex < 0) {
+        return null
+    }
+
+    const toIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1
+    if (toIndex < 0 || toIndex >= orderedIds.length) {
+        return null
+    }
+
+    const next = [...orderedIds]
+    const [moved] = next.splice(fromIndex, 1)
+    next.splice(toIndex, 0, moved)
+    return next
+}
+
 type DeleteFolderDialogContentProps = {
     folderName: string
     folderPath: string
@@ -214,6 +231,10 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
         loadShortcuts: true,
         reorderShortcuts: (orderedIds: NonNullable<FileSystemEntry['id']>[]) => ({ orderedIds }),
+        moveShortcutInStarred: (
+            shortcutId: NonNullable<FileSystemEntry['id']>,
+            direction: 'up' | 'down'
+        ) => ({ shortcutId, direction }),
         // Resolves a sibling drag ('before' / 'after' a target row) into a new ordered list and
         // dispatches `reorderShortcuts`. Lives here so the component stays free of business logic.
         reorderShortcutByDrag: (activeTreeId: string, overTreeId: string, position: 'before' | 'after') => ({
@@ -742,6 +763,23 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return map
             },
         ],
+        shortcutMoveAvailability: [
+            (s) => [s.shortcutData],
+            (shortcutData): Map<string, { canMoveUp: boolean; canMoveDown: boolean }> => {
+                const orderedIds = shortcutData.map((shortcut) => shortcut.id).filter((id): id is string => !!id)
+                const lastIndex = orderedIds.length - 1
+
+                return new Map(
+                    orderedIds.map((id, index) => [
+                        id,
+                        {
+                            canMoveUp: index > 0,
+                            canMoveDown: index < lastIndex,
+                        },
+                    ])
+                )
+            },
+        ],
         savedItemsLoading: [
             (s) => [s.folderStates],
             (folderStates): boolean => Object.values(folderStates).some((state) => state === 'loading'),
@@ -1155,6 +1193,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        moveShortcutInStarred: ({ shortcutId, direction }) => {
+            const currentIds = values.shortcutData.map((s) => s.id).filter((id): id is string => !!id)
+            const next = moveOrderedId(currentIds, shortcutId, direction)
+            if (!next) {
+                return
+            }
+
+            actions.reorderShortcuts(next)
+        },
         reorderShortcutByDrag: ({ activeTreeId, overTreeId, position }) => {
             const map = values.shortcutEntryIdMap
             const activeEntryId = map.get(activeTreeId)

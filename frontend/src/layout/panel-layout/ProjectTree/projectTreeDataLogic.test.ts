@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { projectTreeDataLogic } from './projectTreeDataLogic'
@@ -9,6 +10,12 @@ import { projectTreeDataLogic } from './projectTreeDataLogic'
 describe('projectTreeDataLogic', () => {
     let logic: ReturnType<typeof projectTreeDataLogic.build>
     let unmount: () => void
+
+    const shortcuts: FileSystemEntry[] = [
+        { id: 'shortcut-1', path: 'Product analytics', type: 'insight', href: '/insights/1', ref: '1' },
+        { id: 'shortcut-2', path: 'Session replay', type: 'session_replay', href: '/replay', ref: '2' },
+        { id: 'shortcut-3', path: 'Dashboard', type: 'dashboard', href: '/dashboard/3', ref: '3' },
+    ]
 
     beforeEach(async () => {
         jest.restoreAllMocks()
@@ -27,6 +34,10 @@ describe('projectTreeDataLogic', () => {
         unmount?.()
         jest.restoreAllMocks()
     })
+
+    function seedShortcuts(shortcutData: FileSystemEntry[]): void {
+        logic.actions.loadShortcutsSuccess(shortcutData)
+    }
 
     it('handles null unfiled item responses', async () => {
         jest.mocked(api.fileSystem.unfiled).mockResolvedValueOnce(null)
@@ -64,6 +75,41 @@ describe('projectTreeDataLogic', () => {
             depth: 3,
             limit: 101,
             offset: 0,
+        })
+    })
+
+    it('moves a starred item up by reusing the reorder endpoint', async () => {
+        jest.spyOn(api.fileSystemShortcuts, 'reorder').mockResolvedValue(shortcuts)
+        seedShortcuts(shortcuts)
+
+        await expectLogic(logic, () => {
+            logic.actions.moveShortcutInStarred('shortcut-2', 'up')
+        }).toDispatchActions(['moveShortcutInStarred', 'reorderShortcuts', 'reorderShortcutsSuccess'])
+
+        expect(api.fileSystemShortcuts.reorder).toHaveBeenCalledWith(['shortcut-2', 'shortcut-1', 'shortcut-3'])
+        expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual([
+            'shortcut-2',
+            'shortcut-1',
+            'shortcut-3',
+        ])
+        expect(logic.values.shortcutMoveAvailability.get('shortcut-2')).toEqual({
+            canMoveUp: false,
+            canMoveDown: true,
+        })
+    })
+
+    it('does not reorder when the starred item is already at the top', async () => {
+        const reorderSpy = jest.spyOn(api.fileSystemShortcuts, 'reorder').mockResolvedValue(shortcuts)
+        seedShortcuts(shortcuts)
+
+        await expectLogic(logic, () => {
+            logic.actions.moveShortcutInStarred('shortcut-1', 'up')
+        }).toDispatchActions(['moveShortcutInStarred'])
+
+        expect(reorderSpy).not.toHaveBeenCalled()
+        expect(logic.values.shortcutMoveAvailability.get('shortcut-1')).toEqual({
+            canMoveUp: false,
+            canMoveDown: true,
         })
     })
 })

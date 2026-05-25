@@ -13,7 +13,9 @@ import {
 
 import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenuGroup,
@@ -68,11 +70,12 @@ export function MenuItems({
     showSelectMenuOption = true,
 }: MenuItemsProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { shortcutNonFolderPaths } = useValues(projectTreeDataLogic)
-    const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
+    const { shortcutNonFolderPaths, shortcutEntryIdMap, shortcutMoveAvailability } = useValues(projectTreeDataLogic)
+    const { deleteShortcut, addShortcutItem, moveShortcutInStarred } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
     const { selectedPaths: customProductsSelectedPaths } = useValues(editCustomProductsModalLogic)
+    const isStarredReorderEnabled = useFeatureFlag('STARRED_REORDER')
 
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const { checkedItems, checkedItemCountNumeric, checkedItemsArray } = useValues(
@@ -155,6 +158,9 @@ export function MenuItems({
     const isItemAFolder = item.record?.type === 'folder'
     const itemShortcutPath = joinPath([splitPath(item.record?.path).pop() ?? 'Unnamed'])
     const isItemAlreadyInShortcut = !isItemAFolder && shortcutNonFolderPaths.has(itemShortcutPath)
+    const isTopLevelStarredItem = root === 'shortcuts://' && shortcutEntryIdMap.has(item.id)
+    const shortcutId = item.record?.id
+    const moveAvailability = shortcutId ? shortcutMoveAvailability.get(shortcutId) : undefined
 
     return (
         <>
@@ -277,6 +283,38 @@ export function MenuItems({
                         </ButtonPrimitive>
                     </MenuItem>
                 ) : null
+            ) : null}
+
+            {isStarredReorderEnabled && isTopLevelStarredItem && shortcutId ? (
+                <>
+                    <MenuSeparator />
+                    <MenuItem
+                        asChild
+                        disabled={!moveAvailability?.canMoveUp}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            moveShortcutInStarred(shortcutId, 'up')
+                        }}
+                        data-attr="tree-item-menu-move-shortcut-up-button"
+                    >
+                        <ButtonPrimitive menuItem disabled={!moveAvailability?.canMoveUp}>
+                            <IconArrowUp className="size-4 text-tertiary" /> Move up
+                        </ButtonPrimitive>
+                    </MenuItem>
+                    <MenuItem
+                        asChild
+                        disabled={!moveAvailability?.canMoveDown}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            moveShortcutInStarred(shortcutId, 'down')
+                        }}
+                        data-attr="tree-item-menu-move-shortcut-down-button"
+                    >
+                        <ButtonPrimitive menuItem disabled={!moveAvailability?.canMoveDown}>
+                            <IconArrowDown className="size-4 text-tertiary" /> Move down
+                        </ButtonPrimitive>
+                    </MenuItem>
+                </>
             ) : null}
 
             {root === 'custom-products://' && !item.id.startsWith('shortcuts://') ? (
