@@ -1517,6 +1517,7 @@ class FeatureFlagSerializer(
                     )
                 flag.key = f"{flag.key}:deleted:{flag.id}"
                 flag.save(update_fields=["key"])
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
