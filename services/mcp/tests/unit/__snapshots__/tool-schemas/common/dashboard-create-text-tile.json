@@ -9,6 +9,7 @@
         "color": {
             "anyOf": [
                 {
+                    "maxLength": 400,
                     "type": "string"
                 },
                 {
