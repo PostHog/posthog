@@ -156,9 +156,11 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     const out: Candidate[] = []
 
     // In percent layout each band sums to 1, so we need the band total to convert each segment's
-    // raw value into the fraction d3 uses for placement (`raw / total`).
+    // raw value into the fraction d3 uses for placement (`raw / total`). Match the d3 stack's own
+    // denominator — every non-excluded stacked series — even if some have `valueLabel: false`,
+    // since those still contribute to the visual stack height.
     const visibleForTotal = isPercent
-        ? series.filter((s) => !s.visibility?.excluded && s.visibility?.valueLabel !== false)
+        ? series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
         : []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {

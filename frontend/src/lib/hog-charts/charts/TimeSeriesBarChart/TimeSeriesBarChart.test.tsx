@@ -263,10 +263,14 @@ describe('TimeSeriesBarChart', () => {
                     }}
                 />
             )
-            const texts = chart.valueLabels().map((l) => l.text)
-            // Only assert a's labels since b is the larger segment and we just want to confirm
-            // the share-of-band conversion went through the formatter.
-            expect(texts).toEqual(expect.arrayContaining(['10%', '20%', '30%']))
+            // a's shares are [0.1, 0.2, 0.3]; b's are [0.9, 0.8, 0.7]. Sort so the assertion
+            // doesn't depend on render order.
+            expect(
+                chart
+                    .valueLabels()
+                    .map((l) => l.text)
+                    .sort()
+            ).toEqual(['10%', '20%', '30%', '70%', '80%', '90%'].sort())
         })
     })
 
