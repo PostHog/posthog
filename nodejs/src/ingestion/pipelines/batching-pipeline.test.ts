@@ -119,22 +119,6 @@ describe('BatchingPipeline', () => {
         expect(allResults[2].context.messageId).toBe(2)
     })
 
-    it('tags each element with the owning batchId in context', async () => {
-        const collector = createCollector()
-
-        await collector.feed(makeBatch([1, 2]))
-        await collector.feed(makeBatch([3, 4, 5]))
-        const { allResults } = await drainAll(collector)
-
-        expect(allResults).toHaveLength(5)
-        // First two messages came in batch 0, the next three in batch 1.
-        expect(allResults[0].context.batchId).toBe(0)
-        expect(allResults[1].context.batchId).toBe(0)
-        expect(allResults[2].context.batchId).toBe(1)
-        expect(allResults[3].context.batchId).toBe(1)
-        expect(allResults[4].context.batchId).toBe(1)
-    })
-
     it('returns ordered batch results when a batch completes', async () => {
         const collector = createCollector()
 

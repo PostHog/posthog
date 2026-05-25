@@ -313,6 +313,8 @@ export class IngestionConsumer {
         await this.topHog.stop()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
+        this.personsStore.shutdown()
+        this.groupStore.shutdown()
         logger.info('👍', `${this.name} - stopped!`)
     }
 

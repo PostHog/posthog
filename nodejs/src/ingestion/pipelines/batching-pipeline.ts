@@ -9,7 +9,6 @@ export type FeedResult = { ok: true } | { ok: false; kind: FeedRejectionKind; re
 
 export interface BatchingContext {
     messageId: number
-    batchId: number
 }
 
 export interface BeforeBatchInput<TInput, CInput> {
@@ -163,7 +162,6 @@ export class BatchingPipeline<
                 context: {
                     ...element.context,
                     messageId,
-                    batchId,
                 },
             }
         })
