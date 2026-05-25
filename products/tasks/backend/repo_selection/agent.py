@@ -327,11 +327,6 @@ async def select_repository(
             repository=None,
             reason="No GitHub repositories connected to this team.",
         )
-    if len(candidate_repos) == 1:
-        return RepoSelectionResult(
-            repository=candidate_repos[0],
-            reason=f"Single repository connected: {candidate_repos[0]}",
-        )
 
     # Hydrate the heavy cache before running the agent. Single-flighted per integration —
     # concurrent calls for the same team wait on the leader and then read the warm cache.
@@ -346,15 +341,15 @@ async def select_repository(
     if dropped:
         logger.info("repo_selection.dropped_candidates", extra={"dropped": dropped, "team_id": team_id})
         candidate_repos = [r for r in candidate_repos if r in eligible]
-        if len(candidate_repos) == 0:
-            raise RepoSelectionUnavailableError(
-                "No connected GitHub repositories are eligible (archived or missing cache data)."
-            )
-        if len(candidate_repos) == 1:
-            return RepoSelectionResult(
-                repository=candidate_repos[0],
-                reason=f"Single eligible repository: {candidate_repos[0]}",
-            )
+    if len(candidate_repos) == 0:
+        raise RepoSelectionUnavailableError(
+            "No connected GitHub repositories are eligible (archived or missing cache data)."
+        )
+    if len(candidate_repos) == 1:
+        return RepoSelectionResult(
+            repository=candidate_repos[0],
+            reason=f"Single eligible repository: {candidate_repos[0]}",
+        )
 
     if output_fn:
         output_fn(f"Selecting repository from {len(candidate_repos)} candidates...")
