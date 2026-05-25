@@ -4640,6 +4640,22 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 
+    def test_not_in_on_nullable_lhs_is_wrapped_in_ifnull(self) -> None:
+        # ClickHouse analyzer with transform_null_in=1 rewrites notIn -> notNullIn for nullable LHS,
+        # which breaks Distributed merges when the expression is nested inside aggregate args
+        # (e.g. minIf(timestamp, and(..., notIn(prop, cohort_set)))) used for first_time_for_user math.
+        # Wrap in ifNull(..., 1) so the printed column name stays stable across shards.
+        # Non-materialized property access produces a nullable expression and falls through the
+        # materialized-column optimizer (which only handles constant tuples), so we hit the general path here.
+        printed = self._expr("properties.not_materialized not in ('a', 'b')")
+        assert printed.startswith("ifNull(notIn("), printed
+        assert printed.endswith("), 1)"), printed
+
+    def test_not_in_on_non_nullable_lhs_is_not_wrapped(self) -> None:
+        # events.event is non-nullable so the analyzer leaves notIn alone and no wrap is needed.
+        printed = self._expr("event not in ('a', 'b')")
+        assert printed == "notIn(events.event, tuple(%(hogql_val_0)s, %(hogql_val_1)s))", printed
+
     def test_materialized_column_lower_in_uses_bloom_filter_lower_index_non_nullable(self) -> None:
         # lower(property) IN (...) is rewritten to has([...], lower(column)) so it can hit a bloom_filter_lower index
         with materialized("events", "test_prop", is_nullable=False, create_bloom_filter_lower_index=True) as mat_col:

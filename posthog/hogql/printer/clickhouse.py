@@ -1277,6 +1277,15 @@ class ClickHousePrinter(BasePrinter):
         elif node.op == ast.CompareOperationOp.In:
             return op
         elif node.op == ast.CompareOperationOp.NotIn:
+            # With transform_null_in=1 the ClickHouse analyzer rewrites notIn -> notNullIn for
+            # nullable LHS. When the printed expression is referenced across a Distributed merge
+            # (e.g. nested inside minIf(...) on the events table), the coordinator computes the
+            # expected column name from the pre-rewrite SQL while shards return it post-rewrite,
+            # producing "Cannot find column ... in source stream" errors. Wrapping in ifNull(...)
+            # stabilizes the printed column name; semantically equivalent under transform_null_in=1
+            # and matches the existing constant-tuple workaround for materialized columns above.
+            if nullable_left and not in_join_constraint and not in_index_hint:
+                return f"ifNull({op}, 1)"
             return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
             pass
