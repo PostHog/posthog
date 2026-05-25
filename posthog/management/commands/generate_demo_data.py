@@ -14,6 +14,7 @@ from django.core.management.base import BaseCommand
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.demo.dashboard_template_seeds import seed_dev_dashboard_templates
 from posthog.demo.matrix import Matrix, MatrixManager
+from posthog.demo.matrix.survey_demo_data import seed_demo_surveys
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
@@ -215,6 +216,14 @@ class Command(BaseCommand):
             if existing_team_id != 0 and team:
                 print("Marking all quick start tasks as completed...")
                 self.complete_all_quick_start_tasks(team)
+
+            if existing_team_id != 0 and team and user:
+                print("Seeding demo surveys...")
+                try:
+                    seed_demo_surveys(matrix, team, user, now=now)
+                except Exception as e:
+                    print(f"Survey seeding failed: {e}")
+                    print("Continuing anyway...")
 
             print("Seeding extra global dashboard templates (dev)...")
             created_templates = seed_dev_dashboard_templates()
