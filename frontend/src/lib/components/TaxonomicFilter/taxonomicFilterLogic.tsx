@@ -18,10 +18,7 @@ import posthog from 'posthog-js'
 
 import { IconCursor } from '@posthog/icons'
 
-import {
-    buildAutocaptureSeriesShortcuts,
-    buildEventTypeFilterShortcuts,
-} from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
+import { buildEventTypeFilterShortcuts } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import {
@@ -53,10 +50,7 @@ import {
     getEventDefinitionIcon,
     getPropertyDefinitionIcon,
 } from 'scenes/data-management/events/DefinitionHeader'
-import {
-    getProductEventFilterOptions,
-    getProductEventPropertyFilterOptions,
-} from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
+import { getProductEventPropertyFilterOptions } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -84,6 +78,7 @@ import { cohortTaxonomicGroupsLogic } from './cohortTaxonomicGroupsLogic'
 import { dataWarehouseTaxonomicGroupsLogic } from './dataWarehouseTaxonomicGroupsLogic'
 import { errorTrackingTaxonomicGroupsLogic } from './errorTrackingTaxonomicGroupsLogic'
 import { eventMetadataTaxonomicGroupsLogic } from './eventMetadataTaxonomicGroupsLogic'
+import { eventsTaxonomicGroupsLogic } from './eventsTaxonomicGroupsLogic'
 import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGroupsLogic'
 import { hogQLExpressionTaxonomicGroupsLogic } from './hogQLExpressionTaxonomicGroupsLogic'
 import { maxAIContextTaxonomicGroupsLogic } from './maxAIContextTaxonomicGroupsLogic'
@@ -336,6 +331,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['dataWarehouseTaxonomicGroups'],
             shortcutValueTaxonomicGroupsLogic,
             ['shortcutValueTaxonomicGroups'],
+            eventsTaxonomicGroupsLogic,
+            ['eventsTaxonomicGroups'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -543,6 +540,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.errorTrackingTaxonomicGroups,
                 s.revenueAnalyticsTaxonomicGroups,
                 s.shortcutValueTaxonomicGroups,
+                s.eventsTaxonomicGroups,
             ],
             (
                 currentTeam: TeamType,
@@ -562,54 +560,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 posthogResourcesTaxonomicGroups: TaxonomicFilterGroup[],
                 errorTrackingTaxonomicGroups: TaxonomicFilterGroup[],
                 revenueAnalyticsTaxonomicGroups: TaxonomicFilterGroup[],
-                shortcutValueTaxonomicGroups: TaxonomicFilterGroup[]
+                shortcutValueTaxonomicGroups: TaxonomicFilterGroup[],
+                eventsTaxonomicGroups: TaxonomicFilterGroup[]
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
-                    {
-                        name: 'Events',
-                        searchPlaceholder: 'events',
-                        type: TaxonomicFilterGroupType.Events,
-                        options: [{ name: 'All events', value: null }].filter(
-                            (o) => !excludedProperties[TaxonomicFilterGroupType.Events]?.includes(o.value)
-                        ),
-                        endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
-                            event_type: EventDefinitionType.Event,
-                            exclude_hidden: true,
-                        }).url,
-                        excludedProperties:
-                            excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
-                        ...withKeywordShortcuts<Record<string, any>>(
-                            {
-                                getName: (eventDefinition) => eventDefinition.name,
-                                getValue: (eventDefinition) =>
-                                    'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
-                                getIcon: eventTaxonomicGroupProps.getIcon,
-                                getPopoverHeader: eventTaxonomicGroupProps.getPopoverHeader,
-                            },
-                            {
-                                popoverHeader: 'Autocapture shortcut',
-                                buildShortcuts: buildAutocaptureSeriesShortcuts,
-                            }
-                        ),
-                    },
-                    {
-                        name: 'Internal Events',
-                        searchPlaceholder: 'internal events',
-                        type: TaxonomicFilterGroupType.InternalEvents,
-                        options: [
-                            { name: 'All internal events', value: null },
-                            ...getProductEventFilterOptions('activity-log').map((item) => ({
-                                name: item.label,
-                                value: item.value,
-                            })),
-                        ],
-                        getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
-                        getValue: (eventDefinition: Record<string, any>) =>
-                            'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
-                        ...eventTaxonomicGroupProps,
-                    },
+                    ...eventsTaxonomicGroups,
                     {
                         name: 'Activity log properties',
                         searchPlaceholder: 'activity log properties',
