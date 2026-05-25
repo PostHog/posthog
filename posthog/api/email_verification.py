@@ -27,9 +27,7 @@ class EmailUndeliverableError(exceptions.APIException):
     """
 
     status_code = status.HTTP_400_BAD_REQUEST
-    default_detail = (
-        "We couldn't deliver a verification email to this address. Please contact support to continue."
-    )
+    default_detail = "We couldn't deliver a verification email to this address. Please contact support to continue."
     default_code = "email_undeliverable"
 
 

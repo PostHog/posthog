@@ -178,7 +178,7 @@ export function VerifyEmail(): JSX.Element {
                                 </div>
                                 <p className="mb-6">
                                     {undeliverableMessage ||
-                                        "Our email provider is rejecting messages to this address (it may have previously bounced or unsubscribed). Please contact support so we can get you sorted."}
+                                        'Our email provider is rejecting messages to this address (it may have previously bounced or unsubscribed). Please contact support so we can get you sorted.'}
                                 </p>
                                 <LemonButton
                                     type="primary"
