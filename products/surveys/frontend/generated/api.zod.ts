@@ -2013,6 +2013,9 @@ export const SurveysResponsesUnarchiveCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Summarize survey responses. When `question_index` or `question_id` is provided, returns a per-question theme summary using cached `survey.question_summaries` when fresh. When neither is provided, returns the survey-wide headline summary (delegates to summary_headline). Pass `force_refresh=true` in the body to bypass caches.
+ */
 export const surveysSummarizeResponsesCreateBodyNameMax = 400
 
 export const surveysSummarizeResponsesCreateBodyResponsesLimitMin = 0

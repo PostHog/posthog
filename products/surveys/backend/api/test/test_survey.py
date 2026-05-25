@@ -6524,6 +6524,173 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn(uuid3, uuids)
 
 
+class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.question_id_text = str(uuid.uuid4())
+        self.question_id_rating = str(uuid.uuid4())
+        self.survey = Survey.objects.create(
+            team=self.team,
+            name="NPS",
+            type="popover",
+            questions=[
+                {"id": self.question_id_rating, "type": "rating", "question": "How likely are you to recommend us?"},
+                {"id": self.question_id_text, "type": "open", "question": "Why?"},
+            ],
+            start_date=datetime(2024, 5, 1, tzinfo=UTC),
+        )
+        self.url = f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/"
+
+    def _create_response_event(self, distinct_id, timestamp, rating, text, submission_id=None, event_uuid=None):
+        properties: dict[str, Any] = {
+            "$survey_id": str(self.survey.id),
+            f"$survey_response_{self.question_id_rating}": rating,
+            f"$survey_response_{self.question_id_text}": text,
+            "$session_id": "sess-1",
+            "$device_type": "Mobile",
+            "$geoip_country_code": "US",
+        }
+        if submission_id:
+            properties["$survey_submission_id"] = submission_id
+        kwargs = {
+            "team": self.team,
+            "event": "survey sent",
+            "distinct_id": distinct_id,
+            "timestamp": timestamp,
+            "properties": properties,
+        }
+        if event_uuid:
+            kwargs["event_uuid"] = event_uuid
+        _create_event(**kwargs)
+
+    def test_nonexistent_survey_returns_404(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{uuid.uuid4()}/responses/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_empty_results_when_no_events(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["results"], [])
+        self.assertFalse(data["has_more"])
+        self.assertEqual(data["limit"], 100)
+        self.assertEqual(data["offset"], 0)
+
+    def test_returns_rows_with_resolved_question_text(self):
+        person = Person.objects.create(team=self.team, distinct_ids=["user-1"])
+        self._create_response_event("user-1", "2024-06-10 09:05:00", "9", "Loved the UX")
+        flush_persons_and_events()
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        row = data["results"][0]
+        self.assertEqual(row["distinct_id"], "user-1")
+        self.assertEqual(row["session_id"], "sess-1")
+        self.assertEqual(row["extra"]["device_type"], "Mobile")
+        self.assertEqual(row["extra"]["geoip_country_code"], "US")
+        # Question text is resolved, not opaque $survey_response_<id>
+        answers_by_id = {a["question_id"]: a for a in row["answers"]}
+        self.assertEqual(answers_by_id[self.question_id_rating]["question_text"], "How likely are you to recommend us?")
+        self.assertEqual(answers_by_id[self.question_id_rating]["answer"], "9")
+        self.assertEqual(answers_by_id[self.question_id_text]["question_text"], "Why?")
+        self.assertEqual(answers_by_id[self.question_id_text]["answer"], "Loved the UX")
+        # Person properties off by default
+        self.assertIsNone(row.get("person_properties"))
+        assert person  # silence unused
+
+    def test_score_lte_filters_detractors(self):
+        Person.objects.create(team=self.team, distinct_ids=["detractor"])
+        Person.objects.create(team=self.team, distinct_ids=["promoter"])
+        self._create_response_event("detractor", "2024-06-10 09:05:00", "3", "Frustrating")
+        self._create_response_event("promoter", "2024-06-10 09:06:00", "10", "Amazing")
+        flush_persons_and_events()
+
+        response = self.client.get(self.url, {"question_id": self.question_id_rating, "score_lte": 6})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["distinct_id"], "detractor")
+        # When question_id is set, only that question's answer is returned per row
+        self.assertEqual(len(data["results"][0]["answers"]), 1)
+        self.assertEqual(data["results"][0]["answers"][0]["question_id"], self.question_id_rating)
+
+    def test_score_filter_without_question_id_returns_400(self):
+        response = self.client.get(self.url, {"score_lte": 6})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_pagination_has_more(self):
+        Person.objects.create(team=self.team, distinct_ids=["u-1"])
+        Person.objects.create(team=self.team, distinct_ids=["u-2"])
+        Person.objects.create(team=self.team, distinct_ids=["u-3"])
+        self._create_response_event("u-1", "2024-06-10 09:01:00", "8", "a")
+        self._create_response_event("u-2", "2024-06-10 09:02:00", "8", "b")
+        self._create_response_event("u-3", "2024-06-10 09:03:00", "8", "c")
+        flush_persons_and_events()
+
+        response = self.client.get(self.url, {"limit": 2})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 2)
+        self.assertTrue(data["has_more"])
+
+        response2 = self.client.get(self.url, {"limit": 2, "offset": 2})
+        data2 = response2.json()
+        self.assertEqual(len(data2["results"]), 1)
+        self.assertFalse(data2["has_more"])
+
+    def test_since_filter(self):
+        Person.objects.create(team=self.team, distinct_ids=["old"])
+        Person.objects.create(team=self.team, distinct_ids=["new"])
+        self._create_response_event("old", "2024-06-01 09:00:00", "8", "old")
+        self._create_response_event("new", "2024-06-15 09:00:00", "8", "new")
+        flush_persons_and_events()
+
+        response = self.client.get(self.url, {"since": "2024-06-10T00:00:00Z"})
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["distinct_id"], "new")
+
+    def test_exclude_archived(self):
+        Person.objects.create(team=self.team, distinct_ids=["kept"])
+        Person.objects.create(team=self.team, distinct_ids=["archived"])
+        archived_uuid = str(uuid.uuid4())
+        self._create_response_event("kept", "2024-06-10 09:05:00", "8", "kept")
+        self._create_response_event("archived", "2024-06-10 09:06:00", "3", "archived", event_uuid=archived_uuid)
+        SurveyResponseArchive.objects.create(team=self.team, survey=self.survey, response_uuid=archived_uuid)
+        flush_persons_and_events()
+
+        response = self.client.get(self.url, {"exclude_archived": "true"})
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["distinct_id"], "kept")
+
+
+class TestSurveySummarizeDispatchesToHeadline(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.survey = Survey.objects.create(
+            team=self.team,
+            name="Test",
+            type="popover",
+            questions=[{"id": "q1", "type": "open", "question": "Why?"}],
+        )
+
+    @patch("products.surveys.backend.api.survey.generate_survey_headline")
+    def test_summarize_with_no_question_delegates_to_headline(self, mock_headline):
+        mock_headline.return_value = {"headline": "Users love it", "responses_sampled": 12, "has_more": False}
+        self.team.organization.is_ai_data_processing_approved = True
+        self.team.organization.save()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["headline"], "Users love it")
+        self.assertEqual(data["responses_sampled"], 12)
+        mock_headline.assert_called_once()
+
+
 class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
     SURVEY_PAYLOAD = {
         "name": "Scope warning survey",

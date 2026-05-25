@@ -9,9 +9,14 @@ import {
     SurveysListQueryParams,
     SurveysPartialUpdateBody,
     SurveysPartialUpdateParams,
+    SurveysResponsesListParams,
+    SurveysResponsesListQueryParams,
     SurveysRetrieveParams,
     SurveysStatsRetrieveParams,
     SurveysStatsRetrieveQueryParams,
+    SurveysSummarizeResponsesCreateBody,
+    SurveysSummarizeResponsesCreateParams,
+    SurveysSummarizeResponsesCreateQueryParams,
 } from '@/generated/surveys/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -354,6 +359,151 @@ const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, Schemas
         },
     })
 
+const SurveysResponsesListSchema = SurveysResponsesListParams.omit({ project_id: true }).extend(
+    SurveysResponsesListQueryParams.shape
+)
+
+const surveysResponsesList = (): ToolBase<typeof SurveysResponsesListSchema, Schemas.SurveyResponsesList> =>
+    withUiApp('survey-stats', {
+        name: 'surveys-responses-list',
+        schema: SurveysResponsesListSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveysResponsesListSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.SurveyResponsesList>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/responses/`,
+                query: {
+                    exclude_archived: params.exclude_archived,
+                    include_person_properties: params.include_person_properties,
+                    limit: params.limit,
+                    offset: params.offset,
+                    question_id: params.question_id,
+                    score_gte: params.score_gte,
+                    score_lte: params.score_lte,
+                    since: params.since,
+                    until: params.until,
+                },
+            })
+            return result
+        },
+    })
+
+const SurveysSummarizeResponsesCreateSchema = SurveysSummarizeResponsesCreateParams.omit({ project_id: true })
+    .extend(SurveysSummarizeResponsesCreateQueryParams.shape)
+    .extend(SurveysSummarizeResponsesCreateBody.omit({ _create_in_folder: true }).shape)
+
+const surveysSummarizeResponsesCreate = (): ToolBase<typeof SurveysSummarizeResponsesCreateSchema, unknown> => ({
+    name: 'surveys-summarize-responses-create',
+    schema: SurveysSummarizeResponsesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SurveysSummarizeResponsesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.schedule !== undefined) {
+            body['schedule'] = params.schedule
+        }
+        if (params.linked_flag_id !== undefined) {
+            body['linked_flag_id'] = params.linked_flag_id
+        }
+        if (params.linked_insight_id !== undefined) {
+            body['linked_insight_id'] = params.linked_insight_id
+        }
+        if (params.targeting_flag_id !== undefined) {
+            body['targeting_flag_id'] = params.targeting_flag_id
+        }
+        if (params.targeting_flag_filters !== undefined) {
+            body['targeting_flag_filters'] = params.targeting_flag_filters
+        }
+        if (params.remove_targeting_flag !== undefined) {
+            body['remove_targeting_flag'] = params.remove_targeting_flag
+        }
+        if (params.questions !== undefined) {
+            body['questions'] = params.questions
+        }
+        if (params.conditions !== undefined) {
+            body['conditions'] = params.conditions
+        }
+        if (params.appearance !== undefined) {
+            body['appearance'] = params.appearance
+        }
+        if (params.start_date !== undefined) {
+            body['start_date'] = params.start_date
+        }
+        if (params.end_date !== undefined) {
+            body['end_date'] = params.end_date
+        }
+        if (params.archived !== undefined) {
+            body['archived'] = params.archived
+        }
+        if (params.responses_limit !== undefined) {
+            body['responses_limit'] = params.responses_limit
+        }
+        if (params.iteration_count !== undefined) {
+            body['iteration_count'] = params.iteration_count
+        }
+        if (params.iteration_frequency_days !== undefined) {
+            body['iteration_frequency_days'] = params.iteration_frequency_days
+        }
+        if (params.iteration_start_dates !== undefined) {
+            body['iteration_start_dates'] = params.iteration_start_dates
+        }
+        if (params.current_iteration !== undefined) {
+            body['current_iteration'] = params.current_iteration
+        }
+        if (params.current_iteration_start_date !== undefined) {
+            body['current_iteration_start_date'] = params.current_iteration_start_date
+        }
+        if (params.response_sampling_start_date !== undefined) {
+            body['response_sampling_start_date'] = params.response_sampling_start_date
+        }
+        if (params.response_sampling_interval_type !== undefined) {
+            body['response_sampling_interval_type'] = params.response_sampling_interval_type
+        }
+        if (params.response_sampling_interval !== undefined) {
+            body['response_sampling_interval'] = params.response_sampling_interval
+        }
+        if (params.response_sampling_limit !== undefined) {
+            body['response_sampling_limit'] = params.response_sampling_limit
+        }
+        if (params.response_sampling_daily_limits !== undefined) {
+            body['response_sampling_daily_limits'] = params.response_sampling_daily_limits
+        }
+        if (params.enable_partial_responses !== undefined) {
+            body['enable_partial_responses'] = params.enable_partial_responses
+        }
+        if (params.enable_iframe_embedding !== undefined) {
+            body['enable_iframe_embedding'] = params.enable_iframe_embedding
+        }
+        if (params.base_language !== undefined) {
+            body['base_language'] = params.base_language
+        }
+        if (params.translations !== undefined) {
+            body['translations'] = params.translations
+        }
+        if (params.form_content !== undefined) {
+            body['form_content'] = params.form_content
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/summarize_responses/`,
+            body,
+            query: {
+                question_id: params.question_id,
+                question_index: params.question_index,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'survey-create': surveyCreate,
     'survey-delete': surveyDelete,
@@ -362,4 +512,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'survey-update': surveyUpdate,
     'surveys-get-all': surveysGetAll,
     'surveys-global-stats': surveysGlobalStats,
+    'surveys-responses-list': surveysResponsesList,
+    'surveys-summarize-responses-create': surveysSummarizeResponsesCreate,
 }

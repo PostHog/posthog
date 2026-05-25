@@ -1958,6 +1958,102 @@ export interface GenerateSurveyTranslationsResponseApi {
     trace_id: string
 }
 
+export interface SurveyResponseAnswerApi {
+    /** UUID of the survey question this answer belongs to. */
+    question_id: string
+    /** Zero-based index of the question within the survey. */
+    question_index: number
+    /** Untranslated question text as configured by the survey author. */
+    question_text: string
+    /** Question type: open, rating, single_choice, multiple_choice, or link. Determines the shape of the answer field. */
+    question_type: string
+    /** Resolved answer. String for open/rating/single_choice/link questions, list of strings for multiple_choice questions. Already decoded from the raw $survey_response_<id> property so callers don't need to parse it. */
+    answer: unknown
+}
+
+export interface SurveyResponseExtraApi {
+    /**
+     * $device_type at the time the response was sent.
+     * @nullable
+     */
+    device_type?: string | null
+    /**
+     * $browser at the time the response was sent.
+     * @nullable
+     */
+    browser?: string | null
+    /**
+     * $os (operating system) at the time the response was sent.
+     * @nullable
+     */
+    os?: string | null
+    /**
+     * $geoip_country_code at submission time.
+     * @nullable
+     */
+    geoip_country_code?: string | null
+    /**
+     * $geoip_country_name at submission time.
+     * @nullable
+     */
+    geoip_country_name?: string | null
+    /**
+     * $geoip_city_name at submission time.
+     * @nullable
+     */
+    geoip_city_name?: string | null
+    /**
+     * $current_url where the survey was submitted.
+     * @nullable
+     */
+    current_url?: string | null
+    /**
+     * Survey iteration number when the response was sent. Only set for recurring surveys.
+     * @nullable
+     */
+    iteration?: string | null
+}
+
+/**
+ * Person properties at event time. Only present when `include_person_properties=true` was passed on the request — kept opt-in to keep default payloads small.
+ * @nullable
+ */
+export type SurveyResponseRowApiPersonProperties = { [key: string]: unknown } | null
+
+export interface SurveyResponseRowApi {
+    /** UUID of the underlying `survey sent` event. Use as the response identifier for archive operations. */
+    uuid: string
+    /** distinct_id of the respondent. Cross-pivot to the persons API or session recordings. */
+    distinct_id: string
+    /**
+     * $session_id of the respondent when available. Use to pull the session recording for this response.
+     * @nullable
+     */
+    session_id: string | null
+    /** Event timestamp when the response was sent (ISO 8601, UTC). */
+    submitted_at: string
+    /** One entry per survey question that received a non-empty answer. Question text is already resolved — callers do not need to look up `$survey_response_<id>` keys. */
+    answers: SurveyResponseAnswerApi[]
+    /**
+     * Person properties at event time. Only present when `include_person_properties=true` was passed on the request — kept opt-in to keep default payloads small.
+     * @nullable
+     */
+    person_properties?: SurveyResponseRowApiPersonProperties
+    /** Convenience fields extracted from the event properties (device, browser, geoip, iteration). */
+    extra: SurveyResponseExtraApi
+}
+
+export interface SurveyResponsesListApi {
+    /** Survey response rows for the requested page. */
+    results: SurveyResponseRowApi[]
+    /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */
+    has_more: boolean
+    /** The limit applied to this query (echoed back for pagination). */
+    limit: number
+    /** The offset applied to this query (echoed back for pagination). */
+    offset: number
+}
+
 /**
  * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
  */
@@ -2038,6 +2134,49 @@ export type SurveysListParams = {
     search?: string
 }
 
+export type SurveysResponsesListParams = {
+    /**
+     * When true, exclude responses that have been archived via the archive_response endpoint.
+     */
+    exclude_archived?: boolean
+    /**
+     * When true, include the respondent's person properties at event time in each row. Off by default.
+     */
+    include_person_properties?: boolean
+    /**
+     * Maximum number of rows to return (1-500). Defaults to 100.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of rows to skip for pagination. Combine with `limit` and the `has_more` field to paginate.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * If set, only return rows where this question has a non-empty answer, and only include that question's answer in each row. Required when using score_lte or score_gte.
+     * @minLength 1
+     */
+    question_id?: string
+    /**
+     * Filter to rows where the rating answer for `question_id` is >= this value. Common use: NPS promoters with score_gte=9. Requires question_id.
+     */
+    score_gte?: number
+    /**
+     * Filter to rows where the rating answer for `question_id` is <= this value. Common use: NPS detractors with score_lte=6. Requires question_id.
+     */
+    score_lte?: number
+    /**
+     * Only return responses submitted on or after this ISO 8601 timestamp.
+     */
+    since?: string
+    /**
+     * Only return responses submitted on or before this ISO 8601 timestamp.
+     */
+    until?: string
+}
+
 export type SurveysStatsRetrieveParams = {
     /**
      * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
@@ -2047,6 +2186,17 @@ export type SurveysStatsRetrieveParams = {
      * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
      */
     date_to?: string
+}
+
+export type SurveysSummarizeResponsesCreateParams = {
+    /**
+     * Question UUID. Preferred over question_index — stable across question edits.
+     */
+    question_id?: string
+    /**
+     * Zero-based question index. Omit to get the survey-wide headline instead.
+     */
+    question_index?: number
 }
 
 export type SurveysGlobalStatsRetrieveParams = {

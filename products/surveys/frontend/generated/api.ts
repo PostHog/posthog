@@ -16,12 +16,15 @@ import type {
     SurveyApi,
     SurveyGlobalStatsResponseApi,
     SurveyQuestionLabelsResponseApi,
+    SurveyResponsesListApi,
     SurveySerializerCreateUpdateOnlyApi,
     SurveySerializerCreateUpdateOnlySchemaApi,
     SurveyStatsResponseApi,
     SurveysGlobalStatsRetrieveParams,
     SurveysListParams,
+    SurveysResponsesListParams,
     SurveysStatsRetrieveParams,
+    SurveysSummarizeResponsesCreateParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -217,6 +220,37 @@ export const surveysGenerateTranslationsCreate = async (
     })
 }
 
+export const getSurveysResponsesListUrl = (projectId: string, id: string, params?: SurveysResponsesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/${id}/responses/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/${id}/responses/`
+}
+
+/**
+ * List survey responses for a specific survey, with question text resolved server-side so callers do not have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, `submitted_at`, and an `extra` block (device, geoip, iteration) so agents can cross-pivot to recordings, persons, or paths in a single follow-up call. Person properties at event time are available opt-in via `include_person_properties=true`. Use `question_id` + `score_lte` to fetch NPS detractors and similar score-filtered cohorts.
+ */
+export const surveysResponsesList = async (
+    projectId: string,
+    id: string,
+    params?: SurveysResponsesListParams,
+    options?: RequestInit
+): Promise<SurveyResponsesListApi> => {
+    return apiMutator<SurveyResponsesListApi>(getSurveysResponsesListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSurveysResponsesArchiveCreateUrl = (projectId: string, id: string, responseUuid: string) => {
     return `/api/projects/${projectId}/surveys/${id}/responses/${responseUuid}/archive/`
 }
@@ -300,17 +334,37 @@ export const surveysStatsRetrieve = async (
     })
 }
 
-export const getSurveysSummarizeResponsesCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/surveys/${id}/summarize_responses/`
+export const getSurveysSummarizeResponsesCreateUrl = (
+    projectId: string,
+    id: string,
+    params?: SurveysSummarizeResponsesCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/${id}/summarize_responses/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/${id}/summarize_responses/`
 }
 
+/**
+ * Summarize survey responses. When `question_index` or `question_id` is provided, returns a per-question theme summary using cached `survey.question_summaries` when fresh. When neither is provided, returns the survey-wide headline summary (delegates to summary_headline). Pass `force_refresh=true` in the body to bypass caches.
+ */
 export const surveysSummarizeResponsesCreate = async (
     projectId: string,
     id: string,
     surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
+    params?: SurveysSummarizeResponsesCreateParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getSurveysSummarizeResponsesCreateUrl(projectId, id), {
+    return apiMutator<void>(getSurveysSummarizeResponsesCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

@@ -77,6 +77,7 @@ from products.feature_flags.backend.api.feature_flag import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
+from products.surveys.backend.responses import fetch_response_rows
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.translation import generate_survey_translation
 from products.surveys.backend.util import (
@@ -599,6 +600,156 @@ class SurveyConditionsSchemaSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="The variant of the feature flag linked to this survey.",
     )
+
+
+class SurveyResponseAnswerSerializer(serializers.Serializer):
+    question_id = serializers.CharField(help_text="UUID of the survey question this answer belongs to.")
+    question_index = serializers.IntegerField(help_text="Zero-based index of the question within the survey.")
+    question_text = serializers.CharField(
+        allow_blank=True, help_text="Untranslated question text as configured by the survey author."
+    )
+    question_type = serializers.CharField(
+        help_text=(
+            "Question type: open, rating, single_choice, multiple_choice, or link. "
+            "Determines the shape of the answer field."
+        ),
+    )
+    answer = serializers.JSONField(
+        help_text=(
+            "Resolved answer. String for open/rating/single_choice/link questions, "
+            "list of strings for multiple_choice questions. Already decoded from the "
+            "raw $survey_response_<id> property so callers don't need to parse it."
+        )
+    )
+
+
+class SurveyResponseExtraSerializer(serializers.Serializer):
+    device_type = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$device_type at the time the response was sent."
+    )
+    browser = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$browser at the time the response was sent."
+    )
+    os = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        required=False,
+        help_text="$os (operating system) at the time the response was sent.",
+    )
+    geoip_country_code = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$geoip_country_code at submission time."
+    )
+    geoip_country_name = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$geoip_country_name at submission time."
+    )
+    geoip_city_name = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$geoip_city_name at submission time."
+    )
+    current_url = serializers.CharField(
+        allow_null=True, allow_blank=True, required=False, help_text="$current_url where the survey was submitted."
+    )
+    iteration = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        required=False,
+        help_text="Survey iteration number when the response was sent. Only set for recurring surveys.",
+    )
+
+
+class SurveyResponseRowSerializer(serializers.Serializer):
+    uuid = serializers.CharField(
+        help_text="UUID of the underlying `survey sent` event. Use as the response identifier for archive operations."
+    )
+    distinct_id = serializers.CharField(
+        help_text="distinct_id of the respondent. Cross-pivot to the persons API or session recordings."
+    )
+    session_id = serializers.CharField(
+        allow_null=True,
+        help_text="$session_id of the respondent when available. Use to pull the session recording for this response.",
+    )
+    submitted_at = serializers.DateTimeField(help_text="Event timestamp when the response was sent (ISO 8601, UTC).")
+    answers = SurveyResponseAnswerSerializer(
+        many=True,
+        help_text=(
+            "One entry per survey question that received a non-empty answer. Question text is already resolved — "
+            "callers do not need to look up `$survey_response_<id>` keys."
+        ),
+    )
+    person_properties = serializers.DictField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Person properties at event time. Only present when `include_person_properties=true` was passed on the "
+            "request — kept opt-in to keep default payloads small."
+        ),
+    )
+    extra = SurveyResponseExtraSerializer(
+        help_text="Convenience fields extracted from the event properties (device, browser, geoip, iteration)."
+    )
+
+
+class SurveyResponsesQuerySerializer(serializers.Serializer):
+    since = serializers.DateTimeField(
+        required=False,
+        help_text="Only return responses submitted on or after this ISO 8601 timestamp.",
+    )
+    until = serializers.DateTimeField(
+        required=False,
+        help_text="Only return responses submitted on or before this ISO 8601 timestamp.",
+    )
+    question_id = serializers.CharField(
+        required=False,
+        help_text=(
+            "If set, only return rows where this question has a non-empty answer, and only include that question's "
+            "answer in each row. Required when using score_lte or score_gte."
+        ),
+    )
+    score_lte = serializers.FloatField(
+        required=False,
+        help_text=(
+            "Filter to rows where the rating answer for `question_id` is <= this value. "
+            "Common use: NPS detractors with score_lte=6. Requires question_id."
+        ),
+    )
+    score_gte = serializers.FloatField(
+        required=False,
+        help_text=(
+            "Filter to rows where the rating answer for `question_id` is >= this value. "
+            "Common use: NPS promoters with score_gte=9. Requires question_id."
+        ),
+    )
+    include_person_properties = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, include the respondent's person properties at event time in each row. Off by default.",
+    )
+    exclude_archived = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, exclude responses that have been archived via the archive_response endpoint.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of rows to return (1-500). Defaults to 100.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of rows to skip for pagination. Combine with `limit` and the `has_more` field to paginate.",
+    )
+
+
+class SurveyResponsesListSerializer(serializers.Serializer):
+    results = SurveyResponseRowSerializer(many=True, help_text="Survey response rows for the requested page.")
+    has_more = serializers.BooleanField(
+        help_text="True if more rows exist beyond the current page — fetch the next page with offset + limit."
+    )
+    limit = serializers.IntegerField(help_text="The limit applied to this query (echoed back for pagination).")
+    offset = serializers.IntegerField(help_text="The offset applied to this query (echoed back for pagination).")
 
 
 class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -2520,6 +2671,80 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         return Response(list(uuids))
 
     @extend_schema(
+        operation_id="surveys_responses_list",
+        description=(
+            "List survey responses for a specific survey, with question text resolved server-side so callers do not "
+            "have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, "
+            "`submitted_at`, and an `extra` block (device, geoip, iteration) so agents can cross-pivot to recordings, "
+            "persons, or paths in a single follow-up call. Person properties at event time are available opt-in via "
+            "`include_person_properties=true`. Use `question_id` + `score_lte` to fetch NPS detractors and similar "
+            "score-filtered cohorts."
+        ),
+        parameters=[SurveyResponsesQuerySerializer],
+        responses={200: SurveyResponsesListSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="responses", required_scopes=["survey:read"])
+    def survey_responses_list(self, request: request.Request, **kwargs) -> Response:
+        survey = self.get_object()
+
+        params = SurveyResponsesQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        cleaned = params.validated_data
+
+        exclude_uuids: set[str] | None = None
+        if cleaned.get("exclude_archived"):
+            exclude_uuids = get_archived_response_uuids(str(survey.id), self.team_id)
+
+        try:
+            rows, has_more = fetch_response_rows(
+                survey=survey,
+                team=self.team,
+                since=cleaned.get("since"),
+                until=cleaned.get("until"),
+                question_id=cleaned.get("question_id"),
+                score_lte=cleaned.get("score_lte"),
+                score_gte=cleaned.get("score_gte"),
+                include_person_properties=cleaned.get("include_person_properties", False),
+                limit=cleaned.get("limit", 100),
+                offset=cleaned.get("offset", 0),
+                exclude_uuids=exclude_uuids,
+            )
+        except ValueError as exc:
+            raise exceptions.ValidationError(str(exc))
+
+        tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
+
+        serialized = SurveyResponsesListSerializer(
+            instance={
+                "results": [
+                    {
+                        "uuid": row.uuid,
+                        "distinct_id": row.distinct_id,
+                        "session_id": row.session_id,
+                        "submitted_at": row.submitted_at,
+                        "answers": [
+                            {
+                                "question_id": a.question_id,
+                                "question_index": a.question_index,
+                                "question_text": a.question_text,
+                                "question_type": a.question_type,
+                                "answer": a.answer,
+                            }
+                            for a in row.answers
+                        ],
+                        "person_properties": row.person_properties,
+                        "extra": row.extra,
+                    }
+                    for row in rows
+                ],
+                "has_more": has_more,
+                "limit": cleaned.get("limit", 100),
+                "offset": cleaned.get("offset", 0),
+            }
+        )
+        return Response(serialized.data)
+
+    @extend_schema(
         operation_id="surveys_question_labels",
         description=(
             "Return a slim list of question labels for the team's surveys. Used by the frontend to resolve "
@@ -2658,6 +2883,28 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         )
         return activity_page_response(activity_page, limit, page, request)
 
+    @extend_schema(
+        description=(
+            "Summarize survey responses. When `question_index` or `question_id` is provided, returns a per-question "
+            "theme summary using cached `survey.question_summaries` when fresh. When neither is provided, returns "
+            "the survey-wide headline summary (delegates to summary_headline). Pass `force_refresh=true` in the body "
+            "to bypass caches."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "question_index",
+                OpenApiTypes.INT,
+                required=False,
+                description="Zero-based question index. Omit to get the survey-wide headline instead.",
+            ),
+            OpenApiParameter(
+                "question_id",
+                OpenApiTypes.STR,
+                required=False,
+                description="Question UUID. Preferred over question_index — stable across question edits.",
+            ),
+        ],
+    )
     @action(methods=["POST"], detail=True, required_scopes=["survey:read"])
     def summarize_responses(self, request: request.Request, **kwargs):
         if not request.user.is_authenticated:
@@ -2681,7 +2928,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         question_id = request.query_params.get("question_id", None)
 
         if question_index is None and question_id is None:
-            raise exceptions.ValidationError("question_index or question_id is required")
+            # No question specified — dispatch to the survey-wide headline summarizer.
+            # Keeps a single MCP tool surface for both per-question and whole-survey summarization.
+            return self.summary_headline(request, **kwargs)
 
         # Check for force_refresh flag in request body
         force_refresh = request.data.get("force_refresh", False)

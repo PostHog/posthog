@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1607,6 +1607,75 @@ export const SurveysDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * List survey responses for a specific survey, with question text resolved server-side so callers do not have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, `submitted_at`, and an `extra` block (device, geoip, iteration) so agents can cross-pivot to recordings, persons, or paths in a single follow-up call. Person properties at event time are available opt-in via `include_person_properties=true`. Use `question_id` + `score_lte` to fetch NPS detractors and similar score-filtered cohorts.
+ */
+export const SurveysResponsesListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this survey.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const surveysResponsesListQueryExcludeArchivedDefault = false
+export const surveysResponsesListQueryIncludePersonPropertiesDefault = false
+export const surveysResponsesListQueryLimitDefault = 100
+export const surveysResponsesListQueryLimitMax = 500
+
+export const surveysResponsesListQueryOffsetDefault = 0
+export const surveysResponsesListQueryOffsetMin = 0
+
+export const SurveysResponsesListQueryParams = /* @__PURE__ */ zod.object({
+    exclude_archived: zod
+        .boolean()
+        .default(surveysResponsesListQueryExcludeArchivedDefault)
+        .describe('When true, exclude responses that have been archived via the archive_response endpoint.'),
+    include_person_properties: zod
+        .boolean()
+        .default(surveysResponsesListQueryIncludePersonPropertiesDefault)
+        .describe("When true, include the respondent's person properties at event time in each row. Off by default."),
+    limit: zod
+        .number()
+        .min(1)
+        .max(surveysResponsesListQueryLimitMax)
+        .default(surveysResponsesListQueryLimitDefault)
+        .describe('Maximum number of rows to return (1-500). Defaults to 100.'),
+    offset: zod
+        .number()
+        .min(surveysResponsesListQueryOffsetMin)
+        .default(surveysResponsesListQueryOffsetDefault)
+        .describe('Number of rows to skip for pagination. Combine with `limit` and the `has_more` field to paginate.'),
+    question_id: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "If set, only return rows where this question has a non-empty answer, and only include that question's answer in each row. Required when using score_lte or score_gte."
+        ),
+    score_gte: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter to rows where the rating answer for `question_id` is >= this value. Common use: NPS promoters with score_gte=9. Requires question_id.'
+        ),
+    score_lte: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter to rows where the rating answer for `question_id` is <= this value. Common use: NPS detractors with score_lte=6. Requires question_id.'
+        ),
+    since: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Only return responses submitted on or after this ISO 8601 timestamp.'),
+    until: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Only return responses submitted on or before this ISO 8601 timestamp.'),
+})
+
+/**
  * Get survey response statistics for a specific survey.
 
 Args:
@@ -1635,6 +1704,129 @@ export const SurveysStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)'),
+})
+
+/**
+ * Summarize survey responses. When `question_index` or `question_id` is provided, returns a per-question theme summary using cached `survey.question_summaries` when fresh. When neither is provided, returns the survey-wide headline summary (delegates to summary_headline). Pass `force_refresh=true` in the body to bypass caches.
+ */
+export const SurveysSummarizeResponsesCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this survey.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const SurveysSummarizeResponsesCreateQueryParams = /* @__PURE__ */ zod.object({
+    question_id: zod
+        .string()
+        .optional()
+        .describe('Question UUID. Preferred over question_index — stable across question edits.'),
+    question_index: zod
+        .number()
+        .optional()
+        .describe('Zero-based question index. Omit to get the survey-wide headline instead.'),
+})
+
+export const surveysSummarizeResponsesCreateBodyNameMax = 400
+
+export const surveysSummarizeResponsesCreateBodyResponsesLimitMin = 0
+export const surveysSummarizeResponsesCreateBodyResponsesLimitMax = 2147483647
+
+export const surveysSummarizeResponsesCreateBodyIterationCountMin = 0
+export const surveysSummarizeResponsesCreateBodyIterationCountMax = 500
+
+export const surveysSummarizeResponsesCreateBodyIterationFrequencyDaysMin = 0
+export const surveysSummarizeResponsesCreateBodyIterationFrequencyDaysMax = 2147483647
+
+export const surveysSummarizeResponsesCreateBodyCurrentIterationMin = 0
+export const surveysSummarizeResponsesCreateBodyCurrentIterationMax = 2147483647
+
+export const surveysSummarizeResponsesCreateBodyResponseSamplingIntervalMin = 0
+export const surveysSummarizeResponsesCreateBodyResponseSamplingIntervalMax = 2147483647
+
+export const surveysSummarizeResponsesCreateBodyResponseSamplingLimitMin = 0
+export const surveysSummarizeResponsesCreateBodyResponseSamplingLimitMax = 2147483647
+
+export const surveysSummarizeResponsesCreateBodyBaseLanguageMax = 20
+
+export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(surveysSummarizeResponsesCreateBodyNameMax),
+    description: zod.string().optional(),
+    type: zod
+        .enum(['popover', 'widget', 'external_survey', 'api'])
+        .describe('* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'),
+    schedule: zod.string().nullish(),
+    linked_flag_id: zod.number().nullish(),
+    linked_insight_id: zod.number().nullish(),
+    targeting_flag_id: zod.number().optional(),
+    targeting_flag_filters: zod.unknown().optional(),
+    remove_targeting_flag: zod.boolean().nullish(),
+    questions: zod
+        .unknown()
+        .optional()
+        .describe(
+            '\n        The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.\n\n        Basic (open-ended question)\n        - `id`: The question ID\n        - `type`: `open`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Link (a question with a link)\n        - `id`: The question ID\n        - `type`: `link`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `link`: The URL associated with the question.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Rating (a question with a rating scale)\n        - `id`: The question ID\n        - `type`: `rating`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `display`: Display style of the rating (`number` or `emoji`).\n        - `scale`: The scale of the rating (`number`).\n        - `lowerBoundLabel`: Label for the lower bound of the scale.\n        - `upperBoundLabel`: Label for the upper bound of the scale.\n        - `isNpsQuestion`: Whether the question is an NPS rating.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Multiple choice\n        - `id`: The question ID\n        - `type`: `single_choice` or `multiple_choice`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `choices`: An array of choices for the question.\n        - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).\n        - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Branching logic can be one of the following types:\n\n        Next question: Proceeds to the next question\n        ```json\n        {\n            "type": "next_question"\n        }\n        ```\n\n        End: Ends the survey, optionally displaying a confirmation message.\n        ```json\n        {\n            "type": "end"\n        }\n        ```\n\n        Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.\n        ```json\n        {\n            "type": "response_based",\n            "responseValues": {\n                "responseKey": "value"\n            }\n        }\n        ```\n\n        Specific question: Proceeds to a specific question by index.\n        ```json\n        {\n            "type": "specific_question",\n            "index": 2\n        }\n        ```\n\n        Translations: Each question can include inline translations.\n        - `translations`: Object mapping language codes to translated fields.\n        - Language codes: Canonical BCP-47-ish strings (e.g., "es", "es-MX", "zh-CN"). Aliases like "english" or "default" are rejected. The survey\'s `base_language` (default "en") declares the language of the untranslated text and cannot also appear as a translation key.\n        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`\n\n        Example with translations:\n        ```json\n        {\n            "id": "uuid",\n            "type": "rating",\n            "question": "How satisfied are you?",\n            "lowerBoundLabel": "Not satisfied",\n            "upperBoundLabel": "Very satisfied",\n            "translations": {\n                "es": {\n                    "question": "¿Qué tan satisfecho estás?",\n                    "lowerBoundLabel": "No satisfecho",\n                    "upperBoundLabel": "Muy satisfecho"\n                },\n                "fr": {\n                    "question": "Dans quelle mesure êtes-vous satisfait?"\n                }\n            }\n        }\n        ```\n        '
+        ),
+    conditions: zod.unknown().optional(),
+    appearance: zod.unknown().optional(),
+    start_date: zod.iso.datetime({ offset: true }).nullish(),
+    end_date: zod.iso.datetime({ offset: true }).nullish(),
+    archived: zod.boolean().optional(),
+    responses_limit: zod
+        .number()
+        .min(surveysSummarizeResponsesCreateBodyResponsesLimitMin)
+        .max(surveysSummarizeResponsesCreateBodyResponsesLimitMax)
+        .nullish(),
+    iteration_count: zod
+        .number()
+        .min(surveysSummarizeResponsesCreateBodyIterationCountMin)
+        .max(surveysSummarizeResponsesCreateBodyIterationCountMax)
+        .nullish(),
+    iteration_frequency_days: zod
+        .number()
+        .min(surveysSummarizeResponsesCreateBodyIterationFrequencyDaysMin)
+        .max(surveysSummarizeResponsesCreateBodyIterationFrequencyDaysMax)
+        .nullish(),
+    iteration_start_dates: zod.array(zod.iso.datetime({ offset: true }).nullable()).nullish(),
+    current_iteration: zod
+        .number()
+        .min(surveysSummarizeResponsesCreateBodyCurrentIterationMin)
+        .max(surveysSummarizeResponsesCreateBodyCurrentIterationMax)
+        .nullish(),
+    current_iteration_start_date: zod.iso.datetime({ offset: true }).nullish(),
+    response_sampling_start_date: zod.iso.datetime({ offset: true }).nullish(),
+    response_sampling_interval_type: zod
+        .union([
+            zod.enum(['day', 'week', 'month']).describe('* `day` - day\n* `week` - week\n* `month` - month'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+    response_sampling_interval: zod
+        .number()
+        .min(surveysSummarizeResponsesCreateBodyResponseSamplingIntervalMin)
+        .max(surveysSummarizeResponsesCreateBodyResponseSamplingIntervalMax)
+        .nullish(),
+    response_sampling_limit: zod
+        .number()
+        .min(surveysSummarizeResponsesCreateBodyResponseSamplingLimitMin)
+        .max(surveysSummarizeResponsesCreateBodyResponseSamplingLimitMax)
+        .nullish(),
+    response_sampling_daily_limits: zod.unknown().optional(),
+    enable_partial_responses: zod.boolean().nullish(),
+    enable_iframe_embedding: zod.boolean().nullish(),
+    base_language: zod
+        .string()
+        .max(surveysSummarizeResponsesCreateBodyBaseLanguageMax)
+        .optional()
+        .describe(
+            "BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`."
+        ),
+    translations: zod.unknown().optional(),
+    _create_in_folder: zod.string().optional(),
+    form_content: zod.unknown().optional(),
 })
 
 /**
