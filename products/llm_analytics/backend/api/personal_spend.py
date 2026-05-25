@@ -147,6 +147,7 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
 
     def validate_product(self, value: str) -> str:
         if value not in SUPPORTED_PRODUCTS:
+            logger.warning("personal_spend.product_rejected", product=value)
             raise serializers.ValidationError(
                 f"product `{value}` is not supported. Supported products: {', '.join(sorted(SUPPORTED_PRODUCTS))}."
             )
