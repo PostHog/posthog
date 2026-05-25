@@ -1,5 +1,13 @@
 import { IconSend } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -20,10 +28,19 @@ import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 type DeliveryListStatusFilter =
     (typeof SubscriptionDeliveriesListStatusByValue)[keyof typeof SubscriptionDeliveriesListStatusByValue]
 
-function deliveryStatusTag(status: SubscriptionDeliveryApi['status']): JSX.Element {
+/** Backend writes `{message: str, type: str}` to `SubscriptionDelivery.error`; schema types it as `unknown`. */
+function getDeliveryErrorMessage(error: SubscriptionDeliveryApi['error']): string | null {
+    if (!error || typeof error !== 'object') {
+        return null
+    }
+    const message = (error as { message?: unknown }).message
+    return typeof message === 'string' && message.length > 0 ? message : null
+}
+
+function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
     let label: string
     let tagType: 'success' | 'danger' | 'warning' | 'default'
-    switch (status) {
+    switch (row.status) {
         case SubscriptionDeliveryStatusEnumApi.Starting:
             label = 'Starting'
             tagType = 'default'
@@ -41,8 +58,19 @@ function deliveryStatusTag(status: SubscriptionDeliveryApi['status']): JSX.Eleme
             tagType = 'warning'
             break
         default:
-            label = status
+            label = row.status
             tagType = 'default'
+    }
+    const errorMessage =
+        row.status === SubscriptionDeliveryStatusEnumApi.Failed ? getDeliveryErrorMessage(row.error) : null
+    if (errorMessage) {
+        return (
+            <Tooltip title={errorMessage}>
+                <LemonTag type={tagType} className="cursor-help">
+                    {label}
+                </LemonTag>
+            </Tooltip>
+        )
     }
     return <LemonTag type={tagType}>{label}</LemonTag>
 }
@@ -114,7 +142,7 @@ function buildDeliveryColumns(): LemonTableColumns<SubscriptionDeliveryApi> {
             title: 'Status',
             key: 'status',
             className: DELIVERY_TABLE_CELL_CLASS,
-            render: (_v, row) => deliveryStatusTag(row.status),
+            render: (_v, row) => deliveryStatusTag(row),
         },
         {
             title: 'Trigger',
