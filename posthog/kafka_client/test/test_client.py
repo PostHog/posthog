@@ -1,11 +1,15 @@
 import os
 import json
+import time
 import uuid
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
+
+from confluent_kafka import Producer as ConfluentProducer
 
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.settings.kafka import KafkaProfileSettings
@@ -214,6 +218,78 @@ class KafkaClientTestCase(TestCase):
         # Producer settings still flow through — this is what the old helper dropped.
         self.assertEqual(config["linger.ms"], 250)
         self.assertEqual(config["batch.size"], 1_000_000)
+
+
+@override_settings(TEST=False)
+class ProduceResultTestCase(SimpleTestCase):
+    """Behavioural tests for `_KafkaProducer.produce()` -> `ProduceResult.get()`.
+
+    Regression for: the wrapper used to call `producer.poll(0)` once and return,
+    so a synchronous caller blocking on `ProduceResult.get(timeout=10)` would
+    time out because nothing was driving the producer's event loop to fire the
+    delivery callback. Fix is `get()` polls the producer while waiting.
+    """
+
+    def _make_producer_with_deferred_delivery(self) -> tuple[_KafkaProducer, MagicMock]:
+        """A `_KafkaProducer` whose underlying confluent producer only fires delivery
+        callbacks when `.poll()` is invoked with a non-zero timeout (mirroring real librdkafka)."""
+
+        pending: list[tuple[Any, Any]] = []  # (on_delivery callback, args to pass it)
+
+        def fake_produce(topic, value=None, key=None, headers=None, on_delivery=None):
+            # Stash the callback; do NOT fire it. Real librdkafka batches the produce
+            # and only invokes callbacks when poll() runs after the broker acks.
+            pending.append((on_delivery, (None, MagicMock(topic=lambda: topic))))
+
+        def fake_poll(timeout):
+            # The first poll(0) (drain) shouldn't fire anything if the broker hasn't acked.
+            # We model a real ack arriving after at least one >0-timeout poll by firing
+            # whatever is pending whenever poll is called with a non-zero timeout.
+            if timeout and pending:
+                cb, args = pending.pop(0)
+                if cb is not None:
+                    cb(*args)
+
+        mock_producer = MagicMock(spec=ConfluentProducer)
+        mock_producer.produce.side_effect = fake_produce
+        mock_producer.poll.side_effect = fake_poll
+
+        with patch("posthog.kafka_client.client.ConfluentProducer", return_value=mock_producer):
+            producer = _KafkaProducer(test=False)
+        return producer, mock_producer
+
+    def test_get_returns_when_caller_is_the_only_thread_driving_the_producer(self):
+        """Regression: a sync caller blocking on `.get()` must keep the producer
+        polling, otherwise the delivery callback never fires."""
+        producer, _ = self._make_producer_with_deferred_delivery()
+        result = producer.produce(topic="t", data={"k": "v"})
+        # No background thread polling the producer; if `.get()` doesn't drive
+        # `poll()` itself, the delivery callback above never fires and this times out.
+        msg = result.get(timeout=2.0)
+        self.assertIsNotNone(msg)
+
+    def test_get_raises_timeout_error_when_delivery_never_fires(self):
+        """If the broker never acks, `.get(timeout=...)` should raise TimeoutError
+        after roughly the requested timeout (not hang forever)."""
+        pending_dropped: list[None] = []
+
+        def fake_produce(topic, value=None, key=None, headers=None, on_delivery=None):
+            pending_dropped.append(None)  # callback intentionally never invoked
+
+        mock_producer = MagicMock(spec=ConfluentProducer)
+        mock_producer.produce.side_effect = fake_produce
+        mock_producer.poll.return_value = None  # poll is a no-op
+        with patch("posthog.kafka_client.client.ConfluentProducer", return_value=mock_producer):
+            producer = _KafkaProducer(test=False)
+
+        start = time.monotonic()
+        result = producer.produce(topic="t", data={"k": "v"})
+        with self.assertRaises(TimeoutError):
+            result.get(timeout=0.3)
+        elapsed = time.monotonic() - start
+        # Loosely bounded — we just want to confirm the timeout fires near the requested deadline
+        # rather than hanging the test runner.
+        self.assertLess(elapsed, 2.0)
 
 
 # Real-broker round-trip tests. Disabled by default because they require a reachable

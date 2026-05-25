@@ -10,6 +10,7 @@ points for producing are in `posthog.kafka_client.routing`:
 
 import os
 import json
+import time
 import asyncio
 import threading
 from collections.abc import Callable
@@ -43,6 +44,12 @@ KAFKA_PRODUCER_MESSAGES_COUNTER = Counter(
 )
 
 
+# Interval (s) `ProduceResult.get` uses when driving the underlying producer's event loop.
+# Short enough that delivery latency stays in the millisecond range, long enough that the
+# CPU cost of polling is negligible relative to network IO.
+_GET_POLL_INTERVAL_S = 0.05
+
+
 @dataclass
 class ProduceResult:
     """
@@ -51,6 +58,11 @@ class ProduceResult:
     """
 
     topic: str
+    # When set, `.get()` drives this callable in a loop while waiting so delivery callbacks
+    # fire. confluent-kafka's `Producer.poll()` is documented as safe to call from any thread.
+    # Without this, `.get()` would block indefinitely whenever the caller is the only thread
+    # driving the producer (no background thread, no nearby `flush()`).
+    _poll: Optional[Callable[[float], None]] = field(default=None, repr=False)
     _event: threading.Event = field(default_factory=threading.Event)
     _message: Optional[Message] = field(default=None)
     _error: Optional[KafkaError] = field(default=None)
@@ -66,8 +78,20 @@ class ProduceResult:
         Wait for the produce to complete and return the result.
         Raises KafkaException if the produce failed.
         """
-        if not self._event.wait(timeout=timeout):
-            raise TimeoutError("Timeout waiting for produce result")
+        if self._poll is None:
+            # No producer attached (e.g. test path that pre-sets the result) — just wait on the event.
+            if not self._event.wait(timeout=timeout):
+                raise TimeoutError("Timeout waiting for produce result")
+        else:
+            deadline = time.monotonic() + timeout if timeout is not None else None
+            while not self._event.is_set():
+                if deadline is None:
+                    self._poll(_GET_POLL_INTERVAL_S)
+                else:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("Timeout waiting for produce result")
+                    self._poll(min(_GET_POLL_INTERVAL_S, remaining))
         if self._error is not None:
             raise KafkaException(self._error)
         return self._message
@@ -304,12 +328,14 @@ class _KafkaProducer:
             else None
         )
 
-        result = ProduceResult(topic=topic)
-
         if self._test:
+            result = ProduceResult(topic=topic)
             self.producer.produce(topic, value=b, key=key, headers=encoded_headers)
             result.set_result(None, None)
         else:
+            # Attach a poll hook so callers blocking on `.get()` keep the producer's
+            # event loop alive — otherwise the delivery callback never fires.
+            result = ProduceResult(topic=topic, _poll=self.producer.poll)
             self.producer.produce(
                 topic,
                 value=b,
@@ -317,7 +343,7 @@ class _KafkaProducer:
                 headers=encoded_headers,
                 on_delivery=lambda err, msg: self._on_delivery(topic, result, err, msg),
             )
-            # Poll to trigger any pending delivery callbacks (non-blocking)
+            # Drain any already-ready callbacks (non-blocking).
             self.producer.poll(0)
 
         return result
