@@ -413,6 +413,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             query_type=self.clickhouse_query_type(),
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=modifiers,
         )

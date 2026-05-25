@@ -31,6 +31,7 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQuer
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.user import User
 from posthog.types import InsightActorsQueryNode
 
 from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
@@ -48,6 +49,7 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
+        user: Optional[User] = None,
     ):
         super().__init__(
             query,
@@ -57,11 +59,14 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             limit_context=limit_context,
             query_id=query_id,
             extract_modifiers=lambda query: query.source.modifiers if hasattr(query.source, "modifiers") else None,
+            user=user,
         )
 
     @cached_property
     def source_runner(self) -> QueryRunner:
-        return get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers)
+        return get_query_runner(
+            self.query.source, self.team, self.timings, self.limit_context, self.modifiers, user=self.user
+        )
 
     def validate(self) -> None:
         super().validate()
@@ -193,6 +198,7 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             query_type="InsightActorsQuery",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
