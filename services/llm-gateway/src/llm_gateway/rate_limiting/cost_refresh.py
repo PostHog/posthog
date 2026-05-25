@@ -11,6 +11,13 @@ logger = structlog.get_logger(__name__)
 
 CACHE_TTL_SECONDS = 300
 
+# Models routed through non-canonical litellm providers (e.g. Cloudflare via
+# openai/ prefix) won't match their cost map entry. Map the key we actually
+# pass to litellm → the canonical key in the cost map.
+COST_ALIASES: dict[str, str] = {
+    "openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6",
+}
+
 
 class CostRefreshService:
     """Singleton service that periodically refreshes litellm.model_cost."""
@@ -38,6 +45,9 @@ class CostRefreshService:
     def refresh(self) -> None:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
+            for alias, canonical in COST_ALIASES.items():
+                if canonical in model_cost and alias not in model_cost:
+                    model_cost[alias] = model_cost[canonical]
             litellm.model_cost = model_cost
             self._last_refresh = time.monotonic()
             logger.info("model_cost_refreshed", model_count=len(model_cost))

@@ -113,10 +113,12 @@ def extract_posthog_provider_from_headers(request: Request) -> str | None:
 
     normalized_provider = provider.strip().lower()
     if not normalized_provider:
-        raise ValueError(f"Invalid {POSTHOG_PROVIDER_HEADER} header value. Expected one of: anthropic, bedrock.")
-    if normalized_provider not in {"anthropic", "bedrock"}:
         raise ValueError(
-            f"Invalid {POSTHOG_PROVIDER_HEADER} header value '{provider}'. Expected one of: anthropic, bedrock."
+            f"Invalid {POSTHOG_PROVIDER_HEADER} header value. Expected one of: anthropic, bedrock, cloudflare."
+        )
+    if normalized_provider not in {"anthropic", "bedrock", "cloudflare"}:
+        raise ValueError(
+            f"Invalid {POSTHOG_PROVIDER_HEADER} header value '{provider}'. Expected one of: anthropic, bedrock, cloudflare."
         )
     return normalized_provider
 

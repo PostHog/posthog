@@ -45,6 +45,7 @@ BEDROCK_CONFIG = ProviderConfig(name="bedrock", endpoint_name="bedrock_messages"
 OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
 OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
 OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
+CLOUDFLARE_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_messages")
 
 # Google providers require litellm[google], which we don't install. Reject these
 # at the edge so litellm doesn't crash deep in vertex_llm_base with an ImportError.

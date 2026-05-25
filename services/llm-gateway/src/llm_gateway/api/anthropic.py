@@ -9,8 +9,9 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from llm_gateway.api.handler import ANTHROPIC_CONFIG, BEDROCK_CONFIG, _sanitize_request_data, handle_llm_request
+from llm_gateway.api.handler import ANTHROPIC_CONFIG, BEDROCK_CONFIG, CLOUDFLARE_CONFIG, _sanitize_request_data, handle_llm_request
 from llm_gateway.bedrock import count_tokens_with_bedrock, ensure_bedrock_configured, map_to_bedrock_model
+from llm_gateway.cloudflare import ensure_cloudflare_configured, make_cloudflare_anthropic_call
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
@@ -83,6 +84,30 @@ def strip_server_side_tools(data: dict[str, Any], *, model: str, product: str) -
         data["tools"] = supported
     else:
         del data["tools"]
+
+
+async def _send_cloudflare_messages(
+    request_data: dict[str, Any],
+    user: RateLimitedUser,
+    is_streaming: bool,
+    product: str,
+) -> dict[str, Any] | StreamingResponse:
+    settings = get_settings()
+    api_base, api_key = ensure_cloudflare_configured(settings)
+
+    data = dict(request_data)
+    original_model = data["model"]
+    llm_call = make_cloudflare_anthropic_call(api_base, api_key)
+
+    return await handle_llm_request(
+        request_data=data,
+        user=user,
+        model=original_model,
+        is_streaming=is_streaming,
+        provider_config=CLOUDFLARE_CONFIG,
+        llm_call=llm_call,
+        product=product,
+    )
 
 
 async def _send_bedrock_messages(
@@ -196,6 +221,9 @@ async def _handle_anthropic_messages(
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
     provider = _get_provider_from_headers(request)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
+
+    if provider == "cloudflare":
+        return await _send_cloudflare_messages(data, user, body.stream or False, product)
 
     if provider == "bedrock":
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
