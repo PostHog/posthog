@@ -136,9 +136,7 @@ class TestPersonalSpendValidation(APIBaseTest):
             ("unsupported_arbitrary", "wibble", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_product_param_restricted_to_supported_products(
-        self, _label: str, product: str, expected: int
-    ) -> None:
+    def test_product_param_restricted_to_supported_products(self, _label: str, product: str, expected: int) -> None:
         response = self.client.get(f"{ENDPOINT}?product={product}")
         assert response.status_code == expected
         if expected == status.HTTP_400_BAD_REQUEST:
