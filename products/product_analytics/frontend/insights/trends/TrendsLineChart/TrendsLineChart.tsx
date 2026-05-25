@@ -5,7 +5,7 @@ import { buildTheme } from 'lib/charts/utils/theme'
 import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from 'lib/hog-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from 'lib/hog-charts'
 import { percentage } from 'lib/utils'
-import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -111,7 +111,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             if (isPercentStackView) {
                 return percentage(value)
             }
-            return formatPercentStackAxisValue(trendsFilter, value, false, baseCurrency)
+            return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
         },
         [trendsFilter, isPercentStackView, baseCurrency]
     )

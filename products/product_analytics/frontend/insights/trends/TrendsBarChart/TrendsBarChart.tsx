@@ -12,7 +12,7 @@ import {
 } from 'lib/hog-charts'
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
 import { percentage } from 'lib/utils'
-import { formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -136,7 +136,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             if (isPercentStackView) {
                 return percentage(value)
             }
-            return formatPercentStackAxisValue(trendsFilter, value, false, baseCurrency)
+            return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
         },
         [trendsFilter, isPercentStackView, baseCurrency]
     )
