@@ -19,6 +19,3 @@ python3 bin/patch-schema-array-discriminators.py
 # Format and lint
 ruff format posthog/schema.py
 ruff check --fix posthog/schema.py
-
-# Preserve public enum member names whose values intentionally remain legacy strings.
-python3 bin/patch-schema-enum-members.py

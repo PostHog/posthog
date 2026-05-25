@@ -462,32 +462,6 @@ function annotatePureZodExports(filePath) {
     fs.writeFileSync(filePath, annotated)
 }
 
-function fixGeneratedEnumMemberNames(filePath) {
-    if (!fs.existsSync(filePath)) {
-        return
-    }
-
-    const content = fs.readFileSync(filePath, 'utf-8')
-    const enumStart = content.indexOf('export const AvailableSetupTaskIdsEnumApi = {')
-    if (enumStart === -1) {
-        return
-    }
-
-    const enumEnd = content.indexOf('} as const', enumStart)
-    if (enumEnd === -1) {
-        return
-    }
-
-    const before = content.slice(0, enumStart)
-    const enumBlock = content
-        .slice(enumStart, enumEnd)
-        .replace('IngestFirstLlmEvent:', 'IngestFirstAiEvent:')
-        .replace('SetUpLlmEvaluation:', 'SetUpAiEvaluation:')
-    const after = content.slice(enumEnd)
-
-    fs.writeFileSync(filePath, before + enumBlock + after)
-}
-
 // Prepare all jobs first (write temp files, log info)
 const fetchJobs = entries.map(([outputDir, groupedSchema]) => {
     const pathCount = Object.keys(groupedSchema.paths).length
@@ -825,10 +799,6 @@ for (let i = 0; i < results.length; i++) {
         console.error(`   ✗ ${job.label}:${job.kind}: ${result.reason?.message || result.reason}`)
         failed++
     }
-}
-
-for (const outputDir of outputDirs) {
-    fixGeneratedEnumMemberNames(path.join(outputDir, 'api.schemas.ts'))
 }
 
 // Run oxfmt once on all generated files

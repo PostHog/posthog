@@ -193,7 +193,7 @@ class ScoreDefinitionFilter(django_filters.FilterSet):
         return queryset
 
 
-@extend_schema(tags=[ProductKey.AI_OBSERVABILITY])
+@extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class ScoreDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

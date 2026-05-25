@@ -735,10 +735,10 @@ class TestProductIntent(BaseTest):
         return EventDefinition.objects.create(team=self.team, name="$ai_generation")
 
     def _make_llm_intent(self, contexts: dict) -> ProductIntent:
-        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.AI_OBSERVABILITY).delete()
+        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.LLM_ANALYTICS).delete()
         return ProductIntent.objects.create(
             team=self.team,
-            product_type=ProductKey.AI_OBSERVABILITY,
+            product_type=ProductKey.LLM_ANALYTICS,
             contexts=contexts,
         )
 
@@ -767,7 +767,7 @@ class TestProductIntent(BaseTest):
 
     def test_has_not_activated_llm_analytics_without_intent(self):
         self._make_ai_generation_event_definition()
-        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.AI_OBSERVABILITY).delete()
+        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.LLM_ANALYTICS).delete()
 
         assert self.product_intent.has_activated_llm_analytics() is False
 

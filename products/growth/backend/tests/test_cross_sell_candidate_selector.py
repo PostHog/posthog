@@ -64,7 +64,7 @@ class TestCrossSellCandidateSelectorPreferenceWeights(TestCase):
 
     def test_llm_adjacent_boost_when_llm_analytics_enabled(self):
         selector_for_lookup = _make_selector()
-        llm_paths = selector_for_lookup.intent_to_paths.get(ProductKey.AI_OBSERVABILITY, [])
+        llm_paths = selector_for_lookup.intent_to_paths.get(ProductKey.LLM_ANALYTICS, [])
         assert len(llm_paths) > 0
 
         selector = _make_selector(enabled=set(llm_paths))

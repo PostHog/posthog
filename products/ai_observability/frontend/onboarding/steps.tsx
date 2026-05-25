@@ -17,7 +17,7 @@ export const aiObservabilityOnboarding: ProductOnboardingProvider = {
             productKey: ProductKey.AI_OBSERVABILITY,
             stepKey: OnboardingStepKey.INSTALL,
             role: ctx.role,
-            setupTaskId: SetupTaskId.IngestFirstAiEvent,
+            setupTaskId: SetupTaskId.IngestFirstLlmEvent,
             render: () => (
                 <OnboardingInstallStep
                     sdkInstructionMap={AIObservabilitySDKInstructions}

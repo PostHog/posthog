@@ -301,7 +301,7 @@ class ReviewQueueItemFilter(django_filters.FilterSet):
         return queryset
 
 
-@extend_schema(tags=[ProductKey.AI_OBSERVABILITY])
+@extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class ReviewQueueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ModelViewSet):
     scope_object = "llm_analytics"
     permission_classes = [TraceReviewFeatureFlagPermission, AccessControlPermission]
@@ -424,7 +424,7 @@ class ReviewQueueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Mode
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(tags=[ProductKey.AI_OBSERVABILITY])
+@extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class ReviewQueueItemViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ModelViewSet):
     scope_object = "llm_analytics"
     permission_classes = [TraceReviewFeatureFlagPermission, AccessControlPermission]

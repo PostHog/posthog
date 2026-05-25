@@ -59,7 +59,7 @@ DEFAULT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.ERROR_TRACKING: error_tracking_agent,
     AgentMode.FLAGS: flags_agent,
     AgentMode.SURVEY: survey_agent,
-    AgentMode.AI_OBSERVABILITY: ai_observability_agent,
+    AgentMode.LLM_ANALYTICS: ai_observability_agent,
 }
 
 DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
@@ -70,7 +70,7 @@ DEFAULT_CHAT_AGENT_PLAN_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.ERROR_TRACKING: chat_agent_plan_error_tracking_agent,
     AgentMode.FLAGS: chat_agent_plan_flags_agent,
     AgentMode.SURVEY: chat_agent_plan_survey_agent,
-    AgentMode.AI_OBSERVABILITY: chat_agent_plan_ai_observability_agent,
+    AgentMode.LLM_ANALYTICS: chat_agent_plan_ai_observability_agent,
 }
 
 SUBAGENT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
@@ -80,7 +80,7 @@ SUBAGENT_CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.ERROR_TRACKING: error_tracking_agent,
     AgentMode.FLAGS: chat_agent_plan_flags_agent,
     AgentMode.SURVEY: subagent_survey_agent,
-    AgentMode.AI_OBSERVABILITY: chat_agent_plan_ai_observability_agent,
+    AgentMode.LLM_ANALYTICS: chat_agent_plan_ai_observability_agent,
 }
 
 

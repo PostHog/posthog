@@ -481,7 +481,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
         title: 'Get started with AI observability',
         tasks: [
             {
-                id: SetupTaskId.IngestFirstAiEvent,
+                id: SetupTaskId.IngestFirstLlmEvent,
                 title: 'Send your first AI event',
                 description: 'Install the PostHog LLM SDK to start tracking AI usage.',
                 skipWarning: "Without AI events, you can't track AI model usage.",
@@ -509,7 +509,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 getUrl: () => urls.aiObservabilityDashboard(),
             },
             {
-                id: SetupTaskId.SetUpAiEvaluation,
+                id: SetupTaskId.SetUpLlmEvaluation,
                 title: 'Set up LLM evaluation',
                 description: 'Score and evaluate AI outputs for quality.',
                 taskType: 'explore',

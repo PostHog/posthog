@@ -194,7 +194,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     listeners(({ actions, values }) => ({
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
             if (hasSentAiEvent) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstAiEvent)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
             }
         },
         setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => {

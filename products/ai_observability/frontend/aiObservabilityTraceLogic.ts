@@ -468,7 +468,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                 // Mark both tasks as completed - viewing a trace implies AI events were sent
                 globalSetupLogic
                     .findMounted()
-                    ?.actions.markTaskAsCompleted([SetupTaskId.IngestFirstAiEvent, SetupTaskId.ViewFirstTrace])
+                    ?.actions.markTaskAsCompleted([SetupTaskId.IngestFirstLlmEvent, SetupTaskId.ViewFirstTrace])
             }
         },
     })),
