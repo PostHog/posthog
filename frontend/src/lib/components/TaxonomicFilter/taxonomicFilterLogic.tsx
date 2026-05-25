@@ -76,7 +76,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
+import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition, getFilterLabel } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
@@ -103,7 +103,7 @@ import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/h
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { cohortTaxonomicGroupsLogic } from './cohortTaxonomicGroupsLogic'
 import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGroupsLogic'
-import { InlineHogQLEditor } from './InlineHogQLEditor'
+import { hogQLExpressionTaxonomicGroupsLogic } from './hogQLExpressionTaxonomicGroupsLogic'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 const PROPERTY_TAXONOMIC_GROUP_TYPES = new Set(Object.values(PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE))
@@ -331,6 +331,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['groupAnalyticsTaxonomicGroups', 'groupAnalyticsTaxonomicGroupNames'],
             cohortTaxonomicGroupsLogic,
             ['cohortTaxonomicGroups'],
+            hogQLExpressionTaxonomicGroupsLogic,
+            ['hogQLExpressionTaxonomicGroups'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -509,11 +511,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.suggestedFiltersLabel],
             (suggestedFiltersLabel) => suggestedFiltersLabel,
         ],
-        metadataSource: [
-            () => [(_, props) => props.metadataSource],
-            (metadataSource): AnyDataNode =>
-                metadataSource ?? { kind: NodeKind.HogQLQuery, query: 'select event from events' },
-        ],
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => (excludedProperties ?? {}) as ExcludedProperties,
@@ -534,15 +531,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
-        hogQLExpressionComponentProps: [
-            () => [(_, props) => props.hogQLGlobals, (_, props) => props.hogQLExpressionShowBreakdownLabelHint],
-            (
-                hogQLGlobals: Record<string, any> | undefined,
-                showBreakdownLabelHint: boolean | undefined
-            ): { globals?: Record<string, any>; showBreakdownLabelHint: boolean } => ({
-                globals: hogQLGlobals,
-                showBreakdownLabelHint: showBreakdownLabelHint ?? false,
-            }),
+        hideBehavioralCohorts: [
+            () => [(_, props) => props.hideBehavioralCohorts],
+            (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
         ],
         endpointFilters: [
             () => [(_, props) => props.endpointFilters],
@@ -557,14 +548,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventNamesWithPrimaryProperties,
                 s.schemaColumns,
                 (_, props) => props.schemaColumnsLoading,
-                s.metadataSource,
+                s.hogQLExpressionTaxonomicGroups,
                 s.suggestedFiltersLabel,
                 s.propertyFilters,
                 s.eventMetadataPropertyDefinitions,
                 s.maxContextOptions,
                 s.cohortTaxonomicGroups,
                 s.endpointFilters,
-                s.hogQLExpressionComponentProps,
                 s.featureFlags,
             ],
             (
@@ -578,17 +568,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 },
                 schemaColumns: DatabaseSchemaField[],
                 schemaColumnsLoading: boolean | undefined,
-                metadataSource: AnyDataNode,
+                hogQLExpressionTaxonomicGroups: TaxonomicFilterGroup[],
                 suggestedFiltersLabel: string | undefined,
                 propertyFilters,
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 cohortTaxonomicGroups: TaxonomicFilterGroup[],
                 endpointFilters: Record<string, any> | undefined,
-                hogQLExpressionComponentProps: {
-                    globals?: Record<string, any>
-                    showBreakdownLabelHint: boolean
-                },
                 featureFlags: Record<string, boolean | string | undefined>
             ): TaxonomicFilterGroup[] => {
                 const { eventNames, primaryPropertiesForContextEvents } = eventNamesWithPrimaryProperties
@@ -1305,15 +1291,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Session',
                         getIcon: getPropertyDefinitionIcon,
                     },
-                    {
-                        name: 'SQL expression',
-                        searchPlaceholder: null,
-                        categoryLabel: () => 'SQL expression',
-                        type: TaxonomicFilterGroupType.HogQLExpression,
-                        render: InlineHogQLEditor,
-                        getPopoverHeader: () => 'SQL expression',
-                        componentProps: { metadataSource, ...hogQLExpressionComponentProps },
-                    },
+                    ...hogQLExpressionTaxonomicGroups,
                     {
                         name: 'Replay',
                         searchPlaceholder: 'Replay',
