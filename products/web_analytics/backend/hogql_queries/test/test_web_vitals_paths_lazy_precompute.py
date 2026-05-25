@@ -148,12 +148,11 @@ class TestWebVitalsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, metric: WebVitalsMetric, percentile: WebVitalsPercentile
     ):
         self._seed()
-        query_kwargs = {"metric": metric, "percentile": percentile}
 
-        raw = self._paths_with_values(self._run(self._build_query(**query_kwargs)))
+        raw = self._paths_with_values(self._run(self._build_query(metric=metric, percentile=percentile)))
 
         with self._enable_lazy():
-            lazy_response = self._run(self._build_query(**query_kwargs))
+            lazy_response = self._run(self._build_query(metric=metric, percentile=percentile))
         lazy = self._paths_with_values(lazy_response)
 
         assert lazy_response.usedLazyPrecompute is True
