@@ -211,10 +211,12 @@ class CreateTextTileRequestSerializer(serializers.Serializer):
         ),
     )
     color = serializers.CharField(
+        max_length=400,
         required=False,
         allow_null=True,
         allow_blank=True,
         help_text="Optional accent color name (e.g. 'blue', 'green', 'purple', 'black').",
+        error_messages={"max_length": "Color cannot exceed 400 characters"},
     )
 
 
@@ -226,8 +228,8 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
     body = serializers.CharField(
         max_length=4000,
         required=False,
-        allow_null=True,
-        allow_blank=True,
+        allow_null=False,
+        allow_blank=False,
         help_text="New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.",
         error_messages={"max_length": "Text body cannot exceed 4000 characters"},
     )
@@ -236,10 +238,12 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
         help_text="New grid layout per breakpoint. Omit to leave the layout unchanged.",
     )
     color = serializers.CharField(
+        max_length=400,
         required=False,
         allow_null=True,
         allow_blank=True,
-        help_text="New accent color name, or null to clear. Omit to leave unchanged.",
+        help_text="New accent color name, empty string or null to clear. Omit to leave unchanged.",
+        error_messages={"max_length": "Color cannot exceed 400 characters"},
     )
 
 

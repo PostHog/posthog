@@ -3334,22 +3334,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["text"]["body"], "Just a divider")
 
-    def test_create_text_tile_rejects_empty_body(self):
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("over_max_length", "x" * 4001),
+        ]
+    )
+    def test_create_text_tile_rejects_invalid_body(self, _name, body):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/create_text_tile/",
-            {"body": ""},
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_create_text_tile_rejects_body_over_4000_chars(self):
-        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
-
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/create_text_tile/",
-            {"body": "x" * 4001},
+            {"body": body},
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -3411,7 +3407,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         tile.refresh_from_db()
         self.assertEqual(tile.layouts["sm"], {"x": 1, "y": 2, "w": 6, "h": 1})
-        self.assertEqual(tile.text.body, "new body")
+        text.refresh_from_db()
+        self.assertEqual(text.body, "new body")
+
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("empty", ""),
+        ]
+    )
+    def test_update_text_tile_rejects_empty_or_null_body(self, _name, body):
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+        text = Text.objects.create(body="original", team=self.team)
+        tile = DashboardTile.objects.create(dashboard=dashboard, text=text)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/update_text_tile/",
+            {"tile_id": tile.pk, "body": body},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        text.refresh_from_db()
+        self.assertEqual(text.body, "original")
 
     def test_update_text_tile_rejects_insight_tile(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
@@ -3425,28 +3443,25 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_update_text_tile_with_unknown_id_returns_404(self):
-        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
-
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/update_text_tile/",
-            {"tile_id": 9999999, "body": "x"},
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_update_text_tile_on_other_dashboard_returns_404(self):
+    def _make_unknown_tile_id_args(self):
         dashboard_a = Dashboard.objects.create(team=self.team, name="A")
         dashboard_b = Dashboard.objects.create(team=self.team, name="B")
         text = Text.objects.create(body="A's tile", team=self.team)
         tile_on_a = DashboardTile.objects.create(dashboard=dashboard_a, text=text)
+        return [
+            ("unknown_tile_id", dashboard_a.pk, 9999999),
+            ("tile_on_other_dashboard", dashboard_b.pk, tile_on_a.pk),
+        ]
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/dashboards/{dashboard_b.pk}/update_text_tile/",
-            {"tile_id": tile_on_a.pk, "body": "should fail"},
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+    def test_update_text_tile_returns_404_for_unknown_tile(self):
+        for name, dashboard_pk, tile_id in self._make_unknown_tile_id_args():
+            with self.subTest(name):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.pk}/dashboards/{dashboard_pk}/update_text_tile/",
+                    {"tile_id": tile_id, "body": "should fail"},
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_add_insight_to_multiple_dashboards_via_patch(self):
         dashboard1 = Dashboard.objects.create(team=self.team, name="Dashboard 1")
