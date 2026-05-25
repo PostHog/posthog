@@ -1,6 +1,7 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
 import guidelines from '@shared/guidelines.md'
+import type { Connection } from 'agents'
 import { McpAgent } from 'agents/mcp'
 import type { z } from 'zod'
 
@@ -257,6 +258,42 @@ export class MCP extends McpAgent<Env> {
         }
 
         return this._api
+    }
+
+    /**
+     * Replace the agents framework's default `onError` (in `agents@0.10.2`,
+     * `dist/src-f7-4oW_C.js`), which emits two `console.error` lines for every
+     * unhandled DO error — the real error followed by a literal
+     * `Override onError(error) to handle server errors` hint. The hint clutters
+     * log search and the unstructured pair is hard to bucket on.
+     *
+     * Emit a single structured line (`[MCP] unhandled error`) carrying the
+     * error name, message, and origin (websocket connection vs. server) so
+     * production log filters can group cleanly. The error is re-thrown to
+     * preserve the framework's request/response failure semantics — swallowing
+     * it would leave clients waiting on a response that never arrives.
+     */
+    onError(connection: Connection, error: unknown): void
+    onError(error: unknown): void
+    onError(connectionOrError: unknown, maybeError?: unknown): void {
+        // Mirrors the base class's branching: it only treats the call as the
+        // connection form when *both* args are truthy.
+        const isConnectionForm = !!(connectionOrError && maybeError)
+        const theError: unknown = isConnectionForm ? maybeError : connectionOrError
+        const connection = isConnectionForm ? (connectionOrError as Connection) : undefined
+
+        const errorInfo =
+            theError instanceof Error
+                ? { name: theError.name, message: theError.message, stack: theError.stack }
+                : { name: 'NonError', message: String(theError) }
+
+        console.error('[MCP] unhandled error', {
+            source: connection ? 'connection' : 'server',
+            ...(connection ? { connectionId: connection.id } : {}),
+            ...errorInfo,
+        })
+
+        throw theError
     }
 
     /**
