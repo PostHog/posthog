@@ -401,24 +401,16 @@ class StripeValidationError(Exception):
 def _resolve_to_flat(
     name: str, all_resources: dict[str, Union[StripeResource, StripeNestedResource]]
 ) -> tuple[str, StripeResource]:
-    """Return (display_name, resource_to_probe) for a given table.
-
-    For nested resources, the display name is `<nested> (<parent>)` — keeping the
-    nested table the user toggled visible while making the actionable scope (the
-    parent) explicit in the same string.
-    """
+    """Nested resources display as `<nested> (<parent>)` and probe the parent endpoint."""
     entry = all_resources[name]
     if isinstance(entry, StripeNestedResource):
-        # Type narrowed via the CI test, not at runtime — see
-        # test_validate_credentials_nested_resources_have_registered_parents.
+        # Parent_name registration enforced by test_validate_credentials_nested_resources_have_registered_parents.
         parent_entry = cast(StripeResource, all_resources[entry.parent_name])
         return f"{name} ({entry.parent_name})", parent_entry
     return name, entry
 
 
-# Used as the basic auth probe when no specific endpoints are requested. customers.list is on the
-# default RAK permissions set we ask users to grant and is also reachable by OAuth connected
-# accounts, so a 401 here means the key itself is bad rather than a missing scope.
+# customers.list is in default RAK scopes + OAuth-reachable — cheap auth probe.
 _BASIC_AUTH_PROBE_ENDPOINT = CUSTOMER_RESOURCE_NAME
 
 
@@ -427,32 +419,15 @@ def validate_credentials(
     endpoints: Optional[list[str]] = None,
     auth_method: Literal["api_key", "oauth"] = "api_key",
 ) -> bool:
-    """Validate Stripe API credentials.
+    """Validate Stripe credentials.
 
-    Two modes:
-    - ``endpoints is None`` (default): basic auth probe. Issue a single cheap call. A 401 means
-      the key itself is invalid → raise ``StripeAuthenticationError``. A 403 means the key is
-      valid but lacks the probed scope, which is *not* a failure for the basic check — return
-      True. Use this during source setup before the user has selected which tables to sync.
-    - ``endpoints=[...]``: probe each named endpoint (nested resources resolve to their parent)
-      and raise ``StripePermissionError`` / ``StripeValidationError`` for any 403 / other errors.
-      Use this when the caller already knows which tables matter.
-
-    Returns True when the credentials are usable for the requested mode.
+    - ``endpoints=None``: single auth probe. 401 → ``StripeAuthenticationError``, 403 → pass.
+    - ``endpoints=[...]``: probe each (nested → parent). Raises Permission/Validation errors.
     """
     client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
-
-    # Drive validation off the same resource definitions get_rows uses — single source of truth.
-    # Nested resources (e.g. /v1/customers/:id/payment_methods) can't be listed without a parent
-    # ID, so we resolve them to their parent via the StripeNestedResource.parent_name field,
-    # which names the top-level entry that gates the same scope.
     all_resources = _build_resources(client, logger=None)
 
     if endpoints is None:
-        # Basic auth-only probe. One cheap call is enough to distinguish a bad key (401) from
-        # any other state — we treat 403 as success here because the user may not have granted
-        # every read scope yet (and we surface that per-endpoint via check_endpoint_permissions
-        # during schema selection).
         probe_name, probe_resource = _resolve_to_flat(_BASIC_AUTH_PROBE_ENDPOINT, all_resources)
         try:
             probe_resource.method(params={"limit": 1})
@@ -460,22 +435,17 @@ def validate_credentials(
         except stripe_lib.AuthenticationError as e:
             raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
         except stripe_lib.PermissionError:
-            # Auth itself is valid — we just don't have this scope. Not a failure for the basic check.
+            # 403 = auth valid, scope missing. Per-endpoint check surfaces it later.
             return True
         except Exception as e:
-            # Other failures (network, unexpected Stripe API change) bubble up so the wizard
-            # surfaces the underlying message instead of silently claiming success.
             raise StripeValidationError({probe_name: _clean_stripe_error_message(str(e))}) from e
 
-    # Endpoint-list mode: probe each requested endpoint and collect failures.
     missing_permissions: dict[str, str] = {}
     errors: dict[str, str] = {}
     resources_to_check: list[tuple[str, StripeResource]] = []
 
     for name in endpoints:
-        # accounts.list requires Connect platform access — OAuth connected-account tokens can't
-        # call it. Skip cleanly: Account is also absent from ENDPOINTS so it can never be synced
-        # via OAuth anyway.
+        # OAuth tokens can't call accounts.list (needs Connect platform access).
         if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
             continue
         if name not in all_resources:
@@ -484,27 +454,17 @@ def validate_credentials(
 
     for display_name, resource in resources_to_check:
         try:
-            # Override params to limit=1 for cheap permission probing — we don't need real data.
             resource.method(params={"limit": 1})
         except stripe_lib.AuthenticationError as e:
-            # 401 — key itself is bad; no point checking other resources, every call will 401 the same way.
+            # 401 short-circuits; every other probe would fail the same way.
             raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
         except stripe_lib.PermissionError as e:
-            # 403 — this specific resource is not authorized for the key. The user_message is the
-            # concise Stripe explanation; str(e) on a stripe error includes request id, status code,
-            # and headers — way too noisy when the cause ("missing X read scope") is already obvious
-            # from the resource name.
             raw = getattr(e, "user_message", None) or str(e)
             missing_permissions[display_name] = _clean_stripe_error_message(raw)
         except Exception as e:
-            # Anything else (network, schema, rate limit, unexpected Stripe API change) is not a
-            # permission problem — track separately so callers can render the verbose underlying
-            # message instead of pretending it's a missing scope.
             errors[display_name] = _clean_stripe_error_message(str(e))
 
-    # Errors take precedence over permission gaps because they indicate something went genuinely
-    # wrong rather than a configuration issue the customer can self-serve. We still pass any
-    # collected 403s along so the caller can report both in one message.
+    # Non-403 errors win but carry 403s along so the caller can report both.
     if errors:
         raise StripeValidationError(errors, missing_permissions=missing_permissions)
     if missing_permissions:
@@ -518,16 +478,9 @@ def check_endpoint_permissions(
     endpoints: list[str],
     auth_method: Literal["api_key", "oauth"] = "api_key",
 ) -> dict[str, str | None]:
-    """Probe each endpoint's read scope and return a per-endpoint status.
+    """Probe each endpoint's read scope. Returns ``{name: None}`` if reachable, ``{name: reason}`` otherwise.
 
-    Returns ``{endpoint_name: None}`` when the endpoint is accessible and
-    ``{endpoint_name: "<reason>"}`` when it is not (missing scope, network error, etc.).
-    Unlike :func:`validate_credentials`, this never raises for missing permissions — the
-    caller (schema selection UI) wants the full per-endpoint picture, not a short-circuit
-    failure on the first denial.
-
-    A bad API key (401) still raises ``StripeAuthenticationError`` since every probe would
-    fail the same way and the user needs to fix that before anything else is meaningful.
+    Never raises for missing permissions (schema UI needs the full picture). 401 still raises.
     """
     client = StripeClient(api_key, base_addresses=_stripe_base_addresses(), http_client=_tracked_stripe_http_client())
     all_resources = _build_resources(client, logger=None)
@@ -535,8 +488,6 @@ def check_endpoint_permissions(
     results: dict[str, str | None] = {}
     for name in endpoints:
         if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
-            # OAuth connected-account tokens cannot call accounts.list. Mark explicitly so the
-            # UI can render an actionable reason instead of a generic 403 message.
             results[name] = "Account is not available for OAuth-connected Stripe sources"
             continue
         if name not in all_resources:
@@ -548,7 +499,6 @@ def check_endpoint_permissions(
             probe_resource.method(params={"limit": 1})
             results[name] = None
         except stripe_lib.AuthenticationError as e:
-            # 401 short-circuits — the key itself is invalid, every probe will fail the same way.
             raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
         except stripe_lib.PermissionError as e:
             raw = getattr(e, "user_message", None) or str(e)

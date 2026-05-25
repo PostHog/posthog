@@ -74,9 +74,6 @@ export default function SchemaForm(): JSX.Element {
     } = useValues(sourceWizardLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
-        // Hard-stop selection for tables the source credentials can't read (e.g. Stripe restricted
-        // API key missing the scope). The wizard would happily accept the toggle and then fail at
-        // first sync — block it up front so the user fixes permissions before continuing.
         if (schema.permission_error) {
             return
         }

@@ -1702,10 +1702,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": str(e)},
             )
 
-        # Schema-selection step: probe per-endpoint scope so the UI can mark tables the
-        # credentials can / cannot reach. Failures here are best-effort — a transient
-        # Stripe blip should not block the whole picker, so we fall back to "available"
-        # rather than aborting.
+        # Best-effort per-endpoint scope probe — transient failure falls back to "available".
         try:
             endpoint_permissions = source.get_endpoint_permissions(
                 source_config, self.team_id, [schema.name for schema in schemas]

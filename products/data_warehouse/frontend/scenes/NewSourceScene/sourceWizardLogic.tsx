@@ -444,11 +444,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 toggleAllTables: (state, { selectAll, tableNames }) => {
+                    // permission_error rows stay off — bulk toggle never queues guaranteed-403 syncs.
                     if (!tableNames) {
                         return state.map((schema) => ({
                             ...schema,
-                            // Skip unreachable tables — bulk select-all should never queue a sync
-                            // that's guaranteed to 403 on the first call.
                             should_sync: schema.permission_error ? false : selectAll,
                         }))
                     }
@@ -1359,10 +1358,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         continue
                     }
 
-                    // Source credentials can't read this table (e.g. Stripe restricted API key
-                    // missing the scope). Auto-enabling it would queue a sync that's guaranteed
-                    // to fail at the first call. Leave it unchecked and let the user fix
-                    // permissions before opting in.
+                    // Unreachable scope → leave off. User fixes permissions before opting in.
                     if (schema.permission_error) {
                         schema.should_sync = false
                         continue

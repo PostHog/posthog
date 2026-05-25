@@ -293,10 +293,7 @@ If automatic creation failed due to a permissions error and you're using a restr
         team_id: int,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
-        # Two-tier validation: callers without a specific schema (initial source setup,
-        # update) get the cheap auth-only probe. Schema-specific callers (e.g. the
-        # incremental-fields endpoint, which already knows the user picked this table)
-        # still get the per-endpoint probe so a 403 surfaces immediately.
+        # No schema_name → basic auth probe. With schema_name → probe that endpoint.
         endpoints = [schema_name] if schema_name is not None else None
         try:
             api_key = self._get_api_key(config, team_id)
@@ -343,9 +340,7 @@ If automatic creation failed due to a permissions error and you're using a restr
     def get_endpoint_permissions(
         self, config: StripeSourceConfig, team_id: int, endpoints: list[str]
     ) -> dict[str, str | None]:
-        # Per-endpoint scope check used by the schema-selection UI to mark tables the user can /
-        # cannot sync. A 401 propagates as an empty dict + error so the caller can decide how to
-        # surface a credential failure separately from per-endpoint gaps.
+        # 401 → mark every endpoint with the auth error so caller can surface it once.
         try:
             api_key = self._get_api_key(config, team_id)
         except Exception as e:

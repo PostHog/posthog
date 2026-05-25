@@ -666,10 +666,7 @@ describe('sourceWizardLogic', () => {
         })
     })
 
-    // Stripe (and any other source whose `get_endpoint_permissions` reports a per-endpoint denial)
-    // returns `permission_error` on individual schemas. The wizard must never let those rows get
-    // toggled into a sync — defense-in-depth lives in the reducers so programmatic toggle paths
-    // (bulk select-all, group toggle) can't bypass the UI guard.
+    // Reducer guards for permission_error rows (Stripe scope gating).
     describe('permission_error sync gating', () => {
         const stripeSource = {
             name: 'Stripe',
@@ -774,9 +771,6 @@ describe('sourceWizardLogic', () => {
         })
 
         it('toggleDirectQuerySchemaGroup skips permission_error rows in a group', () => {
-            // Direct-query mode groups by `<schema>.<table>` prefix. Even though permission_error
-            // is Stripe-only today, the reducer guard must hold for direct-query toggles too so a
-            // future source overriding `get_endpoint_permissions` doesn't regress.
             const { logic, unmount } = mountWithSchemas([
                 buildSchema({ table: 'public.customers' }),
                 buildSchema({ table: 'public.charges', permission_error: 'Missing scope' }),
