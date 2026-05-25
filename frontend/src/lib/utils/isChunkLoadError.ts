@@ -4,6 +4,7 @@
  *   - esbuild/Vite: message contains `'Failed to fetch dynamically imported module'`
  *   - Safari: native `TypeError: Load failed` (no JS stack — see load-failed.tsx known exception)
  *   - Firefox: native `TypeError: NetworkError when attempting to fetch resource.`
+ *   - Firefox: native `TypeError: error loading dynamically imported module: <url>` (deferred import of a now-deleted chunk after a deploy)
  */
 export function isChunkLoadError(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
@@ -16,6 +17,7 @@ export function isChunkLoadError(error: unknown): boolean {
         err.name === 'ChunkLoadError' ||
         message.includes('Failed to fetch dynamically imported module') ||
         (isTypeError && message.includes('Load failed')) ||
-        (isTypeError && message.includes('NetworkError when attempting to fetch resource'))
+        (isTypeError && message.includes('NetworkError when attempting to fetch resource')) ||
+        (isTypeError && message.includes('error loading dynamically imported module'))
     )
 }

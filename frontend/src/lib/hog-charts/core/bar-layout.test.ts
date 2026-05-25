@@ -1,5 +1,5 @@
 import { dimensions, makeSeries } from '../testing'
-import { type ComputeSeriesBarsOptions, computeSeriesBars, cornersFor } from './bar-layout'
+import { type ComputeSeriesBarsOptions, computeBarTrackRect, computeSeriesBars, cornersFor } from './bar-layout'
 import type { BarRect } from './canvas-renderer'
 import { computeStackData, createBarScales } from './scales'
 import type { ChartDimensions } from './types'
@@ -368,6 +368,40 @@ describe('hog-charts bar-layout', () => {
                 })
                 expect(bars).toEqual(expectedBars)
             }
+        })
+    })
+
+    describe('computeBarTrackRect', () => {
+        const verticalBar: BarRect = {
+            x: 100,
+            y: 120,
+            width: 50,
+            height: 200,
+            corners: { topLeft: true },
+            dataIndex: 2,
+        }
+        const horizontalBar: BarRect = { x: 60, y: 100, width: 140, height: 40, corners: {}, dataIndex: 0 }
+
+        it('stretches a vertical bar across the full value axis, keeping its band slot', () => {
+            expect(computeBarTrackRect(verticalBar, 368, 16, false)).toEqual({
+                x: 100,
+                y: 16,
+                width: 50,
+                height: 352,
+                corners: { topLeft: true },
+                dataIndex: 2,
+            })
+        })
+
+        it('stretches a horizontal bar across the full value axis, keeping its band slot', () => {
+            expect(computeBarTrackRect(horizontalBar, 60, 540, true)).toEqual({
+                x: 60,
+                y: 100,
+                width: 480,
+                height: 40,
+                corners: {},
+                dataIndex: 0,
+            })
         })
     })
 })

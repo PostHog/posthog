@@ -184,14 +184,10 @@ class Command(BaseCommand):
                 distinct_id = f"anon_{uuid.uuid4().hex[:8]}"
             client_name = rng.choice(CLIENT_NAMES)
             calls = rng.randint(min_calls, max_calls)
-            # Anchor each session so it is in the sweet spot for BOTH workflows on the
-            # next scheduled tick:
-            #   * Backfill discover window = last 1 hour  →  session must have at
-            #     least one event in the last hour, so session_end >= now - 1h.
-            #   * Summariser idle filter   = >= 30 min   →  session_end <= now - 30 min.
-            # Picking session_end uniformly in 31-59 minutes ago places every seeded
-            # session in that overlap, so a single seed run yields an immediately
-            # backfill-able and immediately summarise-able fixture.
+            # Anchor each session within the listing's default 24h window so it shows
+            # up on the next request. The listing aggregates recent events on the fly,
+            # so any recent session_end works; 31-59 minutes ago keeps the fixtures
+            # clearly "in the past" without flirting with the window edge.
             call_intervals = [rng.randint(15, 90) for _ in range(calls)]
             total_call_duration = timedelta(seconds=sum(call_intervals))
             session_end_offset_min = rng.randint(31, 59)
@@ -232,10 +228,8 @@ class Command(BaseCommand):
                 )
                 total_events += 1
 
-            # Don't write to MCPSession directly — the backfill Temporal activity is
-            # the source of truth and will derive the row from the events we just
-            # captured. Pre-populating here would produce duplicates keyed on the
-            # uuid7 $session_id instead of the uuid4 $mcp_session_id.
+            # Don't write to MCPSession (it's dormant) — the listing derives sessions
+            # on the fly from the events we just captured, grouped by $mcp_session_id.
             self.stdout.write(
                 f"  session {session_idx + 1}/{session_count}: {calls} tool calls (mcp_session_id={mcp_session_id})"
             )

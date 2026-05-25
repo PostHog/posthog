@@ -4,8 +4,21 @@ import { afterAll, beforeAll } from 'vitest'
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
 
-import { defineMcpProtocolTests, defineResilienceTests, type ProtocolTestHarness } from '../integration/mcp-protocol-suite'
+import {
+    defineAuthTests,
+    defineCatalogFilterTests,
+    defineExecModeTests,
+    defineHttpRouteTests,
+    defineJsonRpcEdgeCaseTests,
+    defineMcpProtocolTests,
+    defineResilienceTests,
+    defineResourceCatalogTests,
+    defineSessionLifecycleTests,
+    defineSessionTrackingTests,
+    type ProtocolTestHarness,
+} from '../integration/mcp-protocol-suite'
 import { handlers, contextMillHandler } from '../workers/fixtures/handlers'
+import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
 const mswServer = setupServer(...handlers, contextMillHandler)
 
@@ -30,6 +43,7 @@ function createInMemoryRedis(): RedisLike & { ping(): Promise<string> } {
             const cur = String(cursor)
             return [cur === '0' ? 'next' : '0', cur === '0' ? Array.from(store.keys()) : []] as [string, string[]]
         },
+        ...makeRedisRateLimitStubs(),
         ping: async () => 'PONG',
     }
 }
@@ -59,7 +73,17 @@ const harness = (): ProtocolTestHarness => ({
     fetch: fetchViaApp,
     token: 'phx_integration_test_token',
     stateless: true,
+    gracefulUnknown: true,
+    publicRoutes: true,
 })
 
 defineMcpProtocolTests('Hono', harness)
 defineResilienceTests('Hono', harness)
+defineHttpRouteTests('Hono', harness)
+defineAuthTests('Hono', harness)
+defineJsonRpcEdgeCaseTests('Hono', harness)
+defineSessionLifecycleTests('Hono', harness)
+defineResourceCatalogTests('Hono', harness)
+defineCatalogFilterTests('Hono', harness)
+defineExecModeTests('Hono', harness)
+defineSessionTrackingTests('Hono', harness)

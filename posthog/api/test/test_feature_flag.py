@@ -3350,6 +3350,119 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team, key="56397-delete-flag", deleted=True
         ).exists()
 
+    @parameterized.expand(
+        [
+            ("create",),
+            ("rename",),
+        ]
+    )
+    def test_reuses_key_held_by_legacy_soft_deleted_flag_with_soft_deleted_experiment(self, mode: str):
+        # Legacy tombstone holds the key with a soft-deleted experiment FK
+        # blocking hard-delete. Reusing the key should rename the tombstone,
+        # not raise the old "delete the experiment" error.
+        legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="ghost-key")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=legacy_flag)
+        exp.deleted = True
+        exp.save()
+        # Bypass API so soft-delete rename doesn't fire — mimics historical data.
+        FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
+
+        if mode == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "Ghost", "key": "ghost-key"},
+            )
+            assert response.status_code == 201, response.content
+            assert response.json()["key"] == "ghost-key"
+        else:
+            other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="ghost-key-v2")
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{other.id}/",
+                {"key": "ghost-key"},
+            )
+            assert response.status_code == 200, response.content
+            other.refresh_from_db()
+            assert other.key == "ghost-key"
+
+        # Tombstone is renamed; experiment FK still resolves.
+        legacy_flag = FeatureFlag.objects_including_soft_deleted.get(pk=legacy_flag.pk)
+        assert legacy_flag.deleted is True
+        assert legacy_flag.key == f"ghost-key:deleted:{legacy_flag.id}"
+        exp.refresh_from_db()
+        assert exp.feature_flag_id == legacy_flag.id
+
+    @parameterized.expand(
+        [
+            ("create",),
+            ("rename",),
+        ]
+    )
+    def test_reuse_key_with_inconsistent_soft_deleted_flag_referenced_by_active_experiment(self, mode: str):
+        # If a tombstone is still referenced by an active experiment (invariant
+        # violation), renaming it would silently break the experiment. Error out.
+        legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="inconsistent-key")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=legacy_flag)
+        FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
+
+        if mode == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "Inconsistent", "key": "inconsistent-key"},
+            )
+        else:
+            other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="inconsistent-key-v2")
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{other.id}/",
+                {"key": "inconsistent-key"},
+            )
+
+        assert response.status_code == 400
+        assert f"active experiment(s) with ID(s): {exp.id}" in response.json()["detail"]
+        assert "inconsistent-key" in response.json()["detail"]
+
+        # Tombstone was not mutated.
+        legacy_flag.refresh_from_db()
+        assert legacy_flag.key == "inconsistent-key"
+
+    @parameterized.expand(
+        [
+            ("create",),
+            ("rename",),
+        ]
+    )
+    def test_reuse_key_with_inconsistent_soft_deleted_flag_referenced_by_eaf(self, mode: str):
+        # EarlyAccessFeature.feature_flag uses on_delete=PROTECT (sibling of
+        # RESTRICT). A tombstone with an EAF must surface the same defensive
+        # error, not a 500.
+        legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="eaf-key")
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="EAF",
+            description="",
+            stage="alpha",
+            feature_flag=legacy_flag,
+        )
+        FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
+
+        if mode == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "EAF Reuse", "key": "eaf-key"},
+            )
+        else:
+            other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="eaf-key-v2")
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{other.id}/",
+                {"key": "eaf-key"},
+            )
+
+        assert response.status_code == 400
+        assert "early access feature(s)" in response.json()["detail"]
+        assert "eaf-key" in response.json()["detail"]
+
+        legacy_flag.refresh_from_db()
+        assert legacy_flag.key == "eaf-key"
+
     def test_soft_delete_flag_blocked_with_active_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
         exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
