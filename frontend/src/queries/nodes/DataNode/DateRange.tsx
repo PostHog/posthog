@@ -1,3 +1,5 @@
+import { LemonInput } from '@posthog/lemon-ui'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import {
@@ -44,7 +46,7 @@ export function DateRange<
     }
 
     if (isHogQLQuery(query) || isSessionAttributionExplorerQuery(query)) {
-        return (
+        const dateFilter = (
             <DateFilter
                 dateFrom={query.filters?.dateRange?.date_from ?? undefined}
                 dateTo={query.filters?.dateRange?.date_to ?? undefined}
@@ -63,6 +65,31 @@ export function DateRange<
                 }}
                 allowFixedRangeWithTime
             />
+        )
+
+        if (!isHogQLQuery(query)) {
+            return dateFilter
+        }
+
+        return (
+            <>
+                {dateFilter}
+                <LemonInput
+                    className="max-w-48"
+                    placeholder="Date range field"
+                    value={query.filters?.dateRangeField ?? ''}
+                    onChange={(dateRangeField) => {
+                        const newQuery: Q = {
+                            ...query,
+                            filters: {
+                                ...query.filters,
+                                dateRangeField: dateRangeField || undefined,
+                            },
+                        }
+                        setQuery?.(newQuery)
+                    }}
+                />
+            </>
         )
     }
 

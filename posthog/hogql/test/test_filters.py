@@ -72,7 +72,7 @@ class TestFilters(BaseTest):
 
         with self.assertRaisesMessage(
             QueryError,
-            "Cannot use 'filters' placeholder in a SELECT clause that does not select from",
+            "Cannot use 'filters.dateRange' placeholder in a SELECT clause that does not select from",
         ):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
 
@@ -141,6 +141,78 @@ class TestFilters(BaseTest):
             "and(less(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
+
+    def test_replace_filters_date_range_field_for_custom_query(self):
+        select = replace_filters(
+            self._parse_select("SELECT count() FROM custom_table WHERE {filters.dateRange}"),
+            HogQLFilters(
+                dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03"),
+                dateRangeField="snapshot_date",
+            ),
+            self.team,
+        )
+
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT count() FROM custom_table WHERE "
+            "and(less(snapshot_date, toDateTime('2020-02-03 00:00:00.000000')), "
+            f"greaterOrEquals(snapshot_date, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_date_range_field_supports_standard_filters_placeholder(self):
+        select = replace_filters(
+            self._parse_select("SELECT count() FROM custom_table WHERE {filters}"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02"), dateRangeField="snapshot_date"),
+            self.team,
+        )
+
+        self.assertEqual(
+            self._print_ast(select),
+            f"SELECT count() FROM custom_table WHERE greaterOrEquals(snapshot_date, toDateTime('2020-02-02 00:00:00.000000')) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_date_range_requires_field_for_custom_query(self):
+        select = self._parse_select("SELECT count() FROM custom_table WHERE {filters.dateRange}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "Cannot use 'filters.dateRange' placeholder in a SELECT clause that does not select from",
+        ):
+            replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
+
+    def test_replace_filters_date_range_field_rejects_property_filters_for_custom_query(self):
+        select = self._parse_select("SELECT count() FROM custom_table WHERE {filters}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "Cannot apply property filters to a custom HogQL query using dateRangeField.",
+        ):
+            replace_filters(
+                select,
+                HogQLFilters(
+                    dateRange=DateRange(date_from="2020-02-02"),
+                    dateRangeField="snapshot_date",
+                    properties=[EventPropertyFilter(key="random_uuid", operator="exact", value="123", type="event")],
+                ),
+                self.team,
+            )
+
+    def test_replace_filters_date_range_field_rejects_test_account_filters_for_custom_query(self):
+        select = self._parse_select("SELECT count() FROM custom_table WHERE {filters}")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "Cannot apply test account filters to a custom HogQL query using dateRangeField.",
+        ):
+            replace_filters(
+                select,
+                HogQLFilters(
+                    dateRange=DateRange(date_from="2020-02-02"),
+                    dateRangeField="snapshot_date",
+                    filterTestAccounts=True,
+                ),
+                self.team,
+            )
 
     def test_replace_filters_event_property(self):
         select = replace_filters(

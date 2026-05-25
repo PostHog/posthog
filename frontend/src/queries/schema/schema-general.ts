@@ -494,6 +494,8 @@ export interface HogQLFilters {
     properties?: AnyPropertyFilter[]
     dateRange?: DateRange
     filterTestAccounts?: boolean
+    /** Field used by {filters} and {filters.dateRange} when applying date filters to custom HogQL queries. */
+    dateRangeField?: string
 }
 
 export interface HogQLVariable {

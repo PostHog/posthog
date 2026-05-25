@@ -15113,6 +15113,12 @@ class HogQLFilters(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    dateRangeField: str | None = Field(
+        default=None,
+        description=(
+            "Field used by {filters} and {filters.dateRange} when applying date filters to custom HogQL queries."
+        ),
+    )
     filterTestAccounts: bool | None = None
     properties: (
         list[

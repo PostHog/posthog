@@ -20708,6 +20708,10 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "dateRangeField": {
+                    "description": "Field used by {filters} and {filters.dateRange} when applying date filters to custom HogQL queries.",
+                    "type": "string"
+                },
                 "filterTestAccounts": {
                     "type": "boolean"
                 },

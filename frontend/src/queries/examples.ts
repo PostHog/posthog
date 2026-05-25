@@ -296,6 +296,7 @@ const HogQLRaw: HogQLQuery = {
         dateRange: {
             date_from: '-24h',
         },
+        dateRangeField: 'timestamp',
     },
 }
 

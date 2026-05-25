@@ -25,6 +25,15 @@ class TestHogQLDashboardFilters(BaseTest):
 
         assert query_runner.query.filters == HogQLFilters(dateRange=DateRange(date_from="-14d", date_to=None))
 
+    def test_date_from_override_preserves_date_range_field(self):
+        query_runner = self._create_hogql_runner(filters=HogQLFilters(dateRangeField="snapshot_date"))
+        query_runner.apply_dashboard_filters(DashboardFilter(date_from="-14d"))
+
+        assert query_runner.query.filters == HogQLFilters(
+            dateRange=DateRange(date_from="-14d", date_to=None),
+            dateRangeField="snapshot_date",
+        )
+
     def test_date_from_and_date_to_override_updates_whole_date_range(self):
         query_runner = self._create_hogql_runner(
             filters=HogQLFilters(dateRange=DateRange(date_from="-7d", date_to=None))

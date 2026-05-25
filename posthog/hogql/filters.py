@@ -62,6 +62,57 @@ class ReplaceFilters(CloningVisitor):
         except Exception:
             return None
 
+    def _date_range_field(self) -> Optional[ast.Field]:
+        if self.filters is None or not self.filters.dateRangeField:
+            return None
+
+        chain = [part.strip() for part in self.filters.dateRangeField.split(".")]
+        if not chain or any(not part for part in chain):
+            raise QueryError("Invalid date range field configured for the 'filters' placeholder.")
+
+        return ast.Field(chain=chain)
+
+    def _date_range_exprs(self, timestamp_field: ast.Field) -> list[ast.Expr]:
+        if self.filters is None:
+            return []
+
+        exprs: list[ast.Expr] = []
+
+        dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
+        if dateTo is not None:
+            try:
+                parsed_date = isoparse(dateTo)
+                if parsed_date.tzinfo is None:
+                    parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
+            except ValueError:
+                parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=timestamp_field,
+                    right=ast.Constant(value=parsed_date),
+                )
+            )
+
+        # limit to the last 30d by default
+        dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
+        if dateFrom is not None and dateFrom != "all":
+            try:
+                parsed_date = isoparse(dateFrom)
+                if parsed_date.tzinfo is None:
+                    parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
+            except ValueError:
+                parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=timestamp_field,
+                    right=ast.Constant(value=parsed_date),
+                )
+            )
+
+        return exprs
+
     def visit_select_query(self, node):
         self.selects.append(node)
         node = super().visit_select_query(node)
@@ -83,7 +134,9 @@ class ReplaceFilters(CloningVisitor):
     def visit_placeholder(self, node):
         no_filters = self.filters is None or not self.filters.model_fields_set
 
-        if node.chain == ["filters"]:
+        if node.chain == ["filters"] or node.chain == ["filters", "dateRange"]:
+            date_range_only = node.chain == ["filters", "dateRange"]
+            placeholder = "filters.dateRange" if date_range_only else "filters"
             last_select = self.selects[-1]
             last_join = last_select.select_from
             found_events = False
@@ -108,9 +161,13 @@ class ReplaceFilters(CloningVisitor):
                         break
                 last_join = last_join.next_join
 
-            if not any([found_events, found_sessions, found_logs, found_traces, found_groups]):
+            date_range_field = self._date_range_field()
+            if (
+                not any([found_events, found_sessions, found_logs, found_traces, found_groups])
+                and date_range_field is None
+            ):
                 raise QueryError(
-                    f"Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces or groups table."
+                    f"Cannot use '{placeholder}' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces or groups table."
                 )
 
             if no_filters:
@@ -119,7 +176,13 @@ class ReplaceFilters(CloningVisitor):
             assert self.filters is not None
 
             exprs: list[ast.Expr] = []
-            if self.filters.properties is not None:
+            if self.filters.properties is not None and not date_range_only:
+                if date_range_field is not None and not any(
+                    [found_events, found_sessions, found_logs, found_traces, found_groups]
+                ):
+                    raise QueryError(
+                        "Cannot apply property filters to a custom HogQL query using dateRangeField. Use {filters.dateRange} to apply only dashboard date filters."
+                    )
                 if found_sessions:
                     session_properties = [p for p in self.filters.properties if isinstance(p, SessionPropertyFilter)]
                     non_session_properties = [
@@ -136,46 +199,22 @@ class ReplaceFilters(CloningVisitor):
                 else:
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
 
-            timestamp_field = ast.Field(chain=["$start_timestamp"])
-            if found_events or found_logs or found_traces:
-                timestamp_field = ast.Field(chain=["timestamp"])
-            if found_groups:
-                timestamp_field = ast.Field(chain=["created_at"])
+            timestamp_field = date_range_field or ast.Field(chain=["$start_timestamp"])
+            if date_range_field is None:
+                if found_events or found_logs or found_traces:
+                    timestamp_field = ast.Field(chain=["timestamp"])
+                if found_groups:
+                    timestamp_field = ast.Field(chain=["created_at"])
 
-            dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
-            if dateTo is not None:
-                try:
-                    parsed_date = isoparse(dateTo)
-                    if parsed_date.tzinfo is None:
-                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
-                except ValueError:
-                    parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Lt,
-                        left=timestamp_field,
-                        right=ast.Constant(value=parsed_date),
+            exprs.extend(self._date_range_exprs(timestamp_field))
+
+            if self.filters.filterTestAccounts and not date_range_only:
+                if date_range_field is not None and not any(
+                    [found_events, found_sessions, found_logs, found_traces, found_groups]
+                ):
+                    raise QueryError(
+                        "Cannot apply test account filters to a custom HogQL query using dateRangeField. Use {filters.dateRange} to apply only dashboard date filters."
                     )
-                )
-
-            # limit to the last 30d by default
-            dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
-            if dateFrom is not None and dateFrom != "all":
-                try:
-                    parsed_date = isoparse(dateFrom)
-                    if parsed_date.tzinfo is None:
-                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
-                except ValueError:
-                    parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.GtEq,
-                        left=timestamp_field,
-                        right=ast.Constant(value=parsed_date),
-                    )
-                )
-
-            if self.filters.filterTestAccounts:
                 for prop in self.team.test_account_filters or []:
                     exprs.append(property_to_expr(prop, self.team))
 
