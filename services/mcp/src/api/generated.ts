@@ -31733,16 +31733,13 @@ export namespace Schemas {
       date_from: string;
       /** Exclusive UTC end of the spend window resolved from the request. */
       date_to: string;
-      /**
-         * The `ai_product` filter applied to tool / model / trace breakdowns. Null when unfiltered.
-         * @nullable
-         */
-      product: string | null;
+      /** The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`. */
+      product: string;
       /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
       total_cost_usd: number;
       /** Total $ai_generation + $ai_embedding events captured across every product. */
       event_count: number;
-      /** Total cost in USD for the product filter (or all products when unfiltered). Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
+      /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
       scoped_cost_usd: number;
       /** Total $ai_generation + $ai_embedding events for the scoped slice. */
       scoped_event_count: number;

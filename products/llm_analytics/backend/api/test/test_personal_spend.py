@@ -135,8 +135,9 @@ class TestPersonalSpendValidation(APIBaseTest):
     def test_product_param_required(self) -> None:
         response = self.client.get(ENDPOINT)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        # DRF emits a field-level "required" error keyed by the field name.
-        assert "product" in response.json()
+        body = response.json()
+        assert body["attr"] == "product"
+        assert body["code"] == "required"
 
     @parameterized.expand(
         [

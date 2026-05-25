@@ -4,10 +4,10 @@ Personal LLM spend analysis endpoint.
 Surfaces the requesting user's own LLM spend across PostHog products (last N
 days) by running a fixed set of HogQL queries against PostHog's internal cloud
 analytics team. Scoped to a single `ai_product` via the required `product`
-query param; only `posthog_code` is currently supported (`SUPPORTED_PRODUCTS`).
+query param; see `SUPPORTED_PRODUCTS` for the currently accepted values.
 
 Endpoint:
-- GET /api/llm_analytics/@me/spend/?product=posthog_code&date_from=-30d&date_to=&limit=50&refresh=false
+- GET /api/llm_analytics/@me/spend/?product=<ai_product>&date_from=-30d&date_to=&limit=50&refresh=false
 """
 
 from __future__ import annotations
@@ -63,10 +63,9 @@ def _internal_team_id() -> int:
     return settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
 
 
-def _cache_key(email: str, date_from: str, date_to: str | None, product: str | None, limit: int) -> str:
-    product_slot = product or "_all"
+def _cache_key(email: str, date_from: str, date_to: str | None, product: str, limit: int) -> str:
     to_slot = date_to or "_now"
-    return f"personal_spend:{email}:{date_from}:{to_slot}:{product_slot}:{limit}"
+    return f"personal_spend:{email}:{date_from}:{to_slot}:{product}:{limit}"
 
 
 def _parse_date_param(value: str, field: str, now: datetime.datetime) -> datetime.datetime:
@@ -225,8 +224,7 @@ class _SummarySerializer(serializers.Serializer):
     )
     date_to = serializers.DateTimeField(help_text="Exclusive UTC end of the spend window resolved from the request.")
     product = serializers.CharField(
-        allow_null=True,
-        help_text="The `ai_product` filter applied to tool / model / trace breakdowns. Null when unfiltered.",
+        help_text="The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`.",
     )
     total_cost_usd = serializers.FloatField(
         help_text="Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter."
@@ -236,8 +234,8 @@ class _SummarySerializer(serializers.Serializer):
     )
     scoped_cost_usd = serializers.FloatField(
         help_text=(
-            "Total cost in USD for the product filter (or all products when unfiltered). Matches the cost summed "
-            "across `by_tool` / `by_model` for the scoped slice."
+            "Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` "
+            "for the scoped slice."
         ),
     )
     scoped_event_count = serializers.IntegerField(
@@ -344,13 +342,8 @@ def _ai_product_eq(value: str) -> ast.Expr:
     )
 
 
-def _true() -> ast.Expr:
-    """Identity filter used when no product scoping is requested."""
-    return ast.Constant(value=True)
-
-
-def _product_filter(product: str | None) -> ast.Expr:
-    return _ai_product_eq(product) if product else _true()
+def _product_filter(product: str) -> ast.Expr:
+    return _ai_product_eq(product)
 
 
 def _truncate(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
@@ -359,7 +352,7 @@ def _truncate(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
 
 
 def _fetch_summary(
-    team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, product: str | None
+    team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, product: str
 ) -> dict[str, Any]:
     query = parse_select(
         """
@@ -438,7 +431,7 @@ def _fetch_by_tool(
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
-    product: str | None,
+    product: str,
     limit: int,
 ) -> dict[str, Any]:
     # `$ai_tools_called` stores a comma-separated list of all tools called within a
@@ -490,7 +483,7 @@ def _fetch_by_model(
     email: str,
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
-    product: str | None,
+    product: str,
     limit: int,
 ) -> dict[str, Any]:
     query = parse_select(
@@ -558,11 +551,11 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     when registered -- so this path should be comparable to what the
     satellite would have served. The endpoint is cached for 5 minutes per
     user (see `CACHE_TIMEOUT_SECONDS`). The `product` query param is required
-    and scopes tool / model / trace breakdowns to a single `ai_product`; only
-    `posthog_code` is currently supported. `by_product` always returns the full
-    cross-product breakdown. The endpoint is only registered on US Cloud +
-    dev/test envs; hobby / self-hosted deploys never see this URL; EU deploys
-    receive a 302 to the US URL.
+    and scopes tool / model / trace breakdowns to a single `ai_product`; see
+    `SUPPORTED_PRODUCTS` for the currently accepted values. `by_product` always
+    returns the full cross-product breakdown. The endpoint is only registered
+    on US Cloud + dev/test envs; hobby / self-hosted deploys never see this
+    URL; EU deploys receive a 302 to the US URL.
     """
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
@@ -601,8 +594,9 @@ class PersonalSpendViewSet(viewsets.ViewSet):
             "`date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound "
             "the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` "
             "query param is required and scopes the tool / model / trace breakdowns to a single "
-            "product; only `posthog_code` is currently supported. `by_product` is always returned "
-            "for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache."
+            f"product; supported values: {', '.join(sorted(SUPPORTED_PRODUCTS))}. `by_product` is "
+            "always returned for cross-product visibility. Use `refresh=true` to bypass the "
+            "5-minute response cache."
         ),
         tags=["LLM Analytics"],
     )
