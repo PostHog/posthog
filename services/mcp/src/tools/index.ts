@@ -98,8 +98,12 @@ export const getToolsFromContext = async (
         }
     }
 
-    const tools: Tool<ZodObjectAny>[] = toolBases.map((toolBase) => {
-        const definition = getToolDefinition(toolBase.name)
+    // Filter tools by mcpVersion — when set, the tool is exclusive to that version
+    const effectiveVersion = options?.version ?? 1
+    const filteredBases = toolBases.filter((tb) => tb.mcpVersion === undefined || tb.mcpVersion === effectiveVersion)
+
+    const tools: Tool<ZodObjectAny>[] = filteredBases.map((toolBase) => {
+        const definition = getToolDefinition(toolBase.name, options?.version)
         return {
             ...toolBase,
             title: definition.title,

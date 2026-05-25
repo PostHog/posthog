@@ -77,7 +77,7 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.cache.get('projectId')) ?? undefined
         }
 
-        const toolFlagKeys = getRequiredFeatureFlags()
+        const toolFlagKeys = getRequiredFeatureFlags(2)
         const allFlagKeys = [...SYSTEM_FLAGS, ...toolFlagKeys]
 
         const flagAnalyticsContext = await reqCtx.getAnalyticsContextSafe(context)
@@ -123,6 +123,7 @@ export class RequestStateResolver {
         const allTools = this.catalog.getFilteredTools({
             features,
             tools,
+            version,
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,

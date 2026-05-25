@@ -590,7 +590,7 @@ export class MCP extends McpAgent<Env> {
         // rollouts evaluate against the same entities — see `buildMCPAnalyticsGroups`.
         const flagAnalyticsContext = await this.getAnalyticsContextSafe(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
-        const toolFlagsPromise = this.resolveToolFeatureFlags(flagGroups)
+        const toolFlagsPromise = this.resolveToolFeatureFlags(2, flagGroups)
 
         const [toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
             toolFlagsPromise,
@@ -643,6 +643,7 @@ export class MCP extends McpAgent<Env> {
         const allTools = await getToolsFromContext(context, {
             features,
             tools,
+            version,
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,
@@ -657,12 +658,12 @@ export class MCP extends McpAgent<Env> {
 
         const toolInfos = allTools.map((t) => ({
             name: t.name,
-            category: getToolDefinition(t.name).category,
+            category: getToolDefinition(t.name, version).category,
         }))
         const queryToolInfos: QueryToolInfo[] = allTools
             .filter((t) => t.name.startsWith('query-'))
             .map((t) => {
-                const def = getToolDefinition(t.name)
+                const def = getToolDefinition(t.name, version)
                 return {
                     name: t.name,
                     title: def.title,
@@ -885,10 +886,13 @@ export class MCP extends McpAgent<Env> {
         }
     }
 
-    private async resolveToolFeatureFlags(groups?: FlagGroups): Promise<Record<string, boolean> | undefined> {
+    private async resolveToolFeatureFlags(
+        version?: number,
+        groups?: FlagGroups
+    ): Promise<Record<string, boolean> | undefined> {
         try {
             const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
-            const flagKeys = getRequiredFeatureFlags()
+            const flagKeys = getRequiredFeatureFlags(version)
             if (flagKeys.length === 0) {
                 return undefined
             }
