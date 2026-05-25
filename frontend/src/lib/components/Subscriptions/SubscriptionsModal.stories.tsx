@@ -1,11 +1,10 @@
 import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -36,23 +35,6 @@ const meta: Meta<StoryArgs> = {
         const [modalOpen, setModalOpen] = useState(false)
 
         useAvailableFeatures(featureAvailable ? [AvailableFeature.SUBSCRIPTIONS] : [])
-
-        useEffect(() => {
-            if (!aiSummaryAtLimit) {
-                return
-            }
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS], {
-                [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
-            })
-            // Reset on unmount so the flag doesn't leak into other stories
-            // rendered later in the same Storybook session.
-            return () => {
-                featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: false,
-                })
-            }
-        }, [aiSummaryAtLimit])
 
         useStorybookMocks({
             get: {
@@ -162,4 +144,5 @@ export const SubscriptionsUnavailable: Story = {
 
 export const SubscriptionAtAISummaryLimit: Story = {
     args: { subscriptionId: 'new', aiSummaryAtLimit: true },
+    parameters: { featureFlags: [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS] },
 }

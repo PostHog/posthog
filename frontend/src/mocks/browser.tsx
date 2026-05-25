@@ -1,6 +1,8 @@
 import { DecoratorFunction } from '@storybook/types'
 import { rest, setupWorker } from 'msw'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { handlers } from '~/mocks/handlers'
 import { MockSignature, Mocks, mocksToHandlers } from '~/mocks/utils'
 
@@ -33,6 +35,15 @@ export const mswDecorator = (mocks: Mocks): DecoratorFunction<any> => {
     }
 }
 
-export const setFeatureFlags = (featureFlags: string[]): void => {
+export const setFeatureFlags = (featureFlags: string[] | Record<string, string | boolean>): void => {
     ;(window as any).POSTHOG_APP_CONTEXT.persisted_feature_flags = featureFlags
+
+    // Also dispatch through kea so already-mounted consumers update in the same
+    // tick the story renders — `parameters.featureFlags` would otherwise only
+    // take effect for fresh mounts and miss any logic mounted at app boot.
+    const variants: Record<string, string | boolean> = Array.isArray(featureFlags)
+        ? Object.fromEntries(featureFlags.map((f) => [f, true]))
+        : featureFlags
+    featureFlagLogic.mount()
+    featureFlagLogic.actions.setFeatureFlags(Object.keys(variants), variants)
 }
