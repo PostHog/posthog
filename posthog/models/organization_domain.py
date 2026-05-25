@@ -1,6 +1,7 @@
 import secrets
 from typing import Optional
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
@@ -169,6 +170,27 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
     scim_enabled = models.BooleanField(default=False)
     scim_bearer_token = models.CharField(
         max_length=255, blank=True, null=True, help_text="Hashed bearer token for SCIM authentication"
+    )
+
+    # ---- ID-JAG attributes ----
+    id_jag_issuer_url = models.CharField(
+        max_length=512,
+        blank=True,
+        null=True,
+        help_text="Trusted IdP issuer URL for ID-JAG. Required to enable ID-JAG on this domain.",
+    )
+    # Defaults to `{id_jag_issuer_url}/.well-known/openid-configuration`.
+    id_jag_jwks_url = models.CharField(
+        max_length=512,
+        blank=True,
+        null=True,
+        help_text="Override JWKS URL. Defaults to OIDC discovery on the issuer URL.",
+    )
+    id_jag_allowed_clients = ArrayField(
+        models.CharField(max_length=256),
+        default=list,
+        blank=True,
+        help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
     )
 
     class Meta:

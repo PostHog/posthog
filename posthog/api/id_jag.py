@@ -122,40 +122,22 @@ def _get_site_url() -> str:
     return site_url
 
 
-def _resolve_trusted_provider_for_sub(sub: str) -> str | None:
-    """
-    Pre-signature trust gate: an ID-JAG `sub` (an email) is provisionally
-    accepted iff its domain matches a verified `OrganizationDomain` on some
-    PostHog organization. The verified domain doubles as the provider name we
-    stamp into the access token's `sub` (`{providerName}:{userSub}` — stable,
-    1:1 with the org, and meaningful).
+def _get_jwks_client(issuer: str, jwks_url: str | None = None) -> jwt.PyJWKClient:
+    """Resolve a `PyJWKClient` for the given IdP issuer.
 
-    The post-signature gate (`_user_is_member_of_verified_org`) tightens this:
-    we additionally require the user to be an active member of an org that
-    actually owns this verified domain — preventing an attacker who controls
-    an unrelated org from verifying a domain and minting tokens for users
-    that legitimately belong to a different org.
-
-    Returns the verified domain string on success, `None` otherwise.
-    """
-    if "@" not in sub:
-        return None
-    org_domain = OrganizationDomain.objects.get_verified_for_email_address(sub)
-    return org_domain.domain if org_domain else None
-
-
-def _get_jwks_client(issuer: str) -> jwt.PyJWKClient:
-    """Resolve a PyJWKClient for the given IdP issuer. Cached per-issuer.
-
-    Fetches the IdP's `/.well-known/openid-configuration` once per
-    `ID_JAG_JWKS_CACHE_TTL_SECONDS` to discover its `jwks_uri`. We don't cache
-    the `PyJWKClient` object itself because it already does in-process key
-    caching (`lifespan` seconds) — caching only the URI keeps key rotation
-    responsive while avoiding redundant discovery hits.
+    If `jwks_url` is provided (set on the `OrganizationDomain.id_jag_jwks_url`
+    field), skip OIDC discovery and point PyJWKClient at it directly. Otherwise
+    do OIDC discovery against `<issuer>/.well-known/openid-configuration` and
+    cache the resulting `jwks_uri` for `ID_JAG_JWKS_CACHE_TTL_SECONDS`. We
+    don't cache the `PyJWKClient` object itself because it already does
+    in-process key caching (`lifespan` seconds) — caching only the URI keeps
+    key rotation responsive while avoiding redundant discovery hits.
 
     Network and parse failures during discovery are normalized to
     `InvalidGrantError` so callers only have to handle one error type.
     """
+    if jwks_url:
+        return jwt.PyJWKClient(jwks_url)
 
     cache_key = f"id_jag:jwks_uri:{issuer}"
     jwks_uri = cache.get(cache_key)
@@ -244,12 +226,23 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str]:
         raise InvalidGrantError("ID-JAG is missing the iss claim")
 
     id_jag_sub = unverified_claims.get("sub") or ""
-    provider_name = _resolve_trusted_provider_for_sub(id_jag_sub)
-    if provider_name is None:
+    org_domain = OrganizationDomain.objects.get_verified_for_email_address(id_jag_sub) if "@" in id_jag_sub else None
+    if org_domain is None:
         raise InvalidGrantError("ID-JAG sub email domain is not a verified domain for any PostHog organization")
 
+    expected_issuer = (org_domain.id_jag_issuer_url or "").rstrip("/")
+    if not expected_issuer:
+        raise InvalidGrantError("ID-JAG is not configured for this domain (id_jag_issuer_url is unset)")
+
+    if issuer != expected_issuer:
+        raise InvalidGrantError(
+            f"ID-JAG iss does not match the IdP configured for this domain (expected {expected_issuer})"
+        )
+
+    provider_name = org_domain.domain
+
     try:
-        jwks_client = _get_jwks_client(issuer)
+        jwks_client = _get_jwks_client(expected_issuer, jwks_url=org_domain.id_jag_jwks_url or None)
         signing_key = jwks_client.get_signing_key_from_jwt(assertion)
     except jwt.PyJWTError as e:
         raise InvalidGrantError(f"ID-JAG signing key resolution failed: {e}")
@@ -264,7 +257,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str]:
                 signing_key.key,
                 algorithms=["RS256", "RS384", "RS512"],
                 audience=expected_audience,
-                issuer=issuer,
+                issuer=expected_issuer,
                 leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                 options={
                     "require": ["iss", "sub", "aud", "exp", "iat", "client_id"],
@@ -299,10 +292,14 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str]:
     if resource.rstrip("/") != expected_audience:
         raise InvalidTargetError(f"ID-JAG resource {resource!r} does not match this resource server")
 
-    if not claims.get("client_id"):
+    client_id = claims.get("client_id")
+    if not client_id:
         raise InvalidGrantError("ID-JAG is missing the client_id claim")
 
-    # TODO: needed? we should be verifying this in the org domain object anyways for the XAA configuration fields
+    # validate allowed clients if set in config
+    if org_domain.id_jag_allowed_clients and client_id not in org_domain.id_jag_allowed_clients:
+        raise InvalidClientError(f"client_id {client_id!r} is not allowed for this domain")
+
     verified_sub = claims.get("sub") or ""
     if not OrganizationDomain.objects.email_belongs_to_member_of_verified_org(verified_sub):
         raise InvalidGrantError(

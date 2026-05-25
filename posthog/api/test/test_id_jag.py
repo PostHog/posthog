@@ -1,5 +1,5 @@
 """
-Tests for the ID-JAG (XAA) token endpoint + the resource-server side
+Tests for the ID-JAG token endpoint + the resource-server side
 authentication backend.
 
 The strategy is:
@@ -124,6 +124,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             organization=cls.organization,
             domain=_VERIFIED_DOMAIN,
             verified_at=timezone.now(),
+            id_jag_issuer_url=_IDP_ISSUER,
         )
 
     def setUp(self) -> None:
@@ -381,6 +382,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
             organization=attacker_org,
             domain="bigco.example",
             verified_at=timezone.now(),
+            id_jag_issuer_url=_IDP_ISSUER,
         )
 
         # Victim user whose email is on the attacker's verified domain but who
@@ -425,7 +427,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         future = int(time.time()) + 120
         # PyJWT validates iat in the future beyond `leeway` as
         # ImmatureSignatureError (https://pyjwt.readthedocs.io/) — we just need
-        # to confirm the error surfaces as invalid_grant per XAA spec.
+        # to confirm the error surfaces as invalid_grant per ID-JAG spec.
         assertion = _make_id_jag(iat=future, nbf=future - 200)
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
@@ -475,9 +477,10 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_grant")
 
-    def test_arbitrary_client_id_is_accepted(self) -> None:
-        # `client_id` allowlists are not enforced anymore — the IdP signed the
-        # ID-JAG and that's the binding. We still require the claim to be present.
+    def test_arbitrary_client_id_is_accepted_when_no_allowlist(self) -> None:
+        # When `OrganizationDomain.id_jag_allowed_clients` is empty (the default),
+        # any `client_id` value passes — the IdP signature is the binding.
+        # We still require the claim to be present.
         assertion = _make_id_jag(client_id="client_anything-at-posthog")
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
@@ -496,6 +499,87 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(resp.json()["error"], "invalid_target")
+
+    def test_rejects_when_domain_has_no_id_jag_issuer_configured(self) -> None:
+        # ID-JAG is opt-in per domain. With `id_jag_issuer_url` cleared, an
+        # otherwise valid ID-JAG must be rejected — the org hasn't bound an IdP yet.
+        domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+        domain.id_jag_issuer_url = None
+        domain.save(update_fields=["id_jag_issuer_url"])
+
+        assertion = _make_id_jag()
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+        self.assertIn("id_jag_issuer_url", resp.json()["error_description"].lower())
+
+    def test_rejects_when_id_jag_iss_does_not_match_domain_issuer(self) -> None:
+        # The IdP binding is exact-match on the issuer URL — even a sibling IdP
+        # that happens to know the same user is rejected unless explicitly bound.
+        domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+        domain.id_jag_issuer_url = "https://idp.example.com"
+        domain.save(update_fields=["id_jag_issuer_url"])
+
+        assertion = _make_id_jag(issuer="https://other-idp.example.com")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(resp.json()["error"], "invalid_grant")
+        self.assertIn("iss does not match", resp.json()["error_description"].lower())
+
+    def test_issuer_match_is_slash_normalized(self) -> None:
+        # Store the issuer without trailing slash; ID-JAG carries one. The
+        # comparison must succeed because we rstrip on both sides — otherwise
+        # legitimate IdPs that always include a trailing slash on `iss` would
+        # be impossible to bind.
+        domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+        domain.id_jag_issuer_url = _IDP_ISSUER
+        domain.save(update_fields=["id_jag_issuer_url"])
+
+        assertion = _make_id_jag(issuer=_IDP_ISSUER + "/")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_custom_jwks_url_is_passed_to_jwks_client(self) -> None:
+        # When `id_jag_jwks_url` is set on the domain, we skip OIDC discovery and
+        # point PyJWKClient at the explicit URL. We assert by inspecting the
+        # arguments passed to `_get_jwks_client` rather than reasserting the
+        # signature (the mock already returns our test public key).
+        domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+        domain.id_jag_jwks_url = "https://idp.example.com/keys.json"
+        domain.save(update_fields=["id_jag_jwks_url"])
+
+        # Re-patch to capture call args; the base setUp patch doesn't expose
+        # them in a way that survives across multiple tests.
+        signing_key = MagicMock()
+        signing_key.key = _public_key_for(_IDP_PRIVATE_KEY_PEM)
+        mock_jwks_client = MagicMock()
+        mock_jwks_client.get_signing_key_from_jwt.return_value = signing_key
+        with patch("posthog.api.id_jag._get_jwks_client", return_value=mock_jwks_client) as mock_get:
+            assertion = _make_id_jag()
+            resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        mock_get.assert_called_once()
+        _, kwargs = mock_get.call_args
+        self.assertEqual(kwargs.get("jwks_url"), "https://idp.example.com/keys.json")
+
+    def test_allowed_clients_permits_listed_client_id(self) -> None:
+        domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+        domain.id_jag_allowed_clients = ["client_first", "client_second"]
+        domain.save(update_fields=["id_jag_allowed_clients"])
+
+        assertion = _make_id_jag(client_id="client_second")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_allowed_clients_rejects_unlisted_client_id(self) -> None:
+        domain = OrganizationDomain.objects.get(domain=_VERIFIED_DOMAIN)
+        domain.id_jag_allowed_clients = ["client_first", "client_second"]
+        domain.save(update_fields=["id_jag_allowed_clients"])
+
+        assertion = _make_id_jag(client_id="client_third")
+        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(resp.json()["error"], "invalid_client")
 
     def test_rejects_missing_resource_claim(self) -> None:
         assertion = jwt.encode(
@@ -518,7 +602,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.json()["error"], "invalid_grant")
 
     def test_get_sub_format(self) -> None:
-        self.assertEqual(_get_sub("xaa", "alice@example.com"), "xaa:alice@example.com")
+        self.assertEqual(_get_sub("example.com", "alice@example.com"), "example.com:alice@example.com")
 
     def test_get_scopes_intersection(self) -> None:
         self.assertEqual(_get_scopes(["a", "b", "c"], ["b", "c", "d"]), ["b", "c"])
@@ -701,3 +785,23 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         req = Mock()
         req.headers = {}
         self.assertIsNone(auth.authenticate(req))
+
+    def test_routing_mixin_endpoint_authenticates_before_jwt_authentication(self) -> None:
+        """Regression test: viewsets that inherit the routing mixin (e.g.
+        `/api/projects/@current/`) get a default authenticator chain that
+        includes `JwtAuthentication` ahead of other token-based backends.
+
+        `JwtAuthentication.decode_jwt` hard-codes HS256+SECRET_KEY and raises
+        `AuthenticationFailed` (→ 401) on any non-`jwt.DecodeError` exception,
+        including the `InvalidAlgorithmError` that fires for an RS256 ID-JAG
+        access token. If `IDJagAccessTokenAuthentication` doesn't run first,
+        valid ID-JAG tokens get a 401 on every routing-mixin-based endpoint
+        and never reach the resource server's scope check.
+
+        Hitting `/api/projects/@current/` with a `project:read` ID-JAG token
+        must return 200 — not 401.
+        """
+        token = self._mint_access_token(scope="project:read")
+        resp = self.client.get(f"/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["id"], self.team.id)
