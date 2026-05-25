@@ -8,7 +8,7 @@ import { RobotHog } from 'lib/components/hedgehogs'
 
 import { InterviewExportPayload } from '../types'
 
-type CallState = 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'error'
+type CallState = 'already-replied' | 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'error'
 
 type ConversationPhase = 'agent-talking' | 'listening' | 'thinking'
 
@@ -109,6 +109,18 @@ function EndedPanel(): JSX.Element {
     )
 }
 
+function AlreadyRepliedPanel({ interview }: { interview: InterviewExportPayload }): JSX.Element {
+    return (
+        <>
+            <h2 className="text-2xl font-bold mb-2">Thanks for your response!</h2>
+            <p className="text-muted">
+                We've already received your interview about <strong>{interview.topic}</strong>. We really appreciate you
+                taking the time — your feedback helps us build a better product.
+            </p>
+        </>
+    )
+}
+
 function ErrorPanel({ errorMessage }: { errorMessage: string | null }): JSX.Element {
     return (
         <div className="text-danger">
@@ -150,6 +162,7 @@ function CallActionButton({
                     Try again
                 </LemonButton>
             )
+        case 'already-replied':
         case 'connecting':
         case 'ended':
             return null
@@ -174,6 +187,7 @@ const CallBodyPanel = memo(function CallBodyPanel({
     const isPreCall = state === 'idle' || state === 'loading'
     return (
         <div className="flex-1 min-w-0">
+            {state === 'already-replied' && <AlreadyRepliedPanel interview={interview} />}
             {isPreCall && <PreCallIntro interview={interview} />}
             {state === 'connecting' && <ConnectingPanel />}
             {state === 'in-call' && <LivePanel />}
@@ -211,7 +225,7 @@ export default function ExporterInterviewScene({
     interview: InterviewExportPayload
     accessToken?: string
 }): JSX.Element {
-    const [state, setState] = useState<CallState>('idle')
+    const [state, setState] = useState<CallState>(interview.already_replied ? 'already-replied' : 'idle')
     // Default to 'thinking' — between connection-up and the agent's first speech-start
     // the assistant is loading its opener, which can take a few seconds. After
     // speech-end transitions us into 'listening', subsequent silent moments correctly
