@@ -340,9 +340,7 @@ class RelatedObjectActivityLogger:
     """
 
     scope: str
-    resolve_name: Callable[[TaggedItem, Optional[str]], Optional[str]] = (
-        lambda tagged_item, default_name: default_name
-    )
+    resolve_name: Callable[[TaggedItem, Optional[str]], Optional[str]] = lambda tagged_item, default_name: default_name
 
 
 RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
