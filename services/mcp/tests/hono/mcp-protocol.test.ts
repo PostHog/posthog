@@ -7,12 +7,14 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 import {
     defineAuthTests,
     defineCatalogFilterTests,
+    defineExecModeTests,
     defineHttpRouteTests,
     defineJsonRpcEdgeCaseTests,
     defineMcpProtocolTests,
     defineResilienceTests,
     defineResourceCatalogTests,
     defineSessionLifecycleTests,
+    defineSessionTrackingTests,
     type ProtocolTestHarness,
 } from '../integration/mcp-protocol-suite'
 import { handlers, contextMillHandler } from '../workers/fixtures/handlers'
@@ -83,3 +85,5 @@ defineJsonRpcEdgeCaseTests('Hono', harness)
 defineSessionLifecycleTests('Hono', harness)
 defineResourceCatalogTests('Hono', harness)
 defineCatalogFilterTests('Hono', harness)
+defineExecModeTests('Hono', harness)
+defineSessionTrackingTests('Hono', harness)

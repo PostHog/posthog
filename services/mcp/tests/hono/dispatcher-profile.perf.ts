@@ -72,10 +72,15 @@ function createMockFetch(): typeof fetch {
         const path = new URL(url).pathname
 
         let body: unknown = {}
-        if (path.includes('/api/users/@me')) {body = mockUserResponse}
-        else if (path.includes('/api/organizations')) {body = mockOrgsResponse}
-        else if (path.includes('/api/projects') || path.includes('/api/environments')) {body = mockProjectsResponse}
-        else if (path.includes('/decide')) {body = { featureFlags: {} }}
+        if (path.includes('/api/users/@me')) {
+            body = mockUserResponse
+        } else if (path.includes('/api/organizations')) {
+            body = mockOrgsResponse
+        } else if (path.includes('/api/projects') || path.includes('/api/environments')) {
+            body = mockProjectsResponse
+        } else if (path.includes('/decide')) {
+            body = { featureFlags: {} }
+        }
 
         return new Response(JSON.stringify(body), {
             status: 200,
@@ -125,9 +130,13 @@ function makeRequest(body: string): Request {
 }
 
 function _fmt(bytes: number): string {
-    if (Math.abs(bytes) < 1024) {return `${bytes} B`}
+    if (Math.abs(bytes) < 1024) {
+        return `${bytes} B`
+    }
     const kb = bytes / 1024
-    if (Math.abs(kb) < 1024) {return `${kb.toFixed(1)} KB`}
+    if (Math.abs(kb) < 1024) {
+        return `${kb.toFixed(1)} KB`
+    }
     return `${(kb / 1024).toFixed(2)} MB`
 }
 
@@ -180,10 +189,7 @@ describe('McpDispatcher profiling', () => {
         await dispatcher.warmup()
 
         // Prime the warm cache
-        await dispatcher.handleRequest(
-            makeRequest(makeJsonRpcBody('tools/list')),
-            makeProps()
-        )
+        await dispatcher.handleRequest(makeRequest(makeJsonRpcBody('tools/list')), makeProps())
     })
 
     afterAll(() => {
@@ -192,13 +198,11 @@ describe('McpDispatcher profiling', () => {
 
     it('reports warmup stats', () => {
         const entries = catalog.getPreBuiltEntries()
-        
+
         expect(entries.length).toBeGreaterThan(0)
     })
 
     it('measures cold cache init latency', async () => {
-        
-
         const coldTimings: number[] = []
         const coldFetchCounts: number[] = []
 
@@ -219,15 +223,9 @@ describe('McpDispatcher profiling', () => {
 
         const _s = stats(coldTimings)
         const _avgFetches = coldFetchCounts.reduce((a, b) => a + b, 0) / coldFetchCounts.length
-        
-        
-        
-        
     }, 30_000)
 
     it('measures warm cache request latency', async () => {
-        
-
         for (const [_label, method, params] of [
             ['initialize', 'initialize', INIT_PARAMS],
             ['tools/list', 'tools/list', undefined],
@@ -254,13 +252,10 @@ describe('McpDispatcher profiling', () => {
             }
 
             const _s = stats(timings)
-
         }
     }, 120_000)
 
     it('measures cold vs warm fetch overhead', async () => {
-        
-
         // Cold: new userHash
         const coldBefore = fetchCallCount
         await dispatcher.handleRequest(
@@ -276,14 +271,9 @@ describe('McpDispatcher profiling', () => {
             makeProps()
         )
         const _warmFetches = fetchCallCount - warmBefore
-
-        
-        
-        
     }, 15_000)
 
     it('measures per-request memory (cold cache)', async () => {
-        
         for (const N of [1, 10, 50]) {
             gc()
             await new Promise((r) => setTimeout(r, 30))
@@ -375,12 +365,7 @@ describe('McpDispatcher profiling', () => {
                 jsonrpc: '2.0' as const,
                 id: i + 1,
                 method: i === 0 ? 'initialize' : i === 1 ? 'tools/list' : 'tools/call',
-                params:
-                    i === 0
-                        ? INIT_PARAMS
-                        : i === 1
-                          ? {}
-                          : { name: 'user-get', arguments: {} },
+                params: i === 0 ? INIT_PARAMS : i === 1 ? {} : { name: 'user-get', arguments: {} },
             }))
 
             const resp = await dispatcher.handleRequest(

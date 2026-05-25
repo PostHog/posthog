@@ -1,6 +1,5 @@
 import re
 from collections.abc import Callable
-from functools import lru_cache
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -265,56 +264,14 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def _resolve_boolean_value(value: ValueT) -> bool | None:
-    """Resolve a filter value for a Boolean-typed property. Anything other than the
-    'true'/'false' the UI sends returns None, so the comparison matches nothing rather
-    than failing in ClickHouse, which cannot parse e.g. 'foo' as a bool."""
-    if isinstance(value, bool):
-        return value
-    if value == "true":
-        return True
-    if value == "false":
-        return False
-    return None
-
-
-@lru_cache(maxsize=2048)
-def _property_definition_is_boolean(
-    project_id: int,
-    property_key: str,
-    definition_type: "PropertyDefinition.Type",
-    group_type_index: int | None,
-) -> bool:
-    """Whether a saved PropertyDefinition for this key is Boolean-typed.
-
-    Memoized because _handle_bool_values now runs for every exact/is_not
-    comparison (not just literal true/false values), and a query build can
-    contain many comparisons on the same property. PropertyDefinition types
-    are effectively static within a process, so a process-level cache is safe.
-    """
-    filters: dict[str, object] = {
-        "effective_project_id": project_id,
-        "name": property_key,
-        "type": definition_type,
-    }
-    if definition_type == PropertyDefinition.Type.GROUP:
-        filters["group_type_index"] = group_type_index
-    property_def = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(**filters)
-        .values_list("property_type", flat=True)
-        .first()
-    )
-    return property_def == PropertyType.Boolean
-
-
-def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool | None:
+def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
     if value is True:
         value = "true"
     elif value is False:
         value = "false"
+
+    if value != "true" and value != "false":
+        return value
 
     # Virtual event properties (e.g. $virt_is_bot) don't have PropertyDefinition
     # records, so we check the taxonomy directly for boolean type
@@ -324,19 +281,26 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         for group_defs in CORE_FILTER_DEFINITIONS_BY_GROUP.values():
             prop_def = group_defs.get(property.key)
             if prop_def and prop_def.get("type") == "Boolean":
-                return _resolve_boolean_value(value)
+                return value == "true"
         return value
 
     if property.type == "person":
-        if _property_definition_is_boolean(team.project_id, property.key, PropertyDefinition.Type.PERSON, None):
-            return _resolve_boolean_value(value)
-        return value
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,
+            name=property.key,
+            type=PropertyDefinition.Type.PERSON,
+        )
     elif property.type == "group":
-        if _property_definition_is_boolean(
-            team.project_id, property.key, PropertyDefinition.Type.GROUP, property.group_type_index
-        ):
-            return _resolve_boolean_value(value)
-        return value
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,
+            name=property.key,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=property.group_type_index,
+        )
     elif property.type == "data_warehouse_person_property":
         if not isinstance(expr, ast.Field):
             raise Exception(f"Requires a Field expression")
@@ -365,20 +329,38 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
             raise Exception(f"Could not find table or view for key {key}")
 
         if prop_type == "BooleanDatabaseField":
-            return _resolve_boolean_value(value)
+            if value == "true":
+                value = True
+            if value == "false":
+                value = False
 
         return value
 
     elif property.type == "session":
         field_definition = LAZY_SESSIONS_FIELDS.get(property.key)
         if isinstance(field_definition, BooleanDatabaseField):
-            return _resolve_boolean_value(value)
+            if value == "true":
+                return True
+            if value == "false":
+                return False
         return value
 
     else:
-        if _property_definition_is_boolean(team.project_id, property.key, PropertyDefinition.Type.EVENT, None):
-            return _resolve_boolean_value(value)
-        return value
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,
+            name=property.key,
+            type=PropertyDefinition.Type.EVENT,
+        )
+    property_type = property_types[0].property_type if len(property_types) > 0 else None
+
+    if property_type == PropertyType.Boolean:
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+    return value
 
 
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
@@ -564,17 +546,10 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.IS_NOT:
-        resolved_value = _handle_bool_values(value, expr, property, team)
-        # A non-boolean value against a Boolean property resolves to None. For
-        # IS_NOT that would emit `expr != NULL`, which is NULL in ClickHouse
-        # three-valued logic and matches zero rows. Every row "is not" the
-        # unparseable value, so match everything instead.
-        if resolved_value is None and value is not None:
-            return ast.Constant(value=True)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,
             left=expr,
-            right=ast.Constant(value=resolved_value),
+            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
         )
     elif operator == PropertyOperator.LT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
