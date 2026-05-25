@@ -21,9 +21,9 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import type { UserInterviewTopicApi } from './generated/api.schemas'
+import type { TestInterviewLinkApi, UserInterviewTopicApi } from './generated/api.schemas'
 import { InterviewLinkCopyButton } from './InterviewLinkCopyButton'
-import { TestInterviewLink, UserInterviewLogicProps, userInterviewLogic } from './userInterviewLogic'
+import { UserInterviewLogicProps, userInterviewLogic } from './userInterviewLogic'
 
 export const scene: SceneExport<UserInterviewLogicProps> = {
     component: UserInterview,
@@ -258,7 +258,7 @@ function TestInterviewWidget({
     testLinkLoading,
     onRefresh,
 }: {
-    testLink: TestInterviewLink | null
+    testLink: TestInterviewLinkApi | null
     testLinkLoading: boolean
     onRefresh: () => void
 }): JSX.Element {

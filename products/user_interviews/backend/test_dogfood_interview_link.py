@@ -40,7 +40,7 @@ class TestDogfoodInterviewLink(_FeatureFlagEnabledMixin):
 
     def test_topic_creation_does_not_eagerly_seed_dogfood_context(self) -> None:
         topic = self._create_topic()
-        assert not IntervieweeContext.objects.filter(topic=topic).exists()
+        assert not IntervieweeContext.objects.filter(team=self.team, topic=topic).exists()
 
     def test_test_link_materializes_caller_context_and_share(self) -> None:
         topic = self._create_topic()
@@ -48,7 +48,7 @@ class TestDogfoodInterviewLink(_FeatureFlagEnabledMixin):
         response = self.client.get(self._test_link_url(str(topic.id)))
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        ic = IntervieweeContext.objects.get(topic=topic, interviewee_identifier=self.user.email)
+        ic = IntervieweeContext.objects.get(team=self.team, topic=topic, interviewee_identifier=self.user.email)
         assert ic.created_by_id == self.user.id
         assert SharingConfiguration.objects.filter(team=self.team, interviewee_context=ic, enabled=True).exists()
 
@@ -57,7 +57,12 @@ class TestDogfoodInterviewLink(_FeatureFlagEnabledMixin):
         first = self.client.get(self._test_link_url(str(topic.id))).json()
         second = self.client.get(self._test_link_url(str(topic.id))).json()
         assert first["interview_url"] == second["interview_url"]
-        assert IntervieweeContext.objects.filter(topic=topic, interviewee_identifier=self.user.email).count() == 1
+        assert (
+            IntervieweeContext.objects.filter(
+                team=self.team, topic=topic, interviewee_identifier=self.user.email
+            ).count()
+            == 1
+        )
         assert (
             SharingConfiguration.objects.filter(
                 team=self.team,
@@ -77,7 +82,9 @@ class TestDogfoodInterviewLink(_FeatureFlagEnabledMixin):
 
         assert first_response["interview_url"] != second_response["interview_url"]
         identifiers = set(
-            IntervieweeContext.objects.filter(topic=topic).values_list("interviewee_identifier", flat=True)
+            IntervieweeContext.objects.filter(team=self.team, topic=topic).values_list(
+                "interviewee_identifier", flat=True
+            )
         )
         assert identifiers == {self.user.email, other_user.email}
 

@@ -628,10 +628,10 @@ def _ensure_dogfood_context(
     identifier = _dogfood_identifier(caller)
     with transaction.atomic():
         ic, _ = IntervieweeContext.objects.select_for_update().get_or_create(
+            team=team,
             topic=topic,
             interviewee_identifier=identifier,
             defaults={
-                "team": team,
                 "agent_context": "",
                 "created_by": caller,
             },
@@ -1009,7 +1009,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ic, sharing_config = _ensure_dogfood_context(
             topic=topic,
             team=self.team,
-            caller=request.user,
+            caller=cast(User, request.user),
         )
 
         latest = (
