@@ -144,26 +144,9 @@ tools:
         enrich_url: '{id}'
         title: Launch a survey now.
         description: >
-            Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a
-            manual `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if
-            the survey is already launched.
-        ui_app: survey
-    survey-stop:
-        operation: surveys_stop
-        enabled: true
-        scopes:
-            - survey:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Stop a survey now.
-        description: >
-            Stop a survey by setting `end_date` to the current time. No new responses are accepted after this;
-            existing responses remain available. Prefer this over `survey-update` with a manual `end_date`. No-op if
-            the survey already has an end_date in the past. To hide the survey from the list, archive it via
-            `survey-update` with `archived=true` instead.
+            Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual
+            `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey
+            is already launched.
         ui_app: survey
     survey-stats:
         operation: surveys_stats_retrieve
@@ -180,6 +163,23 @@ tools:
             Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent),
             unique respondents, conversion rates, and timing data. Supports optional date filtering.
         ui_app: survey-stats
+    survey-stop:
+        operation: surveys_stop
+        enabled: true
+        scopes:
+            - survey:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Stop a survey now.
+        description: >
+            Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; existing
+            responses remain available. Prefer this over `survey-update` with a manual `end_date`. No-op if the survey
+            already has an end_date in the past. To hide the survey from the list, archive it via `survey-update` with
+            `archived=true` instead.
+        ui_app: survey
     survey-update:
         operation: surveys_partial_update
         enabled: true
@@ -269,14 +269,13 @@ tools:
         list: true
         title: List surveys in the project (server-side search + filters).
         description: >
-            List surveys in the project. Use `search` for fuzzy match against survey name and description (handles
-            typos and prefix-as-you-type). Use `type` to filter by survey kind (popover, widget, external_survey,
-            api). Use `archived` to filter archived state. Combine with pagination via `limit`/`offset`.
+            List surveys in the project. Use `search` for fuzzy match against survey name and description (handles typos
+            and prefix-as-you-type). Use `type` to filter by survey kind (popover, widget, external_survey, api). Use
+            `archived` to filter archived state. Combine with pagination via `limit`/`offset`.
 
-            Companion tools to avoid the recon-loop pattern:
-            - For response volume per survey: surveys-responses-count
-            - For individual response rows: surveys-responses-list
-            - For aggregate event counts: surveys-stats (single survey) or surveys-global-stats (project-wide)
+            Companion tools to avoid the recon-loop pattern: - For response volume per survey: surveys-responses-count -
+            For individual response rows: surveys-responses-list - For aggregate event counts: surveys-stats (single
+            survey) or surveys-global-stats (project-wide)
         ui_app: survey-list
     surveys-global-stats:
         operation: surveys_global_stats_retrieve
@@ -309,10 +308,10 @@ tools:
             idempotent: true
         title: Get response counts for surveys (batched, all-surveys-at-once).
         description: >
-            Batched response counts keyed by survey ID. Use this before surveys-responses-list when you want to
-            quickly identify which surveys actually have data — avoids the pattern of paginating surveys-get-all to
-            find non-empty surveys. Pass `survey_ids` (comma-separated) to scope to specific surveys, or omit to get
-            counts for all surveys in the project. Set `exclude_archived=true` to skip archived responses.
+            Batched response counts keyed by survey ID. Use this before surveys-responses-list when you want to quickly
+            identify which surveys actually have data — avoids the pattern of paginating surveys-get-all to find
+            non-empty surveys. Pass `survey_ids` (comma-separated) to scope to specific surveys, or omit to get counts
+            for all surveys in the project. Set `exclude_archived=true` to skip archived responses.
     surveys-responses-list:
         operation: surveys_responses_list
         enabled: true
@@ -324,21 +323,20 @@ tools:
             idempotent: true
         title: List individual survey responses with resolved question text.
         description: >
-            List individual responses for a specific survey. Question text is already resolved server-side — callers
-            do not need to map opaque $survey_response_<id> property keys. Each row carries distinct_id, session_id,
-            and submitted_at so agents can pivot to recordings, persons, or paths in one follow-up call. Use this
-            instead of executing raw SQL against `survey sent` events.
+            List individual responses for a specific survey. Question text is already resolved server-side — callers do
+            not need to map opaque $survey_response_<id> property keys. Each row carries distinct_id, session_id, and
+            submitted_at so agents can pivot to recordings, persons, or paths in one follow-up call. Use this instead of
+            executing raw SQL against `survey sent` events.
 
-            Common patterns:
-            - NPS detractors: question_id=<rating question id> + score_lte=6
-            - Voice-of-customer mining: question_id=<open question id> + since=<date>
-            - Per-respondent context: read distinct_id from a row, then pull recordings or events for that user.
+            Common patterns: - NPS detractors: question_id=<rating question id> + score_lte=6 - Voice-of-customer
+            mining: question_id=<open question id> + since=<date> - Per-respondent context: read distinct_id from a row,
+            then pull recordings or events for that user.
 
-            For person properties on respondents, follow up with persons-get using the row's distinct_id — this
-            tool only requires survey:read scope and intentionally doesn't return person data inline. Use
-            limit/offset and the has_more field to paginate. For surveys with many thousands of responses, prefer
-            scoping with `since` / `until` over deep offset paging (ClickHouse offset cost grows with skipped rows,
-            and new responses arriving between pages can shift boundaries).
+            For person properties on respondents, follow up with persons-get using the row's distinct_id — this tool
+            only requires survey:read scope and intentionally doesn't return person data inline. Use limit/offset and
+            the has_more field to paginate. For surveys with many thousands of responses, prefer scoping with `since` /
+            `until` over deep offset paging (ClickHouse offset cost grows with skipped rows, and new responses arriving
+            between pages can shift boundaries).
         ui_app: survey-stats
     surveys-responses-unarchive-create:
         operation: surveys_responses_unarchive_create
@@ -354,15 +352,15 @@ tools:
             idempotent: false
         title: Summarize survey responses (per question, or survey-wide headline).
         description: >
-            Summarize survey responses using PostHog's LLM summarization. Pass question_id (preferred) or
-            question_index to get a per-question theme summary. Omit both to get the survey-wide headline summary
-            instead — the endpoint dispatches automatically based on what you pass.
+            Summarize survey responses using PostHog's LLM summarization. Pass question_id (preferred) or question_index
+            to get a per-question theme summary. Omit both to get the survey-wide headline summary instead — the
+            endpoint dispatches automatically based on what you pass.
 
             Pass force_refresh=true in the body to bypass cached summaries. Per-question summaries are cached on the
             survey object; headline summaries are cached on the survey row.
 
-            Use this after you have identified a survey of interest. If you need raw response rows for cross-pivot,
-            use surveys-responses-list instead.
+            Use this after you have identified a survey of interest. If you need raw response rows for cross-pivot, use
+            surveys-responses-list instead.
     surveys-summary-headline-create:
         operation: surveys_summary_headline_create
         enabled: false
