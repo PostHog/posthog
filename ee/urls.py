@@ -116,6 +116,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
+    from posthog.admin.admins.addon_feature_usage_admin import addon_feature_usage_view
     from posthog.admin.admins.backfill_precalculated_events_admin import backfill_precalculated_events_view
     from posthog.admin.admins.backfill_precalculated_person_properties_admin import (
         backfill_precalculated_person_properties_view,
@@ -145,6 +146,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/realtime-cohorts-calculation/",
             admin.site.admin_view(analyze_realtime_cohort_calculation_view),
             name="realtime-cohorts-calculation",
+        ),
+        path(
+            "admin/addon-feature-usage/",
+            admin.site.admin_view(addon_feature_usage_view),
+            name="addon-feature-usage",
         ),
         path(
             "admin/radar-bypass/",

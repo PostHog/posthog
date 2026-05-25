@@ -1,0 +1,88 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" />
+<style>
+    .afu summary { cursor: pointer; font-size: 12px; color: var(--link-fg, #447e9b); margin: 4px 0 14px; }
+    .afu details p { font-size: 12px; color: var(--body-quiet-color, #666); max-width: 920px; margin: 4px 0; }
+    .afu h2 { font-size: 15px; border-bottom: 1px solid var(--hairline-color, #e0e0e0); padding-bottom: 3px; margin: 22px 0 6px; }
+    .afu h2 .sz { font-weight: normal; font-size: 12px; color: var(--body-quiet-color, #888); }
+    .afu table { width: 100%; border-collapse: collapse; }
+    .afu td, .afu th { padding: 3px 8px; text-align: left; border-bottom: 1px solid var(--hairline-color, #f0f0f0); font-size: 12px; vertical-align: middle; }
+    .afu th { font-weight: bold; color: var(--body-quiet-color, #777); font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+    .afu .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .afu .k { font-family: monospace; font-size: 11px; color: var(--body-quiet-color, #999); }
+    .afu .pct { font-weight: bold; font-variant-numeric: tabular-nums; }
+    .afu .pct.high { color: var(--success-fg, #28a745); }
+    .afu .pct.mid { color: #b8860b; }
+    .afu .pct.low { color: var(--error-fg, #c62828); }
+    .afu .frac { color: var(--body-quiet-color, #999); font-size: 11px; }
+    .afu .dist { color: var(--body-fg, #444); font-variant-numeric: tabular-nums; }
+    .afu .dist b { color: var(--body-quiet-color, #888); font-weight: normal; }
+    .afu .err { color: var(--error-fg, #c62828); font-family: monospace; }
+    .afu .summary-line { font-size: 13px; margin: 6px 0 0; }
+    .afu .summary-line span { margin-right: 16px; }
+    .afu .summary-line b { font-variant-numeric: tabular-nums; }
+    .afu .failbar { background: #fdecea; color: #611a15; padding: 6px 10px; border-radius: 4px; margin: 8px 0; font-size: 12px; }
+    .afu .excluded td { color: var(--body-quiet-color, #888); }
+    .afu .help { cursor: help; border-bottom: 1px dotted var(--body-quiet-color, #aaa); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main" class="afu">
+    <details>
+        <summary>How this is computed</summary>
+        <p>Orgs are classified into one cohort (Enterprise &gt; Scale &gt; Boost &gt; Paid &gt; Free) from their synced <code>available_product_features</code>. Add-ons stack, so each feature is shown for every cohort that includes it. Denominator = cohort size; usage = the backing Postgres model (no events).</p>
+        <p>Caveats: billing overrides can shift an org ±a tier; the deprecated <strong>Teams</strong> add-on overlaps Boost/Scale and folds into them. Authoritative add-on membership lives in the billing service.</p>
+    </details>
+
+    {% if failures %}<div class="failbar">{{ failures }} metric{{ failures|pluralize }} failed (likely a timeout); marked below, the rest are accurate.</div>{% endif %}
+
+    {% if summary_error %}
+    <p class="summary-line err">cohort sizes failed: {{ summary_error }}</p>
+    {% else %}
+    <p class="summary-line">{% for r in summary_rows %}<span>{{ r.label }}: <b>{{ r.count }}</b></span>{% endfor %}</p>
+    {% endif %}
+
+    {% for section in sections %}
+    <h2>{{ section.label }} <span class="sz">— {{ section.size }} org{{ section.size|pluralize }}</span></h2>
+    <table>
+        <tr><th style="width:40%">Feature</th><th class="num" style="width:14%">Adoption</th><th style="width:46%">Distribution</th></tr>
+        {% for row in section.rows %}
+        <tr>
+            <td>
+                {% if row.feature.note %}<span class="help" title="{{ row.feature.note }}">{{ row.feature.label }}</span>{% else %}{{ row.feature.label }}{% endif %}
+                <span class="k">{{ row.feature.key }}</span>
+            </td>
+            <td class="num">
+                {% if row.feature.error %}<span class="err">failed</span>
+                {% elif row.feature.kind == "entitlement_only" %}<span class="frac">n/a</span>
+                {% elif row.tm %}
+                    {% if row.tm.adoption_pct >= 50 %}<span class="pct high">{{ row.tm.adoption_pct }}%</span>
+                    {% elif row.tm.adoption_pct >= 15 %}<span class="pct mid">{{ row.tm.adoption_pct }}%</span>
+                    {% else %}<span class="pct low">{{ row.tm.adoption_pct }}%</span>{% endif %}
+                    <span class="frac">{{ row.tm.used }}/{{ row.tm.cohort_n }}</span>
+                {% endif %}
+            </td>
+            <td class="dist">
+                {% if row.feature.error %}<span class="err">{{ row.feature.error }}</span>
+                {% elif row.feature.kind == "bool" and row.tm %}enabled <b>{{ row.tm.used }}</b>
+                {% elif row.tm and row.tm.buckets %}{% for b in row.tm.buckets %}{{ b.label }} <b>{{ b.count }}</b> ({{ b.pct }}%){% if not forloop.last %} · {% endif %}{% endfor %}
+                {% else %}<span class="frac">entitlement only — no usage signal</span>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endfor %}
+
+    <h2>Excluded — no measurable signal</h2>
+    <table>
+        {% for key, reason in excluded %}
+        <tr class="excluded"><td style="width:40%"><span class="k">{{ key }}</span></td><td>{{ reason }}</td></tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}
