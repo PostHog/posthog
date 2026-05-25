@@ -55,7 +55,8 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
     const { queryInput, sourceQuery } = useValues(logic)
     const { initialize, runQuery, setQueryInput, setSourceQuery } = useActions(logic)
 
-    // Same two-ref approach as the Code variant — see comment there for the why.
+    // Sync Tiptap node attributes with sqlEditorLogic kea state. Two refs let us tell apart
+    // a remote attribute update (pull into kea) from a local edit (push to Tiptap).
     const lastAttrRef = useRef<DataVisualizationNode | null>(null)
     const lastLocalRef = useRef<DataVisualizationNode | null>(null)
 
@@ -153,12 +154,14 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
 
         if (queryInput !== lastQueryRef.current) {
             // Editor moved — push to Tiptap and keep sourceQuery in step with the new SQL so
-            // "Run query" uses what the user is actually looking at.
+            // "Run query" uses what the user is actually looking at. Skip the push when
+            // queryInput resets to null (e.g. a re-initialize while `code` hasn't changed) —
+            // otherwise we'd write `code: null` and clear the cell on the next round-trip.
             lastQueryRef.current = queryInput
             if (queryInput !== null) {
                 setSourceQuery(buildSourceQuery(queryInput))
+                updateAttributes({ code: queryInput } as Partial<NotebookNodeAttributes<T>>)
             }
-            updateAttributes({ code: queryInput } as Partial<NotebookNodeAttributes<T>>)
             return
         }
 
