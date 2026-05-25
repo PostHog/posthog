@@ -1078,16 +1078,26 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             parse_program(query, backend="rust-json"),
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="trailing FORMAT clause: cpp freezes JoinExpr.end at the table/alias and overwrites alias afterward; rust extends end over the format tokens (position-only)",
-    )
     @no_memory_leak_check
-    def test_xfail_join_expr_end_with_trailing_format(self):
-        self.assertEqual(
-            parse_select("select 1 from x t format JSON", backend="cpp-json"),
-            parse_select("select 1 from x t format JSON", backend="rust-json"),
-        )
+    def test_stacked_table_alias_span_ends_at_first_alias(self):
+        # `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs end
+        # the JoinExpr span at the INNERMOST (first) alias, while each outer
+        # alias only overwrites `alias` / `column_aliases`. rust extended the
+        # span to the last alias. Covers the `t format JSON` FORMAT-as-alias
+        # chain and column-alias stacks. (Single / no alias are unchanged.)
+        for query in (
+            "select 1 from x t",
+            "select 1 from x a b",
+            "select 1 from x a b c",
+            "select 1 from x t format JSON",
+            "select 1 from x (c1, c2)",
+            "select 1 from x a (c1) b (c2)",
+        ):
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )
 
     @pytest.mark.xfail(
         strict=True,

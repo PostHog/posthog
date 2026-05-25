@@ -228,7 +228,7 @@ impl<'a> Parser<'a> {
         // Grammar order: `TableExprAlias` (alias + columnAliases) binds
         // inside `tableExpr`, then `JoinExprTable` adds `FINAL?
         // sampleClause?`.
-        let (alias, column_aliases) = self.consume_table_alias_chain()?;
+        let (alias, column_aliases, _) = self.consume_table_alias_chain()?;
         if let Some(a) = alias {
             outer.insert("alias".into(), Value::String(a));
         }
@@ -595,14 +595,15 @@ impl<'a> Parser<'a> {
         // first, FINAL and SAMPLE after. Parsing SAMPLE before the
         // alias (as this did) silently dropped the sample on an
         // aliased table — `t AS e SAMPLE 1` lost its `SampleExpr`.
-        let (alias, column_aliases) = self.consume_table_alias_chain()?;
+        let (alias, column_aliases, first_alias_end) = self.consume_table_alias_chain()?;
         let had_alias = alias.is_some() || column_aliases.is_some();
-        // Snapshot end after alias / column_aliases — cpp's
-        // `TableExprAlias` ctx covers `tableExpr alias columnAliases?` and
-        // its JoinExpr wrap stops there. The subsequent FINAL / SAMPLE
-        // sit in the parent `JoinExprTable` rule, which adds them as
-        // fields on the existing JoinExpr WITHOUT widening its span.
-        let after_alias_end = self.last_consumed_end;
+        // Snapshot end after the FIRST alias / column_aliases — cpp's
+        // `TableExprAlias` ctx covers `tableExpr alias columnAliases?` and its
+        // JoinExpr wrap stops at the innermost (first) alias. Stacked aliases
+        // (`x a b c`, or the `t format JSON` FORMAT-as-alias chain) overwrite
+        // the alias field but don't widen the span; the subsequent FINAL /
+        // SAMPLE in the parent `JoinExprTable` rule don't widen it either.
+        let after_alias_end = first_alias_end.unwrap_or_else(|| self.last_consumed_end);
         // `JoinExprTable: tableExpr FINAL? sampleClause?` — FINAL and
         // SAMPLE decorate the (possibly aliased) table.
         let final_ = self.eat_kw(Kw::Final)?;
@@ -665,7 +666,7 @@ impl<'a> Parser<'a> {
     /// `(None, None)` when the table carries no alias at all.
     fn consume_table_alias_chain(
         &mut self,
-    ) -> Result<(Option<String>, Option<Vec<String>>), ParseError> {
+    ) -> Result<(Option<String>, Option<Vec<String>>, Option<usize>), ParseError> {
         // NB: `from <implicitAlias>` as a *table* (`select a from b, from c` —
         // table `from` aliased `c`) is valid; the grammar's
         // `ColumnExprInvalidFromImplicitAlias` footgun is a SELECT-*column*
@@ -673,14 +674,24 @@ impl<'a> Parser<'a> {
         // `from` table here.
         let mut alias: Option<String> = None;
         let mut column_aliases: Option<Vec<String>> = None;
+        // `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs make
+        // the JoinExpr span end at the INNERMOST alias (the first `tableExpr
+        // alias columnAliases?`), while each outer alias only overwrites the
+        // `alias` / `column_aliases` fields. Capture the end after the FIRST
+        // alias so the caller clamps the span there (`from x a b` ends at `a`,
+        // `from x a (c1) b (c2)` ends at `a (c1)`).
+        let mut first_alias_end: Option<usize> = None;
         while let Some(a) = self.try_consume_table_alias()? {
             alias = Some(a);
             // `columnAliases` belongs to *this* alias's `TableExprAlias`;
             // re-read each iteration so the last alias's value (present
             // or absent) is the one that survives.
             column_aliases = self.try_consume_column_aliases()?;
+            if first_alias_end.is_none() {
+                first_alias_end = Some(self.last_consumed_end);
+            }
         }
-        Ok((alias, column_aliases))
+        Ok((alias, column_aliases, first_alias_end))
     }
 
     /// Optional `columnAliases` — `LPAREN identifier (COMMA identifier)*
