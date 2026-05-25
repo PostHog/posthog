@@ -72,6 +72,13 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
             if own_markers is not None:
                 node.own_markers = [marker for marker in own_markers if marker.name != "django_db"]
             node = node.parent
+        # NodeKeywords forbids __delitem__ in newer pytest — the own_markers
+        # mutation above is what actually strips the marker; this pop is a
+        # legacy belt-and-braces that's a no-op when not supported.
+        try:
+            item.keywords.pop("django_db", None)
+        except (ValueError, TypeError):
+            pass
 
 
 @pytest.fixture(scope="session")
