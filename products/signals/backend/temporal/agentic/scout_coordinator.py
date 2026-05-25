@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -116,16 +117,21 @@ def _collect_planned_runs() -> list[PlannedRun]:
                     skill_name=skill_name,
                 )
             )
-    # Stable order: team_id then skill_name. Keeps child workflow IDs predictable
-    # and makes the truncation deterministic across ticks.
-    planned.sort(key=lambda p: (p.team_id, p.skill_name))
     if len(planned) > MAX_RUNS_PER_TICK:
         logger.warning(
-            "signals_scout coordinator: truncating planned runs above hard cap",
+            "signals_scout coordinator: sampling planned runs down to hard cap",
             planned=len(planned),
             cap=MAX_RUNS_PER_TICK,
         )
-        planned = planned[:MAX_RUNS_PER_TICK]
+        # Randomly sample which runs make the cap rather than slicing a sorted prefix —
+        # a deterministic cut by (team_id, skill_name) permanently starves the highest
+        # team_ids whenever the plan exceeds the cap. This runs in an activity (not the
+        # workflow), so non-deterministic sampling is allowed; per-tick child workflow ids
+        # stay unique via tick_id regardless of order.
+        planned = random.sample(planned, MAX_RUNS_PER_TICK)
+    # Stable order (team_id, skill_name) for a predictable dispatch order + child-id idx
+    # within the tick. Applied after sampling so the cap is a fair random subset.
+    planned.sort(key=lambda p: (p.team_id, p.skill_name))
     return planned
 
 
