@@ -132,7 +132,7 @@ class PostHogCodeRepoCascadeOutcome:
 
     `auto` → use `repository` directly. `no_repo` → create a task with no repo
     (e.g. team has no GitHub integration connected). `agent_needed` → there are
-    multiple candidates and no explicit mention;
+    multiple candidates and no explicit mention.
     """
 
     mode: Literal["auto", "no_repo", "agent_needed"]
