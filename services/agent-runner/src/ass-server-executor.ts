@@ -6,6 +6,7 @@ import {
     BundleStore,
     LogProducer,
     ResolvedRevision,
+    SandboxInstancesRepository,
     SessionBus,
     createSessionLogger,
     extractBundleToTempDir,
@@ -19,6 +20,12 @@ import { makeToolSandboxFactory } from './tool-sandbox'
 export interface AssServerExecutorOptions {
     bundleStore: BundleStore
     repository: ApplicationsRepository
+    /**
+     * Optional durable lifecycle tracker for sandbox containers/processes.
+     * When present, every acquired sandbox writes an AgentApplicationSandboxInstance
+     * row the janitor can reap if the worker dies mid-session. Omit in tests.
+     */
+    sandboxInstances?: SandboxInstancesRepository
     bus: SessionBus
     logProducer: LogProducer
 }
@@ -133,7 +140,20 @@ export class AssServerExecutor implements SessionExecutor {
         )
         let makeToolSandbox
         try {
-            makeToolSandbox = makeToolSandboxFactory(agent, (line) => logger.debug({ sessionId, line }, 'tool-sandbox'))
+            makeToolSandbox = makeToolSandboxFactory(
+                agent,
+                (line) => logger.debug({ sessionId, line }, 'tool-sandbox'),
+                this.options.sandboxInstances
+                    ? {
+                          repo: this.options.sandboxInstances,
+                          attribution: {
+                              teamId: revision.teamId,
+                              applicationId: revision.applicationId,
+                              revisionId: revision.revisionId,
+                          },
+                      }
+                    : undefined
+            )
         } catch (err) {
             return { kind: 'failed', error: `tool sandbox unavailable: ${String(err)}` }
         }

@@ -9,6 +9,7 @@
         "outDir": "dist/",
         "rootDir": "src/",
         "moduleResolution": "node",
+        "ignoreDeprecations": "6.0",
         "paths": {
             "@repo/ass-server": ["./node_modules/@repo/ass-server/dist/index.d.ts"]
         },

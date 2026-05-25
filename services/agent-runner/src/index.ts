@@ -8,6 +8,7 @@ import {
     KafkaLogProducer,
     PosthogDbClient,
     RedisSessionBus,
+    SandboxInstancesRepository,
     SessionBus,
     bundleStoreConfigFromEnv,
     loadDevEnv,
@@ -45,6 +46,9 @@ async function main(): Promise<void> {
     const posthogDb = new PosthogDbClient({ dbUrl: config.posthogDbUrl })
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
     const repository = new ApplicationsRepository({ db: posthogDb, encryption })
+    // Durable lifecycle log for tool sandboxes — the janitor reaps sandboxes
+    // whose worker died mid-session by walking these rows.
+    const sandboxInstances = new SandboxInstancesRepository({ db: posthogDb })
 
     const bus: SessionBus = config.redisUrl ? new RedisSessionBus({ url: config.redisUrl }) : new InMemorySessionBus()
 
@@ -63,7 +67,7 @@ async function main(): Promise<void> {
 
     const bundleStore = new BundleStore(bundleStoreConfigFromEnv())
 
-    const executor = new AssServerExecutor({ bundleStore, repository, bus, logProducer })
+    const executor = new AssServerExecutor({ bundleStore, repository, sandboxInstances, bus, logProducer })
 
     const worker = new RunnerWorker({
         pool: { dbUrl: config.queueDbUrl },
