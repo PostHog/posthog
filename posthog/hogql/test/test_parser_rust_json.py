@@ -941,3 +941,26 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
         for backend in ("cpp-json", "rust-json"):
             with self.assertRaises(BaseHogQLError):
                 parse_select("SELECT DISTINCT FROM x", backend=backend)
+
+    @no_memory_leak_check
+    def test_hogqlx_attribute_and_text_child_positions_match(self):
+        # cpp positions each HogQLXAttribute (name start -> value end, or name end
+        # for a bare attribute), the string value Constant over the string token,
+        # and each text-child Constant over its raw byte span. rust left these
+        # inner nodes position-less. The shared suite strips positions, so this
+        # asserts exact-position parity (the comparison keeps positions).
+        for query in (
+            "<a b='1' />",
+            "<a b='1' c='2' />",
+            "< a and />",
+            "<a>x</a>",
+            "<a>hello world</a>",
+            "<a b='1'>text</a>",
+            "<a b={1} />",
+            "<outer><inner k='v'>t</inner></outer>",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )

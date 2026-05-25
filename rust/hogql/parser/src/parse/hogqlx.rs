@@ -162,20 +162,28 @@ impl<'a> Parser<'a> {
     ///   - `name = { expr }` → HogQLXAttribute(name, expr)
     ///   - `name`            → HogQLXAttribute(name, Constant(true))
     fn parse_hogqlx_attribute(&mut self) -> Result<Value, ParseError> {
+        // cpp positions the HogQLXAttribute from the name start to the value end
+        // (or the name end for a bare attribute), and the string value Constant
+        // over the string token. The bare-attribute `Constant(true)` stays
+        // position-less (cpp leaves it null too).
+        let name_start = self.peek0.start;
         let name = self.parse_hogqlx_identifier("attribute name")?;
+        let name_end = self.last_consumed_end;
         // No `=` → bare attribute, value is Constant(true).
         if self.peek() != TokenKind::EqDouble {
-            return Ok(json!({
+            let attr = json!({
                 "node": "HogQLXAttribute",
                 "name": name,
                 "value": emit::constant(Value::Bool(true)),
-            }));
+            });
+            return Ok(self.wrap_pos_to(attr, name_start, name_end));
         }
         self.bump()?; // `=`
         let value = match self.peek() {
             TokenKind::String => {
                 let t = self.bump()?;
-                emit::constant(Value::String(unquote_single_string(self.text(t))))
+                let c = emit::constant(Value::String(unquote_single_string(self.text(t))));
+                self.wrap_pos_to(c, t.start, t.end)
             }
             TokenKind::LBrace => {
                 self.bump()?;
@@ -190,11 +198,13 @@ impl<'a> Parser<'a> {
                 )));
             }
         };
-        Ok(json!({
+        let value_end = self.last_consumed_end;
+        let attr = json!({
             "node": "HogQLXAttribute",
             "name": name,
             "value": value,
-        }))
+        });
+        Ok(self.wrap_pos_to(attr, name_start, value_end))
     }
 
     /// Read tag-body children until the closing `</`. Children are:
@@ -209,6 +219,10 @@ impl<'a> Parser<'a> {
     fn parse_hogqlx_children(&mut self) -> Result<Vec<Value>, ParseError> {
         let mut children: Vec<Value> = Vec::new();
         loop {
+            // `consume_hogqlx_text` scans from `last_consumed_end`, so that is
+            // the text run's start; its byte length gives the end. cpp positions
+            // each kept text Constant over its raw byte span.
+            let text_start = self.last_consumed_end;
             let text = self.consume_hogqlx_text()?;
             // cpp's `VISIT(HogqlxTagElementNested)` drops child text
             // runs that contain a newline AND are entirely whitespace —
@@ -219,7 +233,9 @@ impl<'a> Parser<'a> {
                 && text.bytes().all(|b| b.is_ascii_whitespace())
                 && text.bytes().any(|b| b == b'\n' || b == b'\r');
             if !text.is_empty() && !drop_for_newline_ws {
-                children.push(emit::constant(Value::String(text)));
+                let text_end = text_start + text.len();
+                let c = emit::constant(Value::String(text));
+                children.push(self.wrap_pos_to(c, text_start, text_end));
             }
             match self.peek() {
                 TokenKind::LtSlash => return Ok(children),
