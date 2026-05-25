@@ -4,7 +4,6 @@ from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 
 import structlog
-from exceptions_hog import exception_handler as _exceptions_hog_handler
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
@@ -132,9 +131,14 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     metadata document via WWW-Authenticate per RFC 9728, so that MCP-style agents
     can bootstrap from a stock 401.
     """
+    # Imported lazily: exceptions_hog calls a non-lazy gettext at module import time,
+    # which raises AppRegistryNotReady when posthog.exceptions is imported during
+    # manage.py bootstrap (before Django apps are loaded).
+    from exceptions_hog import exception_handler as _exceptions_hog_handler
+
     response = _exceptions_hog_handler(exc, context)
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
-        request = context.get("request") if isinstance(context, dict) else getattr(context, "request", None)
+        request = context.get("request")
         if isinstance(request, HttpRequest):
             metadata_url = request.build_absolute_uri("/.well-known/oauth-protected-resource")
         else:
