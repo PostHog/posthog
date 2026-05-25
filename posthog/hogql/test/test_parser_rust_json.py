@@ -1278,6 +1278,28 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                     fn(query, backend=backend)
 
     @no_memory_leak_check
+    def test_interval_value_pending_flag_does_not_leak(self):
+        # `parse_interval_expr` flags the value's leading primary as a nested
+        # interval (one-shot, consumed by `parse_primary`). When the value parse
+        # errors BEFORE reaching `parse_primary` (a bare `interval` as an
+        # arithmetic operand: `interval + …`), the flag must not leak past the
+        # enclosing `try_alt` rollback and corrupt the FOLLOWING interval — which
+        # caused `interval + interval '5 day' month` to wrong-reject and
+        # `interval - interval '5 day' month` to build a mangled AST.
+        for query in (
+            "interval + interval '5 day' month",
+            "interval - interval '5 day' month",
+            "interval * interval '2 hour' day",
+            "x + interval '5 day' month",
+            "1 + interval '5 day' month",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    @no_memory_leak_check
     def test_stacked_table_alias_span_ends_at_first_alias(self):
         # `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs end
         # the JoinExpr span at the INNERMOST (first) alias, while each outer

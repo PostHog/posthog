@@ -1292,8 +1292,15 @@ impl<'a> Parser<'a> {
         // Flag the value's leading primary so a nested INTERVAL there yields
         // the unit to us rather than eating it (see `parse_primary`). One-shot:
         // `parse_primary` takes it, so only that first primary is affected.
+        // Reset unconditionally after the parse before propagating: on success
+        // `parse_primary` already took it, but if `parse_expr_bp` errors BEFORE
+        // reaching `parse_primary` (e.g. `interval + <non-number>`), the flag
+        // would otherwise leak past the enclosing `try_alt` rollback (whose
+        // checkpoint doesn't track it) and corrupt a following INTERVAL.
         self.interval_value_pending = true;
-        let expr = self.parse_expr_bp(0)?;
+        let value_result = self.parse_expr_bp(0);
+        self.interval_value_pending = false;
+        let expr = value_result?;
         // The grammar's `interval` rule is the eight singular unit
         // *keyword* tokens (`SECOND | MINUTE | HOUR | DAY | WEEK |
         // MONTH | QUARTER | YEAR`, with `YYYY` lexed as `YEAR`). A
