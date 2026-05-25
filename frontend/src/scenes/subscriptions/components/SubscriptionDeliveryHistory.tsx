@@ -28,9 +28,6 @@ import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 type DeliveryListStatusFilter =
     (typeof SubscriptionDeliveriesListStatusByValue)[keyof typeof SubscriptionDeliveriesListStatusByValue]
 
-/** Shape of `SubscriptionDelivery.error`, written by `posthog/temporal/subscriptions/activities.py`. */
-type SubscriptionDeliveryError = { message: string; type: string }
-
 function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
     let label: string
     let tagType: 'success' | 'danger' | 'warning' | 'default'
@@ -55,7 +52,7 @@ function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
             label = row.status
             tagType = 'default'
     }
-    const failureMessage = (row.error as SubscriptionDeliveryError | null)?.message
+    const failureMessage = (row.error as { message: string; type: string } | null)?.message
     if (row.status === SubscriptionDeliveryStatusEnumApi.Failed && failureMessage) {
         return (
             <Tooltip title={failureMessage}>
