@@ -108,7 +108,11 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
         }
 
-        const stop = toolCallDurationSeconds.startTimer({ tool: tool.name })
+        // In single-exec mode, the inner trackInnerCall callback emits
+        // per-inner-tool Prometheus metrics. Skip the outer exec-level
+        // metrics to avoid double-counting.
+        const isExecWrapper = tool.name === 'exec' && state.useSingleExec
+        const stop = isExecWrapper ? undefined : toolCallDurationSeconds.startTimer({ tool: tool.name })
         const startMs = Date.now()
 
         try {
@@ -123,8 +127,10 @@ export class ToolExecutor {
                 void state.reqCtx.trackContextSwitchEvent(tool.name, state.context, previousContext)
             }
 
-            toolCallsTotal.inc({ tool: tool.name, status: 'success' })
-            stop({ status: 'success' })
+            if (!isExecWrapper) {
+                toolCallsTotal.inc({ tool: tool.name, status: 'success' })
+                stop?.({ status: 'success' })
+            }
 
             void trackToolCall(tool.name, Date.now() - startMs, false, props, state)
 
@@ -145,10 +151,11 @@ export class ToolExecutor {
                 distinctId,
             })
         } catch (error: unknown) {
-            toolCallsTotal.inc({ tool: tool.name, status: 'error' })
-            stop({ status: 'error' })
-
-            classifyToolError(error, tool.name)
+            if (!isExecWrapper) {
+                toolCallsTotal.inc({ tool: tool.name, status: 'error' })
+                stop?.({ status: 'error' })
+                classifyToolError(error, tool.name)
+            }
 
             void trackToolCall(tool.name, Date.now() - startMs, true, props, state)
 
@@ -161,6 +168,13 @@ export class ToolExecutor {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
         const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
+            const status = properties.success ? 'success' : 'error'
+            toolCallsTotal.inc({ tool: toolName, status })
+            toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
+            if (!properties.success && properties.error_message) {
+                classifyToolError(new Error(properties.error_message), toolName)
+            }
+
             void (async () => {
                 const freshContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
                 await state.reqCtx.trackEvent(
