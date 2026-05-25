@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
-import { useCallback, useMemo, type ErrorInfo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { TimeSeriesBarChart } from 'lib/hog-charts'
@@ -17,15 +16,15 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
-import { type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
-import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { handleTrendsLifecycleChartClick } from './handleTrendsLifecycleChartClick'
+import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import {
-    buildTrendsLifecycleConfig,
-    buildTrendsLifecycleSeries,
-    shortenLifecycleLabel,
-} from './trendsLifecycleChartTransforms'
+    handleTrendsChartClick,
+    LIFECYCLE_PERSONS_MODAL_OPTIONS,
+    type TrendsChartClickDeps,
+} from '../shared/handleTrendsChartClick'
+import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { TrendsTooltip } from '../shared/TrendsTooltip'
+import { buildTrendsLifecycleConfig, buildTrendsLifecycleSeries } from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
     context?: QueryContext<InsightVizNode>
@@ -35,21 +34,7 @@ interface TrendsLifecycleChartProps {
 const EMPTY_LABELS: string[] = []
 const LIFECYCLE_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
 
-const buildLifecycleMeta = (r: IndexedTrendResult): TrendsSeriesMeta => ({
-    action: r.action,
-    breakdown_value: r.breakdown_value,
-    compare_label: r.compare_label,
-    days: r.days,
-    order: r.action?.order ?? r.id,
-    filter: r.filter,
-})
-
-const handleChartError = (error: Error, info: ErrorInfo): void => {
-    posthog.captureException(error, {
-        feature: 'trends-lifecycle-chart',
-        componentStack: info.componentStack ?? undefined,
-    })
-}
+const handleChartError = makeChartErrorHandler('trends-lifecycle-chart')
 
 // Lifecycle rows label themselves by status ("New", "Returning", ...) — not by
 // the underlying event/action. The row's ribbon color already identifies the
@@ -76,7 +61,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
 
-    const isGrouped = !(lifecycleFilter?.stacked ?? true)
+    const isStacked = lifecycleFilter?.stacked ?? true
 
     const hasData =
         !!indexedResults?.[0] &&
@@ -85,7 +70,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
 
     const { series, labels } = useMemo(() => {
         const lifecycleSeries = buildTrendsLifecycleSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-            buildMeta: buildLifecycleMeta,
+            buildMeta: buildTrendsSeriesMeta,
         })
         return { series: lifecycleSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
     }, [indexedResults, currentPeriodResult?.labels])
@@ -95,14 +80,14 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             buildTrendsLifecycleConfig({
                 trendsFilter,
                 baseCurrency,
-                isGrouped,
+                isStacked,
                 yAxisScaleType,
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
                 tooltip: LIFECYCLE_TOOLTIP_CONFIG,
             }),
-        [trendsFilter, baseCurrency, isGrouped, yAxisScaleType, interval, timezone, currentPeriodResult?.days]
+        [trendsFilter, baseCurrency, isStacked, yAxisScaleType, interval, timezone, currentPeriodResult?.days]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -133,7 +118,12 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
 
     const onPointClick = useCallback(
         (clickData: PointClickData<TrendsSeriesMeta>) => {
-            handleTrendsLifecycleChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            handleTrendsChartClick(
+                clickData.series.key,
+                clickData.dataIndex,
+                clickDeps,
+                LIFECYCLE_PERSONS_MODAL_OPTIONS
+            )
         },
         [clickDeps]
     )
@@ -143,22 +133,12 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             const onRowClick = canHandleClick
                 ? (datum: SeriesDatum) => {
                       const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
-                      handleTrendsLifecycleChartClick(seriesKey, datum.dataIndex, clickDeps)
+                      handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps, LIFECYCLE_PERSONS_MODAL_OPTIONS)
                   }
                 : undefined
-            const lifecycleCtx: TooltipContext<TrendsSeriesMeta> = {
-                ...ctx,
-                seriesData: ctx.seriesData.map((entry) => ({
-                    ...entry,
-                    series: {
-                        ...entry.series,
-                        label: shortenLifecycleLabel(entry.series.label),
-                    },
-                })),
-            }
             return (
                 <TrendsTooltip
-                    context={lifecycleCtx}
+                    context={ctx}
                     timezone={timezone}
                     interval={interval ?? undefined}
                     breakdownFilter={breakdownFilter ?? undefined}

@@ -47,7 +47,7 @@ function Stage({ children }: { children: React.ReactNode }): JSX.Element {
     )
 }
 
-function renderLifecycle(insightFixture: any): JSX.Element {
+function LifecycleStory({ insightFixture }: { insightFixture: any }): JSX.Element {
     const [dashboardItemId] = useState(() => `TrendsLifecycleChartStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
@@ -157,9 +157,9 @@ function lifecycleInsight(stacked: boolean, id: number, shortId: string): object
 }
 
 export const Stacked: Story = {
-    render: () => renderLifecycle(lifecycleInsight(true, 300, 'lifecycleStacked')),
+    render: () => <LifecycleStory insightFixture={lifecycleInsight(true, 300, 'lifecycleStacked')} />,
 }
 
 export const Unstacked: Story = {
-    render: () => renderLifecycle(lifecycleInsight(false, 301, 'lifecycleUnstacked')),
+    render: () => <LifecycleStory insightFixture={lifecycleInsight(false, 301, 'lifecycleUnstacked')} />,
 }

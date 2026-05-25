@@ -20,13 +20,38 @@ export interface TrendsChartClickDeps {
     openPersonsModal: (props: OpenPersonsModalProps) => void
 }
 
+/** Persons-modal overrides for the click handler. The default targets bar/line trends —
+ *  actor rows show event count, are recordings-aware, and sort by event count desc.
+ *  Lifecycle uses {@link LIFECYCLE_PERSONS_MODAL_OPTIONS}: the underlying actor query
+ *  already carries the lifecycle `status` (via `datasetToActorsQuery`), so no extra
+ *  columns or ordering are needed. */
+export type TrendsPersonsModalOptions = Pick<OpenPersonsModalProps, 'additionalSelect' | 'orderBy'>
+
+export const DEFAULT_PERSONS_MODAL_OPTIONS: TrendsPersonsModalOptions = {
+    additionalSelect: {
+        value_at_data_point: 'event_count',
+        matched_recordings: 'matched_recordings',
+    },
+    orderBy: ['event_count DESC, actor_id DESC'],
+}
+
+export const LIFECYCLE_PERSONS_MODAL_OPTIONS: TrendsPersonsModalOptions = {
+    additionalSelect: {},
+    orderBy: undefined,
+}
+
 // Adapters key each hog-charts Series by `${r.id}`, so we can resolve back
 // to the source IndexedTrendResult without stashing it on meta.
 export function resolveDataset(seriesKey: string, indexedResults: IndexedTrendResult[]): IndexedTrendResult | null {
     return indexedResults.find((r) => String(r.id) === seriesKey) ?? null
 }
 
-export function handleTrendsChartClick(seriesKey: string, dataIndex: number, deps: TrendsChartClickDeps): void {
+export function handleTrendsChartClick(
+    seriesKey: string,
+    dataIndex: number,
+    deps: TrendsChartClickDeps,
+    personsModalOptions: TrendsPersonsModalOptions = DEFAULT_PERSONS_MODAL_OPTIONS
+): void {
     const dataset = resolveDataset(seriesKey, deps.indexedResults)
     if (!dataset) {
         return
@@ -70,10 +95,7 @@ export function handleTrendsChartClick(seriesKey: string, dataIndex: number, dep
     deps.openPersonsModal({
         title,
         query: datasetToActorsQuery({ dataset, query: deps.querySource, day }),
-        additionalSelect: {
-            value_at_data_point: 'event_count',
-            matched_recordings: 'matched_recordings',
-        },
-        orderBy: ['event_count DESC, actor_id DESC'],
+        additionalSelect: personsModalOptions.additionalSelect,
+        orderBy: personsModalOptions.orderBy,
     })
 }

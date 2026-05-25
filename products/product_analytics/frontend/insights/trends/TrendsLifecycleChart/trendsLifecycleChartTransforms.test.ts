@@ -17,21 +17,13 @@ import {
     type TrendsLifecycleResultLike,
 } from './trendsLifecycleChartTransforms'
 
-const makeLifecycleResult = (overrides: Partial<TrendsLifecycleResultLike> = {}): TrendsLifecycleResultLike => ({
-    id: overrides.status ?? overrides.id ?? 0,
-    label: overrides.status ? `Pageview - ${overrides.status}` : 'Pageview - new',
-    data: [1, 2, 3],
-    status: 'new',
-    ...overrides,
-})
-
 describe('buildTrendsLifecycleSeries', () => {
     it('orders series new → resurrecting → returning → dormant regardless of input order', () => {
-        const results = [
-            makeLifecycleResult({ id: 'dormant', status: 'dormant', data: [-1, -2, -3] }),
-            makeLifecycleResult({ id: 'returning', status: 'returning' }),
-            makeLifecycleResult({ id: 'new', status: 'new' }),
-            makeLifecycleResult({ id: 'resurrecting', status: 'resurrecting' }),
+        const results: TrendsLifecycleResultLike[] = [
+            { id: 'dormant', status: 'dormant', label: 'Pageview - dormant', data: [-1, -2, -3] },
+            { id: 'returning', status: 'returning', label: 'Pageview - returning', data: [1, 2, 3] },
+            { id: 'new', status: 'new', label: 'Pageview - new', data: [1, 2, 3] },
+            { id: 'resurrecting', status: 'resurrecting', label: 'Pageview - resurrecting', data: [1, 2, 3] },
         ]
         const series = buildTrendsLifecycleSeries(results)
 
@@ -39,27 +31,37 @@ describe('buildTrendsLifecycleSeries', () => {
     })
 
     it('preserves dormant data as negative — diverging stack relies on the sign', () => {
-        const results = [makeLifecycleResult({ id: 'dormant', status: 'dormant', data: [-5, -6, -7] })]
-        const series = buildTrendsLifecycleSeries(results)
+        const series = buildTrendsLifecycleSeries([
+            { id: 'dormant', status: 'dormant', label: 'Pageview - dormant', data: [-5, -6, -7] },
+        ])
 
         expect(series[0].data).toEqual([-5, -6, -7])
     })
 
     it('uses fixed colors per lifecycle status, ignoring the data-color theme', () => {
-        const results = [
-            makeLifecycleResult({ id: 'new', status: 'new' }),
-            makeLifecycleResult({ id: 'resurrecting', status: 'resurrecting' }),
-            makeLifecycleResult({ id: 'returning', status: 'returning' }),
-            makeLifecycleResult({ id: 'dormant', status: 'dormant', data: [-1, -2, -3] }),
+        const results: TrendsLifecycleResultLike[] = [
+            { id: 'new', status: 'new', label: 'Pageview - new', data: [1, 2, 3] },
+            { id: 'resurrecting', status: 'resurrecting', label: 'Pageview - resurrecting', data: [1, 2, 3] },
+            { id: 'returning', status: 'returning', label: 'Pageview - returning', data: [1, 2, 3] },
+            { id: 'dormant', status: 'dormant', label: 'Pageview - dormant', data: [-1, -2, -3] },
         ]
         const series = buildTrendsLifecycleSeries(results)
         expect(series.map((s) => s.color)).toEqual(['#11ff11', '#22ff22', '#33ff33', '#44ff44'])
     })
 
+    it('shortens series labels to capitalized status — used by both legend and tooltip', () => {
+        const series = buildTrendsLifecycleSeries([
+            { id: 'new', status: 'new', label: 'Pageview - new', data: [1] },
+            { id: 'dormant', status: 'dormant', label: 'Pageview - dormant', data: [-1] },
+        ])
+        expect(series.find((s) => s.key === 'new')?.label).toBe('New')
+        expect(series.find((s) => s.key === 'dormant')?.label).toBe('Dormant')
+    })
+
     it('attaches meta from buildMeta with the original (pre-sort) index', () => {
-        const results = [
-            makeLifecycleResult({ id: 'dormant', status: 'dormant', data: [-1] }),
-            makeLifecycleResult({ id: 'new', status: 'new' }),
+        const results: TrendsLifecycleResultLike[] = [
+            { id: 'dormant', status: 'dormant', label: 'Pageview - dormant', data: [-1] },
+            { id: 'new', status: 'new', label: 'Pageview - new', data: [1] },
         ]
         const calls: Array<{ status: string; index: number }> = []
         buildTrendsLifecycleSeries(results, {
@@ -78,9 +80,9 @@ describe('buildTrendsLifecycleSeries', () => {
     })
 
     it('marks excluded series with visibility.excluded so the chart skips them', () => {
-        const results = [
-            makeLifecycleResult({ id: 'new', status: 'new' }),
-            makeLifecycleResult({ id: 'dormant', status: 'dormant', data: [-1] }),
+        const results: TrendsLifecycleResultLike[] = [
+            { id: 'new', status: 'new', label: 'Pageview - new', data: [1] },
+            { id: 'dormant', status: 'dormant', label: 'Pageview - dormant', data: [-1] },
         ]
         const series = buildTrendsLifecycleSeries(results, {
             getHidden: (r) => r.status === 'dormant',
@@ -91,20 +93,20 @@ describe('buildTrendsLifecycleSeries', () => {
         expect(newSeries?.visibility).toBeUndefined()
     })
 
-    it('falls back to empty string label when result label is null', () => {
-        const series = buildTrendsLifecycleSeries([makeLifecycleResult({ label: null, status: 'new' })])
-        expect(series[0].label).toBe('')
+    it('falls back to "None" label when the result label is null', () => {
+        const series = buildTrendsLifecycleSeries([{ id: 'new', status: 'new', label: null, data: [1] }])
+        expect(series[0].label).toBe('None')
     })
 })
 
 describe('buildTrendsLifecycleConfig', () => {
     it.each([
-        { isGrouped: false, expectedLayout: 'stacked', expectedDiverging: true },
-        { isGrouped: true, expectedLayout: 'grouped', expectedDiverging: false },
+        { isStacked: true, expectedLayout: 'stacked', expectedDiverging: true },
+        { isStacked: false, expectedLayout: 'grouped', expectedDiverging: false },
     ])(
-        'maps isGrouped=$isGrouped to barLayout=$expectedLayout / divergingStack=$expectedDiverging',
-        ({ isGrouped, expectedLayout, expectedDiverging }) => {
-            const cfg = buildTrendsLifecycleConfig({ isGrouped })
+        'maps isStacked=$isStacked to barLayout=$expectedLayout / divergingStack=$expectedDiverging',
+        ({ isStacked, expectedLayout, expectedDiverging }) => {
+            const cfg = buildTrendsLifecycleConfig({ isStacked })
             expect(cfg.barLayout).toBe(expectedLayout)
             expect(cfg.divergingStack).toBe(expectedDiverging)
         }
@@ -112,7 +114,7 @@ describe('buildTrendsLifecycleConfig', () => {
 
     it('builds the xAxis from interval/timezone/allDays', () => {
         const cfg = buildTrendsLifecycleConfig({
-            isGrouped: false,
+            isStacked: true,
             interval: 'day',
             timezone: 'UTC',
             allDays: ['2024-06-10', '2024-06-11'],
@@ -125,18 +127,18 @@ describe('buildTrendsLifecycleConfig', () => {
     })
 
     it('defaults interval to day and allDays to empty when omitted', () => {
-        const cfg = buildTrendsLifecycleConfig({ isGrouped: false })
+        const cfg = buildTrendsLifecycleConfig({ isStacked: true })
         expect(cfg.xAxis).toEqual({ timezone: undefined, interval: 'day', allDays: [] })
     })
 
     it('forwards yAxisScaleType into the y-axis scale', () => {
-        const cfg = buildTrendsLifecycleConfig({ isGrouped: false, yAxisScaleType: 'log10' })
+        const cfg = buildTrendsLifecycleConfig({ isStacked: true, yAxisScaleType: 'log10' })
         expect(cfg.yAxis?.scale).toBe('log')
     })
 
     it('passes the tooltip config through unchanged', () => {
         const tooltip = { pinnable: true, placement: 'top' as const }
-        const cfg = buildTrendsLifecycleConfig({ isGrouped: false, tooltip })
+        const cfg = buildTrendsLifecycleConfig({ isStacked: true, tooltip })
         expect(cfg.tooltip).toEqual(tooltip)
     })
 })
@@ -148,6 +150,7 @@ describe('shortenLifecycleLabel', () => {
         { input: 'Logged in - returning', expected: 'Returning' },
         { input: 'just-a-label', expected: 'Just-a-label' },
         { input: undefined, expected: 'None' },
+        { input: null, expected: 'None' },
     ])('returns $expected for $input', ({ input, expected }) => {
         expect(shortenLifecycleLabel(input)).toBe(expected)
     })
