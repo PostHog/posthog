@@ -595,8 +595,9 @@ def test_check_endpoint_permissions_oauth_marks_account_as_unavailable():
             "oauth_token", endpoints=[ACCOUNT_RESOURCE_NAME, "Customer"], auth_method="oauth"
         )
 
-    assert results[ACCOUNT_RESOURCE_NAME] is not None
-    assert "OAuth" in results[ACCOUNT_RESOURCE_NAME]
+    account_reason = results[ACCOUNT_RESOURCE_NAME]
+    assert account_reason is not None
+    assert "OAuth" in account_reason
     assert results["Customer"] is None
     mock_client.accounts.list.assert_not_called()
 
