@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "agent_context": {
+            "description": "Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.",
+            "maxLength": 10000,
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this interviewee context.",
+            "type": "string"
+        },
+        "topic_id": {
+            "type": "string"
+        }
+    },
+    "required": ["id", "topic_id"],
+    "type": "object"
+}

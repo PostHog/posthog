@@ -43,16 +43,14 @@ export class ToolExecutor {
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
-        let filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
-
-        if (state.version === 2) {
-            filteredTools = filteredTools.map((entry) => {
+        const filteredTools = this.catalog.getPreBuiltEntries()
+            .filter((e) => nameSet.has(e.name))
+            .map((entry) => {
                 if (entry.name === 'execute-sql') {
                     return { ...entry, description: this.instructionsBuilder.formatExecuteSqlDescription() }
                 }
                 return entry
             })
-        }
 
         return { tools: filteredTools }
     }

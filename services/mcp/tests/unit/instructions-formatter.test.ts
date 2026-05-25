@@ -29,35 +29,9 @@ const fullCtx: InstructionsContext = {
     metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
-    featureFlags: { 'mcp-feedback-tool': true },
 }
 
 describe('InstructionsFormatter', () => {
-    describe('buildV1Instructions', () => {
-        it('returns the legacy section content when no metadata is supplied', () => {
-            const formatter = new InstructionsFormatter()
-            const result = formatter.buildV1Instructions()
-            expect(result).toContain('helpful assistant that can query PostHog API')
-            expect(result).toContain("'docs-search' tool")
-        })
-
-        it('appends metadata to the legacy section when provided', () => {
-            const formatter = new InstructionsFormatter()
-            const metadata = 'You are currently in project "Test".'
-            const result = formatter.buildV1Instructions(metadata)
-            expect(result).toContain('helpful assistant that can query PostHog API')
-            expect(result).toContain('You are currently in project "Test".')
-            const legacyIdx = result.indexOf('helpful assistant')
-            const metaIdx = result.indexOf('You are currently')
-            expect(legacyIdx).toBeLessThan(metaIdx)
-        })
-
-        it('treats an empty metadata string as no metadata', () => {
-            const formatter = new InstructionsFormatter()
-            expect(formatter.buildV1Instructions('')).toBe(formatter.buildV1Instructions())
-        })
-    })
-
     describe('buildV2Instructions', () => {
         it('resolves every placeholder when fully populated', () => {
             const formatter = new InstructionsFormatter()
@@ -101,15 +75,10 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('{metadata}')
         })
 
-        it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
+        it('always includes the agent-feedback section', () => {
             const formatter = new InstructionsFormatter()
-            const withFeedback = formatter.buildV2Instructions(fullCtx)
-            expect(withFeedback).toContain('### Sharing feedback on this MCP server')
-
-            for (const featureFlags of [undefined, { 'mcp-feedback-tool': false }, {}]) {
-                const result = formatter.buildV2Instructions({ ...fullCtx, featureFlags })
-                expect(result).not.toContain('### Sharing feedback on this MCP server')
-            }
+            const result = formatter.buildV2Instructions(fullCtx)
+            expect(result).toContain('### Sharing feedback on this MCP server')
         })
     })
 
@@ -207,17 +176,11 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('\n- dashboard\n')
         })
 
-        it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
+        it('always includes the agent-feedback section', () => {
             const formatter = new InstructionsFormatter()
             for (const stripEnvContext of [true, false]) {
-                const withFeedback = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
-                expect(withFeedback).toContain('### Sharing feedback on this MCP server')
-
-                const withoutFeedback = formatter.buildExecCommandReference(
-                    { ...fullCtx, featureFlags: { 'mcp-feedback-tool': false } },
-                    { stripEnvContext }
-                )
-                expect(withoutFeedback).not.toContain('### Sharing feedback on this MCP server')
+                const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
+                expect(result).toContain('### Sharing feedback on this MCP server')
             }
         })
     })

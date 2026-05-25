@@ -1,7 +1,6 @@
 import z from 'zod'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
-import toolDefinitionsV2Json from '../../schema/tool-definitions-v2.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
 
 export const ToolDefinitionSchema = z.object({
@@ -11,12 +10,7 @@ export const ToolDefinitionSchema = z.object({
     summary: z.string(),
     title: z.string(),
     required_scopes: z.array(z.string()),
-    new_mcp: z.boolean().optional(),
     requires_ai_consent: z.boolean().optional(),
-    /** PostHog feature flag key that gates this tool. */
-    feature_flag: z.string().optional(),
-    /** How the flag gates the tool: 'enable' (default) or 'disable'. */
-    feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
     /** One-line selection hint surfaced in the system prompt's query tool catalog. */
     system_prompt_hint: z.string().optional(),
     /**
@@ -24,7 +18,7 @@ export const ToolDefinitionSchema = z.object({
      * or `tools` allowlist that wouldn't otherwise match. Reserved for
      * cross-cutting utility tools (e.g. feedback) that should remain
      * discoverable to every client without forcing them to opt in.
-     * Other filters (readOnly, AI consent, feature flags, scopes) still apply.
+     * Other filters (readOnly, AI consent, scopes) still apply.
      */
     always_available: z.boolean().optional(),
     annotations: z.object({
@@ -41,37 +35,19 @@ export type ToolDefinitions = Record<string, ToolDefinition>
 
 const toolDefinitionsSchema = z.record(z.string(), ToolDefinitionSchema)
 
-let _toolDefinitionsV1: ToolDefinitions | undefined = undefined
-let _toolDefinitionsV2: ToolDefinitions | undefined = undefined
-let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
+let _toolDefinitions: ToolDefinitions | undefined = undefined
 
-function getGeneratedToolDefinitions(): ToolDefinitions {
-    if (!_generatedToolDefinitions) {
-        _generatedToolDefinitions = toolDefinitionsSchema.parse(generatedToolDefinitionsJson)
+export function getToolDefinitions(): ToolDefinitions {
+    if (!_toolDefinitions) {
+        const base = toolDefinitionsSchema.parse(toolDefinitionsJson)
+        const generated = toolDefinitionsSchema.parse(generatedToolDefinitionsJson)
+        _toolDefinitions = { ...base, ...generated }
     }
-    return _generatedToolDefinitions
+    return _toolDefinitions
 }
 
-export function getToolDefinitions(version?: number): ToolDefinitions {
-    const generated = getGeneratedToolDefinitions()
-
-    if (version === 2) {
-        if (!_toolDefinitionsV2) {
-            const base = toolDefinitionsSchema.parse(toolDefinitionsJson)
-            const new_tools = toolDefinitionsSchema.parse(toolDefinitionsV2Json)
-            _toolDefinitionsV2 = { ...new_tools, ...base }
-        }
-        return { ..._toolDefinitionsV2, ...generated }
-    }
-
-    if (!_toolDefinitionsV1) {
-        _toolDefinitionsV1 = toolDefinitionsSchema.parse(toolDefinitionsJson)
-    }
-    return { ..._toolDefinitionsV1, ...generated }
-}
-
-export function getToolDefinition(toolName: string, version?: number): ToolDefinition {
-    const toolDefinitions = getToolDefinitions(version)
+export function getToolDefinition(toolName: string): ToolDefinition {
+    const toolDefinitions = getToolDefinitions()
 
     const definition = toolDefinitions[toolName]
 
@@ -85,30 +61,9 @@ export function getToolDefinition(toolName: string, version?: number): ToolDefin
 export interface ToolFilterOptions {
     features?: string[] | undefined
     tools?: string[] | undefined
-    version?: number | undefined
     excludeTools?: string[] | undefined
     readOnly?: boolean | undefined
     aiConsentGiven?: boolean | undefined
-    /**
-     * Map of feature flag key → evaluated boolean result.
-     * Used to gate tools that declare `feature_flag` in their YAML config.
-     */
-    featureFlags?: Record<string, boolean> | undefined
-}
-
-/**
- * Collect all distinct feature flag keys referenced by tool definitions.
- * Used at init time to batch-evaluate flags before filtering tools.
- */
-export function getRequiredFeatureFlags(version?: number): string[] {
-    const toolDefinitions = getToolDefinitions(version)
-    const flags = new Set<string>()
-    for (const definition of Object.values(toolDefinitions)) {
-        if (definition.feature_flag) {
-            flags.add(definition.feature_flag)
-        }
-    }
-    return [...flags]
 }
 
 function normalizeFeatureName(name: string): string {
@@ -116,15 +71,10 @@ function normalizeFeatureName(name: string): string {
 }
 
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, tools, version, readOnly, aiConsentGiven, featureFlags } = options || {}
-    const toolDefinitions = getToolDefinitions(version)
+    const { features, tools, readOnly, aiConsentGiven } = options || {}
+    const toolDefinitions = getToolDefinitions()
 
     let entries = Object.entries(toolDefinitions)
-
-    // Filter out tools that are not supported in new MCP
-    if (version === 2) {
-        entries = entries.filter(([_, definition]) => definition.new_mcp !== false)
-    }
 
     // Filter by features and/or tools allowlist (OR union).
     // When both are provided, a tool is included if it matches a feature category OR is in the tools list.
@@ -157,33 +107,6 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     // When AI consent is not given or not yet fetched, exclude tools that require it
     if (!aiConsentGiven) {
         entries = entries.filter(([_, definition]) => !definition.requires_ai_consent)
-    }
-
-    // Filter by feature flags — tools with a feature_flag are gated by the flag's evaluation.
-    // behavior 'enable' (default): tool is included only when the flag is on.
-    // behavior 'disable': tool is excluded when the flag is on.
-    if (featureFlags) {
-        entries = entries.filter(([_, definition]) => {
-            if (!definition.feature_flag) {
-                return true
-            }
-            const flagValue = featureFlags[definition.feature_flag]
-            // If the flag wasn't evaluated (missing from the map), exclude the tool
-            // for 'enable' behavior and include it for 'disable' behavior.
-            const isOn = flagValue === true
-            const behavior = definition.feature_flag_behavior ?? 'enable'
-            return behavior === 'enable' ? isOn : !isOn
-        })
-    } else {
-        // When no feature flags have been evaluated, exclude tools that require
-        // a flag to be enabled (behavior 'enable') — they shouldn't appear by default.
-        // Tools with behavior 'disable' are included since their flag hasn't fired.
-        entries = entries.filter(([_, definition]) => {
-            if (!definition.feature_flag) {
-                return true
-            }
-            return (definition.feature_flag_behavior ?? 'enable') === 'disable'
-        })
     }
 
     return entries.map(([toolName, _]) => toolName)

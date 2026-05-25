@@ -1,0 +1,42 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "account_executive": {
+            "description": "Filter by account executive. Use 'unassigned' or an integer user id.",
+            "type": "string"
+        },
+        "account_owner": {
+            "description": "Filter by account owner. Use 'unassigned' or an integer user id.",
+            "type": "string"
+        },
+        "all_roles_unassigned": {
+            "description": "When true, returns only accounts where CSM, account executive, and account owner are all unset.",
+            "type": "boolean"
+        },
+        "csm": {
+            "description": "Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "ordering": {
+            "description": "Sort order. Defaults to '-created_at'.",
+            "type": "string"
+        },
+        "search": {
+            "description": "Case-insensitive substring search across account name and external ID.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON-encoded array of tag names to filter by, e.g. `[\"enterprise\",\"priority\"]`. Returns accounts that have any of the listed tags.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

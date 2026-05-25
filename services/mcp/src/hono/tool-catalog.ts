@@ -14,10 +14,7 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 interface PreBuiltTool {
     base: ToolBase<ZodObjectAny>
-    definitions: {
-        v1: ToolDefinition | undefined
-        v2: ToolDefinition | undefined
-    }
+    definition: ToolDefinition | undefined
 }
 
 export interface ToolCatalogFilterOptions extends ToolFilterOptions {
@@ -56,17 +53,13 @@ export class ToolCatalog {
             ...GENERATED_TOOL_MAP,
         }
 
-        const v1Defs = getToolDefinitions(1)
-        const v2Defs = getToolDefinitions(2)
+        const defs = getToolDefinitions()
 
         for (const [name, factory] of Object.entries(allFactories)) {
             const base = factory()
             this._preBuilt.set(name, {
                 base,
-                definitions: {
-                    v1: v1Defs[name],
-                    v2: v2Defs[name],
-                },
+                definition: defs[name],
             })
         }
 
@@ -83,7 +76,7 @@ export class ToolCatalog {
         this._entriesByName = new Map()
 
         for (const [name, preBuilt] of this._preBuilt) {
-            const def = preBuilt.definitions.v1 ?? preBuilt.definitions.v2
+            const def = preBuilt.definition
             if (!def) {continue}
 
             let jsonSchema: Record<string, unknown>
@@ -135,7 +128,6 @@ export class ToolCatalog {
     getFilteredTools(options: ToolCatalogFilterOptions): Tool<ZodObjectAny>[] {
         const { scopes = [], excludeTools = [], ...filterOptions } = options
         const allowedToolNames = getToolsForFeatures(filterOptions).filter((name) => !excludeTools.includes(name))
-        const effectiveVersion = filterOptions.version ?? 1
 
         const tools: Tool<ZodObjectAny>[] = []
 
@@ -144,13 +136,7 @@ export class ToolCatalog {
             if (!preBuilt) {
                 continue
             }
-            const { base } = preBuilt
-
-            if (base.mcpVersion !== undefined && base.mcpVersion !== effectiveVersion) {
-                continue
-            }
-
-            const definition = preBuilt.definitions[effectiveVersion === 2 ? 'v2' : 'v1'] ?? preBuilt.definitions.v1
+            const { base, definition } = preBuilt
             if (!definition) {
                 continue
             }

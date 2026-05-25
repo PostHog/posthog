@@ -47,7 +47,6 @@ vi.mock('@/tools', () => ({
     TOOL_MAP: {
         'tool-a': () => makeToolBase('tool-a'),
         'tool-b': () => makeToolBase('tool-b'),
-        'tool-v2-only': () => makeToolBase('tool-v2-only', { mcpVersion: 2 }),
     },
 }))
 
@@ -61,7 +60,6 @@ const DEFINITIONS: Record<string, FakeDefinition> = {
     'tool-a': fakeDef({ required_scopes: ['project:read'] }),
     'tool-b': fakeDef({ feature: 'insights', annotations: { ...fakeDef().annotations, readOnlyHint: true } }),
     'gen-tool-c': fakeDef({ required_scopes: ['action:write'] }),
-    'tool-v2-only': fakeDef(),
 }
 
 vi.mock('@/tools/toolDefinitions', () => ({
@@ -76,10 +74,8 @@ vi.mock('@/tools/toolDefinitions', () => ({
     getToolsForFeatures: (options?: {
         features?: string[]
         tools?: string[]
-        version?: number
         readOnly?: boolean
         aiConsentGiven?: boolean
-        featureFlags?: Record<string, boolean>
     }) => {
         let names = Object.keys(DEFINITIONS)
         if (options?.features?.length) {
@@ -149,23 +145,6 @@ describe('ToolCatalog', () => {
             const tools = catalog.getFilteredTools({ scopes: [] })
             const names = tools.map((t) => t.name)
             expect(names).toEqual(['tool-b'])
-        })
-
-        it('should include v2-only tools when version is 2', () => {
-            const tools = catalog.getFilteredTools({
-                scopes: ['project:read', 'action:write'],
-                version: 2,
-            })
-            const names = tools.map((t) => t.name).sort()
-            expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-b', 'tool-v2-only'])
-        })
-
-        it('should exclude v2-only tools when version is 1', () => {
-            const tools = catalog.getFilteredTools({
-                scopes: ['project:read', 'action:write'],
-                version: 1,
-            })
-            expect(tools.find((t) => t.name === 'tool-v2-only')).toBeUndefined()
         })
 
         it('should filter by readOnly when passed through to getToolsForFeatures', () => {

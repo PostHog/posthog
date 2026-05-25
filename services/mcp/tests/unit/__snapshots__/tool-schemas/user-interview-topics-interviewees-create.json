@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "agent_context": {
+            "description": "Extra context the voice agent should know about this specific interviewee — e.g. 'uses the replay product but has never used summarization'.",
+            "maxLength": 10000,
+            "type": "string"
+        },
+        "interviewee_identifier": {
+            "description": "Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "topic_id": {
+            "type": "string"
+        }
+    },
+    "required": ["topic_id", "interviewee_identifier", "agent_context"],
+    "type": "object"
+}

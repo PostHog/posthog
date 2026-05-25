@@ -97,7 +97,6 @@ export const ToolConfigSchema = z
                     })
             )
             .optional(),
-        mcp_version: z.number().int().positive().optional(),
         /**
          * Cross-field refinements applied to the composed tool schema.
          * Each entry names a function exported from `@/schema/tool-inputs` whose
@@ -128,22 +127,6 @@ export const ToolConfigSchema = z
          * the request body still sends the original field name.
          */
         rename_params: z.record(z.string(), z.string()).optional(),
-        /**
-         * PostHog feature flag key that controls whether this tool is exposed.
-         * When set, the tool is only included (or excluded) based on the flag's
-         * evaluation for the current user.
-         *
-         * By default (`feature_flag_behavior: 'enable'`), the tool is only shown
-         * when the flag is **on**. Set `feature_flag_behavior: 'disable'` to hide
-         * the tool when the flag is on (useful for sunsetting old tools).
-         */
-        feature_flag: z.string().optional(),
-        /**
-         * Controls how `feature_flag` gates the tool:
-         * - `'enable'` (default): tool is shown only when the flag is on.
-         * - `'disable'`: tool is hidden when the flag is on.
-         */
-        feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
         /**
          * Response field filtering. Supports dot-path patterns with wildcards (e.g. 'filters.groups.*.key').
          * For list endpoints, applied to each item in `results`. `include` and `exclude` are mutually exclusive.
@@ -352,7 +335,6 @@ export const QueryWrapperToolConfigSchema = z
             })
             .strict()
             .optional(),
-        mcp_version: z.number().int().positive().optional(),
         title: z.string().optional(),
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */
@@ -387,17 +369,6 @@ export const QueryWrapperToolConfigSchema = z
          * `{baseUrl}{url_prefix}` instead of the default `/insights/new#q=...`.
          */
         url_prefix: z.string().optional(),
-        /**
-         * PostHog feature flag key that controls whether this tool is exposed.
-         * See ToolConfigSchema.feature_flag for full documentation.
-         */
-        feature_flag: z.string().optional(),
-        /**
-         * Controls how `feature_flag` gates the tool:
-         * - `'enable'` (default): tool is shown only when the flag is on.
-         * - `'disable'`: tool is hidden when the flag is on.
-         */
-        feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
     })
     .strict()
     .refine((data) => !(data.description && data.description_file), {

@@ -36,7 +36,6 @@ tools:
                 description: >
                     Tag names to attach to the account. Tags are created on demand if they do not already exist for the
                     team.
-        feature_flag: customer-analytics-csp
     accounts-destroy:
         operation: accounts_destroy
         enabled: true
@@ -49,7 +48,6 @@ tools:
         title: Delete account
         description: |
             Permanently delete a Customer Analytics account by id.
-        feature_flag: customer-analytics-csp
     accounts-list:
         operation: accounts_list
         enabled: true
@@ -73,7 +71,6 @@ tools:
                 description: >
                     JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
                     that have any of the listed tags.
-        feature_flag: customer-analytics-csp
     accounts-partial-update:
         operation: accounts_partial_update
         enabled: true
@@ -98,7 +95,6 @@ tools:
                 description: >
                     Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a
                     delta. Tags are created on demand if they do not already exist for the team.
-        feature_flag: customer-analytics-csp
     accounts-retrieve:
         operation: accounts_retrieve
         enabled: true
@@ -113,7 +109,6 @@ tools:
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
             account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
             zendesk_id external identifiers) and `tags`.
-        feature_flag: customer-analytics-csp
     accounts-update:
         operation: accounts_update
         enabled: false
@@ -182,28 +177,6 @@ tools:
                 description: >
                     Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope
                     the metric — usage metrics apply to both groups and persons regardless of this value.
-    usage-metrics-list:
-        operation: groups_types_metrics_list
-        enabled: true
-        scopes:
-            - usage_metric:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List usage metrics
-        description: >
-            List usage metrics defined for the project. Usage metrics apply to both groups and persons on Customer
-            Analytics profile pages — they are NOT scoped to a specific group type despite the legacy URL shape. Returns
-            each metric's id, name, format, interval (days), display mode, math aggregation, and filter definition. Pass
-            `group_type_index: 0`.
-        param_overrides:
-            group_type_index:
-                description: >
-                    Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope
-                    the metric — usage metrics apply to both groups and persons regardless of this value.
-        mcp_version: 1
     usage-metrics-partial-update:
         operation: groups_types_metrics_partial_update
         enabled: true
@@ -234,25 +207,6 @@ tools:
                     Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an
                     event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum
                     on the DW table.
-    usage-metrics-retrieve:
-        operation: groups_types_metrics_retrieve
-        enabled: true
-        scopes:
-            - usage_metric:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get usage metric
-        description: >
-            Fetch a single usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and
-            persons regardless of this value.
-        param_overrides:
-            group_type_index:
-                description: >
-                    Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope
-                    the metric — usage metrics apply to both groups and persons regardless of this value.
-        mcp_version: 1
     usage-metrics-update:
         operation: groups_types_metrics_update
         enabled: false

@@ -52,7 +52,6 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         } as any,
         version: 2,
         useSingleExec: false,
-        toolFeatureFlags: undefined,
         apiKeyScopes: [],
         clientProfile: { capabilities: { supportsInstructions: true } } as any,
         allTools: tools as any,

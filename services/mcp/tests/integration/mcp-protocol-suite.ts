@@ -1253,7 +1253,7 @@ export function defineCatalogFilterTests(
         // request gets back `Method not found` instead. Both are valid
         // runtime choices — we gate this assertion on the
         // `gracefulUnknown` flag that the Hono harness sets.
-        it('returns an empty (but well-formed) list for an unknown feature', async ({ skip }) => {
+        it('returns only always-available tools for an unknown feature', async ({ skip }) => {
             const harness = await getHarness()
             if (!harness.gracefulUnknown) {
                 skip('Empty-catalog handling is runtime-specific; only the graceful-unknown runtime returns []')
@@ -1261,7 +1261,10 @@ export function defineCatalogFilterTests(
             }
             const { tools } = await listToolsWithQuery(harness, '?features=this-feature-does-not-exist')
             expect(Array.isArray(tools)).toBe(true)
-            expect(tools.length).toBe(0)
+            // The feature filter matches nothing, but `always_available` tools
+            // (e.g. agent-feedback) bypass it and remain in the catalog.
+            const names = tools.map((t: { name: string }) => t.name)
+            expect(names).toContain('agent-feedback')
         })
 
         // Read-only mode is the safety toggle agents flip when they want

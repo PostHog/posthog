@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "focus_area": {
+            "description": "Optional focus area for the summarization",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "session_ids": {
+            "description": "List of session IDs to summarize (max 300)",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 300,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["session_ids"],
+    "type": "object"
+}

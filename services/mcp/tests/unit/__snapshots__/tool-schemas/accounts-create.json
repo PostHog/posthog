@@ -1,0 +1,151 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "external_id": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Identifier for the account in an external system (e.g. CRM ID). Optional."
+        },
+        "name": {
+            "description": "Human-readable name of the account.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "properties": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "account_executive": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "email": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["id", "email"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "account_owner": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "email": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["id", "email"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "billing_id": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "csm": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "email": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["id", "email"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "hubspot_deal_id": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "sfdc_id": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "stripe_customer_id": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "zendesk_id": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional."
+        },
+        "tags": {
+            "description": "Tag names to attach to the account. Tags are created on demand if they do not already exist for the team.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

@@ -36,7 +36,6 @@ const STATIC_CTX: InstructionsContext = {
     metadata: STATIC_METADATA,
     tools: STATIC_TOOLS,
     queryTools: STATIC_QUERY_TOOLS,
-    featureFlags: { 'mcp-feedback-tool': true },
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -47,18 +46,6 @@ const SNAPSHOT_DIR = path.resolve(__dirname, '__snapshots__', 'instructions')
 // package.json). Otherwise the markdown formatter would reflow the snapshot on
 // commit and drift from what `formatPrompt` produces, breaking the test.
 describe('InstructionsFormatter prompt snapshots', () => {
-    it('matches the v1 (legacy) prompt', async () => {
-        const formatter = new InstructionsFormatter()
-        const rendered = formatter.buildV1Instructions()
-        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'tools-v1-instructions.txt'))
-    })
-
-    it('matches the v1 (legacy) prompt with metadata appended', async () => {
-        const formatter = new InstructionsFormatter()
-        const rendered = formatter.buildV1Instructions(STATIC_METADATA)
-        await expect(rendered).toMatchFileSnapshot(path.join(SNAPSHOT_DIR, 'tools-v1-instructions-with-metadata.txt'))
-    })
-
     it('matches the v2 (tools-mode) prompt', async () => {
         const formatter = new InstructionsFormatter()
         const rendered = formatter.buildV2Instructions(STATIC_CTX)

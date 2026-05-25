@@ -20,7 +20,6 @@ import COMPACT_INSTRUCTIONS from '@/templates/sections/compact-instructions.md'
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
-import LEGACY from '@/templates/sections/legacy.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
@@ -32,28 +31,15 @@ export interface InstructionsContext {
     metadata?: string | undefined
     tools?: ToolInfo[] | undefined
     queryTools?: QueryToolInfo[] | undefined
-    /** Resolved tool feature flags from `resolveToolFeatureFlags`. Used to gate
-     *  prompt sections whose corresponding tool is flag-gated. */
-    featureFlags?: Record<string, boolean> | undefined
 }
 
 /**
- * Composes MCP instruction prompts for the three client modes (legacy v1,
- * tools-mode v2, single-exec). Each mode declares an ordered list of
- * subprompts under `services/mcp/src/templates/sections/`; subprompts that
- * appear in multiple modes live in a single file, so prose can't drift.
+ * Composes MCP instruction prompts for the two client modes (tools-mode and
+ * single-exec). Each mode declares an ordered list of subprompts under
+ * `services/mcp/src/templates/sections/`; subprompts that appear in both modes
+ * live in a single file, so prose can't drift.
  */
 export class InstructionsFormatter {
-    /** Build the legacy v1 instructions string. Appends `metadata` to the legacy
-     *  section if provided. */
-    buildV1Instructions(metadata?: string): string {
-        const legacy = LEGACY.trim()
-        if (!metadata) {
-            return legacy
-        }
-        return `${legacy}\n\n${metadata}`
-    }
-
     /** Build the system prompt for tools-mode clients (each tool registered separately). */
     buildV2Instructions(ctx: InstructionsContext): string {
         return this.compose(
@@ -64,7 +50,7 @@ export class InstructionsFormatter {
                 SCHEMA_WORKFLOW,
                 ENV_CONTEXT,
                 URL_PATTERNS,
-                ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
+                AGENT_FEEDBACK,
                 EXAMPLES,
             ],
             ctx,
@@ -101,18 +87,11 @@ export class InstructionsFormatter {
             SCHEMA_WORKFLOW,
             ENV_CONTEXT,
             URL_PATTERNS,
-            ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
+            AGENT_FEEDBACK,
             EXAMPLES,
         ]
         const renderCtx: InstructionsContext = opts.stripEnvContext ? { guidelines: ctx.guidelines } : ctx
         return this.compose(sections, renderCtx, { compact: false })
-    }
-
-    /** The agent-feedback section is only useful when the `agent-feedback` tool
-     *  is reachable, which is governed by the `mcp-feedback-tool` flag evaluated
-     *  in `resolveToolFeatureFlags`. */
-    private agentFeedbackEnabled(featureFlags: Record<string, boolean> | undefined): boolean {
-        return featureFlags?.['mcp-feedback-tool'] === true
     }
 
     private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {

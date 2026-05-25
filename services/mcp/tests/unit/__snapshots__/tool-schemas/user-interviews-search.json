@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "document_types": {
+            "description": "Which document types to search across. Omit to default to both `transcript` and `summary`. Pass a non-empty subset to restrict the search.",
+            "items": {
+                "description": "* `transcript` - transcript\n* `summary` - summary",
+                "enum": ["transcript", "summary"],
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "limit": {
+            "description": "Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "number"
+        },
+        "query": {
+            "description": "Natural-language query to match semantically against interview transcripts and summaries.",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "topic_id": {
+            "anyOf": [
+                {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional. Restrict results to interviews belonging to a specific UserInterviewTopic."
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

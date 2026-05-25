@@ -28,7 +28,7 @@ import {
     McpAnalyticsInitResult,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import { evaluateFeatureFlags, type FlagGroups, isFeatureFlagEnabled } from '@/lib/posthog/flags'
+import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -84,10 +84,7 @@ export type RequestProperties = {
 }
 
 export class MCP extends McpAgent<Env> {
-    server = new McpServer(
-        { name: 'PostHog', version: '1.0.0' },
-        { instructions: instructionsFormatter.buildV1Instructions() }
-    )
+    server = new McpServer({ name: 'PostHog', version: '1.0.0' })
 
     initialState: State = {
         projectId: undefined,
@@ -558,8 +555,7 @@ export class MCP extends McpAgent<Env> {
         // `resolveClientInfo` is only reachable post-init.
         await this.resolveClientInfo()
 
-        // User-level flags resolve in parallel with cache seeding. Tool flags are
-        // deferred until orgId is known so org-group rollouts evaluate correctly.
+        // User-level flags resolve in parallel with cache seeding.
         const singleExecPromise = this.resolveSingleExecFlag()
 
         // Seed cache with header-provided IDs before any fetches
@@ -589,14 +585,7 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        // Flag-eval groups mirror analytics `$groups` so per-organization and per-project
-        // rollouts evaluate against the same entities — see `buildMCPAnalyticsGroups`.
-        const flagAnalyticsContext = await this.getAnalyticsContextSafe(context)
-        const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
-        const toolFlagsPromise = this.resolveToolFeatureFlags(2, flagGroups)
-
-        const [toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
-            toolFlagsPromise,
+        const [singleExecFlagOn, _apiKey] = await Promise.all([
             singleExecPromise,
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
@@ -646,10 +635,8 @@ export class MCP extends McpAgent<Env> {
         const allTools = await getToolsFromContext(context, {
             features,
             tools,
-            version,
             excludeTools,
             readOnly,
-            featureFlags: toolFeatureFlags,
         })
 
         // OAuth introspection ran above (we awaited `getApiKey()` before constructing
@@ -661,12 +648,12 @@ export class MCP extends McpAgent<Env> {
 
         const toolInfos = allTools.map((t) => ({
             name: t.name,
-            category: getToolDefinition(t.name, version).category,
+            category: getToolDefinition(t.name).category,
         }))
         const queryToolInfos: QueryToolInfo[] = allTools
             .filter((t) => t.name.startsWith('query-'))
             .map((t) => {
-                const def = getToolDefinition(t.name, version)
+                const def = getToolDefinition(t.name)
                 return {
                     name: t.name,
                     title: def.title,
@@ -682,7 +669,6 @@ export class MCP extends McpAgent<Env> {
             metadata,
             tools: toolInfos,
             queryTools: queryToolInfos,
-            featureFlags: toolFeatureFlags,
         }
 
         // In single-exec mode, when the client honors the MCP `instructions` field we
@@ -693,13 +679,9 @@ export class MCP extends McpAgent<Env> {
         // empty `instructions`, everything inlined in the `command` description.
         let instructions = ''
         if (supportsInstructions) {
-            if (useSingleExec) {
-                instructions = instructionsFormatter.buildExecInstructions(instructionsContext)
-            } else if (version === 2) {
-                instructions = instructionsFormatter.buildV2Instructions(instructionsContext)
-            } else {
-                instructions = instructionsFormatter.buildV1Instructions(metadata)
-            }
+            instructions = useSingleExec
+                ? instructionsFormatter.buildExecInstructions(instructionsContext)
+                : instructionsFormatter.buildV2Instructions(instructionsContext)
         }
 
         this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
@@ -711,17 +693,15 @@ export class MCP extends McpAgent<Env> {
             registerUiAppResources(this.server, context),
         ])
 
-        // execute-sql is v2-only. Swap its description with the rich SQL prompt
-        // (visible via `info execute-sql` in single-exec, and as the tool's own
-        // description otherwise). It folds in the HogQL/SQL intro, guidelines,
-        // discovery workflow, and the truncation guidance that the base JSON
-        // description carried — and it triggers the `querying-posthog-data`
-        // skill more reliably than the shorter default.
-        if (version === 2) {
-            const sqlTool = allTools.find((t) => t.name === 'execute-sql')
-            if (sqlTool) {
-                sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: guidelines.trim() })
-            }
+        // Swap execute-sql's description with the rich SQL prompt (visible via
+        // `info execute-sql` in single-exec, and as the tool's own description
+        // otherwise). It folds in the HogQL/SQL intro, guidelines, discovery
+        // workflow, and the truncation guidance that the base JSON description
+        // carried — and it triggers the `querying-posthog-data` skill more
+        // reliably than the shorter default.
+        const sqlTool = allTools.find((t) => t.name === 'execute-sql')
+        if (sqlTool) {
+            sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: guidelines.trim() })
         }
 
         // In single-exec mode, register one "posthog" tool that wraps all tools
@@ -892,23 +872,6 @@ export class MCP extends McpAgent<Env> {
             return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
         } catch {
             return false
-        }
-    }
-
-    private async resolveToolFeatureFlags(
-        version?: number,
-        groups?: FlagGroups
-    ): Promise<Record<string, boolean> | undefined> {
-        try {
-            const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
-            const flagKeys = getRequiredFeatureFlags(version)
-            if (flagKeys.length === 0) {
-                return undefined
-            }
-            const distinctId = await this.getDistinctId()
-            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
-        } catch {
-            return undefined
         }
     }
 }
