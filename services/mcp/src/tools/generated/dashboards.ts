@@ -139,7 +139,7 @@ const dashboardCreateTextTile = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/create_text_tile/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
     },
 })
 
@@ -414,7 +414,7 @@ const dashboardUpdateTextTile = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/update_text_tile/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
     },
 })
 

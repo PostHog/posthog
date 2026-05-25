@@ -443,6 +443,7 @@ export interface TileLayoutsApi {
 export interface CreateTextTileRequestApi {
     /**
      * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
+     * @minLength 1
      * @maxLength 4000
      */
     body: string
@@ -7188,6 +7189,7 @@ export interface PatchedUpdateTextTileRequestApi {
     tile_id?: number
     /**
      * New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.
+     * @minLength 1
      * @maxLength 4000
      */
     body?: string

@@ -186,6 +186,7 @@ export const dashboardsCreateTextTileCreateBodyColorMax = 400
 export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
     body: zod
         .string()
+        .min(1)
         .max(dashboardsCreateTextTileCreateBodyBodyMax)
         .describe(
             'Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.'
@@ -309,6 +310,7 @@ export const DashboardsUpdateTextTilePartialUpdateBody = /* @__PURE__ */ zod.obj
         .describe('ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.'),
     body: zod
         .string()
+        .min(1)
         .max(dashboardsUpdateTextTilePartialUpdateBodyBodyMax)
         .optional()
         .describe('New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.'),

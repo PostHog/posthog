@@ -194,6 +194,7 @@ class TileLayoutsSerializer(serializers.Serializer):
 
 class CreateTextTileRequestSerializer(serializers.Serializer):
     body = serializers.CharField(
+        min_length=1,
         max_length=4000,
         required=True,
         allow_blank=False,
@@ -201,7 +202,10 @@ class CreateTextTileRequestSerializer(serializers.Serializer):
             "Markdown body for the text tile. Supports headings, lists, and inline formatting. "
             "Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters."
         ),
-        error_messages={"max_length": "Text body cannot exceed 4000 characters"},
+        error_messages={
+            "min_length": "Text body cannot be empty",
+            "max_length": "Text body cannot exceed 4000 characters",
+        },
     )
     layouts = TileLayoutsSerializer(
         required=False,
@@ -226,12 +230,16 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
         help_text="ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.",
     )
     body = serializers.CharField(
+        min_length=1,
         max_length=4000,
         required=False,
         allow_null=False,
         allow_blank=False,
         help_text="New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.",
-        error_messages={"max_length": "Text body cannot exceed 4000 characters"},
+        error_messages={
+            "min_length": "Text body cannot be empty",
+            "max_length": "Text body cannot exceed 4000 characters",
+        },
     )
     layouts = TileLayoutsSerializer(
         required=False,
