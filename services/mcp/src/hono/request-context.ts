@@ -1,6 +1,7 @@
 import { ApiClient } from '@/api/client'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
+import { hash } from '@/lib/utils'
 import {
     AnalyticsEvent,
     buildMCPAnalyticsGroups,
@@ -48,14 +49,14 @@ export class RequestContext {
             throw new Error('Session ID is required to use the session cache')
         }
         if (!this.sessionCacheInstance) {
-            this.sessionCacheInstance = new RedisCache<State>(this.props.mcpSessionId, this.redis, 'session')
+            this.sessionCacheInstance = new RedisCache<State>(hash(this.props.mcpSessionId), this.redis, 'session')
         }
         return this.sessionCacheInstance
     }
 
     getUserCache(distinctId: string): RedisCache<State> {
         if (!this.userCacheInstance) {
-            this.userCacheInstance = new RedisCache<State>(distinctId, this.redis, 'user')
+            this.userCacheInstance = new RedisCache<State>(hash(distinctId), this.redis, 'user')
         }
         return this.userCacheInstance
     }

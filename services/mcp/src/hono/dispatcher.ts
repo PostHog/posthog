@@ -156,7 +156,7 @@ class McpDispatcher {
         }
 
         const hasInit = requests.some((r) => r.method === Method.Initialize)
-        if (hasInit && !props.mcpSessionId) {
+        if (hasInit) {
             props.mcpSessionId = randomUUID()
         }
 
