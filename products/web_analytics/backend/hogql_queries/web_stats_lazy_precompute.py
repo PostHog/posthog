@@ -564,6 +564,14 @@ def execute_lazy_precomputed_read(
                         return None
 
                     job_ids.extend(str(jid) for jid in prev_result.job_ids)
+                else:
+                    # Cap collapsed the previous-period window to nothing (e.g. a
+                    # non-UTC boundary day shared the same job_id as the current
+                    # period). Clear the previous bounds so the read does not
+                    # filter for a window with no backing job_ids — otherwise
+                    # every `*MergeIf(..., prev_*)` would silently return 0.
+                    previous_start_utc = None
+                    previous_end_utc = None
 
         rows, has_more, sort_metric = execute_read_query(
             runner=runner,
