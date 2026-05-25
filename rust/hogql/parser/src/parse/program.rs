@@ -28,6 +28,7 @@
 
 use serde_json::{json, Value};
 
+use super::expr::is_pure_infix_op;
 use super::{identifier_text, kw_valid_as_identifier, Parser};
 use crate::emit;
 use crate::error::ParseError;
@@ -169,7 +170,18 @@ impl<'a> Parser<'a> {
 
     fn parse_statement_inner(&mut self) -> Result<Value, ParseError> {
         match self.peek() {
-            TokenKind::Keyword(Kw::Return) => self.parse_return_stmt(),
+            // `return` is also a `keyword`-rule identifier. When it is followed
+            // by a pure infix / postfix operator (`return :: t`, `return.x`,
+            // `return -> y`, `return = 1`, `return / 2`, …) that operator binds
+            // `return` as its LHS, so cpp parses the whole line as one exprStmt
+            // (`return` is a Field / lambda param), not a bare return that
+            // strands the operator. A value-starter or keyword-infix after
+            // `return` keeps the returnStmt (`return 1`, `return + 1`) or the
+            // bare-return split (`return like x`). Gate on `is_pure_infix_op`
+            // and fall through to the exprStmt arm for the identifier case.
+            TokenKind::Keyword(Kw::Return) if !is_pure_infix_op(self.peek_next()) => {
+                self.parse_return_stmt()
+            }
             TokenKind::Keyword(Kw::Throw) => self.parse_throw_stmt(),
             TokenKind::Keyword(Kw::Try) => self.parse_try_catch_stmt(),
             // `ifStmt` / `forStmt` / `forInStmt` open with `IF` / `FOR`

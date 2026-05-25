@@ -693,3 +693,36 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             for backend in ("cpp-json", "rust-json"):
                 with self.assertRaises(BaseHogQLError):
                     parse_select(query, backend=backend)
+
+    @no_memory_leak_check
+    def test_return_keyword_as_identifier_before_infix_postfix(self):
+        # `return` is also a keyword-rule identifier. When it is followed by a
+        # pure infix / postfix operator, that operator binds `return` as its
+        # LHS, so the line is one exprStmt (`return :: t`, `return.x`, `return
+        # -> y`, `return = 1`, `return / 2`), not a bare return that strands the
+        # operator. A value-starter keeps the return statement (`return 1`,
+        # `return + 1`); a keyword-infix keeps the bare-return split (`return
+        # like x` is `return` + `like x`).
+        for query in (
+            "return -> y",
+            "return :: date",
+            "return . x",
+            "return ?. x",
+            "return = 1",
+            "return / 2",
+            "return || x",
+            "return < 2",
+            "return != 1",
+            "return ?? x",
+        ):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )
+        for query in ("return 1", "return + 1", "return [1]", "return", "return like x", "return * 2"):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )

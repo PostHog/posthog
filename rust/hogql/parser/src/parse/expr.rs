@@ -4924,7 +4924,7 @@ fn can_start_interval_value(tok: TokenKind) -> bool {
 /// `interval := 5` should fall back to the named-argument identifier
 /// path because `:=` can't open an INTERVAL value, and similar for
 /// comparison / equality operators.
-fn is_pure_infix_op(tok: TokenKind) -> bool {
+pub(crate) fn is_pure_infix_op(tok: TokenKind) -> bool {
     matches!(
         tok,
         TokenKind::ColonEquals
