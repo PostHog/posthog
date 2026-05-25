@@ -493,13 +493,8 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
-        if is_denormalized:
-            return (
-                " {property_operator} {left} != ''".format(left=property_expr, property_operator=property_operator),
-                params,
-            )
         return (
-            " {property_operator} JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(
+            " {property_operator} (JSONHas({prop_var}, %(k{prepend}_{idx})s) AND JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s) != 'null')".format(
                 idx=idx,
                 prepend=prepend,
                 prop_var=prop_var,
@@ -512,13 +507,8 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
-        if is_denormalized:
-            return (
-                " {property_operator} {left} = ''".format(left=property_expr, property_operator=property_operator),
-                params,
-            )
         return (
-            " {property_operator} (isNull({left}) OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
+            " {property_operator} (isNull({left}) OR JSONExtractRaw({prop_var}, %(k{prepend}_{idx})s) = 'null' OR NOT JSONHas({prop_var}, %(k{prepend}_{idx})s))".format(
                 idx=idx,
                 prepend=prepend,
                 prop_var=prop_var,
