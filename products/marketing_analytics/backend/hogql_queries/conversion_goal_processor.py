@@ -297,6 +297,8 @@ class ConversionGoalProcessor:
         Reads the preagg table when eligible, falls back to events scan on any failure.
         """
         if self._should_use_precompute(date_from, date_to):
+            # `_should_use_precompute` returns False unless both dates are set; narrow for mypy.
+            assert date_from is not None and date_to is not None
             try:
                 precomputed_attribution = self._build_attributed_source_from_precompute(date_from, date_to)
                 if precomputed_attribution is not None:

@@ -179,11 +179,12 @@ class TestConversionGoalProcessorRefactor(BaseTest):
     def test_precompute_template_matches_preagg_table_columns(self):
         processor = self._processor()
         template, _ = processor.get_attributed_query_for_precomputation()
-        placeholders = {
+        placeholders: dict[str, ast.Expr] = {
             "time_window_min": ast.Constant(value=datetime(2025, 1, 1, tzinfo=UTC)),
             "time_window_max": ast.Constant(value=datetime(2025, 1, 2, tzinfo=UTC)),
         }
         write_template = parse_select(template, placeholders=placeholders)
+        assert isinstance(write_template, ast.SelectQuery)
         aliases = [e.alias for e in write_template.select if isinstance(e, ast.Alias)]
         for col in write_template.select:
             assert isinstance(col, ast.Alias), f"SELECT column not aliased: {col}"
@@ -232,11 +233,12 @@ class TestConversionGoalProcessorRefactor(BaseTest):
         processor = self._processor()
         processor.config.attribution_mode = AttributionMode.LINEAR
         template, _ = processor.get_attributed_query_for_precomputation()
-        placeholders = {
+        placeholders: dict[str, ast.Expr] = {
             "time_window_min": ast.Constant(value=datetime(2025, 1, 1, tzinfo=UTC)),
             "time_window_max": ast.Constant(value=datetime(2025, 1, 2, tzinfo=UTC)),
         }
         parsed = parse_select(template, placeholders=placeholders)
+        assert isinstance(parsed, ast.SelectQuery)
         aliases = [e.alias for e in parsed.select if isinstance(e, ast.Alias)]
         assert "touchpoint_weight" in aliases
         assert "touchpoint_timestamp" in aliases
@@ -283,7 +285,7 @@ class TestConversionGoalProcessorRefactor(BaseTest):
     def test_precompute_insert_template_sql_snapshot(self):
         processor = self._processor()
         template, _ = processor.get_attributed_query_for_precomputation()
-        placeholders = {
+        placeholders: dict[str, ast.Expr] = {
             "time_window_min": ast.Constant(value=datetime(2025, 1, 1, tzinfo=UTC)),
             "time_window_max": ast.Constant(value=datetime(2025, 1, 2, tzinfo=UTC)),
         }

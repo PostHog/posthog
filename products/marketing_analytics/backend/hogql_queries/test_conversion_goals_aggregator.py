@@ -43,16 +43,15 @@ def _deterministic_job_uuid_factory():
     return _next
 
 
-_JOB_UUID_RE = re.compile(r"'00000000-0000-0000-0000-\d{12}'")
+_JOB_UUID_RE = re.compile(r"'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'")
 
 
 def _normalize_job_uuids(hogql: str) -> str:
     """Rewrite each distinct job UUID to 001, 002, ... in order of appearance.
 
-    The underlying counter burns numbers on internal job-partition creations,
-    so the IDs that end up in the WHERE clause are non-obvious (e.g. 5, 25).
-    Normalising gives the reader a clean 001/002/... view of which jobs feed
-    which subquery without losing the distinction when multiple jobs appear.
+    Job ids are generated per run (UUIDv7, time-based), so we normalise any UUID
+    to a clean 001/002/... view that's stable across runs, without losing the
+    distinction when multiple jobs appear.
     """
     seen: dict[str, int] = {}
 
