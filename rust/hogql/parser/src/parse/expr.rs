@@ -1952,11 +1952,15 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_single_arg_arrow_lambda(&mut self) -> Result<Value, ParseError> {
+        let lambda_start = self.peek0.start;
         let ident = self.bump()?;
         let name = identifier_text(self.text(ident), ident.kind);
         self.expect(TokenKind::Arrow, "->")?;
         let body = self.parse_lambda_body()?;
-        Ok(emit::lambda(vec![name], body))
+        // Stamp the span here (not just via the caller's `wrap_pos`): a block
+        // body followed by a postfix leaves the lambda as an intermediate
+        // pratt-loop lhs the outer wrap never reaches.
+        Ok(self.wrap_pos(emit::lambda(vec![name], body), lambda_start))
     }
 
     /// Lambda body — either a single expression (`(x) -> expr`) or a
@@ -2003,6 +2007,12 @@ impl<'a> Parser<'a> {
         if !is_ident_kind(self.peek()) {
             return Ok(None);
         }
+        // The Lambda spans from its first parameter through the body's last
+        // token. Stamp it here rather than relying on the caller's `wrap_pos`:
+        // a block body that can't absorb a trailing postfix (`x -> { … } . 1`)
+        // leaves the lambda as an intermediate pratt-loop lhs that the outer
+        // wrap never reaches, so it would otherwise be position-less.
+        let lambda_start = self.peek0.start;
         // Probe with a shadow lexer that doesn't disturb the parser state.
         let mut probe = Lexer::with_pos(self.src, self.peek0.start);
         let mut names: Vec<String> = Vec::new();
@@ -2021,7 +2031,7 @@ impl<'a> Parser<'a> {
                     // Confirmed; commit the consumption.
                     self.set_lexer_pos(probe.pos())?;
                     let body = self.parse_lambda_body()?;
-                    return Ok(Some(emit::lambda(names, body)));
+                    return Ok(Some(self.wrap_pos(emit::lambda(names, body), lambda_start)));
                 }
                 TokenKind::Comma => {
                     // Peek past the comma to handle the trailing-comma
@@ -2032,7 +2042,9 @@ impl<'a> Parser<'a> {
                         TokenKind::Arrow => {
                             self.set_lexer_pos(probe.pos())?;
                             let body = self.parse_lambda_body()?;
-                            return Ok(Some(emit::lambda(names, body)));
+                            return Ok(Some(
+                                self.wrap_pos(emit::lambda(names, body), lambda_start),
+                            ));
                         }
                         k if is_ident_kind(k) => {
                             names.push(identifier_text(

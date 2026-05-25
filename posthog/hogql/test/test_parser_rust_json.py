@@ -246,6 +246,30 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             )
 
     @no_memory_leak_check
+    def test_arrow_lambda_block_body_span_with_trailing_postfix(self):
+        # An arrow lambda with a Hog BLOCK body (`x -> { … }`) ends at `}`, so a
+        # trailing postfix (`. 1`, `[1]`, `:: Int`) cannot fold into the body and
+        # binds OUTSIDE the lambda. The Lambda was then an intermediate pratt-loop
+        # lhs that the outer wrap never reached, leaving it position-less; cpp
+        # spans the Lambda over `args -> { … }`. The builder now stamps the span.
+        # (An expression body absorbs the postfix, so it never hit this.)
+        for query in (
+            "x -> { throw 0 } . 1",
+            "x, y -> { throw 0 } . 2",
+            "(a, b) -> { let z := 1 return z } . 1",
+            "x -> { throw 0 } [ 1 ]",
+            "x -> { throw 0 } :: Int",
+            "x -> { throw 0 }",
+            "x -> 1",
+            "f(x -> { throw 0 })",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    @no_memory_leak_check
     def test_statement_leading_brace_block_vs_call(self):
         # A statement-leading `{...}` is a Block, except when a postfix that
         # cannot itself begin a statement follows the matching `}`: a `.` or an
