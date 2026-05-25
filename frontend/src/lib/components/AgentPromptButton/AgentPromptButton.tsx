@@ -61,6 +61,7 @@ interface AgentDef {
 
 /** Max prompt chars before truncation for agents that have strict URL length limits. */
 const LIMIT_LONG = 8_000
+const LIMIT_CLAUDE_CODE = 5_000
 const LIMIT_SHORT = 4_000
 
 function withLimit(prompt: string, maxChars: number, build: (p: string) => string): string {
@@ -78,7 +79,7 @@ const AGENTS: AgentDef[] = [
         key: 'claude-code',
         name: 'Claude Code',
         logo: claudeLogo,
-        buildDeepLink: (p) => withLimit(p, LIMIT_LONG, (t) => `claude://code/new?q=${encodeURIComponent(t)}`),
+        buildDeepLink: (p) => withLimit(p, LIMIT_CLAUDE_CODE, (t) => `claude-cli://open?q=${encodeURIComponent(t)}`),
     },
     {
         key: 'cursor',
@@ -87,6 +88,7 @@ const AGENTS: AgentDef[] = [
         // Cursor wordmark is solid black; invert in dark mode so it stays visible
         logoClassName: 'dark:invert',
         buildDeepLink: (p) =>
+            // Cursor decodes the full deeplink before parsing query params, so reserved chars need an extra escape layer.
             withLimit(
                 p,
                 LIMIT_LONG,
