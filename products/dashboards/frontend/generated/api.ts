@@ -13,6 +13,7 @@ import type {
     BulkUpdateTagsResponseApi,
     CopyDashboardTemplateApi,
     CopyDashboardTileRequestApi,
+    CreateTextTileRequestApi,
     DashboardApi,
     DashboardCollaboratorApi,
     DashboardTemplateApi,
@@ -22,7 +23,9 @@ import type {
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
     DashboardsCreateParams,
+    DashboardsCreateTextTileParams,
     DashboardsCreateUnlistedDashboardCreateParams,
+    DashboardsDeleteTextTileParams,
     DashboardsDestroyParams,
     DashboardsListParams,
     DashboardsMoveTilePartialUpdateParams,
@@ -33,6 +36,7 @@ import type {
     DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
+    DashboardsUpdateTextTileParams,
     DataColorThemeApi,
     DataColorThemesListParams,
     PaginatedDashboardBasicListApi,
@@ -40,6 +44,7 @@ import type {
     PaginatedDataColorThemeListApi,
     PatchedDashboardApi,
     PatchedDataColorThemeApi,
+    PatchedUpdateTextTileRequestApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     SharingConfigurationApi,
@@ -519,6 +524,45 @@ export const dashboardsCopyTileCreate = async (
     })
 }
 
+export const getDashboardsCreateTextTileUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsCreateTextTileParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/create_text_tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/create_text_tile/`
+}
+
+/**
+ * Create a new text tile on this dashboard. Text tiles render markdown and are commonly used as dividers
+or section headers when authoring a dashboard. Returns the dashboard with all tiles.
+ */
+export const dashboardsCreateTextTile = async (
+    projectId: string,
+    id: number,
+    createTextTileRequestApi: CreateTextTileRequestApi,
+    params?: DashboardsCreateTextTileParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsCreateTextTileUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createTextTileRequestApi),
+    })
+}
+
 export const getDashboardsMoveTilePartialUpdateUrl = (
     projectId: string,
     id: number,
@@ -695,6 +739,83 @@ export const dashboardsStreamTilesRetrieve = async (
     return apiMutator<void>(getDashboardsStreamTilesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getDashboardsUpdateTextTileUrl = (
+    projectId: string,
+    id: number,
+    tileId: number,
+    params?: DashboardsUpdateTextTileParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/text_tiles/${tileId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/text_tiles/${tileId}/`
+}
+
+/**
+ * Update an existing text tile (body, layout, or display options). Returns the dashboard with all tiles.
+ */
+export const dashboardsUpdateTextTile = async (
+    projectId: string,
+    id: number,
+    tileId: number,
+    patchedUpdateTextTileRequestApi?: PatchedUpdateTextTileRequestApi,
+    params?: DashboardsUpdateTextTileParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsUpdateTextTileUrl(projectId, id, tileId, params), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedUpdateTextTileRequestApi),
+    })
+}
+
+export const getDashboardsDeleteTextTileUrl = (
+    projectId: string,
+    id: number,
+    tileId: number,
+    params?: DashboardsDeleteTextTileParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/text_tiles/${tileId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/text_tiles/${tileId}/`
+}
+
+/**
+ * Soft-delete a text tile from this dashboard. Returns the dashboard with the remaining tiles.
+ */
+export const dashboardsDeleteTextTile = async (
+    projectId: string,
+    id: number,
+    tileId: number,
+    params?: DashboardsDeleteTextTileParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsDeleteTextTileUrl(projectId, id, tileId, params), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

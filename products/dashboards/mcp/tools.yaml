@@ -75,6 +75,64 @@ tools:
                 - tiles.*.insight.last_viewed_at
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+    dashboard-create-text-tile:
+        operation: dashboards_create_text_tile
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create dashboard text tile
+        description: >
+            Add a new text tile to a dashboard. Text tiles render markdown and are commonly used as dividers, section
+            headers, or commentary alongside insight tiles. Provide the markdown `body` and optionally a grid `layouts`
+            block, accent `color`, and `transparent_background` flag. Returns the dashboard with all tiles; use
+            dashboard-update-text-tile or dashboard-delete-text-tile to edit or remove later.
+        param_overrides:
+            id:
+                cast: string-int
+        response:
+            exclude:
+                - effective_restriction_level
+                - effective_privilege_level
+                - user_access_level
+                - access_control_version
+                - restriction_level
+                - creation_mode
+                - deleted
+                - breakdown_colors
+                - data_color_theme_id
+                - quick_filter_ids
+                - tiles.*.color
+                - tiles.*.transparent_background
+                - tiles.*.show_description
+                - tiles.*.button_tile
+                - tiles.*.insight.result
+                - tiles.*.insight.hasMore
+                - tiles.*.insight.columns
+                - tiles.*.insight.hogql
+                - tiles.*.insight.types
+                - tiles.*.insight.query_status
+                - tiles.*.insight.cache_target_age
+                - tiles.*.insight.next_allowed_client_refresh
+                - tiles.*.insight.filters_hash
+                - tiles.*.insight.dashboards
+                - tiles.*.insight.dashboard_tiles
+                - tiles.*.insight.effective_restriction_level
+                - tiles.*.insight.effective_privilege_level
+                - tiles.*.insight.user_access_level
+                - tiles.*.insight.filters
+                - tiles.*.insight.is_sample
+                - tiles.*.insight.saved
+                - tiles.*.insight.order
+                - tiles.*.insight.deleted
+                - tiles.*.insight.alerts
+                - tiles.*.insight.last_viewed_at
+                - tiles.*.insight.timezone
+                - tiles.*.insight.resolved_date_range
     dashboard-delete:
         operation: dashboards_destroy
         enabled: true
@@ -91,6 +149,25 @@ tools:
             id:
                 cast: string-int
         soft_delete: true
+    dashboard-delete-text-tile:
+        operation: dashboards_delete_text_tile
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Delete dashboard text tile
+        description: |
+            Soft-delete a text tile from a dashboard. The tile_id is the dashboard tile id from `dashboard-get`,
+            not the underlying Text id. Returns the dashboard with the remaining tiles.
+        param_overrides:
+            id:
+                cast: string-int
+            tile_id:
+                cast: string-int
     dashboard-get:
         operation: dashboards_retrieve
         enabled: true
@@ -183,140 +260,6 @@ tools:
             Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a
             2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile
             IDs.
-    dashboard-create-text-tile:
-        operation: dashboards_create_text_tile
-        enabled: true
-        scopes:
-            - dashboard:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{id}'
-        title: Create dashboard text tile
-        description: >
-            Add a new text tile to a dashboard. Text tiles render markdown and are commonly used as dividers,
-            section headers, or commentary alongside insight tiles. Provide the markdown `body` and optionally a
-            grid `layouts` block, accent `color`, and `transparent_background` flag. Returns the dashboard with
-            all tiles; use dashboard-update-text-tile or dashboard-delete-text-tile to edit or remove later.
-        param_overrides:
-            id:
-                cast: string-int
-        response:
-            exclude:
-                - effective_restriction_level
-                - effective_privilege_level
-                - user_access_level
-                - access_control_version
-                - restriction_level
-                - creation_mode
-                - deleted
-                - breakdown_colors
-                - data_color_theme_id
-                - quick_filter_ids
-                - tiles.*.color
-                - tiles.*.transparent_background
-                - tiles.*.show_description
-                - tiles.*.button_tile
-                - tiles.*.insight.result
-                - tiles.*.insight.hasMore
-                - tiles.*.insight.columns
-                - tiles.*.insight.hogql
-                - tiles.*.insight.types
-                - tiles.*.insight.query_status
-                - tiles.*.insight.cache_target_age
-                - tiles.*.insight.next_allowed_client_refresh
-                - tiles.*.insight.filters_hash
-                - tiles.*.insight.dashboards
-                - tiles.*.insight.dashboard_tiles
-                - tiles.*.insight.effective_restriction_level
-                - tiles.*.insight.effective_privilege_level
-                - tiles.*.insight.user_access_level
-                - tiles.*.insight.filters
-                - tiles.*.insight.is_sample
-                - tiles.*.insight.saved
-                - tiles.*.insight.order
-                - tiles.*.insight.deleted
-                - tiles.*.insight.alerts
-                - tiles.*.insight.last_viewed_at
-                - tiles.*.insight.timezone
-                - tiles.*.insight.resolved_date_range
-    dashboard-update-text-tile:
-        operation: dashboards_update_text_tile
-        enabled: true
-        scopes:
-            - dashboard:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Update dashboard text tile
-        description: >
-            Update an existing text tile on a dashboard. Provide any subset of `body`, `layouts`, `color`, or
-            `transparent_background`; omitted fields stay unchanged. The tile_id is the dashboard tile id from
-            `dashboard-get`, not the underlying Text id.
-        param_overrides:
-            id:
-                cast: string-int
-            tile_id:
-                cast: string-int
-        response:
-            exclude:
-                - effective_restriction_level
-                - effective_privilege_level
-                - user_access_level
-                - access_control_version
-                - restriction_level
-                - creation_mode
-                - deleted
-                - breakdown_colors
-                - data_color_theme_id
-                - quick_filter_ids
-                - tiles.*.color
-                - tiles.*.transparent_background
-                - tiles.*.show_description
-                - tiles.*.button_tile
-                - tiles.*.insight.result
-                - tiles.*.insight.hasMore
-                - tiles.*.insight.columns
-                - tiles.*.insight.hogql
-                - tiles.*.insight.types
-                - tiles.*.insight.query_status
-                - tiles.*.insight.cache_target_age
-                - tiles.*.insight.next_allowed_client_refresh
-                - tiles.*.insight.filters_hash
-                - tiles.*.insight.dashboards
-                - tiles.*.insight.dashboard_tiles
-                - tiles.*.insight.effective_restriction_level
-                - tiles.*.insight.effective_privilege_level
-                - tiles.*.insight.user_access_level
-                - tiles.*.insight.filters
-                - tiles.*.insight.is_sample
-                - tiles.*.insight.order
-                - tiles.*.insight.deleted
-                - tiles.*.insight.alerts
-                - tiles.*.insight.timezone
-                - tiles.*.insight.resolved_date_range
-    dashboard-delete-text-tile:
-        operation: dashboards_delete_text_tile
-        enabled: true
-        scopes:
-            - dashboard:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        enrich_url: '{id}'
-        title: Delete dashboard text tile
-        description: |
-            Soft-delete a text tile from a dashboard. The tile_id is the dashboard tile id from `dashboard-get`,
-            not the underlying Text id. Returns the dashboard with the remaining tiles.
-        param_overrides:
-            id:
-                cast: string-int
-            tile_id:
-                cast: string-int
     dashboard-templates-copy-between-projects-create:
         operation: dashboard_templates_copy_between_projects_create
         enabled: false
@@ -358,6 +301,63 @@ tools:
             - _create_in_folder
         param_overrides:
             id:
+                cast: string-int
+        response:
+            exclude:
+                - effective_restriction_level
+                - effective_privilege_level
+                - user_access_level
+                - access_control_version
+                - restriction_level
+                - creation_mode
+                - deleted
+                - breakdown_colors
+                - data_color_theme_id
+                - quick_filter_ids
+                - tiles.*.color
+                - tiles.*.transparent_background
+                - tiles.*.show_description
+                - tiles.*.button_tile
+                - tiles.*.insight.result
+                - tiles.*.insight.hasMore
+                - tiles.*.insight.columns
+                - tiles.*.insight.hogql
+                - tiles.*.insight.types
+                - tiles.*.insight.query_status
+                - tiles.*.insight.cache_target_age
+                - tiles.*.insight.next_allowed_client_refresh
+                - tiles.*.insight.filters_hash
+                - tiles.*.insight.dashboards
+                - tiles.*.insight.dashboard_tiles
+                - tiles.*.insight.effective_restriction_level
+                - tiles.*.insight.effective_privilege_level
+                - tiles.*.insight.user_access_level
+                - tiles.*.insight.filters
+                - tiles.*.insight.is_sample
+                - tiles.*.insight.order
+                - tiles.*.insight.deleted
+                - tiles.*.insight.alerts
+                - tiles.*.insight.timezone
+                - tiles.*.insight.resolved_date_range
+    dashboard-update-text-tile:
+        operation: dashboards_update_text_tile
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update dashboard text tile
+        description: >
+            Update an existing text tile on a dashboard. Provide any subset of `body`, `layouts`, `color`, or
+            `transparent_background`; omitted fields stay unchanged. The tile_id is the dashboard tile id from
+            `dashboard-get`, not the underlying Text id.
+        param_overrides:
+            id:
+                cast: string-int
+            tile_id:
                 cast: string-int
         response:
             exclude:

@@ -243,6 +243,54 @@ export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
     tileId: zod.number().describe('Dashboard tile id to copy.'),
 })
 
+/**
+ * Create a new text tile on this dashboard. Text tiles render markdown and are commonly used as dividers
+or section headers when authoring a dashboard. Returns the dashboard with all tiles.
+ */
+export const dashboardsCreateTextTileBodyBodyMax = 4000
+
+export const dashboardsCreateTextTileBodyColorMax = 400
+
+export const DashboardsCreateTextTileBody = /* @__PURE__ */ zod.object({
+    body: zod
+        .string()
+        .max(dashboardsCreateTextTileBodyBodyMax)
+        .describe(
+            'Markdown body to render in the text tile. Used for dividers, headings, and section commentary on a dashboard. Maximum 4000 characters.'
+        ),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position on the grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position on the grid (0-indexed).'),
+                    w: zod.number().optional().describe('Tile width in grid columns.'),
+                    h: zod.number().optional().describe('Tile height in grid rows.'),
+                })
+                .optional()
+                .describe('Standard layout (desktop). Defaults to a 6x5 cell on the left of the next free row.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position on the grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position on the grid (0-indexed).'),
+                    w: zod.number().optional().describe('Tile width in grid columns.'),
+                    h: zod.number().optional().describe('Tile height in grid rows.'),
+                })
+                .optional()
+                .describe('Mobile layout. Defaults to a 6x5 cell stacked vertically.'),
+        })
+        .optional()
+        .describe(
+            'Optional per-breakpoint grid layout. Omit to let the frontend place the tile at the next available position; provide explicit coordinates only when reproducing a specific layout.'
+        ),
+    color: zod
+        .string()
+        .max(dashboardsCreateTextTileBodyColorMax)
+        .nullish()
+        .describe('Optional accent color for the tile.'),
+    transparent_background: zod.boolean().nullish().describe('When true, the tile renders without a background panel.'),
+})
+
 export const dashboardsMoveTilePartialUpdateBodyNameMax = 400
 
 export const dashboardsMoveTilePartialUpdateBodyDeleteInsightsDefault = false
@@ -329,6 +377,50 @@ export const DashboardsSnapshotCreateBody = /* @__PURE__ */ zod
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
+
+/**
+ * Update an existing text tile (body, layout, or display options). Returns the dashboard with all tiles.
+ */
+export const dashboardsUpdateTextTileBodyBodyMax = 4000
+
+export const dashboardsUpdateTextTileBodyColorMax = 400
+
+export const DashboardsUpdateTextTileBody = /* @__PURE__ */ zod.object({
+    body: zod
+        .string()
+        .max(dashboardsUpdateTextTileBodyBodyMax)
+        .nullish()
+        .describe('New markdown body. Omit to keep the current body unchanged. Maximum 4000 characters.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position on the grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position on the grid (0-indexed).'),
+                    w: zod.number().optional().describe('Tile width in grid columns.'),
+                    h: zod.number().optional().describe('Tile height in grid rows.'),
+                })
+                .optional()
+                .describe('Standard layout (desktop). Defaults to a 6x5 cell on the left of the next free row.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position on the grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position on the grid (0-indexed).'),
+                    w: zod.number().optional().describe('Tile width in grid columns.'),
+                    h: zod.number().optional().describe('Tile height in grid rows.'),
+                })
+                .optional()
+                .describe('Mobile layout. Defaults to a 6x5 cell stacked vertically.'),
+        })
+        .optional()
+        .describe('Optional updated per-breakpoint grid layout.'),
+    color: zod
+        .string()
+        .max(dashboardsUpdateTextTileBodyColorMax)
+        .nullish()
+        .describe('Updated accent color. Pass null to clear.'),
+    transparent_background: zod.boolean().nullish().describe('When true, the tile renders without a background panel.'),
+})
 
 /**
  * Bulk update tags on multiple objects.

@@ -4,6 +4,9 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     DashboardsCreateBody,
+    DashboardsCreateTextTileBody,
+    DashboardsCreateTextTileParams,
+    DashboardsDeleteTextTileParams,
     DashboardsDestroyParams,
     DashboardsListQueryParams,
     DashboardsPartialUpdateBody,
@@ -14,6 +17,8 @@ import {
     DashboardsRetrieveQueryParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunInsightsRetrieveQueryParams,
+    DashboardsUpdateTextTileBody,
+    DashboardsUpdateTextTileParams,
 } from '@/generated/dashboards/api'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -260,6 +265,174 @@ const dashboardReorderTiles = (): ToolBase<typeof DashboardReorderTilesSchema, W
     },
 })
 
+const DashboardCreateTextTileSchema = DashboardsCreateTextTileParams.omit({ project_id: true })
+    .extend(DashboardsCreateTextTileBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsCreateTextTileParams.shape['id']) })
+
+const dashboardCreateTextTile = (): ToolBase<
+    typeof DashboardCreateTextTileSchema,
+    WithPostHogUrl<Schemas.Dashboard>
+> => ({
+    name: 'dashboard-create-text-tile',
+    schema: DashboardCreateTextTileSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardCreateTextTileSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.body !== undefined) {
+            body['body'] = params.body
+        }
+        if (params.layouts !== undefined) {
+            body['layouts'] = params.layouts
+        }
+        if (params.color !== undefined) {
+            body['color'] = params.color
+        }
+        if (params.transparent_background !== undefined) {
+            body['transparent_background'] = params.transparent_background
+        }
+        const result = await context.api.request<Schemas.Dashboard>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/create_text_tile/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'effective_restriction_level',
+            'effective_privilege_level',
+            'user_access_level',
+            'access_control_version',
+            'restriction_level',
+            'creation_mode',
+            'deleted',
+            'breakdown_colors',
+            'data_color_theme_id',
+            'quick_filter_ids',
+            'tiles.*.color',
+            'tiles.*.transparent_background',
+            'tiles.*.show_description',
+            'tiles.*.button_tile',
+            'tiles.*.insight.result',
+            'tiles.*.insight.hasMore',
+            'tiles.*.insight.columns',
+            'tiles.*.insight.hogql',
+            'tiles.*.insight.types',
+            'tiles.*.insight.query_status',
+            'tiles.*.insight.cache_target_age',
+            'tiles.*.insight.next_allowed_client_refresh',
+            'tiles.*.insight.filters_hash',
+            'tiles.*.insight.dashboards',
+            'tiles.*.insight.dashboard_tiles',
+            'tiles.*.insight.effective_restriction_level',
+            'tiles.*.insight.effective_privilege_level',
+            'tiles.*.insight.user_access_level',
+            'tiles.*.insight.filters',
+            'tiles.*.insight.is_sample',
+            'tiles.*.insight.saved',
+            'tiles.*.insight.order',
+            'tiles.*.insight.deleted',
+            'tiles.*.insight.alerts',
+            'tiles.*.insight.last_viewed_at',
+            'tiles.*.insight.timezone',
+            'tiles.*.insight.resolved_date_range',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
+    },
+})
+
+const DashboardUpdateTextTileSchema = DashboardsUpdateTextTileParams.omit({ project_id: true })
+    .extend(DashboardsUpdateTextTileBody.shape)
+    .extend({
+        id: z.preprocess(castStringToInt, DashboardsUpdateTextTileParams.shape['id']),
+        tile_id: z.preprocess(castStringToInt, DashboardsUpdateTextTileParams.shape['tile_id']),
+    })
+
+const dashboardUpdateTextTile = (): ToolBase<
+    typeof DashboardUpdateTextTileSchema,
+    WithPostHogUrl<Schemas.Dashboard>
+> => ({
+    name: 'dashboard-update-text-tile',
+    schema: DashboardUpdateTextTileSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardUpdateTextTileSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.body !== undefined) {
+            body['body'] = params.body
+        }
+        if (params.layouts !== undefined) {
+            body['layouts'] = params.layouts
+        }
+        if (params.color !== undefined) {
+            body['color'] = params.color
+        }
+        if (params.transparent_background !== undefined) {
+            body['transparent_background'] = params.transparent_background
+        }
+        const result = await context.api.request<Schemas.Dashboard>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/text_tiles/${encodeURIComponent(String(params.tile_id))}/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'effective_restriction_level',
+            'effective_privilege_level',
+            'user_access_level',
+            'access_control_version',
+            'restriction_level',
+            'creation_mode',
+            'deleted',
+            'breakdown_colors',
+            'data_color_theme_id',
+            'quick_filter_ids',
+            'tiles.*.color',
+            'tiles.*.transparent_background',
+            'tiles.*.show_description',
+            'tiles.*.button_tile',
+            'tiles.*.insight.result',
+            'tiles.*.insight.hasMore',
+            'tiles.*.insight.columns',
+            'tiles.*.insight.hogql',
+            'tiles.*.insight.types',
+            'tiles.*.insight.query_status',
+            'tiles.*.insight.cache_target_age',
+            'tiles.*.insight.next_allowed_client_refresh',
+            'tiles.*.insight.filters_hash',
+            'tiles.*.insight.dashboards',
+            'tiles.*.insight.dashboard_tiles',
+            'tiles.*.insight.effective_restriction_level',
+            'tiles.*.insight.effective_privilege_level',
+            'tiles.*.insight.user_access_level',
+            'tiles.*.insight.filters',
+            'tiles.*.insight.is_sample',
+            'tiles.*.insight.order',
+            'tiles.*.insight.deleted',
+            'tiles.*.insight.alerts',
+            'tiles.*.insight.timezone',
+            'tiles.*.insight.resolved_date_range',
+        ]) as typeof result
+        return await withPostHogUrl(context, filtered, `/dashboard/${filtered.id}`)
+    },
+})
+
+const DashboardDeleteTextTileSchema = DashboardsDeleteTextTileParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, DashboardsDeleteTextTileParams.shape['id']),
+    tile_id: z.preprocess(castStringToInt, DashboardsDeleteTextTileParams.shape['tile_id']),
+})
+
+const dashboardDeleteTextTile = (): ToolBase<
+    typeof DashboardDeleteTextTileSchema,
+    WithPostHogUrl<Schemas.Dashboard>
+> => ({
+    name: 'dashboard-delete-text-tile',
+    schema: DashboardDeleteTextTileSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardDeleteTextTileSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Dashboard>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/text_tiles/${encodeURIComponent(String(params.tile_id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+    },
+})
+
 const DashboardUpdateSchema = DashboardsPartialUpdateParams.omit({ project_id: true })
     .extend(DashboardsPartialUpdateBody.shape)
     .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
@@ -390,6 +563,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-get': dashboardGet,
     'dashboard-insights-run': dashboardInsightsRun,
     'dashboard-reorder-tiles': dashboardReorderTiles,
+    'dashboard-create-text-tile': dashboardCreateTextTile,
+    'dashboard-update-text-tile': dashboardUpdateTextTile,
+    'dashboard-delete-text-tile': dashboardDeleteTextTile,
     'dashboard-update': dashboardUpdate,
     'dashboards-get-all': dashboardsGetAll,
 }

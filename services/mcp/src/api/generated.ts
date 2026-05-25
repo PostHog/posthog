@@ -8710,6 +8710,45 @@ export namespace Schemas {
       text: string;
     }
 
+    export interface TileLayout {
+      /** Column position on the grid (0-indexed). */
+      x?: number;
+      /** Row position on the grid (0-indexed). */
+      y?: number;
+      /** Tile width in grid columns. */
+      w?: number;
+      /** Tile height in grid rows. */
+      h?: number;
+    }
+
+    export interface TileLayouts {
+      /** Standard layout (desktop). Defaults to a 6x5 cell on the left of the next free row. */
+      sm?: TileLayout;
+      /** Mobile layout. Defaults to a 6x5 cell stacked vertically. */
+      xs?: TileLayout;
+    }
+
+    export interface CreateTextTileRequest {
+      /**
+         * Markdown body to render in the text tile. Used for dividers, headings, and section commentary on a dashboard. Maximum 4000 characters.
+         * @maxLength 4000
+         */
+      body: string;
+      /** Optional per-breakpoint grid layout. Omit to let the frontend place the tile at the next available position; provide explicit coordinates only when reproducing a specific layout. */
+      layouts?: TileLayouts;
+      /**
+         * Optional accent color for the tile.
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      /**
+         * When true, the tile renders without a background panel.
+         * @nullable
+         */
+      transparent_background?: boolean | null;
+    }
+
     /**
      * * `web` - web
     * `api` - api
@@ -31425,6 +31464,28 @@ export namespace Schemas {
       text?: string;
     }
 
+    export interface PatchedUpdateTextTileRequest {
+      /**
+         * New markdown body. Omit to keep the current body unchanged. Maximum 4000 characters.
+         * @maxLength 4000
+         * @nullable
+         */
+      body?: string | null;
+      /** Optional updated per-breakpoint grid layout. */
+      layouts?: TileLayouts;
+      /**
+         * Updated accent color. Pass null to clear.
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      /**
+         * When true, the tile renders without a background panel.
+         * @nullable
+         */
+      transparent_background?: boolean | null;
+    }
+
     /**
      * Map of notification preferences. Keys include `plugin_disabled`, `all_weekly_report_disabled`, `project_weekly_digest_disabled`, `error_tracking_weekly_digest_project_enabled`, `web_analytics_weekly_digest_project_enabled`, `organization_member_join_email_disabled`, `data_pipeline_error_threshold` (number between 0.0 and 1.0), and other per-topic switches. Values are either booleans, or (for per-project/per-resource keys) a map of IDs to booleans. Only the keys you send are updated — other preferences stay as-is.
      */
@@ -38039,6 +38100,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsCreateTextTileParams = {
+    format?: EnvironmentsDashboardsCreateTextTileFormat;
+    };
+
+    export type EnvironmentsDashboardsCreateTextTileFormat = typeof EnvironmentsDashboardsCreateTextTileFormat[keyof typeof EnvironmentsDashboardsCreateTextTileFormat];
+
+
+    export const EnvironmentsDashboardsCreateTextTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -38150,6 +38223,30 @@ export namespace Schemas {
     export const EnvironmentsDashboardsStreamTilesRetrieveLayoutSize = {
       Sm: 'sm',
       Xs: 'xs',
+    } as const;
+
+    export type EnvironmentsDashboardsUpdateTextTileParams = {
+    format?: EnvironmentsDashboardsUpdateTextTileFormat;
+    };
+
+    export type EnvironmentsDashboardsUpdateTextTileFormat = typeof EnvironmentsDashboardsUpdateTextTileFormat[keyof typeof EnvironmentsDashboardsUpdateTextTileFormat];
+
+
+    export const EnvironmentsDashboardsUpdateTextTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsDeleteTextTileParams = {
+    format?: EnvironmentsDashboardsDeleteTextTileFormat;
+    };
+
+    export type EnvironmentsDashboardsDeleteTextTileFormat = typeof EnvironmentsDashboardsDeleteTextTileFormat[keyof typeof EnvironmentsDashboardsDeleteTextTileFormat];
+
+
+    export const EnvironmentsDashboardsDeleteTextTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
     } as const;
 
     export type EnvironmentsDashboardsBulkUpdateTagsCreateParams = {
@@ -42962,6 +43059,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsCreateTextTileParams = {
+    format?: DashboardsCreateTextTileFormat;
+    };
+
+    export type DashboardsCreateTextTileFormat = typeof DashboardsCreateTextTileFormat[keyof typeof DashboardsCreateTextTileFormat];
+
+
+    export const DashboardsCreateTextTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat;
     };
@@ -43073,6 +43182,30 @@ export namespace Schemas {
     export const DashboardsStreamTilesRetrieveLayoutSize = {
       Sm: 'sm',
       Xs: 'xs',
+    } as const;
+
+    export type DashboardsUpdateTextTileParams = {
+    format?: DashboardsUpdateTextTileFormat;
+    };
+
+    export type DashboardsUpdateTextTileFormat = typeof DashboardsUpdateTextTileFormat[keyof typeof DashboardsUpdateTextTileFormat];
+
+
+    export const DashboardsUpdateTextTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsDeleteTextTileParams = {
+    format?: DashboardsDeleteTextTileFormat;
+    };
+
+    export type DashboardsDeleteTextTileFormat = typeof DashboardsDeleteTextTileFormat[keyof typeof DashboardsDeleteTextTileFormat];
+
+
+    export const DashboardsDeleteTextTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
     } as const;
 
     export type DashboardsBulkUpdateTagsCreateParams = {

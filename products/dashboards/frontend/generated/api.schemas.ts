@@ -422,6 +422,45 @@ export interface CopyDashboardTileRequestApi {
     tileId: number
 }
 
+export interface TileLayoutApi {
+    /** Column position on the grid (0-indexed). */
+    x?: number
+    /** Row position on the grid (0-indexed). */
+    y?: number
+    /** Tile width in grid columns. */
+    w?: number
+    /** Tile height in grid rows. */
+    h?: number
+}
+
+export interface TileLayoutsApi {
+    /** Standard layout (desktop). Defaults to a 6x5 cell on the left of the next free row. */
+    sm?: TileLayoutApi
+    /** Mobile layout. Defaults to a 6x5 cell stacked vertically. */
+    xs?: TileLayoutApi
+}
+
+export interface CreateTextTileRequestApi {
+    /**
+     * Markdown body to render in the text tile. Used for dividers, headings, and section commentary on a dashboard. Maximum 4000 characters.
+     * @maxLength 4000
+     */
+    body: string
+    /** Optional per-breakpoint grid layout. Omit to let the frontend place the tile at the next available position; provide explicit coordinates only when reproducing a specific layout. */
+    layouts?: TileLayoutsApi
+    /**
+     * Optional accent color for the tile.
+     * @maxLength 400
+     * @nullable
+     */
+    color?: string | null
+    /**
+     * When true, the tile renders without a background panel.
+     * @nullable
+     */
+    transparent_background?: boolean | null
+}
+
 export interface ReorderTilesRequestApi {
     /**
      * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -454,6 +493,28 @@ export interface DashboardTileResultApi {
 export interface RunInsightsResponseApi {
     /** Results for each insight tile on the dashboard. */
     results: DashboardTileResultApi[]
+}
+
+export interface PatchedUpdateTextTileRequestApi {
+    /**
+     * New markdown body. Omit to keep the current body unchanged. Maximum 4000 characters.
+     * @maxLength 4000
+     * @nullable
+     */
+    body?: string | null
+    /** Optional updated per-breakpoint grid layout. */
+    layouts?: TileLayoutsApi
+    /**
+     * Updated accent color. Pass null to clear.
+     * @maxLength 400
+     * @nullable
+     */
+    color?: string | null
+    /**
+     * When true, the tile renders without a background panel.
+     * @nullable
+     */
+    transparent_background?: boolean | null
 }
 
 /**
@@ -673,6 +734,18 @@ export const DashboardsCopyTileCreateFormat = {
     Txt: 'txt',
 } as const
 
+export type DashboardsCreateTextTileParams = {
+    format?: DashboardsCreateTextTileFormat
+}
+
+export type DashboardsCreateTextTileFormat =
+    (typeof DashboardsCreateTextTileFormat)[keyof typeof DashboardsCreateTextTileFormat]
+
+export const DashboardsCreateTextTileFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
 export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat
 }
@@ -784,6 +857,30 @@ export type DashboardsStreamTilesRetrieveLayoutSize =
 export const DashboardsStreamTilesRetrieveLayoutSize = {
     Sm: 'sm',
     Xs: 'xs',
+} as const
+
+export type DashboardsUpdateTextTileParams = {
+    format?: DashboardsUpdateTextTileFormat
+}
+
+export type DashboardsUpdateTextTileFormat =
+    (typeof DashboardsUpdateTextTileFormat)[keyof typeof DashboardsUpdateTextTileFormat]
+
+export const DashboardsUpdateTextTileFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsDeleteTextTileParams = {
+    format?: DashboardsDeleteTextTileFormat
+}
+
+export type DashboardsDeleteTextTileFormat =
+    (typeof DashboardsDeleteTextTileFormat)[keyof typeof DashboardsDeleteTextTileFormat]
+
+export const DashboardsDeleteTextTileFormat = {
+    Json: 'json',
+    Txt: 'txt',
 } as const
 
 export type DashboardsBulkUpdateTagsCreateParams = {

@@ -985,6 +985,21 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-create-text-tile": {
+        "description": "Add a new text tile to a dashboard. Text tiles render markdown and are commonly used as dividers, section headers, or commentary alongside insight tiles. Provide the markdown `body` and optionally a grid `layouts` block, accent `color`, and `transparent_background` flag. Returns the dashboard with all tiles; use dashboard-update-text-tile or dashboard-delete-text-tile to edit or remove later.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Create dashboard text tile",
+        "title": "Create dashboard text tile",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-delete": {
         "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.",
         "category": "Dashboards",
@@ -996,6 +1011,21 @@
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-delete-text-tile": {
+        "description": "Soft-delete a text tile from a dashboard. The tile_id is the dashboard tile id from `dashboard-get`,\nnot the underlying Text id. Returns the dashboard with the remaining tiles.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Delete dashboard text tile",
+        "title": "Delete dashboard text tile",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -1051,6 +1081,21 @@
         "feature": "dashboards",
         "summary": "Update dashboard",
         "title": "Update dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-update-text-tile": {
+        "description": "Update an existing text tile on a dashboard. Provide any subset of `body`, `layouts`, `color`, or `transparent_background`; omitted fields stay unchanged. The tile_id is the dashboard tile id from `dashboard-get`, not the underlying Text id.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard text tile",
+        "title": "Update dashboard text tile",
         "required_scopes": ["dashboard:write"],
         "new_mcp": true,
         "annotations": {

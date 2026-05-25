@@ -164,8 +164,14 @@ tools:
     dashboards-create-from-template-json-create:
         operation: dashboards_create_from_template_json_create
         enabled: false
+    dashboards-create-text-tile:
+        operation: dashboards_create_text_tile
+        enabled: false
     dashboards-create-unlisted-dashboard-create:
         operation: dashboards_create_unlisted_dashboard_create
+        enabled: false
+    dashboards-delete-text-tile:
+        operation: dashboards_delete_text_tile
         enabled: false
     dashboards-destroy:
         operation: dashboards_destroy
@@ -208,6 +214,9 @@ tools:
         enabled: false
     dashboards-update:
         operation: dashboards_update
+        enabled: false
+    dashboards-update-text-tile:
+        operation: dashboards_update_text_tile
         enabled: false
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
