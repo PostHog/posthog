@@ -19,6 +19,11 @@ export const DEFAULT_Y_AXIS_ID = 'left'
  *  with color either supplied or omitted (chart picks one) and let the chart resolve it. */
 export type ResolvedSeries<Meta = unknown> = Series<Meta> & { color: string }
 
+/** Per-series rendering type for charts that draw a mix of geometries — e.g. ComboChart
+ *  drawing some series as bars and others as lines/areas in the same view. Single-type
+ *  charts (LineChart, BarChart) ignore this field and use their own rendering. */
+export type SeriesType = 'line' | 'bar' | 'area'
+
 export interface Series<Meta = unknown> {
     /** Unique identifier used to key React elements and look up stacked data. */
     key: string
@@ -31,6 +36,10 @@ export interface Series<Meta = unknown> {
     color?: string
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
+    /** Mixed-type charts (ComboChart) read this to decide whether to draw the series as a bar,
+     *  line, or area. Falls back to the chart's `defaultSeriesType` when omitted. Single-type
+     *  charts ignore it. */
+    type?: SeriesType
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
      *  so custom tooltip components can access domain-specific information (e.g. breakdown
      *  values, comparison labels, anomaly scores) without the library needing to know about them.
@@ -204,6 +213,20 @@ export interface BarChartConfig extends ChartConfig {
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+}
+
+/** Mixed-type chart that draws some series as bars and others as lines/areas on a shared
+ *  band x-axis. Bar series participate in the chosen `barLayout` (and stack/group among
+ *  themselves per `yAxisId`); line and area series are drawn unstacked on top.
+ *  Vertical orientation only — bars need a band x-axis. */
+export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
+    /** Type to use for series that do not set `Series.type`. Defaults to `'line'`. */
+    defaultSeriesType?: SeriesType
+    /** Layout applied to *bar* series only — lines and areas do not participate in stacking
+     *  or grouping. Defaults to `'stacked'`. */
+    barLayout?: 'stacked' | 'grouped'
+    /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
+    barCornerRadius?: number
 }
 
 /** Arguments passed to a chart type's canvas draw function. */
