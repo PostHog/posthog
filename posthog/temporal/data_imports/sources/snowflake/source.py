@@ -181,10 +181,21 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
             "MFA authentication is required": None,
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
+            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # when an integer column's source type was widened (e.g. a narrower NUMBER widened
+            # to a larger NUMBER/BIGINT) after the destination table was created with the
+            # narrower type. Delta Lake can't widen an existing column in place, so retrying
+            # won't help — the table must be reset and fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
     def get_schemas(
-        self, config: SnowflakeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: SnowflakeSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
 

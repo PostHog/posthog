@@ -9,10 +9,14 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpResponseRedirect
-from django.test import Client as DjangoClient
+from django.http import HttpResponse, HttpResponseRedirect
+from django.test import (
+    Client as DjangoClient,
+    RequestFactory,
+)
 from django.urls import reverse
 
+import structlog
 from loginas import settings as la_settings
 from parameterized import parameterized
 from rest_framework import status
@@ -21,12 +25,14 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.models import Action, Cohort, FeatureFlag, Insight
+from posthog.middleware import per_request_logging_context_middleware
+from posthog.models import Cohort, FeatureFlag, Insight
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 
 
@@ -1250,6 +1256,46 @@ class TestImpersonationBlockedPathsMiddleware(APIBaseTest):
         assert response_data["type"] == "authentication_error"
         assert response_data["code"] == "impersonation_path_blocked"
 
+    def test_impersonation_blocks_post_to_personal_api_keys_without_trailing_slash(self):
+        """The DefaultRouterPlusPlus router accepts paths with or without a trailing slash
+        (trailing_slash = r"/?"), so /api/personal_api_keys reaches the same viewset as
+        /api/personal_api_keys/. The middleware must block both forms — a startswith
+        check against "/api/personal_api_keys/" alone is bypassed by the slashless variant."""
+        self.login_as_other_user()
+
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.post(
+            "/api/personal_api_keys",
+            data={"label": "Test Key"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403, (
+            f"expected 403 (impersonation block), got {response.status_code}: {response.content[:200]!r}"
+        )
+        response_data = response.json()
+        assert response_data["type"] == "authentication_error"
+        assert response_data["code"] == "impersonation_path_blocked"
+
+    def test_impersonation_blocks_patch_to_users_api_without_trailing_slash(self):
+        """Same bypass class as the personal_api_keys slashless test: /api/users/@me
+        (no trailing slash) must be blocked just like /api/users/@me/."""
+        self.login_as_other_user()
+
+        assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
+
+        response = self.client.patch(
+            "/api/users/@me",
+            data={"first_name": "Changed"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403, (
+            f"expected 403 (impersonation block), got {response.status_code}: {response.content[:200]!r}"
+        )
+        assert response.json()["code"] == "impersonation_path_blocked"
+
 
 @override_settings(ADMIN_PORTAL_ENABLED=True)
 @override_settings(ADMIN_AUTH_GOOGLE_OAUTH2_KEY=None)
@@ -2080,3 +2126,75 @@ def test_query_time_counting_middleware_should_instrument(path, expected) -> Non
     request = RequestFactory().get(path)
 
     assert middleware._should_instrument(request) is expected
+
+
+class TestPerRequestLoggingContextMiddlewareMcpHeaders(APIBaseTest):
+    """Covers MCP session header binding inside `per_request_logging_context_middleware`."""
+
+    def _run_middleware(self, **headers):
+        captured: dict[str, Any] = {}
+
+        def get_response(request):
+            captured["ctx"] = dict(structlog.contextvars.get_contextvars())
+            return HttpResponse()
+
+        try:
+            structlog.contextvars.clear_contextvars()
+            middleware = per_request_logging_context_middleware(get_response)
+            request = RequestFactory().get("/", **headers)
+            middleware(request)
+        finally:
+            structlog.contextvars.clear_contextvars()
+        return captured["ctx"]
+
+    @parameterized.expand(
+        [
+            (
+                "both_headers_present",
+                {
+                    "HTTP_X_POSTHOG_MCP_SESSION_ID": "abc123session",
+                    "HTTP_X_POSTHOG_MCP_CONVERSATION_ID": "01984ad9-bda4-7000-8000-abcdef012345",
+                },
+                "abc123session",
+                "01984ad9-bda4-7000-8000-abcdef012345",
+            ),
+            (
+                "session_id_alone",
+                {"HTTP_X_POSTHOG_MCP_SESSION_ID": "abc123session"},
+                "abc123session",
+                None,
+            ),
+            (
+                "conversation_id_alone",
+                {"HTTP_X_POSTHOG_MCP_CONVERSATION_ID": "01984ad9-bda4-7000-8000-abcdef012345"},
+                None,
+                "01984ad9-bda4-7000-8000-abcdef012345",
+            ),
+        ]
+    )
+    def test_binds_mcp_ids_when_present(self, _name, headers, expected_session, expected_conversation):
+        with patch("posthog.middleware.trace") as mock_trace:
+            span = MagicMock()
+            mock_trace.get_current_span.return_value = span
+            ctx = self._run_middleware(**headers)
+
+        if expected_session is not None:
+            assert ctx["mcp_session_id"] == expected_session
+            span.set_attribute.assert_any_call("mcp.session_id", expected_session)
+        else:
+            assert "mcp_session_id" not in ctx
+        if expected_conversation is not None:
+            assert ctx["mcp_conversation_id"] == expected_conversation
+            span.set_attribute.assert_any_call("mcp.conversation_id", expected_conversation)
+        else:
+            assert "mcp_conversation_id" not in ctx
+
+    def test_no_mcp_keys_bound_when_headers_absent(self):
+        with patch("posthog.middleware.trace") as mock_trace:
+            span = MagicMock()
+            mock_trace.get_current_span.return_value = span
+            ctx = self._run_middleware()
+
+        assert "mcp_session_id" not in ctx
+        assert "mcp_conversation_id" not in ctx
+        span.set_attribute.assert_not_called()

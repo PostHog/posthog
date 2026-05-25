@@ -27,6 +27,32 @@ def ON_CLUSTER_CLAUSE(on_cluster=True):
     return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
 
+# Smoke-test only: when migrating against the multinode docker-compose stack
+# from the host, every docker hostname (`clickhouse-aux`, …) is mapped to
+# 127.0.0.1 via /etc/hosts, but only one container can publish on port 9000 —
+# so without a per-host port override, every role-routed connection lands on
+# whichever container holds 127.0.0.1:9000 (the data node). The compose file
+# publishes each satellite on a distinct host port; this map mirrors that.
+#
+# Canonical source: `docker-compose.multinode-clickhouse.yml` (per-service
+# `ports:` blocks). Keep this map in sync when adding or renumbering nodes.
+_MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
+    "clickhouse-data": ("localhost", 9000),
+    "clickhouse-ai-events": ("localhost", 9100),
+    "clickhouse-aux": ("localhost", 9200),
+    "clickhouse-ops": ("localhost", 9300),
+    "clickhouse-sessions": ("localhost", 9400),
+}
+
+
+def _resolve_connection_target(host_name: str, port: int | None) -> tuple[str, int | None]:
+    if settings.MULTINODE_CLICKHOUSE:
+        override = _MULTINODE_HOST_PORT_OVERRIDES.get(host_name)
+        if override:
+            return override
+    return (host_name, port)
+
+
 K = TypeVar("K")
 V = TypeVar("V")
 
@@ -118,13 +144,12 @@ class ClickhouseCluster:
 
         for row in cluster_hosts:
             (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
+            # We only use the port from system.clusters if we're running in E2E tests or debug mode,
+            # otherwise, we will use the default port.
+            effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
+            resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
             host_info = HostInfo(
-                ConnectionInfo(
-                    host_name,
-                    # We only use the port from system.clusters if we're running in E2E tests or debug mode,
-                    # otherwise, we will use the default port.
-                    port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
-                ),
+                ConnectionInfo(resolved_host, resolved_port),
                 shard_num if host_cluster_role == NodeRole.DATA else None,
                 replica_num if host_cluster_role == NodeRole.DATA else None,
                 host_cluster_type,
@@ -140,11 +165,10 @@ class ClickhouseCluster:
             for row in data_hosts:
                 (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
                 if host_cluster_role == NodeRole.DATA:
+                    effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
+                    resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
                     host_info = HostInfo(
-                        ConnectionInfo(
-                            host_name,
-                            port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
-                        ),
+                        ConnectionInfo(resolved_host, resolved_port),
                         shard_num,
                         replica_num,
                         host_cluster_type,
@@ -165,11 +189,10 @@ class ClickhouseCluster:
             logger.info("Discovered %d hosts from satellite cluster %r", len(satellite_hosts), satellite_name)
             for row in satellite_hosts:
                 (host_name, port, _shard_num, _replica_num, host_cluster_type, host_cluster_role) = row
+                effective_port = port if (settings.E2E_TESTING or settings.DEBUG) else None
+                resolved_host, resolved_port = _resolve_connection_target(host_name, effective_port)
                 host_info = HostInfo(
-                    ConnectionInfo(
-                        host_name,
-                        port=port if (settings.E2E_TESTING or settings.DEBUG) else None,
-                    ),
+                    ConnectionInfo(resolved_host, resolved_port),
                     shard_num=None,
                     replica_num=None,
                     host_cluster_type=host_cluster_type,
@@ -707,6 +730,14 @@ class MutationRunner(abc.ABC):
         # we match commands by position, so require a stable ordering - this is because this class is provided the
         # command template without parameter values, while the record in the mutation log will have the values inlined
         command_list = [*commands]
+        # `formatQuerySingleLine` + collapse-whitespace + trim on both sides of the join so
+        # cosmetic spacing differences between our formatting and what
+        # `system.mutations.command` stored don't break the byte-equality match.
+        # Callers must pass fully-qualified identifiers (`db.table` / `db.dictionary`) —
+        # ClickHouse normalizes bare references against the connection database when
+        # storing the mutation, and a bare-vs-qualified mismatch defeats the join.
+        alter_prefix = f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} "
+        per_command_alters = ", ".join(f"$__sql${alter_prefix}{cmd}$__sql$" for cmd in command_list)
         mutations = client.execute(
             f"""
             SELECT mutation_id
@@ -715,11 +746,13 @@ class MutationRunner(abc.ABC):
                     (arrayJoin(
                         arrayZip(
                             arrayMap(
-                                command -> extract(command, '^\\s*(.*?)(?:,)?\\s*$'),  -- strip leading/trailing whitespace and optional trailing comma
-                                arraySlice(  -- drop "ALTER TABLE" preamble line
-                                    splitByChar('\n', formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {", ".join(command_list)}$__sql$)),
-                                    2
-                                )
+                                alter -> trim(BOTH ' ' FROM
+                                    replaceRegexpAll(
+                                        replaceOne(formatQuerySingleLine(alter), %(__alter_prefix)s, ''),
+                                        '[ \\t\\n]+', ' '
+                                    )
+                                ),
+                                [{per_command_alters}]
                             ) as commands,
                             arrayEnumerate(commands)
                         )
@@ -728,7 +761,7 @@ class MutationRunner(abc.ABC):
             ) commands
             LEFT OUTER JOIN (
                 SELECT
-                    command,
+                    trim(BOTH ' ' FROM replaceRegexpAll(command, '[ \\t\\n]+', ' ')) as command,
                     argMax(mutation_id, create_time) as mutation_id  -- Get the most recent mutation for each command
                 FROM system.mutations
                 WHERE
@@ -743,6 +776,7 @@ class MutationRunner(abc.ABC):
             {
                 f"__database": settings.CLICKHOUSE_DATABASE,
                 f"__table": self.table,
+                f"__alter_prefix": alter_prefix,
                 **self.parameters,
             },
         )

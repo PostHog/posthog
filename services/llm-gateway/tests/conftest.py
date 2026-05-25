@@ -40,6 +40,7 @@ def create_test_app(
         app.state.http_client = MagicMock()
         app.state.plan_resolver = AsyncMock()
         app.state.plan_resolver.get_plan = AsyncMock(return_value=PlanInfo(plan_key=None, seat_created_at=None))
+        app.state.anthropic_circuit_breaker = None
         yield
 
     app = FastAPI(title="LLM Gateway Test", lifespan=test_lifespan)

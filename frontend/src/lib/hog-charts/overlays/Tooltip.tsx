@@ -1,6 +1,7 @@
 import { flip, FloatingPortal, offset, shift, useFloating, type VirtualElement } from '@floating-ui/react'
 import React, { useLayoutEffect, useMemo } from 'react'
 
+import { useChartLayout } from '../core/chart-context'
 import type { TooltipContext } from '../core/types'
 
 interface TooltipProps<Meta> {
@@ -10,12 +11,15 @@ interface TooltipProps<Meta> {
 }
 
 const TOOLTIP_MIDDLEWARE = [offset(12), flip(), shift({ padding: 8 })]
+const DEFAULT_TOOLTIP_Z_INDEX = 9999
 
 export function Tooltip<Meta = unknown>({
     context,
     renderTooltip,
     placement = 'follow-data',
 }: TooltipProps<Meta>): React.ReactElement {
+    const { theme } = useChartLayout()
+    const zIndex = theme.tooltipZIndex ?? DEFAULT_TOOLTIP_Z_INDEX
     // In `top` placement the y position is anchored to the canvas top and `position.y` is
     // unused, so we depend on the resolved y rather than `position.y` directly — otherwise
     // mousemove rebuilds the virtual reference and triggers a Floating-UI reposition pass
@@ -63,7 +67,7 @@ export function Tooltip<Meta = unknown>({
                     ...floatingStyles,
                     pointerEvents: context.isPinned ? 'auto' : 'none',
                     width: 'max-content',
-                    zIndex: 'var(--z-chart-tooltip)',
+                    zIndex,
                 }}
             >
                 {renderTooltip(context)}

@@ -45,11 +45,13 @@ describe('buildPieSlices', () => {
         const yData: AxisBreakdownSeries<number | null>[] = [
             {
                 name: 'first',
+                breakdownValue: 'first',
                 data: [1, 2, null],
                 settings: { display: { color: '#111111' } },
             },
             {
                 name: 'second',
+                breakdownValue: 'second',
                 data: [3, 4, 5],
                 settings: { display: { color: '#222222' } },
             },

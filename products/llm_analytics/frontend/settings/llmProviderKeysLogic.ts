@@ -42,7 +42,7 @@ export function toLLMProvider(raw: string): LLMProvider | null {
     if (isLLMProvider(normalized)) {
         return normalized
     }
-    console.error(`[LLM Analytics] Unknown LLM provider: "${raw}"`)
+    console.error(`[AI observability] Unknown LLM provider: "${raw}"`)
     return null
 }
 

@@ -128,7 +128,7 @@
             "intents": ["llm_evaluations"]
         },
         {
-            "path": "Tags",
+            "path": "Taggers",
             "category": "AI engineering",
             "iconType": null,
             "type": "llm_tags",
@@ -155,6 +155,13 @@
             "iconType": null,
             "type": null,
             "intents": ["marketing_analytics"]
+        },
+        {
+            "path": "MCP analytics",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "mcp_analytics",
+            "intents": ["llm_analytics"]
         },
         { "path": "Metrics", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["metrics"] },
         {
@@ -186,6 +193,13 @@
             "intents": ["session_replay", "mobile_replay"]
         },
         { "path": "Heatmaps", "category": "Behavior", "iconType": "heatmap", "type": null, "intents": ["heatmaps"] },
+        {
+            "path": "Replay vision",
+            "category": "Behavior",
+            "iconType": null,
+            "type": "replay_vision",
+            "intents": ["replay_vision"]
+        },
         {
             "path": "Revenue analytics",
             "category": "Analytics",
@@ -236,6 +250,13 @@
             "category": "Pipeline",
             "iconType": "data_pipeline_metadata",
             "type": "hog_function/transformation",
+            "intents": []
+        },
+        {
+            "path": "Event ingestion filtering",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": "event_filter",
             "intents": []
         },
         {

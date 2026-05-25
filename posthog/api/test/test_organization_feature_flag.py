@@ -100,11 +100,11 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         """Test that flags from teams the user cannot access are not returned."""
         from posthog.constants import AvailableFeature
 
-        # Enable advanced permissions for the organization
+        # Enable access control for the organization
         self.organization.available_product_features = [
             {
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ACCESS_CONTROL,
+                "key": AvailableFeature.ACCESS_CONTROL,
             }
         ]
         self.organization.save()
@@ -458,12 +458,17 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertNotEqual(flag_response["usage_dashboard"], existing_deleted_flag.usage_dashboard.id)
         self.assertEqual(flag_response["analytics_dashboards"], [])
 
-        # target_project_2 should have failed
+        # target_project_2 should have failed: soft-deleted flag is still referenced
+        # by an active experiment (invariant violation), so the defensive guardrail fires.
         self.assertEqual(len(response.json()["failed"]), 1)
         self.assertEqual(response.json()["failed"][0]["project_id"], target_project_2.id)
-        self.assertEqual(
+        self.assertIn(
+            "Cannot reuse key 'copied-flag-key'",
             response.json()["failed"][0]["error_message"],
-            "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]",
+        )
+        self.assertIn(
+            "referenced by active experiment(s)",
+            response.json()["failed"][0]["error_message"],
         )
 
     @parameterized.expand(
@@ -582,11 +587,11 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         from ee.models.rbac.access_control import AccessControl
 
-        # Enable advanced permissions for the organization
+        # Enable access control for the organization
         self.organization.available_product_features = [
             {
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ACCESS_CONTROL,
+                "key": AvailableFeature.ACCESS_CONTROL,
             }
         ]
         self.organization.save()

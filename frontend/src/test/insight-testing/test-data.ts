@@ -254,3 +254,70 @@ export function lookupActors({ event, breakdown, day }: ActorsLookupQuery): Acto
     const breakdownKey = breakdown == null ? '__none__' : String(breakdown)
     return actorsByEventBreakdownDay[event]?.[breakdownKey]?.[String(day)] ?? []
 }
+
+// Funnel trends-viz response shape: `data` holds the conversion percentage over time.
+export interface FunnelStepData {
+    count: number
+    data: number[]
+    days: string[]
+    labels: string[]
+    name?: string
+    breakdown_value?: string | number
+}
+
+export const funnelTrendsSteps = {
+    default: {
+        count: 50,
+        data: [10, 25, 40, 60, 35],
+        days,
+        labels,
+        name: '$pageview → Napped',
+    } satisfies FunnelStepData,
+    byBreakdown: {
+        hedgehog: [
+            {
+                count: 30,
+                data: [20, 35, 50, 70, 45],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Spike',
+            },
+            {
+                count: 20,
+                data: [5, 15, 30, 50, 25],
+                days,
+                labels,
+                name: '$pageview → Napped',
+                breakdown_value: 'Bramble',
+            },
+        ] satisfies FunnelStepData[],
+    } as Record<string, FunnelStepData[]>,
+}
+
+// Keyed by breakdown value (or '__none__'), then by calendar date.
+const funnelActorsByBreakdownDay: Record<string, Record<string, ActorFixture[]>> = {
+    __none__: {
+        '2024-06-12': [{ email: 'funnel-wed-a@example.com' }, { email: 'funnel-wed-b@example.com' }],
+        '2024-06-13': [{ email: 'funnel-thu-a@example.com' }],
+    },
+    Spike: {
+        '2024-06-12': [{ email: 'funnel-spike@example.com' }],
+    },
+    Bramble: {
+        '2024-06-12': [{ email: 'funnel-bramble@example.com' }],
+    },
+}
+
+export interface FunnelActorsLookupQuery {
+    day?: string | null
+    breakdown?: string | number | null
+}
+
+export function lookupFunnelActors({ day, breakdown }: FunnelActorsLookupQuery): ActorFixture[] {
+    if (!day) {
+        return []
+    }
+    const breakdownKey = breakdown == null ? '__none__' : String(breakdown)
+    return funnelActorsByBreakdownDay[breakdownKey]?.[day] ?? []
+}

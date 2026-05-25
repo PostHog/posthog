@@ -44,10 +44,6 @@ from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
-from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
-    SyncNewSchemasActivityInputs,
-    sync_new_schemas_activity,
-)
 from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
@@ -58,9 +54,10 @@ from posthog.utils import get_machine_id
 from products.data_warehouse.backend.data_load.service import a_unpause_external_data_schedule
 from products.data_warehouse.backend.data_load.source_templates import create_warehouse_templates_for_source
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.external_data_schema import update_should_sync
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 LOGGER = get_logger(__name__)
 
@@ -136,7 +133,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         if len(non_retryable_errors) == 0:
             non_retryable_errors = Any_Source_Errors
         else:
-            non_retryable_errors = {**non_retryable_errors, **Any_Source_Errors}
+            non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
 
         has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors.keys())
         if has_non_retryable_error:
@@ -307,18 +304,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if hit_billing_limit:
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_REACHED
                 return
-
-            await workflow.execute_activity(
-                sync_new_schemas_activity,
-                SyncNewSchemasActivityInputs(source_id=str(inputs.external_data_source_id), team_id=inputs.team_id),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "BaseSSHTunnelForwarderError"],
-                ),
-            )
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,

@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconCheck, IconChevronRight, IconClock } from '@posthog/icons'
+import { IconArrowLeft, IconCheck, IconChevronRight, IconClock, IconDownload } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import type { UserInterviewTopicApi } from './generated/api.schemas'
+import { InterviewLinkCopyButton } from './InterviewLinkCopyButton'
 import { UserInterviewLogicProps, userInterviewLogic } from './userInterviewLogic'
 
 export const scene: SceneExport<UserInterviewLogicProps> = {
@@ -43,7 +44,9 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
         respondedCount,
         totalTargeted,
         responseRate,
+        linksCsvExporting,
     } = useValues(userInterviewLogic)
+    const { exportLinksCsv } = useActions(userInterviewLogic)
 
     if (topicLoading && !topic) {
         return (
@@ -73,7 +76,7 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
     return (
         <SceneContent>
             {/* Header */}
-            <div className="flex items-start justify-between mb-4">
+            <div className="flex items-start justify-between mb-4 gap-4">
                 <div>
                     <LemonButton
                         type="tertiary"
@@ -86,6 +89,21 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                     </LemonButton>
                     <h1 className="text-2xl font-bold mb-1">{topic.topic}</h1>
                     {topic.agent_context && <p className="text-muted mb-0 text-sm">{topic.agent_context}</p>}
+                </div>
+                <div className="shrink-0">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconDownload />}
+                        onClick={exportLinksCsv}
+                        loading={linksCsvExporting}
+                        disabledReason={
+                            totalTargeted === 0 ? 'Add interviewees to the topic before exporting links' : undefined
+                        }
+                        data-attr="export-interview-links-csv"
+                        tooltip="Download a CSV with each interviewee's personal interview link, for use in your own email tooling"
+                    >
+                        Export links (CSV)
+                    </LemonButton>
                 </div>
             </div>
 
@@ -237,6 +255,7 @@ function PersonRow({
                         <div className="font-medium text-sm">{identifier}</div>
                     </div>
                     <div className="flex items-center gap-2">
+                        <InterviewLinkCopyButton identifier={identifier} topicId={topicId} />
                         {hasResponded ? (
                             <LemonTag type="success" icon={<IconCheck />}>
                                 Responded

@@ -1,17 +1,38 @@
-import { afterMount, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { userInterviewTopicsRetrieve, userInterviewTopicsIntervieweesList, userInterviewsList } from './generated/api'
-import type { UserInterviewTopicApi, IntervieweeContextApi, UserInterviewApi } from './generated/api.schemas'
+import {
+    getUserInterviewTopicsLinksCsvCreateUrl,
+    userInterviewTopicsGenerateLinksCreate,
+    userInterviewTopicsIntervieweesList,
+    userInterviewTopicsRetrieve,
+    userInterviewsList,
+} from './generated/api'
+import type {
+    IntervieweeContextApi,
+    InterviewLinkApi,
+    UserInterviewApi,
+    UserInterviewTopicApi,
+} from './generated/api.schemas'
 import type { userInterviewLogicType } from './userInterviewLogicType'
 
 export interface UserInterviewLogicProps {
     id: string
+}
+
+function unwrapPaginatedOrArray<T>(response: T[] | { results?: T[] }): T[] {
+    if (Array.isArray(response)) {
+        return response
+    }
+    return response.results ?? []
 }
 
 export const userInterviewLogic = kea<userInterviewLogicType>([
@@ -54,11 +75,79 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                 }
             },
         },
+        links: {
+            __default: [] as InterviewLinkApi[],
+            loadLinks: async (): Promise<InterviewLinkApi[]> => {
+                const projectId = String(teamLogic.values.currentTeamId)
+                const response = (await userInterviewTopicsGenerateLinksCreate(projectId, props.id)) as unknown as
+                    | InterviewLinkApi[]
+                    | { results?: InterviewLinkApi[] }
+                return unwrapPaginatedOrArray(response)
+            },
+        },
+    })),
+    actions({
+        exportLinksCsv: true,
+        exportLinksCsvDone: true,
+    }),
+    reducers({
+        linksLoadFailed: [
+            false,
+            {
+                loadLinks: () => false,
+                loadLinksFailure: () => true,
+            },
+        ],
+        linksCsvExporting: [
+            false,
+            {
+                exportLinksCsv: () => true,
+                exportLinksCsvDone: () => false,
+            },
+        ],
+    }),
+    listeners(({ props, values, actions }) => ({
+        exportLinksCsv: async () => {
+            const projectId = String(teamLogic.values.currentTeamId)
+            try {
+                const response = await api.createResponse(getUserInterviewTopicsLinksCsvCreateUrl(projectId, props.id))
+                if (!response.ok) {
+                    throw new Error(`Export failed (${response.status})`)
+                }
+                const blob = await response.blob()
+                const filename = `${(values.topic?.topic || 'user-interview')
+                    .replace(/[^\w-]+/g, '-')
+                    .toLowerCase()}-links.csv`
+                const url = URL.createObjectURL(blob)
+                const anchor = document.createElement('a')
+                anchor.href = url
+                anchor.download = filename
+                document.body.appendChild(anchor)
+                anchor.click()
+                document.body.removeChild(anchor)
+                URL.revokeObjectURL(url)
+            } catch {
+                lemonToast.error('Could not export interview links as CSV')
+            } finally {
+                actions.exportLinksCsvDone()
+            }
+        },
     })),
     selectors(({ props }) => ({
         topicInterviews: [
             (s) => [s.interviews],
             (interviews): UserInterviewApi[] => interviews.filter((i) => i.topic === props.id),
+        ],
+        linkByIdentifier: [
+            (s) => [s.links],
+            (links): Record<string, string> =>
+                Object.fromEntries(links.map((link) => [link.interviewee_identifier, link.interview_url])),
+        ],
+        linkForIdentifier: [
+            (s) => [s.linkByIdentifier],
+            (linkByIdentifier): ((identifier: string) => string | undefined) =>
+                (identifier: string) =>
+                    linkByIdentifier[identifier],
         ],
         respondedIdentifiers: [
             (s) => [s.topicInterviews],
@@ -113,5 +202,6 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
         actions.loadTopic()
         actions.loadInterviewees()
         actions.loadInterviews()
+        actions.loadLinks()
     }),
 ])
