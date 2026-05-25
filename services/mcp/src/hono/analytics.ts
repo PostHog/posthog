@@ -1,11 +1,9 @@
-import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { getPostHogClient } from '@/lib/posthog'
 import { buildMCPAnalyticsGroups, buildMCPContextProperties, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
 
 import type { ResolvedState } from './request-state-resolver'
-
-const MCP_SOURCE = 'posthog_mcp_analytics'
 
 function buildBaseProperties(
     state: ResolvedState,
@@ -19,7 +17,7 @@ function buildBaseProperties(
 
     const properties: Record<string, unknown> = {
         $ai_product: 'mcp',
-        $mcp_source: MCP_SOURCE,
+        $mcp_source: MCP_ANALYTICS_SOURCE,
         $mcp_server_name: MCP_SERVER_NAME,
         $mcp_server_version: MCP_SERVER_VERSION,
         $mcp_version: state.version,
@@ -42,7 +40,6 @@ function buildBaseProperties(
                   ...buildMCPContextProperties(analyticsContext),
               }
             : {}),
-        ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
         mcp_runtime: 'hono',
     }
     return { properties, groups }
@@ -69,7 +66,6 @@ export async function trackInitEvent(props: RequestProperties, state: ResolvedSt
                 has_project_id: !!props.projectId,
                 read_only: !!props.readOnly,
                 via_sse_redirect: !!props.viaSseRedirect,
-                ...(props.mode ? { mcp_mode_explicit: props.mode } : {}),
                 ...(sessionUuid ? { $session_id: sessionUuid } : {}),
             },
         })

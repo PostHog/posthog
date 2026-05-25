@@ -1,5 +1,5 @@
 import { ApiClient } from '@/api/client'
-import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
 import {
     AnalyticsEvent,
@@ -150,7 +150,7 @@ export class RequestContext {
         const p = props ?? this.props
         return {
             $ai_product: 'mcp',
-            $mcp_source: 'posthog_mcp_analytics',
+            $mcp_source: MCP_ANALYTICS_SOURCE,
             $mcp_server_name: MCP_SERVER_NAME,
             $mcp_server_version: MCP_SERVER_VERSION,
             $mcp_client_name: p.mcpClientName,

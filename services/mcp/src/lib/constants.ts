@@ -20,3 +20,4 @@ export const getAuthorizationServerUrl = (): string => resolveAuthorizationServe
 
 export const MCP_SERVER_NAME = 'PostHog'
 export const MCP_SERVER_VERSION = '1.0.0'
+export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
