@@ -1157,9 +1157,9 @@ snapshots:
     components-search--product-recents-and-starred--light:
         hash: v1.k794b7964.093365121259b79e33584b3e0042ad3813b0e77f2af285369ab7b2bf98bd9c79.-imuS481bcvyD7kDEeyJ4mfKoQcmD451n4Lxv2IrE3g
     components-search--searching--dark:
-        hash: v1.k794b7964.ad396839fe9f33932049672506634e20d59d18b3fadd0a777f40e83ac714698a.xmQ67eu1qjN6DIEu36qXgff2UHGSMhozO_-renm2CRw
+        hash: v1.k794b7964.5640d6ceda1c0c42d11d0830ce6f99d435ed755f675c7bcf189625c50c6fb77e.y1r9bx5WquHigHMTHREsnNCKkDLi0SluFC9L48L6NxM
     components-search--searching--light:
-        hash: v1.k794b7964.09f7821d34292ac6ae488cf6e77283ee604f033dbffd6c91bf7ae2b5ffe9c4f2.o44oJ2GJt3eMDzIWZJJDLpWSHM8fL3aR2hN22PD1UpU
+        hash: v1.k794b7964.00eec8365eb2b8e99781a485440555fdde5a1ed86e73254e927075b30d97a8cb.Vo_QisoIzatCT6K0G9D63ScY4y_-Y22PxQMJ4Kv64S4
     components-sentencelist--full-sentence--dark:
         hash: v1.k794b7964.9d72ed5224f75be3f53f1ba8edc2547978e519aa46a57cc97eef9087b403cb7d.3yHHiA7NW-p6vVSlM-2nPx7Nbk7wuTr5SA9Av2nW--g
     components-sentencelist--full-sentence--light:
@@ -5323,9 +5323,9 @@ snapshots:
     scenes-app-posthog-ai--welcome-with-latest-conversations--light:
         hash: v1.k794b7964.e748e62b24fe96ae9cd96facb3d679d9649615f7b092f31dc1e3a67aef15c490._-KVj3kzPaGvcu9N4RgpmLPK1ovZANsm4YM9t1s4IUc
     scenes-app-posthog-ai-hands-free-surface--speaking--dark:
-        hash: v1.k794b7964.48aaf5c134a71a9785a39769a4e692844d4f65f8886a589cdcd839a477333aa0.4Cm1e9dqys5vNwnfcvQctrRtB7POvdHdQlL1UFxA4LA
+        hash: v1.k794b7964.9de6e3486b5bc10e0a5edc638ba260437dba4b2c6963e2442fec4851f19cd78e.cuXedGScDuFh3zAN4CQdl14HyVYl1CgmALs3IQDLPgM
     scenes-app-posthog-ai-hands-free-surface--speaking--light:
-        hash: v1.k794b7964.a59ea311f928f55fd230493b29d54170a002d46170a9882a4602922da5819f90.LUh0Yr6hiwR3UTrmy6cqna9EYTalFuan6zEnwJ-h7ig
+        hash: v1.k794b7964.4fc7ba28b41a2abdf5cdfb919c8338b591e5519df4deeed2e37bad2e3e86475c.lD21d7qTi0fIAw5BBs3dTV235RLvPZ3HGF8rtjzW4HA
     scenes-app-posthog-ai-hands-free-surface--with-error--dark:
         hash: v1.k794b7964.38aeb671b882ed7442192a236a3c3e28f8a4ff0d860a83a50d2618b923ba708f.HNuM32DwEhnFE_3a1YNCx3XpKflFOOk-vdkvGTHb-gs
     scenes-app-posthog-ai-hands-free-surface--with-error--light:
