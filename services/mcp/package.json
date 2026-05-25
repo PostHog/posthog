@@ -55,7 +55,7 @@
         "ioredis": "^4.28.5",
         "lucide-react": "^0.577.0",
         "posthog-js-lite": "4.2.2",
-        "posthog-node": "^5.25.0",
+        "posthog-node": "5.33.3",
         "prom-client": "^14.2.0",
         "uuid": "^11.1.0",
         "yaml": "^2.8.2",
