@@ -1,7 +1,14 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
-import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
+import {
+    ErrorCode,
+    findRecoverableApiError,
+    MissingOrganizationContextError,
+    MissingProjectContextError,
+    PostHogValidationError,
+    wrapError,
+} from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -153,6 +160,21 @@ export class StateManager {
     }
 
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
+        // Recoverable: 4xx responses from the PostHog API (and validation errors)
+        // are agent/user input failures — a placeholder project id pasted into
+        // `x-posthog-project-id`, a stale UUID, a value the serializer rejected.
+        // Capturing these here fingerprints a fresh error tracking issue per
+        // distinct bad value (e.g. 'YOUR_POSTHOG_PROJECT_ID', 'NaN',
+        // '${POSTHOG_PROJECT_ID}'). Mirrors the filter already applied in
+        // `handleToolError` (see 070fe8c) so init-time failures don't leak.
+        const recoverable = findRecoverableApiError(error)
+        if (recoverable) {
+            const isFourXx =
+                recoverable instanceof PostHogValidationError || (recoverable.status >= 400 && recoverable.status < 500)
+            if (isFourXx) {
+                return
+            }
+        }
         try {
             getPostHogClient().captureException(error, undefined, { tag: 'mcp', team: 'posthog_ai', context, ...extra })
         } catch {

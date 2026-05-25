@@ -2,9 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
+import { PostHogApiError, PostHogValidationError, wrapError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
+
+const captureException = vi.fn()
+vi.mock('@/lib/posthog', () => ({
+    getPostHogClient: () => ({ captureException }),
+}))
 
 describe('StateManager', () => {
     let stateManager: StateManager
@@ -495,6 +501,83 @@ describe('StateManager', () => {
 
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
+        })
+    })
+
+    // Regression: 4xx responses during init (e.g. a placeholder project id
+    // like 'YOUR_POSTHOG_PROJECT_ID' or 'NaN' sent via the
+    // `x-posthog-project-id` header → `/api/projects/{id}/` rejects with a
+    // 400 PostHogValidationError) were captured here as exceptions
+    // fingerprinted per distinct bad value, polluting error tracking. Mirrors
+    // the same filter already applied in `handleToolError` (070fe8c).
+    describe('_reportException filtering', () => {
+        beforeEach(() => {
+            captureException.mockClear()
+        })
+
+        it('skips PostHogValidationError', () => {
+            const err = new PostHogValidationError({
+                detail: "Field 'id' expected a number but got 'YOUR_POSTHOG_PROJECT_ID'",
+                attr: 'id',
+                code: 'invalid',
+                extra: undefined,
+                url: 'https://us.posthog.com/api/projects/YOUR_POSTHOG_PROJECT_ID/',
+                method: 'GET',
+            })
+
+            ;(stateManager as any)._reportException(err, 'get_or_fetch_project')
+
+            expect(captureException).not.toHaveBeenCalled()
+        })
+
+        it.each([400, 401, 403, 404, 422, 499])('skips %i PostHogApiError', (status) => {
+            const err = new PostHogApiError({
+                status,
+                statusText: 'Client error',
+                body: '{"detail":"bad"}',
+                url: 'https://us.posthog.com/api/projects/1/',
+                method: 'GET',
+            })
+
+            ;(stateManager as any)._reportException(err, 'get_or_fetch_project')
+
+            expect(captureException).not.toHaveBeenCalled()
+        })
+
+        it('skips a 4xx error hidden behind Error.cause', () => {
+            const original = new PostHogValidationError({
+                detail: 'invalid id',
+                attr: 'id',
+                code: 'invalid',
+                extra: undefined,
+                url: 'https://us.posthog.com/api/projects/NaN/',
+                method: 'GET',
+            })
+            const wrapped = wrapError('Failed to fetch project', original)
+
+            ;(stateManager as any)._reportException(wrapped, 'get_or_fetch_project')
+
+            expect(captureException).not.toHaveBeenCalled()
+        })
+
+        it.each([500, 502, 503])('captures %i PostHogApiError as a real failure', (status) => {
+            const err = new PostHogApiError({
+                status,
+                statusText: 'Server error',
+                body: '{"detail":"oops"}',
+                url: 'https://us.posthog.com/api/projects/1/',
+                method: 'GET',
+            })
+
+            ;(stateManager as any)._reportException(err, 'get_or_fetch_project')
+
+            expect(captureException).toHaveBeenCalledTimes(1)
+        })
+
+        it('captures unexpected non-HTTP errors', () => {
+            ;(stateManager as any)._reportException(new Error('boom'), 'get_or_fetch_project')
+
+            expect(captureException).toHaveBeenCalledTimes(1)
         })
     })
 

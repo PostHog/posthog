@@ -47,6 +47,28 @@ function splitCsv(value: string | null): string[] | undefined {
     return parts.length > 0 ? parts : undefined
 }
 
+/**
+ * PostHog project ids are numeric (Team.id is an int). Agents and copy-pasted
+ * setup snippets frequently send placeholders (`YOUR_POSTHOG_PROJECT_ID`,
+ * `${POSTHOG_PROJECT_ID}`, `NaN`, the org name, an API key) via the
+ * `x-posthog-project-id` header or `project_id` query param. Letting those
+ * propagate caches a non-numeric string and turns the next `/api/projects/{id}/`
+ * fetch into a 400 PostHogValidationError fingerprinted per distinct bad value.
+ * Dropping non-numeric values up front lets the resolver fall back to the
+ * default project, or throw a recoverable `MissingProjectContextError` the
+ * agent can self-correct via `switch-project`.
+ */
+function parseNumericProjectId(value: string | undefined): string | undefined {
+    if (!value) {
+        return undefined
+    }
+    const trimmed = value.trim()
+    if (!/^\d+$/.test(trimmed)) {
+        return undefined
+    }
+    return trimmed
+}
+
 export function parseRequestProperties(
     request: Request,
     clientInfo: ClientInfo,
@@ -63,7 +85,9 @@ export function parseRequestProperties(
         userHash: hash(token),
         sessionId: params.get('sessionId') || undefined,
         organizationId: header(request, 'x-posthog-organization-id') || params.get('organization_id') || undefined,
-        projectId: header(request, 'x-posthog-project-id') || params.get('project_id') || undefined,
+        projectId: parseNumericProjectId(
+            header(request, 'x-posthog-project-id') || params.get('project_id') || undefined
+        ),
         features: splitCsv(params.get('features')),
         tools: splitCsv(params.get('tools')),
         region: params.get('region') || undefined,
