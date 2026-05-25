@@ -83,14 +83,25 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     if (!values.currentProjectId) {
                         return values.sessions
                     }
+                    // Snapshot the list and the query (search + sort) before the await. If a
+                    // concurrent loadSessions reset (sort/search change) lands while this page
+                    // is in flight, merging against the post-await values.sessions would corrupt
+                    // the list — so we both offset and merge from the snapshot, and drop this
+                    // page entirely if the query changed underneath us.
+                    const baseSessions = values.sessions
+                    const search = values.filters.search
+                    const orderBy = orderByParam(values.sorting)
                     const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
-                        search: values.filters.search || undefined,
-                        order_by: orderByParam(values.sorting),
+                        search: search || undefined,
+                        order_by: orderBy,
                         limit: SESSIONS_PAGE_SIZE,
-                        offset: values.sessions.length,
+                        offset: baseSessions.length,
                     })
+                    if (search !== values.filters.search || orderBy !== orderByParam(values.sorting)) {
+                        return values.sessions
+                    }
                     actions.setHasNext(response.has_next ?? false)
-                    return [...values.sessions, ...(response.results ?? [])]
+                    return [...baseSessions, ...(response.results ?? [])]
                 },
             },
         ],
@@ -130,6 +141,9 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             false,
             {
                 setHasNext: (_, { hasNext }) => hasNext,
+                // Hide "Load more" the moment a reset starts so it isn't shown (disabled,
+                // spinning) during the reset; setHasNext restores it when the page resolves.
+                loadSessions: () => false,
             },
         ],
     }),
