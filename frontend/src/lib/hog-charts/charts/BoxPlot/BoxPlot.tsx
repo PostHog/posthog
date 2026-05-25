@@ -119,23 +119,44 @@ function BoxPlotInner<Meta = unknown>({
 
     const grouped = useMemo(() => series.filter((s) => !s.visibility?.excluded).length > 1, [series])
 
-    /** Inner adapter series — `data` holds medians at indices `[0, labels.length)` so the
-     *  Chart base's per-label interaction addressing lines up. Whisker domain is driven by
-     *  `valueRangeSeries` below; we don't pad `data` with whisker extremes (that channel was
-     *  redundant with `valueRangeSeries`). */
+    // Whisker min/max appended past `labels.length` so `useChartMargins` (which reads
+    // `seriesValueRange(series)`) sizes the y-tick column for the real value range, not just
+    // the medians. `valueRangeSeries` separately drives the d3 y-domain via createBarScales.
     const adaptedSeries = useMemo<Series<BoxPlotAdaptedMeta<Meta>>[]>(
         () =>
-            series.map((s) => ({
-                key: s.key,
-                label: s.label,
-                color: s.color,
-                data: Array.from({ length: labels.length }, (_, i) => {
+            series.map((s) => {
+                const data: number[] = Array.from({ length: labels.length }, (_, i) => {
                     const datum = s.data[i]
                     return datum && isFinite(datum.median) ? datum.median : Number.NaN
-                }),
-                meta: { datums: s.data, user: s.meta },
-                visibility: s.visibility,
-            })),
+                })
+                let seriesMin = Infinity
+                let seriesMax = -Infinity
+                for (const datum of s.data) {
+                    if (!datum) {
+                        continue
+                    }
+                    if (isFinite(datum.min) && datum.min < seriesMin) {
+                        seriesMin = datum.min
+                    }
+                    if (isFinite(datum.max) && datum.max > seriesMax) {
+                        seriesMax = datum.max
+                    }
+                }
+                if (isFinite(seriesMin)) {
+                    data.push(seriesMin)
+                }
+                if (isFinite(seriesMax)) {
+                    data.push(seriesMax)
+                }
+                return {
+                    key: s.key,
+                    label: s.label,
+                    color: s.color,
+                    data,
+                    meta: { datums: s.data, user: s.meta },
+                    visibility: s.visibility,
+                }
+            }),
         [series, labels.length]
     )
 

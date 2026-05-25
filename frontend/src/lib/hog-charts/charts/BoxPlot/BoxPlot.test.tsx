@@ -55,9 +55,11 @@ describe('BoxPlot', () => {
     })
 
     it('allocates left margin wide enough for the whisker-derived y ticks (not just medians)', () => {
-        // Regression for tick labels getting clipped — when medians (e.g. 30–60) are much
-        // smaller than whisker max (e.g. 280), `useChartMargins` sees the medians-only
-        // series and used to undersize the left margin for the actual axis labels.
+        // Regression: clipping of the y-tick column. `useChartMargins` reads
+        // `seriesValueRange(adaptedSeries)` to size the left margin, so the adapted series'
+        // `data` must include the whisker extremes (not just medians) — `valueRangeSeries`
+        // alone only reaches the d3 y-domain. Tick set covers the whisker range here, with
+        // visual margin sizing left to Storybook snapshots (jsdom stubs `measureText`).
         const series: BoxPlotSeries[] = [
             {
                 key: 'a',
@@ -73,9 +75,6 @@ describe('BoxPlot', () => {
         const maxTickNumeric = Math.max(
             ...ticks.map((t) => parseFloat(t.replace(/[^\d.-]/g, ''))).filter((n) => Number.isFinite(n))
         )
-        // The rendered ticks should reflect the whisker range. The previous bug was sizing
-        // the y-tick *column* width from medians only — assertion guards the rendered tick
-        // set actually reaches the whisker max.
         expect(maxTickNumeric).toBeGreaterThanOrEqual(250)
     })
 
