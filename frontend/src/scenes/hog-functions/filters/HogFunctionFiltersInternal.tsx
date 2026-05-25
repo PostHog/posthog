@@ -6,6 +6,8 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { AnyPropertyFilter, CyclotronJobFiltersType, HogFunctionConfigurationContextId } from '~/types'
 
@@ -113,8 +115,13 @@ const getSimpleFilterValue = (value?: CyclotronJobFiltersType): string | undefin
     return value?.events?.[0]?.id
 }
 
-const setSimpleFilterValue = (options: FilterOption[], value: string): CyclotronJobFiltersType => {
-    return {
+const setSimpleFilterValue = (
+    options: FilterOption[],
+    value: string,
+    previous: CyclotronJobFiltersType | undefined,
+    contextId: HogFunctionConfigurationContextId
+): CyclotronJobFiltersType => {
+    const next: CyclotronJobFiltersType = {
         events: [
             {
                 name: options.find((option) => option.value === value)?.label,
@@ -123,6 +130,12 @@ const setSimpleFilterValue = (options: FilterOption[], value: string): Cyclotron
             },
         ],
     }
+    // Preserve properties bound by Logs alerting (alert_id) — the trigger event id changes between
+    // firing/resolved/auto-disabled/errored, but the binding to the parent alert must survive.
+    if (contextId === 'logs-alerting' && previous?.properties && previous.properties.length > 0) {
+        next.properties = previous.properties
+    }
+    return next
 }
 
 export function HogFunctionFiltersInternal(): JSX.Element {
@@ -141,8 +154,6 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.Events]
         } else if (contextId === 'activity-log') {
             return [TaxonomicFilterGroupType.ActivityLogProperties]
-        } else if (contextId === 'logs-alerting') {
-            return [TaxonomicFilterGroupType.EventProperties]
         }
         return []
     }, [contextId])
@@ -156,9 +167,10 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                         <LemonSelect
                             options={options}
                             value={getSimpleFilterValue(value)}
-                            onChange={(value) => onChange(setSimpleFilterValue(options, value))}
+                            onChange={(next) => onChange(setSimpleFilterValue(options, next, value, contextId))}
                             placeholder="Select a filter"
                         />
+                        {contextId === 'logs-alerting' ? <LogsAlertBindingHint filters={value} /> : null}
                         {taxonomicGroupTypes.length > 0 ? (
                             <PropertyFilters
                                 key={contextId}
@@ -178,6 +190,30 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                     </>
                 )}
             </LemonField>
+        </div>
+    )
+}
+
+function LogsAlertBindingHint({ filters }: { filters: CyclotronJobFiltersType | undefined }): JSX.Element | null {
+    const alertIdProp = filters?.properties?.find((p) => 'key' in p && p.key === 'alert_id')
+    const rawValue = alertIdProp && 'value' in alertIdProp ? alertIdProp.value : undefined
+    const alertId =
+        typeof rawValue === 'string'
+            ? rawValue
+            : Array.isArray(rawValue) && typeof rawValue[0] === 'string'
+              ? rawValue[0]
+              : null
+
+    if (!alertId) {
+        return null
+    }
+
+    return (
+        <div className="text-xs text-secondary flex items-center gap-1 flex-wrap">
+            <span>Bound to alert</span>
+            <Link to={urls.logsAlertDetail(alertId)}>
+                <code className="text-xs">{alertId}</code>
+            </Link>
         </div>
     )
 }
