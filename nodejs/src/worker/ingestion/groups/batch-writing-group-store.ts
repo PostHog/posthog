@@ -638,20 +638,18 @@ export class BatchWritingGroupStore implements GroupStore {
     }
 
     /**
-     * Stop the metric-emission timer and emit any remaining accumulated
-     * metrics. Idempotent.
+     * Stop the metric-emission timer, flush any remaining dirty entries,
+     * and emit accumulated metrics. Idempotent.
      *
-     * Does NOT flush dirty cache entries — the pipeline drain is expected
-     * to have run `flushBatchStoresStep` for every in-flight batch before
-     * shutdown reaches the stores. If dirty entries remain at shutdown
-     * time, that indicates a drain-ordering bug upstream; we log loudly
-     * so the bug is visible rather than silently flushing without the
-     * downstream orchestration (clickhouse upsert side effects).
+     * Under normal operation the pipeline drain flushes all dirty entries
+     * before shutdown reaches the stores. If dirty entries remain here,
+     * that indicates a drain-ordering bug upstream; we log the anomaly and
+     * flush defensively so no writes are silently dropped.
      *
-     * Also does NOT clear the group cache. Cache eviction is intentionally
+     * Does NOT clear the group cache. Cache eviction is intentionally
      * decoupled from this lifecycle hook.
      */
-    shutdown(): void {
+    async shutdown(): Promise<void> {
         if (this.metricEmissionTimer) {
             clearInterval(this.metricEmissionTimer)
             this.metricEmissionTimer = undefined
@@ -664,10 +662,15 @@ export class BatchWritingGroupStore implements GroupStore {
             }
         }
         if (dirtyCount > 0) {
-            logger.error('🚨', 'BatchWritingGroupStore.shutdown() called with dirty entries', {
+            logger.error('🚨', 'BatchWritingGroupStore.shutdown() called with dirty entries — flushing', {
                 dirtyCount,
                 note: 'pipeline drain should have flushed before shutdown — investigate drain ordering',
             })
+            try {
+                await this.flush()
+            } catch (error) {
+                logger.error('🚨', 'BatchWritingGroupStore.shutdown() failed to flush dirty entries', { error })
+            }
         }
 
         this.emitAccumulatedMetrics()

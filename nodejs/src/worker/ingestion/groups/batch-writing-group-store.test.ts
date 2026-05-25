@@ -111,11 +111,11 @@ describe('BatchWritingGroupStore', () => {
         groupStore = new BatchWritingGroupStore(mockOutputs, groupRepository, clickhouseGroupRepository)
     })
 
-    afterEach(() => {
+    afterEach(async () => {
         // Clear the metric-emission interval started in the constructor;
         // unref() prevents it from blocking process exit, but we still want
         // a clean slate between tests.
-        groupStore?.shutdown()
+        await groupStore?.shutdown()
         jest.clearAllMocks()
     })
 
@@ -434,6 +434,27 @@ describe('BatchWritingGroupStore', () => {
 
             // Second flush wrote the updated properties
             expect(groupRepository.updateGroupOptimistically).toHaveBeenCalled()
+        })
+    })
+
+    describe('shutdown()', () => {
+        it('does not flush when no dirty entries exist', async () => {
+            const flushSpy = jest.spyOn(groupStore, 'flush')
+
+            await groupStore.shutdown()
+
+            expect(flushSpy).not.toHaveBeenCalled()
+        })
+
+        it('flushes dirty entries when they exist', async () => {
+            // upsertGroup on an existing group with new properties marks the cache entry dirty
+            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { a: '1' }, DateTime.now())
+
+            const flushSpy = jest.spyOn(groupStore, 'flush')
+
+            await groupStore.shutdown()
+
+            expect(flushSpy).toHaveBeenCalledTimes(1)
         })
     })
 })

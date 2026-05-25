@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { PERSONS_OUTPUT, PersonDistinctIdsOutput, PersonsOutput } from '~/ingestion/analytics/outputs'
 import { INGESTION_WARNINGS_OUTPUT } from '~/ingestion/common/outputs'
-import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson, TeamId } from '~/types'
 import { MessageSizeTooLarge } from '~/utils/db/error'
@@ -46,7 +46,13 @@ jest.mock('./metrics', () => ({
 
 describe('BatchWritingPersonStore', () => {
     // let db: DB
-    let mockIngestionWarningsOutputs: IngestionOutputs<typeof INGESTION_WARNINGS_OUTPUT>
+    let mockIngestionWarningsOutputs: jest.Mocked<
+        ReturnType<
+            typeof createMockIngestionOutputs<
+                PersonsOutput | PersonDistinctIdsOutput | typeof INGESTION_WARNINGS_OUTPUT
+            >
+        >
+    >
     let mockPostgres: PostgresRouter
     let personStore: BatchWritingPersonsStore
     let mockRepo: any
@@ -77,17 +83,19 @@ describe('BatchWritingPersonStore', () => {
             }),
         } as unknown as PostgresRouter
 
-        mockIngestionWarningsOutputs = createMockIngestionOutputs<typeof INGESTION_WARNINGS_OUTPUT>()
+        mockIngestionWarningsOutputs = createMockIngestionOutputs<
+            PersonsOutput | PersonDistinctIdsOutput | typeof INGESTION_WARNINGS_OUTPUT
+        >()
 
         mockRepo = createMockRepository()
         personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
     })
 
-    afterEach(() => {
+    afterEach(async () => {
         // Clear the metric-emission interval started in the constructor;
         // unref() prevents it from blocking process exit, but we still want
         // a clean slate between tests.
-        personStore?.shutdown()
+        await personStore?.shutdown()
         jest.clearAllMocks()
     })
 
@@ -2907,6 +2915,53 @@ describe('BatchWritingPersonStore', () => {
             const payload = mockRepo.updatePersonsBatch.mock.calls[0][0][0]
             expect(payload.uuid).toBe(targetPerson.uuid)
             expect(payload.properties_to_set).toEqual(expect.objectContaining({ post_merge: 'yes' }))
+        })
+    })
+
+    describe('shutdown()', () => {
+        it('does not flush when no dirty entries exist', async () => {
+            const flushSpy = jest.spyOn(personStore, 'flush')
+
+            await personStore.shutdown()
+
+            expect(flushSpy).not.toHaveBeenCalled()
+            expect(mockIngestionWarningsOutputs.produce).not.toHaveBeenCalled()
+        })
+
+        it('flushes dirty entries and produces Kafka messages', async () => {
+            const cache = (personStore as any).personUpdateCache as Map<string, any>
+            cache.set(`${teamId}:${person.id}`, {
+                id: person.id,
+                uuid: person.uuid,
+                team_id: teamId,
+                distinct_id: 'test',
+                needs_write: true,
+                properties: person.properties,
+                properties_to_set: { new_prop: 'value' },
+                properties_to_unset: [],
+                version: person.version,
+                created_at: person.created_at,
+                is_identified: false,
+                is_user_id: null,
+            })
+
+            const message = { output: PERSONS_OUTPUT, value: Buffer.from('{}') }
+            const flushSpy = jest
+                .spyOn(personStore, 'flush')
+                .mockResolvedValue([{ messages: [message], teamId, distinctId: 'test', uuid: person.uuid }])
+
+            await personStore.shutdown()
+
+            expect(flushSpy).toHaveBeenCalledTimes(1)
+            expect(mockIngestionWarningsOutputs.produce).toHaveBeenCalledTimes(1)
+            expect(mockIngestionWarningsOutputs.produce).toHaveBeenCalledWith(PERSONS_OUTPUT, {
+                key: null,
+                value: message.value,
+                teamId,
+            })
+
+            // Remove injected entry so afterEach shutdown does not re-trigger a flush
+            cache.delete(`${teamId}:${person.id}`)
         })
     })
 })

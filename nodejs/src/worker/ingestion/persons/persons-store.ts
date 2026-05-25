@@ -147,7 +147,7 @@ export interface PersonsStore extends BatchWritingStore {
      * remaining accumulated metrics. Called on graceful shutdown. Does NOT
      * clear data caches.
      */
-    shutdown(): void
+    shutdown(): Promise<void>
 
     /**
      * Removes a distinct ID from the cache

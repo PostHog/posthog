@@ -477,8 +477,8 @@ export class IngestionApiServer implements NodeServer {
             additionalCleanup: async () => {
                 await this.ingestionProducerRegistry?.disconnectAll()
                 this.cookielessManager?.shutdown()
-                this.personsStore?.shutdown()
-                this.groupStore?.shutdown()
+                await this.personsStore?.shutdown()
+                await this.groupStore?.shutdown()
             },
         }
     }

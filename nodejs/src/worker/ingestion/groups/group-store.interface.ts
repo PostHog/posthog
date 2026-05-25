@@ -16,7 +16,7 @@ export interface GroupStore extends BatchWritingStore {
      * remaining accumulated metrics. Called on graceful shutdown. Does NOT
      * clear data caches.
      */
-    shutdown(): void
+    shutdown(): Promise<void>
 
     upsertGroup(
         teamId: TeamId,

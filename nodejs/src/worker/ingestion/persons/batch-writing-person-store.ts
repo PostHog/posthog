@@ -5,8 +5,6 @@ import { Properties } from '~/plugin-scaffold'
 import { NoRowsUpdatedError } from '~/utils/utils'
 
 import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
-import { IngestionWarningsOutput } from '../../../ingestion/common/outputs'
-import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 import {
     InternalPerson,
     PersonBatchWritingDbWriteMode,
@@ -36,6 +34,7 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
+import { PersonOutputs } from './person-context'
 import { isFilteredPersonUpdateProperty } from './person-property-utils'
 import { getMetricKey } from './person-update'
 import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
@@ -142,7 +141,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     constructor(
         private personRepository: PersonRepository,
-        private ingestionWarningsOutputs: IngestionOutputs<IngestionWarningsOutput>,
+        private ingestionWarningsOutputs: PersonOutputs,
         options?: Partial<BatchWritingPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
@@ -1071,22 +1070,20 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     }
 
     /**
-     * Stop the metric-emission timer and emit any remaining accumulated
+     * Flush any remaining dirty cache entries to the DB and produce their
+     * Kafka messages, stop the metric-emission timer, and emit accumulated
      * metrics. Idempotent.
      *
-     * Does NOT flush dirty cache entries — the pipeline drain is expected
-     * to have run `flushBatchStoresStep` for every in-flight batch before
-     * shutdown reaches the stores. If dirty entries remain at shutdown
-     * time, that indicates a drain-ordering bug upstream; we log loudly
-     * so the bug is visible rather than silently flushing without
-     * orchestrating the downstream Kafka produces (flush() returns
-     * Kafka messages for the caller to produce).
+     * Dirty entries at shutdown indicate a drain-ordering bug upstream
+     * (the pipeline drain should have run flushBatchStoresStep for every
+     * in-flight batch before reaching shutdown). We flush them anyway so
+     * data is not lost, and log loudly so the bug is visible.
      *
-     * Also does NOT clear the data caches (personUpdateCache et al.).
-     * Those persist for the worker's lifetime; eviction is intentionally
+     * Does NOT clear the data caches (personUpdateCache et al.). Those
+     * persist for the worker's lifetime; eviction is intentionally
      * decoupled from this lifecycle hook.
      */
-    shutdown(): void {
+    async shutdown(): Promise<void> {
         if (this.metricEmissionTimer) {
             clearInterval(this.metricEmissionTimer)
             this.metricEmissionTimer = undefined
@@ -1094,10 +1091,26 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         const dirtyCount = Array.from(this.personUpdateCache.values()).filter((u) => u?.needs_write).length
         if (dirtyCount > 0) {
-            logger.error('🚨', 'BatchWritingPersonsStore.shutdown() called with dirty entries', {
+            logger.error('🚨', 'BatchWritingPersonsStore.shutdown() called with dirty entries — flushing', {
                 dirtyCount,
                 note: 'pipeline drain should have flushed before shutdown — investigate drain ordering',
             })
+            try {
+                const flushResults = await this.flush()
+                await Promise.all(
+                    flushResults.flatMap((record) =>
+                        record.messages.map((message) =>
+                            this.ingestionWarningsOutputs.produce(message.output, {
+                                key: null,
+                                value: message.value,
+                                teamId: record.teamId,
+                            })
+                        )
+                    )
+                )
+            } catch (error) {
+                logger.error('🚨', 'BatchWritingPersonsStore.shutdown() failed to flush dirty entries', { error })
+            }
         }
 
         this.emitAccumulatedMetrics()

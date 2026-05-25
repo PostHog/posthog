@@ -1482,8 +1482,6 @@ describe('IngestionConsumer', () => {
         it('should flush stores exactly once per batch regardless of number of events', async () => {
             const flushSpy = jest.spyOn(ingester['personsStore'], 'flush')
             const groupFlushSpy = jest.spyOn(ingester['groupStore'], 'flush')
-            const reportBatchSpy = jest.spyOn(ingester['personsStore'], 'reportBatch')
-            const resetSpy = jest.spyOn(ingester['personsStore'], 'reset')
 
             const events: PipelineEvent[] = [
                 {
@@ -1525,32 +1523,23 @@ describe('IngestionConsumer', () => {
 
             await ingester.handleKafkaBatch(messages)
 
-            // Verify stores were flushed exactly once
             expect(flushSpy).toHaveBeenCalledTimes(1)
             expect(groupFlushSpy).toHaveBeenCalledTimes(1)
 
-            // Verify lifecycle methods called exactly once
-            expect(reportBatchSpy).toHaveBeenCalledTimes(1)
-            expect(resetSpy).toHaveBeenCalledTimes(1)
-
             flushSpy.mockRestore()
             groupFlushSpy.mockRestore()
-            reportBatchSpy.mockRestore()
-            resetSpy.mockRestore()
         })
 
-        it('should call flush before reportBatch and reset', async () => {
+        it('should flush persons and group stores for each batch', async () => {
             const callOrder: string[] = []
 
             const flushSpy = jest.spyOn(ingester['personsStore'], 'flush').mockImplementation(() => {
-                callOrder.push('flush')
+                callOrder.push('personsFlush')
                 return Promise.resolve([])
             })
-            const reportBatchSpy = jest.spyOn(ingester['personsStore'], 'reportBatch').mockImplementation(() => {
-                callOrder.push('reportBatch')
-            })
-            const resetSpy = jest.spyOn(ingester['personsStore'], 'reset').mockImplementation(() => {
-                callOrder.push('reset')
+            const groupFlushSpy = jest.spyOn(ingester['groupStore'], 'flush').mockImplementation(() => {
+                callOrder.push('groupFlush')
+                return Promise.resolve([])
             })
 
             const events: PipelineEvent[] = [
@@ -1569,11 +1558,23 @@ describe('IngestionConsumer', () => {
 
             await ingester.handleKafkaBatch(createKafkaMessages(events))
 
-            expect(callOrder).toEqual(['flush', 'reportBatch', 'reset'])
+            expect(callOrder).toContain('personsFlush')
+            expect(callOrder).toContain('groupFlush')
 
             flushSpy.mockRestore()
-            reportBatchSpy.mockRestore()
-            resetSpy.mockRestore()
+            groupFlushSpy.mockRestore()
+        })
+    })
+
+    describe('stop()', () => {
+        it('calls shutdown() on persons and group stores', async () => {
+            const personShutdownSpy = jest.spyOn(ingester['personsStore'], 'shutdown')
+            const groupShutdownSpy = jest.spyOn(ingester['groupStore'], 'shutdown')
+
+            await ingester.stop()
+
+            expect(personShutdownSpy).toHaveBeenCalledTimes(1)
+            expect(groupShutdownSpy).toHaveBeenCalledTimes(1)
         })
     })
 })
