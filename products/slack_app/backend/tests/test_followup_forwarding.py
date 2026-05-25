@@ -646,6 +646,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             inputs, "C123", "1234.5678", "U_EXTERNAL", "<@BOT> do something", "1234.5679"
         )
         assert result is True
+        # Lock in that the security gate was actually exercised — without this, an early-return
+        # added before the resolver call would silently bypass the check while keeping the test green.
+        self.mock_resolve_slack_user.assert_called_once()
         mock_send.assert_not_called()
 
     @patch("products.tasks.backend.services.agent_command.send_user_message")
@@ -667,6 +670,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             inputs, "C123", "1234.5678", "U_BOB", "<@BOT> do something", "1234.5679"
         )
         assert result is True
+        # Lock in that the resolver was actually called before the level comparison —
+        # protects against a future refactor that early-returns before the gate runs.
+        self.mock_resolve_slack_user.assert_called_once()
         mock_send.assert_not_called()
         post_call = mock_slack_instance.client.chat_postMessage.call_args
         assert post_call is not None
