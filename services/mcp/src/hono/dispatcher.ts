@@ -18,6 +18,9 @@ import type {
     ReadResourceRequest,
 } from '@modelcontextprotocol/sdk/types.js'
 
+import { randomUUID } from 'node:crypto'
+
+import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import type { RequestProperties } from '@/lib/request-properties'
 
 import { trackInitEvent } from './analytics'
@@ -152,22 +155,26 @@ class McpDispatcher {
             return new Response(null, { status: 202 })
         }
 
+        const hasInit = requests.some((r) => r.method === Method.Initialize)
+        if (hasInit) {
+            props.mcpSessionId = randomUUID()
+        }
+
         const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
         const state = needsState ? await this.stateResolver.resolve(props) : undefined
 
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (props.mcpSessionId) {
+            headers['Mcp-Session-Id'] = props.mcpSessionId
+        }
+
         if (!wasArray && requests.length === 1) {
             const result = await this.dispatch(requests[0]!, props, state)
-            return new Response(JSON.stringify(result), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' },
-            })
+            return new Response(JSON.stringify(result), { status: 200, headers })
         }
 
         const results = await Promise.all(requests.map((r) => this.dispatch(r, props, state)))
-        return new Response(JSON.stringify(results), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-        })
+        return new Response(JSON.stringify(results), { status: 200, headers })
     }
 
     private async dispatch(
@@ -229,7 +236,7 @@ class McpDispatcher {
                     resources: { listChanged: false },
                     prompts: { listChanged: false },
                 },
-                serverInfo: { name: 'PostHog', version: '1.0.0' },
+                serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
                 ...(instructions ? { instructions } : {}),
             }
         } catch (error) {

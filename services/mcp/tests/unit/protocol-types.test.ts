@@ -10,7 +10,6 @@ describe('resolveModeAndVersion', () => {
 
     const base = {
         mode: undefined as undefined,
-        singleExecFlagOn: false,
         clientProfile: profile(),
         flagVersion: undefined as number | undefined,
         clientVersion: undefined as number | undefined,
@@ -27,38 +26,34 @@ describe('resolveModeAndVersion', () => {
         })
     })
 
-    it('explicit mode=tools disables single exec even when flag is on for a coding agent', () => {
+    it('explicit mode=tools disables single exec even for a coding agent', () => {
         const result = resolveModeAndVersion({
             ...base,
             mode: 'tools',
-            singleExecFlagOn: true,
             clientProfile: profile({ clientName: 'claude-code' }),
         })
         expect(result.useSingleExec).toBe(false)
     })
 
-    it('coding agent with flag on activates single exec', () => {
+    it('coding agent activates single exec', () => {
         const result = resolveModeAndVersion({
             ...base,
-            singleExecFlagOn: true,
             clientProfile: profile({ clientName: 'claude-code' }),
         })
         expect(result).toEqual({ useSingleExec: true, version: 2 })
     })
 
-    it('non-coding agent with flag on does NOT activate single exec', () => {
+    it('non-coding agent does NOT activate single exec', () => {
         const result = resolveModeAndVersion({
             ...base,
-            singleExecFlagOn: true,
             clientProfile: profile({ clientName: 'some-dashboard-client' }),
         })
         expect(result.useSingleExec).toBe(false)
     })
 
-    it('flag on + PostHog code consumer activates single exec', () => {
+    it('PostHog code consumer activates single exec', () => {
         const result = resolveModeAndVersion({
             ...base,
-            singleExecFlagOn: true,
             clientProfile: profile({ consumer: 'posthog-code' }),
         })
         expect(result.useSingleExec).toBe(true)
