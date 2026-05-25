@@ -84,10 +84,13 @@ def build_object_access_control_predicate(
         return None
 
     # Cheap short-circuit: if the team has no `ee_accesscontrol` rows for this
-    # resource type at all, no object can be filtered. Avoids the cross-DB
-    # subquery in the overwhelmingly common case where nobody has configured
-    # object-level RBAC for this resource.
-    if not user_access_control.has_access_levels_for_resource(resource):
+    # resource type at all (neither resource-level defaults nor object-level
+    # entries), no object can be filtered. Avoids the cross-DB subquery in the
+    # overwhelmingly common case where nobody has configured RBAC for this
+    # resource. We can't use `has_access_levels_for_resource` here because that
+    # one only counts resource-level rows (`resource_id IS NULL`) and would
+    # miss the object-level-only case that this whole module exists to handle.
+    if not _has_any_acl_rows_for_resource(user_access_control, resource):
         return None
 
     resource_access_level = user_access_control.access_level_for_resource(resource)
@@ -127,6 +130,26 @@ def build_object_access_control_predicate(
         )
 
     return guard
+
+
+def _has_any_acl_rows_for_resource(user_access_control: "UserAccessControl", resource: "APIScopeObject") -> bool:
+    """Return True if any `ee_accesscontrol` row exists for this resource in
+    this team — resource-level (`resource_id IS NULL`) or object-level
+    (`resource_id IS NOT NULL`). Uses the cache on `UserAccessControl`.
+    """
+    if user_access_control._team is None:
+        return False
+
+    # Resource-level rows (default + role + member): cached via
+    # `has_access_levels_for_resource`.
+    if user_access_control.has_access_levels_for_resource(resource):
+        return True
+
+    # Object-level rows: cached via the same `_cache` dict on
+    # `UserAccessControl`. We re-use `access_controls_filters_for_queryset`
+    # which already restricts to `resource_id IS NOT NULL`.
+    filters = user_access_control.access_controls_filters_for_queryset(resource)
+    return bool(user_access_control.get_access_controls(filters))
 
 
 def _created_by_id_field(table: "PostgresTable") -> Optional[str]:
