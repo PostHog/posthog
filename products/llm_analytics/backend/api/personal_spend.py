@@ -3,12 +3,11 @@ Personal LLM spend analysis endpoint.
 
 Surfaces the requesting user's own LLM spend across PostHog products (last N
 days) by running a fixed set of HogQL queries against PostHog's internal cloud
-analytics team. Optionally filter to a single `ai_product` (e.g. `posthog_code`,
-`background_agents`) — when omitted, results aggregate across every product
-captured by LLM analytics for that user.
+analytics team. Scoped to a single `ai_product` via the required `product`
+query param; only `posthog_code` is currently supported (`SUPPORTED_PRODUCTS`).
 
 Endpoint:
-- GET /api/llm_analytics/@me/spend/?date_from=-30d&date_to=&product=<key>&limit=50&refresh=false
+- GET /api/llm_analytics/@me/spend/?product=posthog_code&date_from=-30d&date_to=&limit=50&refresh=false
 """
 
 from __future__ import annotations
