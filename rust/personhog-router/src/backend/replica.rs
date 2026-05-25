@@ -105,6 +105,11 @@ pub fn is_light_method(method: &str) -> bool {
     LIGHT_METHODS.binary_search(&method).is_ok()
 }
 
+/// RPCs that bypass the replica channel pools entirely (routed to leader via
+/// typed proxy in proxy.rs). Excluded from the retry_call! coverage check.
+#[cfg(test)]
+const LEADER_ONLY_METHODS: &[&str] = &["UpdatePersonProperties"];
+
 fn build_endpoint(config: &ReplicaBackendConfig) -> Endpoint {
     let mut endpoint = Channel::from_shared(config.url.clone())
         .unwrap_or_else(|e| panic!("invalid replica URL '{}': {e}", config.url))
@@ -183,26 +188,24 @@ impl ReplicaBackend {
     }
 
     fn next_heavy_client(&self) -> PersonHogReplicaClient<Channel> {
-        let idx =
-            self.heavy_next_idx.fetch_add(1, Ordering::Relaxed) % self.heavy_clients.len();
+        let idx = self.heavy_next_idx.fetch_add(1, Ordering::Relaxed) % self.heavy_clients.len();
         self.heavy_clients[idx].clone()
     }
 
     fn next_light_client(&self) -> PersonHogReplicaClient<Channel> {
-        let idx =
-            self.light_next_idx.fetch_add(1, Ordering::Relaxed) % self.light_clients.len();
+        let idx = self.light_next_idx.fetch_add(1, Ordering::Relaxed) % self.light_clients.len();
         self.light_clients[idx].clone()
     }
 
     /// Get the next raw channel for byte-level proxying, routed by method weight.
     pub fn next_raw_channel_for(&self, method: &str) -> Channel {
         if is_light_method(method) {
-            let idx = self.light_next_idx.fetch_add(1, Ordering::Relaxed)
-                % self.light_raw_channels.len();
+            let idx =
+                self.light_next_idx.fetch_add(1, Ordering::Relaxed) % self.light_raw_channels.len();
             self.light_raw_channels[idx].clone()
         } else {
-            let idx = self.heavy_next_idx.fetch_add(1, Ordering::Relaxed)
-                % self.heavy_raw_channels.len();
+            let idx =
+                self.heavy_next_idx.fetch_add(1, Ordering::Relaxed) % self.heavy_raw_channels.len();
             self.heavy_raw_channels[idx].clone()
         }
     }
@@ -274,14 +277,24 @@ impl PersonHogBackend for ReplicaBackend {
         &self,
         request: GetPersonsByDistinctIdsInTeamRequest,
     ) -> Result<PersonsByDistinctIdsInTeamResponse, Status> {
-        retry_call!(self, next_heavy_client, get_persons_by_distinct_ids_in_team, request)
+        retry_call!(
+            self,
+            next_heavy_client,
+            get_persons_by_distinct_ids_in_team,
+            request
+        )
     }
 
     async fn get_persons_by_distinct_ids(
         &self,
         request: GetPersonsByDistinctIdsRequest,
     ) -> Result<PersonsByDistinctIdsResponse, Status> {
-        retry_call!(self, next_heavy_client, get_persons_by_distinct_ids, request)
+        retry_call!(
+            self,
+            next_heavy_client,
+            get_persons_by_distinct_ids,
+            request
+        )
     }
 
     // ── Light: Distinct ID for single person (bounded string list) ───
@@ -290,7 +303,12 @@ impl PersonHogBackend for ReplicaBackend {
         &self,
         request: GetDistinctIdsForPersonRequest,
     ) -> Result<GetDistinctIdsForPersonResponse, Status> {
-        retry_call!(self, next_light_client, get_distinct_ids_for_person, request)
+        retry_call!(
+            self,
+            next_light_client,
+            get_distinct_ids_for_person,
+            request
+        )
     }
 
     // ── Heavy: Distinct IDs for multiple persons (p99: 540 rows EU) ──
@@ -299,7 +317,12 @@ impl PersonHogBackend for ReplicaBackend {
         &self,
         request: GetDistinctIdsForPersonsRequest,
     ) -> Result<GetDistinctIdsForPersonsResponse, Status> {
-        retry_call!(self, next_heavy_client, get_distinct_ids_for_persons, request)
+        retry_call!(
+            self,
+            next_heavy_client,
+            get_distinct_ids_for_persons,
+            request
+        )
     }
 
     // ── Light: Feature flag hash key overrides (small structs/scalars) ─
@@ -308,7 +331,12 @@ impl PersonHogBackend for ReplicaBackend {
         &self,
         request: GetHashKeyOverrideContextRequest,
     ) -> Result<GetHashKeyOverrideContextResponse, Status> {
-        retry_call!(self, next_light_client, get_hash_key_override_context, request)
+        retry_call!(
+            self,
+            next_light_client,
+            get_hash_key_override_context,
+            request
+        )
     }
 
     async fn upsert_hash_key_overrides(
@@ -322,7 +350,12 @@ impl PersonHogBackend for ReplicaBackend {
         &self,
         request: DeleteHashKeyOverridesByTeamsRequest,
     ) -> Result<DeleteHashKeyOverridesByTeamsResponse, Status> {
-        retry_call!(self, next_light_client, delete_hash_key_overrides_by_teams, request)
+        retry_call!(
+            self,
+            next_light_client,
+            delete_hash_key_overrides_by_teams,
+            request
+        )
     }
 
     // ── Light: Person deletes (scalar responses) ─────────────────────
@@ -338,7 +371,12 @@ impl PersonHogBackend for ReplicaBackend {
         &self,
         request: DeletePersonsBatchForTeamRequest,
     ) -> Result<DeletePersonsBatchForTeamResponse, Status> {
-        retry_call!(self, next_light_client, delete_persons_batch_for_team, request)
+        retry_call!(
+            self,
+            next_light_client,
+            delete_persons_batch_for_team,
+            request
+        )
     }
 
     // ── Light: Cohort membership (small/scalar responses) ────────────
@@ -414,35 +452,60 @@ impl PersonHogBackend for ReplicaBackend {
         &self,
         request: GetGroupTypeMappingsByTeamIdRequest,
     ) -> Result<GroupTypeMappingsResponse, Status> {
-        retry_call!(self, next_light_client, get_group_type_mappings_by_team_id, request)
+        retry_call!(
+            self,
+            next_light_client,
+            get_group_type_mappings_by_team_id,
+            request
+        )
     }
 
     async fn get_group_type_mappings_by_team_ids(
         &self,
         request: GetGroupTypeMappingsByTeamIdsRequest,
     ) -> Result<GroupTypeMappingsBatchResponse, Status> {
-        retry_call!(self, next_light_client, get_group_type_mappings_by_team_ids, request)
+        retry_call!(
+            self,
+            next_light_client,
+            get_group_type_mappings_by_team_ids,
+            request
+        )
     }
 
     async fn get_group_type_mappings_by_project_id(
         &self,
         request: GetGroupTypeMappingsByProjectIdRequest,
     ) -> Result<GroupTypeMappingsResponse, Status> {
-        retry_call!(self, next_light_client, get_group_type_mappings_by_project_id, request)
+        retry_call!(
+            self,
+            next_light_client,
+            get_group_type_mappings_by_project_id,
+            request
+        )
     }
 
     async fn get_group_type_mappings_by_project_ids(
         &self,
         request: GetGroupTypeMappingsByProjectIdsRequest,
     ) -> Result<GroupTypeMappingsBatchResponse, Status> {
-        retry_call!(self, next_light_client, get_group_type_mappings_by_project_ids, request)
+        retry_call!(
+            self,
+            next_light_client,
+            get_group_type_mappings_by_project_ids,
+            request
+        )
     }
 
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         request: GetGroupTypeMappingByDashboardIdRequest,
     ) -> Result<GetGroupTypeMappingByDashboardIdResponse, Status> {
-        retry_call!(self, next_light_client, get_group_type_mapping_by_dashboard_id, request)
+        retry_call!(
+            self,
+            next_light_client,
+            get_group_type_mapping_by_dashboard_id,
+            request
+        )
     }
 
     // ── Heavy: Group writes (return Group objects with properties) ────
@@ -467,7 +530,12 @@ impl PersonHogBackend for ReplicaBackend {
         &self,
         request: DeleteGroupsBatchForTeamRequest,
     ) -> Result<DeleteGroupsBatchForTeamResponse, Status> {
-        retry_call!(self, next_light_client, delete_groups_batch_for_team, request)
+        retry_call!(
+            self,
+            next_light_client,
+            delete_groups_batch_for_team,
+            request
+        )
     }
 
     // ── Light: Group type mapping writes (small struct/scalar) ───────
@@ -490,7 +558,12 @@ impl PersonHogBackend for ReplicaBackend {
         &self,
         request: DeleteGroupTypeMappingsBatchForTeamRequest,
     ) -> Result<DeleteGroupTypeMappingsBatchForTeamResponse, Status> {
-        retry_call!(self, next_light_client, delete_group_type_mappings_batch_for_team, request)
+        retry_call!(
+            self,
+            next_light_client,
+            delete_group_type_mappings_batch_for_team,
+            request
+        )
     }
 }
 
@@ -650,24 +723,56 @@ mod tests {
         let mut typed_light: Vec<String> = Vec::new();
         let mut typed_heavy: Vec<String> = Vec::new();
 
+        // Collect retry_call! invocations spanning multiple lines by accumulating
+        // text between `retry_call!(` and the closing `)`.
+        let mut in_macro = false;
+        let mut macro_buf = String::new();
+
         for line in source.lines() {
             let trimmed = line.trim();
-            if let Some(rest) = trimmed.strip_prefix("retry_call!(self, ") {
-                let parts: Vec<&str> = rest.splitn(3, ", ").collect();
-                if parts.len() >= 2 {
-                    let client_fn = parts[0];
-                    let method = snake_to_pascal(parts[1].trim_end_matches(|c| c == ',' || c == ')'));
-                    match client_fn {
-                        "next_light_client" => typed_light.push(method),
-                        "next_heavy_client" => typed_heavy.push(method),
-                        other => panic!("unexpected client function in retry_call!: {other}"),
+            if !in_macro {
+                if let Some(rest) = trimmed.strip_prefix("retry_call!(") {
+                    if rest.ends_with(')') {
+                        macro_buf = rest.trim_end_matches(')').to_string();
+                    } else {
+                        macro_buf = rest.to_string();
+                        in_macro = true;
+                        continue;
                     }
+                } else {
+                    continue;
+                }
+            } else {
+                if trimmed == ")" {
+                    in_macro = false;
+                } else {
+                    macro_buf.push(' ');
+                    macro_buf.push_str(trimmed);
+                    continue;
                 }
             }
+
+            let args: Vec<&str> = macro_buf.split(',').collect();
+            if args.len() >= 3 {
+                let client_fn = args[1].trim();
+                let method_snake = args[2].trim();
+                let method = snake_to_pascal(method_snake);
+                match client_fn {
+                    "next_light_client" => typed_light.push(method),
+                    "next_heavy_client" => typed_heavy.push(method),
+                    _ => {}
+                }
+            }
+            macro_buf.clear();
         }
 
         typed_light.sort();
         typed_heavy.sort();
+
+        assert!(
+            !typed_light.is_empty() && !typed_heavy.is_empty(),
+            "parser found no retry_call! invocations — source formatting may have changed"
+        );
 
         for method in &typed_light {
             assert!(
@@ -691,8 +796,7 @@ mod tests {
         all_typed.sort();
 
         let mut all_known: Vec<&str> = KNOWN_METHODS.to_vec();
-        // UpdatePersonProperties goes through the leader path, not retry_call!
-        all_known.retain(|m| *m != "UpdatePersonProperties");
+        all_known.retain(|m| !LEADER_ONLY_METHODS.contains(m));
         all_known.sort();
 
         assert_eq!(
