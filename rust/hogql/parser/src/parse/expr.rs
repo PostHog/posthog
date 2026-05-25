@@ -144,7 +144,9 @@ impl<'a> Parser<'a> {
                         break;
                     }
                 }
-            } else if let Some(handled) = self.try_special_infix(kind, &mut lhs, min_bp, lhs_start)? {
+            } else if let Some(handled) =
+                self.try_special_infix(kind, &mut lhs, min_bp, lhs_start)?
+            {
                 if handled {
                     // `try_special_infix` mutates `lhs` in place with a fresh
                     // unpositioned JSON node (`CompareOperation`, `BetweenExpr`,
@@ -828,6 +830,18 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(Kw::Date | Kw::Timestamp)
                 if self.peek_next() == TokenKind::String =>
             {
+                if self.suppress_date_literal_check {
+                    // Inside a clause cpp grammar-parses but never visits (a
+                    // selectStmtWithParens trailing ORDER BY): consume `DATE
+                    // STRING` into a throwaway Constant so the discarded parse
+                    // completes, matching cpp's accept. The node value is moot.
+                    self.bump()?;
+                    let str_tok = self.peek0;
+                    self.bump()?;
+                    return Ok(emit::constant(Value::String(unquote_single_string(
+                        self.text(str_tok),
+                    ))));
+                }
                 let tok = self.peek0;
                 Err(ParseError::not_implemented_fatal(
                     "Date and timestamp literals are not supported",
@@ -3386,7 +3400,10 @@ impl<'a> Parser<'a> {
             }
             if !matches!(
                 t.kind,
-                TokenKind::Number | TokenKind::Dot | TokenKind::Keyword(Kw::Inf) | TokenKind::Keyword(Kw::Nan)
+                TokenKind::Number
+                    | TokenKind::Dot
+                    | TokenKind::Keyword(Kw::Inf)
+                    | TokenKind::Keyword(Kw::Nan)
             ) {
                 return false;
             }
@@ -4805,7 +4822,9 @@ impl<'a> Parser<'a> {
                         self.wrap_pos(between_inner, lhs_start)
                     } else {
                         match high_end {
-                            Some(end) => emit::with_pos(between_inner, self.pos_obj(lhs_start), end),
+                            Some(end) => {
+                                emit::with_pos(between_inner, self.pos_obj(lhs_start), end)
+                            }
                             None => self.wrap_pos(between_inner, lhs_start),
                         }
                     };
@@ -5156,7 +5175,7 @@ impl<'a> Parser<'a> {
     /// `parse_between_body` for the narrow/wide rationale.
     fn parse_between_body_arm(&mut self, start_bp: u8) -> Result<BetweenSplit, ParseError> {
         let chain = self.parse_expr_bp(start_bp)?;
-        if let Some((low, high, hoisted)) = split_at_rightmost_and(&chain) {
+        if let Some((low, high, hoisted)) = split_at_rightmost_and(self, &chain) {
             return Ok((low, high, hoisted));
         }
         // The body had no AND that the split could find — consume the
@@ -5609,6 +5628,118 @@ fn apply_between_hoist(expr: Value, hoist: BetweenHoist) -> Value {
     }
 }
 
+/// The byte offset stored on a position object's `offset` field
+/// (`{line, column, offset}`), if present. ASCII-only — for non-ASCII
+/// sources `offset` is a CHARACTER index, so callers that need a byte
+/// offset must gate on `parser.is_ascii_src` first.
+fn pos_offset(pos: Option<&Value>) -> Option<usize> {
+    pos?.get("offset")?.as_u64().map(|o| o as usize)
+}
+
+/// Given a child's inner `[start, end)` byte span, return the
+/// paren-inclusive `(outer_start, outer_end)` by counting the balanced
+/// `(`…`)` pairs that DIRECTLY wrap the child. A leading `(` (skipping
+/// whitespace) only counts when matched by a trailing `)` (skipping
+/// whitespace) — `min(leading_run, trailing_run)` — so parens belonging
+/// to a larger enclosing construct (the synthetic node itself, or a
+/// sibling group) are never absorbed. Byte-scanning is UTF-8-safe here:
+/// `(`, `)` and ASCII whitespace are single-byte and can't collide with
+/// any continuation byte.
+fn paren_inclusive_span(src: &str, start: usize, end: usize) -> (usize, usize) {
+    let bytes = src.as_bytes();
+    let mut lparens: Vec<usize> = Vec::new();
+    let mut i = start;
+    while i > 0 {
+        i -= 1;
+        match bytes[i] {
+            b'(' => lparens.push(i),
+            b if b.is_ascii_whitespace() => {}
+            _ => break,
+        }
+    }
+    let mut rparen_ends: Vec<usize> = Vec::new();
+    let mut j = end;
+    while j < bytes.len() {
+        match bytes[j] {
+            b')' => {
+                rparen_ends.push(j + 1);
+                j += 1;
+            }
+            b if b.is_ascii_whitespace() => j += 1,
+            _ => break,
+        }
+    }
+    let owned = lparens.len().min(rparen_ends.len());
+    let new_start = if owned > 0 { lparens[owned - 1] } else { start };
+    let new_end = if owned > 0 {
+        rparen_ends[owned - 1]
+    } else {
+        end
+    };
+    (new_start, new_end)
+}
+
+/// `child`'s `start` position extended backward over the parens it owns,
+/// rebuilt via `parser.pos_obj`. None when `child` lacks scannable byte
+/// offsets (non-ASCII source or a `no_pos` child).
+fn paren_extended_start(parser: &Parser<'_>, child: &Value) -> Option<Value> {
+    if !parser.is_ascii_src {
+        return None;
+    }
+    let cs = pos_offset(child.get("start"))?;
+    let ce = pos_offset(child.get("end"))?;
+    let (new_start, _) = paren_inclusive_span(parser.src, cs, ce);
+    Some(parser.pos_obj(new_start))
+}
+
+/// `child`'s `end` position extended forward over the parens it owns.
+fn paren_extended_end(parser: &Parser<'_>, child: &Value) -> Option<Value> {
+    if !parser.is_ascii_src {
+        return None;
+    }
+    let cs = pos_offset(child.get("start"))?;
+    let ce = pos_offset(child.get("end"))?;
+    let (_, new_end) = paren_inclusive_span(parser.src, cs, ce);
+    Some(parser.pos_obj(new_end))
+}
+
+/// The source-end position of `child` for stamping a synthetic And/Or
+/// or re-stamping a wrapper. A positioned node yields its paren-inclusive
+/// end; a `no_pos` NamedArgument (null `end`, but `name := value` source)
+/// ends where its `value` ends, so descend into it. cpp derives these
+/// ends from the operand's ANTLR ctx stop token even when the visitor
+/// emitted the node without its own position. None when nothing
+/// positioned is reachable.
+fn child_source_end_value(parser: &Parser<'_>, child: &Value) -> Option<Value> {
+    if pos_offset(child.get("end")).is_some() {
+        return paren_extended_end(parser, child).or_else(|| child.get("end").cloned());
+    }
+    if child.get("node").and_then(Value::as_str) == Some("NamedArgument") {
+        return child_source_end_value(parser, child.get("value")?);
+    }
+    None
+}
+
+/// Re-stamp `node`'s `end` to `child`'s paren-inclusive end. Called by
+/// the stay-in-place wrapper arms of `split_at_rightmost_and` (Lambda /
+/// Not / ArithmeticOperation.right / the if-call else-branch) after they
+/// replace their rightmost child with the SHORTER left side of the AND
+/// split: the wrapper now ends where that child ends, not where the
+/// original greedy body parse stretched it. A `no_pos` wrapper (null
+/// `end`, e.g. NamedArgument) is left bare.
+fn restamp_end_from_child(
+    parser: &Parser<'_>,
+    node: &mut serde_json::Map<String, Value>,
+    child: &Value,
+) {
+    if node.get("end").map(Value::is_null).unwrap_or(true) {
+        return;
+    }
+    if let Some(e) = child_source_end_value(parser, child) {
+        node.insert("end".into(), e);
+    }
+}
+
 /// Stamp `start` / `end` on a synthetic And/Or built by
 /// `split_at_rightmost_and` from a slice of pre-positioned children.
 /// `emit::and_` / `emit::or_` produce position-less JSON; an outer
@@ -5616,14 +5747,20 @@ fn apply_between_hoist(expr: Value, hoist: BetweenHoist) -> Value {
 /// synthetic And/Or that lives inside BetweenExpr's `low` or `high`,
 /// because BetweenExpr's `low` / `high` are direct fields (not nested
 /// expressions that the pratt loop wraps). Derive the span from the
-/// first child's `start` and the last child's `end` so the inner
-/// synthetic node carries a non-null span.
-fn stamp_span_from_children(mut node: Value, children: &[Value]) -> Value {
+/// first child's `start` and the last child's `end`. cpp positions
+/// these nodes from the ANTLR ctx of the boundary operands, whose
+/// `ColumnExprParens` start/stop tokens are the OUTER parens — but rust
+/// strips parens to inner spans, so extend the boundary children over
+/// the parens they own (matching the pratt loop's `lhs_start` capture,
+/// which sees the leading `(` as the first token).
+fn stamp_span_from_children(parser: &Parser<'_>, mut node: Value, children: &[Value]) -> Value {
     if children.is_empty() {
         return node;
     }
-    let start = children[0].get("start").cloned();
-    let end = children[children.len() - 1].get("end").cloned();
+    let first = &children[0];
+    let last = &children[children.len() - 1];
+    let start = paren_extended_start(parser, first).or_else(|| first.get("start").cloned());
+    let end = child_source_end_value(parser, last).or_else(|| last.get("end").cloned());
     if let Some(obj) = node.as_object_mut() {
         if let Some(s) = start {
             obj.insert("start".into(), s);
@@ -5646,7 +5783,7 @@ fn stamp_span_from_children(mut node: Value, children: &[Value]) -> Value {
 /// - An `Or` node defers — walk children right-to-left so we find the
 ///   *latest* AND-bearing child. Reconstruct the Or above the split.
 /// - Anything else has no AND in it; return None.
-fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
+fn split_at_rightmost_and(parser: &Parser<'_>, node: &Value) -> Option<BetweenSplit> {
     let node_name = node.get("node").and_then(Value::as_str);
     if node_name == Some("And") {
         let exprs = node.get("exprs").and_then(Value::as_array).cloned()?;
@@ -5662,7 +5799,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
         // outer high. Without this descent we'd just pop the last
         // element (NamedArg) wholesale and lose that AND.
         if let Some((deep_left, deep_right, hoisted)) =
-            split_at_rightmost_and(&exprs[exprs.len() - 1])
+            split_at_rightmost_and(parser, &exprs[exprs.len() - 1])
         {
             let mut new_exprs = exprs.clone();
             let last_idx = new_exprs.len() - 1;
@@ -5671,7 +5808,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
                 new_exprs.into_iter().next().unwrap()
             } else {
                 let synthetic = emit::and_(new_exprs.clone());
-                stamp_span_from_children(synthetic, &new_exprs)
+                stamp_span_from_children(parser, synthetic, &new_exprs)
             };
             return Some((new_left, deep_right, hoisted));
         }
@@ -5682,14 +5819,16 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
             exprs.pop().unwrap()
         } else {
             let synthetic = emit::and_(exprs.clone());
-            stamp_span_from_children(synthetic, &exprs)
+            stamp_span_from_children(parser, synthetic, &exprs)
         };
         return Some((left, right, Vec::new()));
     }
     if node_name == Some("Or") {
         let exprs = node.get("exprs").and_then(Value::as_array).cloned()?;
         for i in (0..exprs.len()).rev() {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(&exprs[i]) {
+            if let Some((left_in, right_in, mut hoisted)) =
+                split_at_rightmost_and(parser, &exprs[i])
+            {
                 if hoisted.is_empty() {
                     // AND was found directly inside the Or's child (no
                     // looser-wrapper between them). cpp's grammar lets
@@ -5703,7 +5842,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
                         left_children.pop().unwrap()
                     } else {
                         let synthetic = emit::or_(left_children.clone());
-                        stamp_span_from_children(synthetic, &left_children)
+                        stamp_span_from_children(parser, synthetic, &left_children)
                     };
                     let mut right_children: Vec<Value> = Vec::with_capacity(exprs.len() - i);
                     right_children.push(right_in);
@@ -5712,7 +5851,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
                         right_children.pop().unwrap()
                     } else {
                         let synthetic = emit::or_(right_children.clone());
-                        stamp_span_from_children(synthetic, &right_children)
+                        stamp_span_from_children(parser, synthetic, &right_children)
                     };
                     return Some((left, right, hoisted));
                 }
@@ -5751,8 +5890,9 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     //   the caller's outer-wrap list.
     if node_name == Some("Lambda") {
         if let Some(inner) = node.get("expr") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, inner) {
                 let mut new_node = node.as_object()?.clone();
+                restamp_end_from_child(parser, &mut new_node, &left_in);
                 new_node.insert("expr".into(), left_in);
                 return Some((Value::Object(new_node), right_in, hoisted));
             }
@@ -5766,8 +5906,9 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // `low = Not(Lambda(x, b))`, `high = c` split.
     if node_name == Some("Not") {
         if let Some(inner) = node.get("expr") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, inner) {
                 let mut new_node = node.as_object()?.clone();
+                restamp_end_from_child(parser, &mut new_node, &left_in);
                 new_node.insert("expr".into(), left_in);
                 return Some((Value::Object(new_node), right_in, hoisted));
             }
@@ -5797,14 +5938,15 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // `.right`.
     if node_name == Some("ArithmeticOperation") {
         if let Some(inner) = node.get("right") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, inner) {
                 let mut new_node = node.as_object()?.clone();
+                restamp_end_from_child(parser, &mut new_node, &left_in);
                 new_node.insert("right".into(), left_in);
                 return Some((Value::Object(new_node), right_in, hoisted));
             }
         }
         if let Some(inner) = node.get("left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, inner) {
                 let op = node
                     .get("op")
                     .and_then(Value::as_str)
@@ -5818,7 +5960,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     }
     if node_name == Some("NamedArgument") {
         if let Some(inner) = node.get("value") {
-            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, inner) {
                 let mut new_node = node.as_object()?.clone();
                 new_node.insert("value".into(), left_in);
                 return Some((Value::Object(new_node), right_in, hoisted));
@@ -5831,10 +5973,12 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
                 // Try the else-branch (args[2]) first: `cond ? then :
                 // else AND high` parses with else absorbing the AND;
                 // we peel and rewrap the if-call.
-                if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(&args[2]) {
+                if let Some((left_in, right_in, hoisted)) = split_at_rightmost_and(parser, &args[2])
+                {
                     let mut new_args = args.clone();
                     new_args[2] = left_in;
                     let mut new_node = node.as_object()?.clone();
+                    restamp_end_from_child(parser, &mut new_node, &new_args[2]);
                     new_node.insert("args".into(), Value::Array(new_args));
                     return Some((Value::Object(new_node), right_in, hoisted));
                 }
@@ -5846,7 +5990,9 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
                 // BetweenExpr the caller builds. The if-call node
                 // itself dissolves: its then/else go to the hoist, its
                 // cond's split becomes BETWEEN's low/high.
-                if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(&args[0]) {
+                if let Some((left_in, right_in, mut hoisted)) =
+                    split_at_rightmost_and(parser, &args[0])
+                {
                     hoisted.push(BetweenHoist::Ternary {
                         then_branch: args[1].clone(),
                         else_branch: args[2].clone(),
@@ -5858,7 +6004,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     }
     if node_name == Some("Alias") {
         if let Some(inner) = node.get("expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, inner) {
                 // Hoist *this* alias name. Caller wraps BetweenExpr
                 // with each hoisted item in order (innermost first),
                 // which matches cpp's `Alias(BetweenExpr(...),
@@ -5885,7 +6031,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // alias-wrapped BetweenExpr the caller will build.
     if node_name == Some("IsDistinctFrom") {
         if let Some(inner) = node.get("left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, inner) {
                 let right = node.get("right").cloned().unwrap_or(Value::Null);
                 let negated = node
                     .get("negated")
@@ -5903,7 +6049,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
             == Some(true)
     {
         if let Some(inner) = node.get("left") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, inner) {
                 // `op` is "==" for IS NULL, "!=" for IS NOT NULL.
                 let negated = node.get("op").and_then(Value::as_str) == Some("!=");
                 hoisted.push(BetweenHoist::IsNull { negated });
@@ -5917,7 +6063,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // the alias so it wraps the BetweenExpr the caller builds.
     if node_name == Some("ArrayAccess") {
         if let Some(inner) = node.get("array") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, inner) {
                 let property = node.get("property").cloned().unwrap_or(Value::Null);
                 let nullish = node
                     .get("nullish")
@@ -5937,7 +6083,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // AND inside the call's `.expr`.
     if node_name == Some("ExprCall") {
         if let Some(inner) = node.get("expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, inner) {
                 let args = node
                     .get("args")
                     .and_then(Value::as_array)
@@ -5952,7 +6098,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // BP_POSTFIX=130. Same hoisting pattern as ExprCall.
     if node_name == Some("TypeCast") {
         if let Some(inner) = node.get("expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, inner) {
                 let type_name = node.get("type_name").cloned().unwrap_or(Value::Null);
                 hoisted.push(BetweenHoist::TypeCast { type_name });
                 return Some((left_in, right_in, hoisted));
@@ -5965,7 +6111,7 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     // field name (`tuple` vs `array`, `index` vs `property`).
     if node_name == Some("TupleAccess") {
         if let Some(inner) = node.get("tuple") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner) {
+            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(parser, inner) {
                 let index = node.get("index").and_then(Value::as_i64).unwrap_or(0);
                 let nullish = node
                     .get("nullish")
@@ -6005,15 +6151,18 @@ fn split_at_rightmost_and(node: &Value) -> Option<BetweenSplit> {
     //    `expr`: split And(d,e), hoist (f, g, neg=true).
     if node_name == Some("BetweenExpr") {
         if let (Some(inner_low), Some(inner_high)) = (node.get("low"), node.get("high")) {
-            if let Some((new_low, new_high, hoisted)) = split_at_rightmost_and(inner_low) {
+            if let Some((new_low, new_high, hoisted)) = split_at_rightmost_and(parser, inner_low) {
                 let mut new_inner = node.as_object()?.clone();
+                restamp_end_from_child(parser, &mut new_inner, &new_high);
                 new_inner.insert("low".into(), new_low);
                 new_inner.insert("high".into(), new_high);
                 return Some((Value::Object(new_inner), inner_high.clone(), hoisted));
             }
         }
         if let Some(inner_expr) = node.get("expr") {
-            if let Some((left_in, right_in, mut hoisted)) = split_at_rightmost_and(inner_expr) {
+            if let Some((left_in, right_in, mut hoisted)) =
+                split_at_rightmost_and(parser, inner_expr)
+            {
                 let low = node.get("low").cloned().unwrap_or(Value::Null);
                 let high = node.get("high").cloned().unwrap_or(Value::Null);
                 let negated = node

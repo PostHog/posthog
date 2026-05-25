@@ -1058,7 +1058,17 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
 
     @pytest.mark.xfail(
         strict=True,
-        reason="cpp ALL(*) parses `from f` as an invalid column under the leading comma (FROM-implicit-alias footgun); rust's single pass accepts the cross-join+sample",
+        reason=(
+            "Irreducible ALL(*) greedy-column artifact. `select 1, from f, using sample 1`: "
+            "cpp's `selectColumnExprListBeforeFrom` greedily eats `from f` as a "
+            "`ColumnExprInvalidFromImplicitAlias` column (trailing-comma form), leaving "
+            "`using sample 1` to match the select-level `(USING? sampleClause)?` clause — "
+            "then the from-implicit-alias column rejects. rust's single pass instead opens the "
+            "FROM clause at `from f` and consumes `using` as a cross-join table + sample. Both "
+            "AGREE on the explicit-from `select 1 from a, using sample 1` (using = cross-join "
+            "table); only the leading-comma column/from boundary resolution diverges, which "
+            "needs whole-query backtracking to replicate (a general fix, not a 3-condition hack)."
+        ),
     )
     @no_memory_leak_check
     def test_xfail_select_leading_comma_keyword_table_sample(self):
@@ -1066,17 +1076,44 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             with self.assertRaises(BaseHogQLError):
                 parse_select("select 1, from f, using sample 1", backend=backend)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="cpp ALL(*) finds an alternative parse where the date literal node is never built; rust commits to the date literal and fatally rejects",
-    )
     @no_memory_leak_check
-    def test_xfail_date_literal_in_alternative_parse_context(self):
-        query = "range := ( { ( 'nlhonme ' ) } order by 'e' , date 'fa' collate 'a' ) "
+    def test_date_literal_tolerated_in_discarded_order_by(self):
+        # A `selectStmtWithParens` trailing `orderByClause?` is grammar-parsed but
+        # cpp's `VISIT(SelectSetStmt)` never visits the subtree, so an unsupported
+        # `date`/`timestamp` literal anywhere inside it (incl. nested selects /
+        # calls) is tolerated. rust used to commit to the date literal and fatally
+        # reject. The whole discarded ORDER BY subtree is unvisited, so the
+        # suppression leaks into nested constructs — matching cpp.
+        for query in (
+            "( {x} order by date 'z' )",
+            "( {x} order by (select 1 order by date 'z') )",
+            "( {x} order by f(date 'z') )",
+            "( {x} order by date 'z' + 1 )",
+            "( (select 1) order by (select date 'z') )",
+            "( {x} order by date 'z' limit 1 )",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+        program = "range := ( { ( 'nlhonme ' ) } order by 'e' , date 'fa' collate 'a' ) "
         self.assertEqual(
-            parse_program(query, backend="cpp-json"),
-            parse_program(query, backend="rust-json"),
+            parse_program(program, backend="cpp-json"),
+            parse_program(program, backend="rust-json"),
         )
+        # A KEPT order by (a real SelectQuery's) DOES visit the date and rejects,
+        # and a bare date literal / placeholder-block date is unaffected by the
+        # suppression — all four must still reject on both backends.
+        for query, fn in (
+            ("select 1 order by date 'x'", parse_select),
+            ("select 1 order by (select date 'z')", parse_select),
+            ("date 'x'", parse_expr),
+            ("{ date 'x' }", parse_program),
+        ):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError, msg=query):
+                    fn(query, backend=backend)
 
     @no_memory_leak_check
     def test_stacked_table_alias_span_ends_at_first_alias(self):
@@ -1099,13 +1136,28 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 msg=query,
             )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="BETWEEN followed by a hoisting op: the inner BetweenExpr keeps high.end, missing a parenthesized high's closing paren (position-only)",
-    )
     @no_memory_leak_check
-    def test_xfail_between_hoist_parenthesized_high_position(self):
-        for query in ("x between (1) and (2) or y", "1 between 2 and (3) and 4"):
+    def test_between_split_synthetic_node_positions(self):
+        # When the greedy BETWEEN-body parse is split at the rightmost AND, the
+        # rebuilt And/Or (and the wrappers it descends through) must carry cpp's
+        # ctx-derived span, not the children's inner (paren-stripped) span. cpp
+        # positions a boolean node from its FIRST operand's `(` and LAST operand's
+        # `)`, and a stay-in-place wrapper (Lambda / Not / arith.right / the
+        # if-call else-branch) ends where its now-shorter child ends. A no_pos
+        # NamedArgument operand still contributes its `value`'s end.
+        for query in (
+            "x between (1) and (2) or y",  # synthetic Or start = `(` of `(2)`
+            "1 between 2 and (3) and 4",  # synthetic And end = `)` of `(3)`
+            "x between (1) and lambda z: (2) and (3)",  # Lambda body end shrinks
+            "a between not lambda x: (b) and (c) and d",  # Not + Lambda descent
+            "x between 1 and (2) * (3) and 4",  # arith.right end shrinks
+            "a between b ? c : (d) and (e) and f",  # if-call else-branch end
+            "1 between 2 between 3 and (4) and 5",  # nested BETWEEN low peel
+            "x between y between z and (w) and v",
+            "p between (q) and r := (s) and (t)",  # no_pos NamedArgument last operand
+            "m between (n) and o := (p) and q := (r) and (s)",
+            "x between (1) and ((2) or (3)) and (4)",
+        ):
             self.assertEqual(
                 parse_expr(query, backend="cpp-json"),
                 parse_expr(query, backend="rust-json"),

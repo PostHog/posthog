@@ -236,7 +236,17 @@ impl<'a> Parser<'a> {
         {
             self.bump()?;
             self.bump()?;
-            self.parse_order_expr_list()?;
+            // cpp never visits this discarded orderByClause, so an
+            // unsupported `date`/`timestamp` literal anywhere in its
+            // (also unvisited) subtree is tolerated. Suppress the fatal
+            // date-literal check for the duration of this parse; it
+            // intentionally leaks into nested selects/calls here, since
+            // cpp visits none of that subtree either.
+            let prev_date = self.suppress_date_literal_check;
+            self.suppress_date_literal_check = true;
+            let order_by_result = self.parse_order_expr_list();
+            self.suppress_date_literal_check = prev_date;
+            order_by_result?;
             // Optional trailing `INTERPOLATE [(...)]` is part of the
             // orderByClause grammar; consume-and-drop alongside the
             // order_by we're discarding here.
@@ -779,7 +789,11 @@ impl<'a> Parser<'a> {
                         if let Some(v) = value {
                             interp.insert("value".into(), v);
                         }
-                        items.push(self.wrap_pos_to(Value::Object(interp), interp_start, interp_end));
+                        items.push(self.wrap_pos_to(
+                            Value::Object(interp),
+                            interp_start,
+                            interp_end,
+                        ));
                         if !self.eat(TokenKind::Comma)? {
                             break;
                         }
