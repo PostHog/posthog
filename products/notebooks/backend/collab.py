@@ -139,6 +139,11 @@ def submit_steps(
 
 
 def _fetch_missed_steps(stream_key: str, *, last_seen_version: int, current_stream_version: int) -> SubmitResult:
+    # Client is somehow ahead of the stream — no missed range we could send.
+    # The only safe response is "reload the notebook".
+    if current_stream_version < last_seen_version:
+        return SubmitResult(status="stale", version=current_stream_version)
+
     client = redis_module.get_client()
     raw = client.xrange(stream_key, min=f"({last_seen_version}-0", max=f"{current_stream_version}-0")
 

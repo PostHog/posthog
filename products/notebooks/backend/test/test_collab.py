@@ -170,6 +170,31 @@ class TestNotebookCollab(BaseTest):
         assert result.status == "accepted"
         assert result.version == 947
 
+    def test_non_empty_stream_with_client_ahead_returns_stale(self):
+        # Stream's latest version is below the client's baseline — there is no missed range to
+        # rebase against. Verify we return `stale` so the client opens the conflict modal
+        # instead of looping on conflict-with-empty-steps.
+        submit_steps(
+            self.team.pk,
+            "nb_client_ahead_nonempty",
+            "client1",
+            [{"stepType": "replace", "from": 0, "to": 0}],
+            0,
+            last_saved_version=0,
+        )
+
+        result = submit_steps(
+            self.team.pk,
+            "nb_client_ahead_nonempty",
+            "client_stale",
+            [{"stepType": "replace", "from": 1, "to": 1}],
+            last_seen_version=5,
+            last_saved_version=5,
+        )
+        assert result.status == "stale"
+        assert result.version == 1
+        assert result.steps_since is None
+
     def test_stream_maxlen_constant_is_sane(self):
         # Sanity: MAXLEN must comfortably hold an hour of edits. Adjust deliberately if changed.
         assert STREAM_MAX_LENGTH >= 1000
