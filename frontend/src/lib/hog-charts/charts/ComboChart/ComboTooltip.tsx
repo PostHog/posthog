@@ -34,8 +34,14 @@ export function ComboTooltip<Meta>({
     if (!comboScales || !ctx.hoverPosition || ctx.dataIndex < 0) {
         return <>{userTooltip ? userTooltip(ctx) : DefaultTooltip(ctx)}</>
     }
+    // Pre-filter to bar series so barKeysAtCursor doesn't re-walk lines/areas on every
+    // mousemove. The hit function ignores non-bar entries anyway, but skipping them here
+    // is cheap and matches the partition done by drawHover.
+    const barCandidates = ctx.seriesData
+        .map((entry) => entry.series)
+        .filter((s) => resolveSeriesType(s, defaultSeriesType) === 'bar')
     const barHits = barKeysAtCursor({
-        series: ctx.seriesData.map((entry) => entry.series),
+        series: barCandidates,
         label: ctx.label,
         dataIndex: ctx.dataIndex,
         cursor: ctx.hoverPosition,

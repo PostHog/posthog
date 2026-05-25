@@ -1,3 +1,4 @@
+import { bandCenter } from '../../../core/bar-layout'
 import { createComboScales } from '../../../core/combo-scales'
 import { findNearestIndex } from '../../../core/interaction'
 import { computeStackData } from '../../../core/scales'
@@ -15,29 +16,23 @@ describe('combo hit-test', () => {
         it('returns the index whose band center is closest to the cursor x', () => {
             const labels = ['Mon', 'Tue', 'Wed', 'Thu']
             const scales = createComboScales([], labels, dimensions, { seriesTypeOf: seriesTypeOf('line') })
-            const bandCenter = (label: string): number | undefined => {
-                const start = scales.band(label)
-                return start == null ? undefined : start + scales.band.bandwidth() / 2
-            }
+            const centerOf = (label: string): number | undefined => bandCenter(scales.band, label)
             for (const target of [0, 1, 2, 3]) {
-                const cursorX = bandCenter(labels[target])!
-                expect(findNearestIndex(cursorX, labels, bandCenter)).toBe(target)
+                const cursorX = centerOf(labels[target])!
+                expect(findNearestIndex(cursorX, labels, centerOf)).toBe(target)
             }
         })
 
         it('rounds to the nearer index between two band centers', () => {
             const labels = ['a', 'b', 'c']
             const scales = createComboScales([], labels, dimensions, { seriesTypeOf: seriesTypeOf('line') })
-            const bandCenter = (label: string): number | undefined => {
-                const start = scales.band(label)
-                return start == null ? undefined : start + scales.band.bandwidth() / 2
-            }
-            const ca = bandCenter('a')!
-            const cb = bandCenter('b')!
+            const centerOf = (label: string): number | undefined => bandCenter(scales.band, label)
+            const ca = centerOf('a')!
+            const cb = centerOf('b')!
             // Slightly past midpoint toward b → picks b.
-            expect(findNearestIndex(ca + (cb - ca) * 0.55, labels, bandCenter)).toBe(1)
+            expect(findNearestIndex(ca + (cb - ca) * 0.55, labels, centerOf)).toBe(1)
             // Slightly before midpoint → picks a.
-            expect(findNearestIndex(ca + (cb - ca) * 0.45, labels, bandCenter)).toBe(0)
+            expect(findNearestIndex(ca + (cb - ca) * 0.45, labels, centerOf)).toBe(0)
         })
     })
 

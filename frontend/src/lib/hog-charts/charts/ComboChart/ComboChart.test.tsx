@@ -137,7 +137,11 @@ describe('ComboChart', () => {
             })
             await new Promise((resolve) => setTimeout(resolve, 0))
             const tooltipEl = document.querySelector('[data-hog-charts-tooltip]') as HTMLElement | null
-            expect(tooltipEl?.textContent ?? '').toBe('')
+            // Tooltip is suppressed when the cursor is in a band gap — either the portal never
+            // mounts, or it mounts but ComboTooltip returns null and the portal stays empty.
+            if (tooltipEl !== null) {
+                expect(tooltipEl.textContent).toBe('')
+            }
         })
 
         it('renders bar+line on dual axes and shows both in the tooltip', async () => {
@@ -202,6 +206,9 @@ describe('ComboChart', () => {
             const tooltip = (): React.ReactNode => {
                 throw new Error('boom')
             }
+            // ChartErrorBoundary surfaces the error to onError; React still logs it. Restore
+            // explicitly rather than via afterEach — setupJsdom installs a persistent
+            // getBoundingClientRect spy that restoreAllMocks would also tear down.
             const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
             try {
                 const { chart } = renderHogChart(

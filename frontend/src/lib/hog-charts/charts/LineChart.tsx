@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo } from 'react'
 
-import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../core/canvas-renderer'
+import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints, withPlotClip } from '../core/canvas-renderer'
 import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
 import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
@@ -164,41 +164,28 @@ function LineChartInner<Meta = unknown>({
                 drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
             }
 
-            // Clip data drawing to the plot area so an overlay series with values outside
+            // Clip line/area drawing to the plot area so an overlay series with values outside
             // the y-domain (e.g. a trendline projecting below 0) doesn't bleed into the
-            // axis-label gutter beneath the chart. A small pad on top/bottom keeps strokes
-            // at the domain edge from rendering at half-thickness — line strokes and point
-            // markers extend past the value's pixel center.
-            const CLIP_PAD = 8
-            ctx.save()
-            ctx.beginPath()
-            ctx.rect(
-                dimensions.plotLeft,
-                dimensions.plotTop - CLIP_PAD,
-                dimensions.plotWidth,
-                dimensions.plotHeight + CLIP_PAD * 2
-            )
-            ctx.clip()
+            // axis-label gutter beneath the chart.
+            withPlotClip(ctx, dimensions, () => {
+                for (const s of coloredSeries) {
+                    if (s.visibility?.excluded) {
+                        continue
+                    }
 
-            for (const s of coloredSeries) {
-                if (s.visibility?.excluded) {
-                    continue
+                    const drawCtx: DrawContext = { ...baseDrawCtx, yScale: resolveYScale(s) }
+                    const band = stackedData?.get(s.key)
+                    const yValues = band?.top
+
+                    if (s.fill) {
+                        drawArea(drawCtx, s, yValues, s.fill.lowerData ?? band?.bottom)
+                    }
+                    if (!s.fill?.lowerData) {
+                        drawLine(drawCtx, s, yValues)
+                        drawPoints(drawCtx, s, yValues)
+                    }
                 }
-
-                const drawCtx: DrawContext = { ...baseDrawCtx, yScale: resolveYScale(s) }
-                const band = stackedData?.get(s.key)
-                const yValues = band?.top
-
-                if (s.fill) {
-                    drawArea(drawCtx, s, yValues, s.fill.lowerData ?? band?.bottom)
-                }
-                if (!s.fill?.lowerData) {
-                    drawLine(drawCtx, s, yValues)
-                    drawPoints(drawCtx, s, yValues)
-                }
-            }
-
-            ctx.restore()
+            })
         },
         [showGrid, stackedData]
     )

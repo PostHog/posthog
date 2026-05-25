@@ -1,7 +1,14 @@
 import * as d3 from 'd3'
 import React, { useCallback, useMemo } from 'react'
 
-import { type BarChartPrivate, computeBarAtIndex, computeBarTrackRect, computeSeriesBars } from '../../core/bar-layout'
+import {
+    bandCenter,
+    type BarChartPrivate,
+    computeBarAtIndex,
+    computeBarTrackRect,
+    computeSeriesBars,
+    groupedBarCenter,
+} from '../../core/bar-layout'
 import {
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
@@ -19,6 +26,7 @@ import {
     computeDivergingStackData,
     computePercentStackData,
     computeStackData,
+    computeTopStackedKeyByAxis,
     createBarScales,
     type StackedBand,
     yTickCountForHeight,
@@ -39,23 +47,6 @@ import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import { computeVisibleXLabels } from '../../overlays/AxisLabels'
 import { BarTooltip } from './BarTooltip'
 import { cursorOutsideBarFillExtent, seriesKeysAtCursor } from './utils/bars-under-cursor'
-
-function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
-    const start = scales.band(label)
-    return start == null ? undefined : start + scales.band.bandwidth() / 2
-}
-
-/** Center of a specific series's bar within a band. Used by overlays (e.g. annotations)
- *  to anchor on the current-period bar in compare-against-previous grouped layouts.
- *  Returns undefined when the layout isn't grouped or the series isn't in the group scale. */
-function groupedBarCenter(scales: BarChartPrivate['__barChart'], label: string, seriesKey: string): number | undefined {
-    const start = scales.band(label)
-    const groupOffset = scales.group?.(seriesKey)
-    if (start == null || groupOffset == null) {
-        return undefined
-    }
-    return start + groupOffset + (scales.group?.bandwidth() ?? 0) / 2
-}
 
 export interface BarChartProps<Meta = unknown> {
     series: Series<Meta>[]
@@ -113,22 +104,12 @@ function BarChartInner<Meta = unknown>({
     }, [barLayout, series, labels, divergingStack])
 
     // Cap rounding is per-axis: buildStackData stacks each yAxisId independently, so each
-    // axis has its own topmost visible series. Iteration order matches d3.stack's key order,
-    // so the last write per axis is that axis's top layer.
-    const topStackedKeyByAxis = useMemo<Map<string, string>>(() => {
-        const m = new Map<string, string>()
-        if (barLayout === 'grouped') {
-            return m
-        }
-        for (const s of series) {
-            if (s.visibility?.excluded) {
-                continue
-            }
-            const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-            m.set(axisId, s.key)
-        }
-        return m
-    }, [barLayout, series])
+    // axis has its own topmost visible series. Grouped layouts don't stack, so cap rounding
+    // doesn't apply — return an empty map.
+    const topStackedKeyByAxis = useMemo<Map<string, string>>(
+        () => (barLayout === 'grouped' ? new Map() : computeTopStackedKeyByAxis(series)),
+        [barLayout, series]
+    )
 
     const chartConfig = useMemo<BarChartConfig>(() => {
         const base = { ...config, isPercent: barLayout === 'percent' }
@@ -187,12 +168,12 @@ function BarChartInner<Meta = unknown>({
             return {
                 x: (label: string, seriesKey?: string) => {
                     if (seriesKey != null && barLayout === 'grouped') {
-                        const xForSeries = groupedBarCenter(d3Scales, label, seriesKey)
+                        const xForSeries = groupedBarCenter(d3Scales.band, d3Scales.group, label, seriesKey)
                         if (xForSeries != null) {
                             return xForSeries
                         }
                     }
-                    return bandCenter(d3Scales, label)
+                    return bandCenter(d3Scales.band, label)
                 },
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
@@ -212,7 +193,7 @@ function BarChartInner<Meta = unknown>({
             const baseDrawCtx: DrawContext = {
                 ctx,
                 dimensions,
-                xScale: (label: string) => bandCenter(d3Scales, label),
+                xScale: (label: string) => bandCenter(d3Scales.band, label),
                 yScale: d3Scales.value,
                 labels: drawLabels,
             }
@@ -222,7 +203,7 @@ function BarChartInner<Meta = unknown>({
                 let categoryTicks: number[] = []
                 if (isHorizontal) {
                     for (const label of drawLabels) {
-                        const coord = bandCenter(d3Scales, label)
+                        const coord = bandCenter(d3Scales.band, label)
                         if (coord != null && isFinite(coord)) {
                             categoryTicks.push(coord)
                         }
@@ -230,7 +211,7 @@ function BarChartInner<Meta = unknown>({
                 } else {
                     categoryTicks = computeVisibleXLabels(
                         drawLabels,
-                        (label) => bandCenter(d3Scales, label),
+                        (label) => bandCenter(d3Scales.band, label),
                         xTickFormatter
                     ).map((entry) => entry.x)
                 }

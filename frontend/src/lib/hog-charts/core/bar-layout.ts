@@ -1,3 +1,5 @@
+import type * as d3 from 'd3'
+
 import type { BarRect, BarRoundedCorners } from './canvas-renderer'
 import type { BarScaleSet, StackedBand } from './scales'
 import type { Series } from './types'
@@ -6,6 +8,30 @@ import type { Series } from './types'
  *  narrowed by its draw callbacks. */
 export interface BarChartPrivate {
     __barChart: BarScaleSet
+}
+
+/** Pixel coordinate of a band's center on the categorical axis. Returns undefined when the
+ *  label is outside the band domain. Shared by BarChart and ComboChart. */
+export function bandCenter(band: d3.ScaleBand<string>, label: string): number | undefined {
+    const start = band(label)
+    return start == null ? undefined : start + band.bandwidth() / 2
+}
+
+/** Pixel coordinate of a specific series's bar center within a band — only meaningful for
+ *  grouped layouts where each series occupies its own sub-band slot. Returns undefined when
+ *  the series isn't in the group scale or the label isn't in the band domain. */
+export function groupedBarCenter(
+    band: d3.ScaleBand<string>,
+    group: d3.ScaleBand<string> | undefined,
+    label: string,
+    seriesKey: string
+): number | undefined {
+    const start = band(label)
+    const groupOffset = group?.(seriesKey)
+    if (start == null || groupOffset == null) {
+        return undefined
+    }
+    return start + groupOffset + (group?.bandwidth() ?? 0) / 2
 }
 
 export type SeriesBarLayout = (BarRect | null)[]

@@ -1,29 +1,24 @@
 import * as d3 from 'd3'
 
-import { niceLogDomain, seriesValueRange, type StackedBand, yTickCountForHeight } from './scales'
+import { collectOrderedAxisIds, niceLogDomain, seriesValueRange, type StackedBand, yTickCountForHeight } from './scales'
 import type { ChartDimensions, Series, SeriesType } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 type D3YScale = d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
 
-/** Combo chart scale set — a shared band x-axis (so bars have width and lines plot at band
- *  centers) plus per-axis value scales whose domain spans every series on that axis,
- *  regardless of type. */
+/** Combo chart scale set — band x-axis plus per-axis value scales spanning every series on
+ *  that axis. `yAxes` is always populated (even for single-axis charts) so combo draw code
+ *  has one lookup path. `group` is the sub-band for grouped bar layout, built from bar-series
+ *  keys only — lines/areas don't participate. */
 export interface ComboScaleSet {
     band: d3.ScaleBand<string>
-    /** Per-axis y scales keyed by axis id. Always populated (even for single-axis charts)
-     *  so combo draw code only has one lookup path. */
     yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }>
-    /** Primary y scale — matches the default axis when present, otherwise the first axis. */
     y: D3YScale
-    /** Sub-band for grouped bar layout — built from bar-series keys only. Undefined for
-     *  stacked layout. Lines and areas do not participate in the group scale. */
     group?: d3.ScaleBand<string>
 }
 
-/** Brand for the ComboChart `ChartScales._private` slot — populated by ComboChart and
- *  narrowed by its draw callbacks and tooltip wrapper. Single source of truth so a
- *  shape change in `ComboScaleSet` doesn't drift between consumers. */
+/** Brand for the ComboChart `ChartScales._private` slot. Single source of truth so a shape
+ *  change in `ComboScaleSet` doesn't drift between consumers. */
 export interface ComboChartPrivate {
     __comboChart: ComboScaleSet
 }
@@ -33,18 +28,15 @@ export interface CreateComboScalesOptions {
     barLayout?: 'stacked' | 'grouped'
     bandPadding?: number
     groupPadding?: number
-    /** Resolves a series's effective type (`Series.type` ?? config default). */
     seriesTypeOf: (series: Series) => SeriesType
     /** Stacked-band data for bar series. Required when `barLayout` is `'stacked'`. */
     barStackedData?: Map<string, StackedBand>
 }
 
-/** Resolve a series's rendering type, honoring `Series.type` and falling back to `defaultType`. */
 export function resolveSeriesType(series: Pick<Series, 'type'>, defaultType: SeriesType): SeriesType {
     return series.type ?? defaultType
 }
 
-/** True when the resolved type is `'line'` or `'area'`. */
 export function isLineLike(type: SeriesType): boolean {
     return type === 'line' || type === 'area'
 }
@@ -82,7 +74,11 @@ export function createComboScales(
     const tickCount = yTickCountForHeight(dimensions.plotHeight)
     const valueRange: [number, number] = [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop]
 
-    const axisIds = collectAxisIds(series)
+    // Empty chart still needs an axis to draw against.
+    const axisIds = collectOrderedAxisIds(series)
+    if (axisIds.length === 0) {
+        axisIds.push(DEFAULT_Y_AXIS_ID)
+    }
     const yAxes: ComboScaleSet['yAxes'] = {}
     axisIds.forEach((axisId, axisIndex) => {
         const axisSeries = series.filter((s) => !s.visibility?.excluded && (s.yAxisId ?? DEFAULT_Y_AXIS_ID) === axisId)
@@ -109,25 +105,6 @@ export function createComboScales(
     return { band, group, yAxes, y: primary.scale }
 }
 
-/** DEFAULT_Y_AXIS_ID first when present, then remaining axis ids in first-encountered order. */
-function collectAxisIds(series: Series[]): string[] {
-    const set = new Set<string>()
-    for (const s of series) {
-        if (s.visibility?.excluded) {
-            continue
-        }
-        set.add(s.yAxisId ?? DEFAULT_Y_AXIS_ID)
-    }
-    if (set.size === 0) {
-        // Empty chart still needs an axis to draw against.
-        set.add(DEFAULT_Y_AXIS_ID)
-    }
-    return [
-        ...(set.has(DEFAULT_Y_AXIS_ID) ? [DEFAULT_Y_AXIS_ID] : []),
-        ...Array.from(set).filter((id) => id !== DEFAULT_Y_AXIS_ID),
-    ]
-}
-
 function buildComboValueScale(
     series: Series[],
     valueRange: [number, number],
@@ -138,10 +115,19 @@ function buildComboValueScale(
     if (range.count === 0) {
         return d3.scaleLinear().domain([0, 1]).range(valueRange)
     }
-    const min = range.min > 0 ? 0 : range.min
-    const max = range.max < 0 ? 0 : range.max
+    let { min, max } = range
     if (scaleType === 'log' && isFinite(range.minPositive)) {
         return d3.scaleLog().domain(niceLogDomain(range.minPositive, max)).range(valueRange).clamp(true)
+    }
+    // Auxiliary overlays (trendline projections, moving averages) may dip below 0 when the
+    // underlying data does not. They shouldn't drag the axis baseline below 0 — d3.nice()
+    // applied to a slightly-negative min produces a disproportionately large negative tick
+    // (e.g. [-1, 14500] → [-2000, 16000]). Mirrors the `createYScale` baseline logic.
+    const primaryRange = series.some((s) => s.overlay) ? seriesValueRange(series.filter((s) => !s.overlay)) : range
+    if (primaryRange.count > 0 && primaryRange.min >= 0) {
+        min = 0
+    } else if (max < 0) {
+        max = 0
     }
     return d3.scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
 }

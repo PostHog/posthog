@@ -376,6 +376,27 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     ctx.stroke()
 }
 
+/** Run `fn` with the canvas clipped to the plot area, expanded by a small vertical pad so
+ *  strokes at the y-domain edge render at full thickness (line strokes and point markers
+ *  extend past the value's pixel center). Used by line/area drawing so an overlay series
+ *  projecting below 0 doesn't bleed into the axis-label gutter beneath the chart. */
+export function withPlotClip(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    fn: () => void,
+    pad: number = 8
+): void {
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(dimensions.plotLeft, dimensions.plotTop - pad, dimensions.plotWidth, dimensions.plotHeight + pad * 2)
+    ctx.clip()
+    try {
+        fn()
+    } finally {
+        ctx.restore()
+    }
+}
+
 export function drawCrosshair(
     ctx: CanvasRenderingContext2D,
     dimensions: ChartDimensions,

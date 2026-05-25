@@ -1,6 +1,6 @@
 import * as d3 from 'd3'
 
-import type { ChartDimensions, ChartScales, ResolveValueFn, Series } from './types'
+import type { ChartDimensions, ResolveValueFn, Series } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
 type D3YScale = d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
@@ -141,6 +141,45 @@ export function createYScale(
         .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
 }
 
+/** Axis ids in the order combo / multi-axis charts should render them: DEFAULT_Y_AXIS_ID first
+ *  when present (so it always takes the left position), then any other axis ids in their
+ *  first-encountered order. Excluded series don't contribute. */
+export function collectOrderedAxisIds(series: Pick<Series, 'visibility' | 'yAxisId'>[]): string[] {
+    const set = new Set<string>()
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        set.add(s.yAxisId ?? DEFAULT_Y_AXIS_ID)
+    }
+    return [
+        ...(set.has(DEFAULT_Y_AXIS_ID) ? [DEFAULT_Y_AXIS_ID] : []),
+        ...Array.from(set).filter((id) => id !== DEFAULT_Y_AXIS_ID),
+    ]
+}
+
+/** Per-axis topmost visible series — last write per axis wins, matching `d3.stack`'s key order.
+ *  Used by both BarChart (stacked layout) and ComboChart (stacked bar series only). `skip`
+ *  is called per-series and skipped entries don't affect the topmost result. Generic over the
+ *  series element so callers can use `Series.type` (combo) in addition to base fields. */
+export function computeTopStackedKeyByAxis<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId'>>(
+    series: readonly S[],
+    options: { skip?: (s: S) => boolean } = {}
+): Map<string, string> {
+    const { skip } = options
+    const m = new Map<string, string>()
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        if (skip?.(s)) {
+            continue
+        }
+        m.set(s.yAxisId ?? DEFAULT_Y_AXIS_ID, s.key)
+    }
+    return m
+}
+
 export function createScales(
     series: Series[],
     labels: string[],
@@ -152,8 +191,8 @@ export function createScales(
 ): ScaleSet {
     const x = createXScale(labels, dimensions)
 
-    const axisIds = new Set(series.filter((s) => !s.visibility?.excluded).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
-    const hasMultipleAxes = axisIds.size > 1
+    const orderedAxisIds = collectOrderedAxisIds(series)
+    const hasMultipleAxes = orderedAxisIds.length > 1
 
     if (!hasMultipleAxes) {
         const y = createYScale(series, dimensions, {
@@ -162,13 +201,6 @@ export function createScales(
         })
         return { x, y }
     }
-
-    // DEFAULT_Y_AXIS_ID is always the left axis when present, regardless of series order.
-    // Remaining axis ids keep their first-encountered order and take the right position.
-    const orderedAxisIds = [
-        ...(axisIds.has(DEFAULT_Y_AXIS_ID) ? [DEFAULT_Y_AXIS_ID] : []),
-        ...Array.from(axisIds).filter((id) => id !== DEFAULT_Y_AXIS_ID),
-    ]
 
     const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
     orderedAxisIds.forEach((axisId, axisIndex) => {
@@ -399,9 +431,12 @@ export function autoFormatterFor(ticks: number[]): (value: number) => string {
     return (v) => autoFormatYTick(v, domainMax)
 }
 
-export function resolveYScaleForSeries(
-    scales: Pick<ChartScales, 'y' | 'yAxes'>,
+/** Accepts any `{ y, yAxes? }` shape whose `yAxes` entries expose a `scale` — works for both
+ *  the public `ChartScales` (with `YAxisScale.scale: (value) => number`) and the internal
+ *  combo / line scale sets that stash the raw d3 scale. */
+export function resolveYScaleForSeries<S extends (value: number) => number>(
+    scales: { y: S; yAxes?: Record<string, { scale: S }> },
     series: Pick<Series, 'yAxisId'>
-): (value: number) => number {
+): S {
     return scales.yAxes?.[series.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? scales.y
 }
