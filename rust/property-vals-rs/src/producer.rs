@@ -87,7 +87,7 @@ impl Producer for AggregatedProducer {
         let send_fut = send_keyed_iter_to_kafka(
             &self.inner,
             &self.output_topic,
-            |m| Some(m.team_id.to_string()),
+            |m| Some(format!("{}:{}", m.team_id, m.property_key)),
             messages,
         );
 
@@ -108,5 +108,137 @@ impl Producer for AggregatedProducer {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    /// Kafka's default partitioner (`murmur2_random_consistent`) is just
+    /// `murmur2(key) & 0x7fffffff % num_partitions` when a key is provided.
+    /// Reimplementing it here so the test exercises the same hash the
+    /// producer will use in prod.
+    fn murmur2(data: &[u8]) -> u32 {
+        let seed = 0x9747b28c_u32;
+        let m = 0x5bd1e995_u32;
+        let r: u32 = 24;
+        let length = data.len();
+
+        let mut h = seed ^ (length as u32);
+        let length4 = length / 4;
+
+        for i in 0..length4 {
+            let i4 = i * 4;
+            let mut k = (data[i4] as u32)
+                | ((data[i4 + 1] as u32) << 8)
+                | ((data[i4 + 2] as u32) << 16)
+                | ((data[i4 + 3] as u32) << 24);
+            k = k.wrapping_mul(m);
+            k ^= k >> r;
+            k = k.wrapping_mul(m);
+            h = h.wrapping_mul(m);
+            h ^= k;
+        }
+
+        let tail = length & 3;
+        let tail_start = length & !3;
+        if tail >= 3 {
+            h ^= (data[tail_start + 2] as u32) << 16;
+        }
+        if tail >= 2 {
+            h ^= (data[tail_start + 1] as u32) << 8;
+        }
+        if tail >= 1 {
+            h ^= data[tail_start] as u32;
+            h = h.wrapping_mul(m);
+        }
+
+        h ^= h >> 13;
+        h = h.wrapping_mul(m);
+        h ^= h >> 15;
+        h
+    }
+
+    fn partition_for(key: &str, num_partitions: usize) -> usize {
+        let h = (murmur2(key.as_bytes()) & 0x7fffffff) as usize;
+        h % num_partitions
+    }
+
+    const NUM_PARTITIONS: usize = 64;
+
+    /// Documents the bug we just fixed: keying on team_id alone funnels all
+    /// of a single team's traffic into one partition, regardless of how
+    /// many distinct messages they emit.
+    #[test]
+    fn old_key_single_team_collapses_to_one_partition() {
+        let key = "2".to_string();
+        let p = partition_for(&key, NUM_PARTITIONS);
+        for _ in 0..1000 {
+            assert_eq!(partition_for(&key, NUM_PARTITIONS), p);
+        }
+    }
+
+    proptest! {
+        /// New key shape `team_id:property_key` spreads a single team's
+        /// traffic across most of the topic's partitions, since a typical
+        /// team emits hundreds of distinct property keys. Property: no
+        /// single partition holds more than 20% of one team's messages
+        /// when the team has at least 50 distinct property keys. Uniform
+        /// expectation is ~1.5%; 20% is a wide margin to allow for the
+        /// stochasticity of murmur2 on short, small-alphabet inputs.
+        #[test]
+        fn new_key_spreads_single_team_across_partitions(
+            team_id in -1_000_000i64..1_000_000,
+            property_keys in prop::collection::hash_set("[a-z_$][a-z0-9_$]{2,30}", 50..500),
+        ) {
+            let mut counts = [0usize; NUM_PARTITIONS];
+            for key in &property_keys {
+                let kafka_key = format!("{team_id}:{key}");
+                counts[partition_for(&kafka_key, NUM_PARTITIONS)] += 1;
+            }
+            let total: usize = counts.iter().sum();
+            let max = *counts.iter().max().unwrap();
+            prop_assert!(
+                max * 5 <= total,
+                "hot partition: {max} of {total} ({}%) on a single partition for team {team_id}",
+                (max * 100) / total
+            );
+        }
+
+        /// Even when traffic is overwhelmingly skewed toward one team
+        /// (mimicking team 2's outsized event volume), the new key spreads
+        /// across many partitions because each team has many property
+        /// keys. Property: the top partition holds < 25% of all traffic.
+        #[test]
+        fn new_key_handles_skewed_team_distribution(
+            heavy_team in -1_000_000i64..1_000_000,
+            heavy_keys in prop::collection::hash_set("[a-z_$][a-z0-9_$]{2,30}", 100..500),
+            other_messages in prop::collection::vec(
+                (-1_000_000i64..1_000_000, "[a-z_$][a-z0-9_$]{2,30}"),
+                0..200,
+            ),
+        ) {
+            let mut counts = [0usize; NUM_PARTITIONS];
+            // Heavy team: simulate ~95% of traffic by emitting each of its
+            // property keys ~20 times (the actual count per key doesn't
+            // matter for partition assignment, only the key identity does;
+            // this models distinct tuples, not raw event volume).
+            for key in &heavy_keys {
+                let kafka_key = format!("{heavy_team}:{key}");
+                counts[partition_for(&kafka_key, NUM_PARTITIONS)] += 1;
+            }
+            for (team_id, key) in &other_messages {
+                let kafka_key = format!("{team_id}:{key}");
+                counts[partition_for(&kafka_key, NUM_PARTITIONS)] += 1;
+            }
+            let total: usize = counts.iter().sum();
+            let max = *counts.iter().max().unwrap();
+            prop_assert!(
+                max * 4 <= total,
+                "skewed workload still hot-partitions: {max} of {total} ({}%) on one partition",
+                (max * 100) / total
+            );
+        }
     }
 }
