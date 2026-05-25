@@ -2,15 +2,11 @@ import React from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
 import type { TooltipContext } from '../../core/types'
+import type { BoxPlotAdaptedMeta } from './BoxPlot'
 import type { BoxPlotDatum } from './computeBoxLayout'
 
 const DEFAULT_TOOLTIP_BG = '#1d2330'
 const DEFAULT_TOOLTIP_COLOR = '#ffffff'
-
-interface BoxPlotAdaptedMeta<Meta = unknown> {
-    datums: (BoxPlotDatum | null)[]
-    user?: Meta
-}
 
 /** Rows shown per box, in the same order the legacy BoxPlotChart used. */
 const ROWS: { label: string; key: keyof BoxPlotDatum }[] = [
@@ -48,7 +44,7 @@ export function BoxPlotTooltip<Meta = unknown>({
         return <>{userTooltip(ctx)}</>
     }
 
-    const entries: { color: string; label: string; datum: BoxPlotDatum }[] = []
+    const entries: { key: string; color: string; label: string; datum: BoxPlotDatum }[] = []
     for (const seriesEntry of ctx.seriesData) {
         if (seriesEntry.series.visibility?.tooltip === false) {
             continue
@@ -57,7 +53,12 @@ export function BoxPlotTooltip<Meta = unknown>({
         if (!datum) {
             continue
         }
-        entries.push({ color: seriesEntry.color, label: seriesEntry.series.label, datum })
+        entries.push({
+            key: seriesEntry.series.key,
+            color: seriesEntry.color,
+            label: seriesEntry.series.label,
+            datum,
+        })
     }
     if (entries.length === 0) {
         return null
@@ -75,7 +76,7 @@ export function BoxPlotTooltip<Meta = unknown>({
         >
             <div className="font-semibold mb-1">{ctx.label}</div>
             {entries.map((entry, i) => (
-                <div key={i} className={i > 0 ? 'mt-2' : undefined}>
+                <div key={entry.key} className={i > 0 ? 'mt-2' : undefined}>
                     {grouped && (
                         <div className="flex items-center gap-2 mb-1">
                             <span

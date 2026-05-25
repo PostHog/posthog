@@ -1,7 +1,10 @@
 import * as d3 from 'd3'
 
+import type { BoxRect } from '../charts/BoxPlot/computeBoxLayout'
 import { yTickCountForHeight } from './scales'
 import type { ChartDimensions, ChartDrawArgs, DrawHoverResult, ResolvedSeries } from './types'
+
+export type { BoxRect }
 
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
@@ -594,21 +597,6 @@ export function drawHighlightPoint(
     ctx.fill()
 }
 
-/** A laid-out box-and-whisker for a single (series, x) slot. Pre-computed by BoxPlot's
- *  geometry helper so the draw primitives below don't touch scales — same shape as the
- *  BarRect ↔ drawBars contract. */
-export interface BoxRect {
-    x: number
-    width: number
-    top: number
-    bottom: number
-    medianY: number
-    mean: { x: number; y: number }
-    whiskerTop: number
-    whiskerBottom: number
-    dataIndex: number
-}
-
 export interface DrawBoxOptions {
     /** Series base color — used for the box outline, whisker, median, and mean stroke. */
     color: string
@@ -628,6 +616,17 @@ export interface DrawBoxOptions {
 
 /** Paint a single box-and-whisker. Takes a pre-laid-out {@link BoxRect}; no scale access. */
 export function drawBox(ctx: CanvasRenderingContext2D, box: BoxRect, options: DrawBoxOptions): void {
+    drawBoxes(ctx, [box], options)
+}
+
+/** Paint a whole series of box-and-whiskers, batching path operations so the number of
+ *  `beginPath`/`stroke` pairs is `4 + N` instead of `5N` (whisker stems, caps, box outlines,
+ *  and medians are each one shared path; mean markers stay per-box since each needs both
+ *  fill and stroke). Same shape contract as {@link drawBox}; no scale access. */
+export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], options: DrawBoxOptions): void {
+    if (boxes.length === 0) {
+        return
+    }
     const {
         color,
         fillColor,
@@ -638,56 +637,74 @@ export function drawBox(ctx: CanvasRenderingContext2D, box: BoxRect, options: Dr
         whiskerCapRatio = 0.6,
     } = options
 
-    const boxHeight = Math.max(0, box.bottom - box.top)
-    const centerX = box.x + box.width / 2
-    const capHalfWidth = (box.width * whiskerCapRatio) / 2
-
     ctx.lineWidth = lineWidth
     ctx.strokeStyle = color
-
-    // Whisker stem above the box (max -> p75) and below the box (min -> p25).
     ctx.setLineDash([])
+
+    // 1. Whisker stems — only emit a stem when the whisker extends past the box edge.
     ctx.beginPath()
-    if (box.whiskerTop < box.top) {
-        ctx.moveTo(centerX, box.whiskerTop)
-        ctx.lineTo(centerX, box.top)
-    }
-    if (box.whiskerBottom > box.bottom) {
-        ctx.moveTo(centerX, box.bottom)
-        ctx.lineTo(centerX, box.whiskerBottom)
+    for (const box of boxes) {
+        const centerX = box.x + box.width / 2
+        if (box.whiskerTop < box.top) {
+            ctx.moveTo(centerX, box.whiskerTop)
+            ctx.lineTo(centerX, box.top)
+        }
+        if (box.whiskerBottom > box.bottom) {
+            ctx.moveTo(centerX, box.bottom)
+            ctx.lineTo(centerX, box.whiskerBottom)
+        }
     }
     ctx.stroke()
 
-    // Whisker caps at min and max.
+    // 2. Whisker caps — skip the cap whenever the corresponding stem was skipped, otherwise
+    //    a cross-bar would paint on top of the box outline for collapsed distributions
+    //    (`min == p25` / `max == p75`).
     ctx.beginPath()
-    ctx.moveTo(centerX - capHalfWidth, box.whiskerTop)
-    ctx.lineTo(centerX + capHalfWidth, box.whiskerTop)
-    ctx.moveTo(centerX - capHalfWidth, box.whiskerBottom)
-    ctx.lineTo(centerX + capHalfWidth, box.whiskerBottom)
+    for (const box of boxes) {
+        const centerX = box.x + box.width / 2
+        const capHalfWidth = (box.width * whiskerCapRatio) / 2
+        if (box.whiskerTop < box.top) {
+            ctx.moveTo(centerX - capHalfWidth, box.whiskerTop)
+            ctx.lineTo(centerX + capHalfWidth, box.whiskerTop)
+        }
+        if (box.whiskerBottom > box.bottom) {
+            ctx.moveTo(centerX - capHalfWidth, box.whiskerBottom)
+            ctx.lineTo(centerX + capHalfWidth, box.whiskerBottom)
+        }
+    }
     ctx.stroke()
 
-    // Box rectangle (p25 → p75) — fill then outline.
-    if (boxHeight > 0 && box.width > 0) {
-        ctx.fillStyle = fillColor
-        ctx.fillRect(box.x, box.top, box.width, boxHeight)
-        ctx.strokeRect(box.x, box.top, box.width, boxHeight)
+    // 3. Box rectangles (p25 → p75) — fill then outline. `fillRect` / `strokeRect` are
+    //    already optimal — no `beginPath` accumulation needed.
+    ctx.fillStyle = fillColor
+    for (const box of boxes) {
+        const boxHeight = Math.max(0, box.bottom - box.top)
+        if (boxHeight > 0 && box.width > 0) {
+            ctx.fillRect(box.x, box.top, box.width, boxHeight)
+            ctx.strokeRect(box.x, box.top, box.width, boxHeight)
+        }
     }
 
-    // Median line across the box.
-    const medianClamped = Math.max(box.top, Math.min(box.bottom, box.medianY))
+    // 4. Median lines.
     ctx.strokeStyle = medianColor
     ctx.beginPath()
-    ctx.moveTo(box.x, medianClamped)
-    ctx.lineTo(box.x + box.width, medianClamped)
+    for (const box of boxes) {
+        const medianClamped = Math.max(box.top, Math.min(box.bottom, box.medianY))
+        ctx.moveTo(box.x, medianClamped)
+        ctx.lineTo(box.x + box.width, medianClamped)
+    }
     ctx.stroke()
 
-    // Mean marker — filled circle outlined in the series color.
+    // 5. Mean markers — filled circle outlined in the series color. Stays per-box because
+    //    each marker requires both a fill and a stroke pass.
     ctx.fillStyle = meanFillColor
     ctx.strokeStyle = color
-    ctx.beginPath()
-    ctx.arc(box.mean.x, box.mean.y, meanRadius, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.stroke()
+    for (const box of boxes) {
+        ctx.beginPath()
+        ctx.arc(box.mean.x, box.mean.y, meanRadius, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+    }
 }
 
 /** Translucent highlight overlay for a hovered box. Drawn on the overlay canvas so it

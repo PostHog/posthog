@@ -1,6 +1,7 @@
+import * as d3 from 'd3'
 import React, { useCallback, useMemo } from 'react'
 
-import { drawBox, drawBoxHighlight, drawGrid, type DrawContext } from '../../core/canvas-renderer'
+import { drawBoxes, drawBoxHighlight, drawGrid, type DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { createBarScales, type BarScaleSet, yTickCountForHeight } from '../../core/scales'
@@ -17,13 +18,7 @@ import type {
     TooltipContext,
 } from '../../core/types'
 import { BoxPlotTooltip } from './BoxPlotTooltip'
-import {
-    computeBoxRect,
-    computeSeriesBoxes,
-    type BoxPlotDatum,
-    type BoxPlotSeries,
-    type BoxRect,
-} from './computeBoxLayout'
+import { computeBoxRect, computeSeriesBoxes, type BoxPlotDatum, type BoxPlotSeries } from './computeBoxLayout'
 import { seriesKeysAtCursor } from './utils/boxes-under-cursor'
 
 /** Stash slot — survives a render via `ChartScales._private` so drawStatic/drawHover
@@ -36,14 +31,24 @@ interface BoxPlotPrivate {
     }
 }
 
-/** Meta we attach to the inner `Series` we hand to the Chart base — carries the original
- *  six-number summary for each x-index plus any user-supplied meta. */
-interface BoxPlotAdaptedMeta<Meta> {
+/** Meta attached to the inner adapter `Series` we hand to the `Chart` base — carries the
+ *  original six-number summaries indexed by x-position, plus any user-supplied meta. Exported
+ *  so consumers with a custom `tooltip` can read the original datum back out of
+ *  `entry.series.meta?.datums?.[ctx.dataIndex]`. */
+export interface BoxPlotAdaptedMeta<Meta = unknown> {
     datums: (BoxPlotDatum | null)[]
     user?: Meta
 }
 
-export interface BoxPlotConfig extends ChartConfig {
+/** Tooltip context handed to consumer-supplied `tooltip` callbacks. Same shape as
+ *  `TooltipContext` but with the `BoxPlotAdaptedMeta` `Meta` parameter baked in so consumers
+ *  don't have to redeclare it. */
+export type BoxPlotTooltipContext<Meta = unknown> = TooltipContext<BoxPlotAdaptedMeta<Meta>>
+
+/** Chart-level config. `axisOrientation` is always vertical for BoxPlot — there's no
+ *  horizontal mode — so it's omitted from the consumer-visible config to avoid silently
+ *  ignored values. */
+export interface BoxPlotConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Mean marker radius in CSS pixels. Defaults to 3. */
     meanRadius?: number
     /** Whisker cap width as a fraction of the box width. Defaults to 0.6. */
@@ -72,9 +77,9 @@ export interface BoxPlotProps<Meta = unknown> {
     labels: string[]
     theme: ChartTheme
     config?: BoxPlotConfig
-    /** Optional custom tooltip. Receives the inner adapter's `TooltipContext`; consumers can
-     *  pull the original datum back out via `entry.series.meta.datums[ctx.dataIndex]`. */
-    tooltip?: (ctx: TooltipContext<BoxPlotAdaptedMeta<Meta>>) => React.ReactNode
+    /** Optional custom tooltip. Receives the adapter `TooltipContext`; consumers can read
+     *  the original datum back out via `entry.series.meta?.datums?.[ctx.dataIndex]`. */
+    tooltip?: (ctx: BoxPlotTooltipContext<Meta>) => React.ReactNode
     /** Click callback — fired when the user clicks a box. The product layer wires this to
      *  the persons modal in the BoxPlot insight. */
     onBoxClick?: (data: BoxPlotClickData<Meta>) => void
@@ -114,54 +119,29 @@ function BoxPlotInner<Meta = unknown>({
 
     const grouped = useMemo(() => series.filter((s) => !s.visibility?.excluded).length > 1, [series])
 
-    /** The inner Series.data is medians at indices `[0, labels.length)` (matches interaction's
-     *  per-label addressing, and lets the default `resolveValue` return the median for the
-     *  tooltip). Per-series whisker min/max are appended past `labels.length` so
-     *  `useChartMargins` — which sizes the y-tick column from `seriesValueRange(series)` —
-     *  sees the real value extent and doesn't undersize the left margin when whiskers are
-     *  much larger than medians. Extra entries are never indexed (interaction reads
-     *  `labels.length`, draw reads `meta.datums`). */
+    /** Inner adapter series — `data` holds medians at indices `[0, labels.length)` so the
+     *  Chart base's per-label interaction addressing lines up. Whisker domain is driven by
+     *  `valueRangeSeries` below; we don't pad `data` with whisker extremes (that channel was
+     *  redundant with `valueRangeSeries`). */
     const adaptedSeries = useMemo<Series<BoxPlotAdaptedMeta<Meta>>[]>(
         () =>
-            series.map((s) => {
-                const medians: number[] = Array.from({ length: labels.length }, (_, i) => {
+            series.map((s) => ({
+                key: s.key,
+                label: s.label,
+                color: s.color,
+                data: Array.from({ length: labels.length }, (_, i) => {
                     const datum = s.data[i]
                     return datum && isFinite(datum.median) ? datum.median : Number.NaN
-                })
-                let seriesMin = Infinity
-                let seriesMax = -Infinity
-                for (const datum of s.data) {
-                    if (!datum) {
-                        continue
-                    }
-                    if (isFinite(datum.min) && datum.min < seriesMin) {
-                        seriesMin = datum.min
-                    }
-                    if (isFinite(datum.max) && datum.max > seriesMax) {
-                        seriesMax = datum.max
-                    }
-                }
-                const data = medians.slice()
-                if (isFinite(seriesMin)) {
-                    data.push(seriesMin)
-                }
-                if (isFinite(seriesMax)) {
-                    data.push(seriesMax)
-                }
-                return {
-                    key: s.key,
-                    label: s.label,
-                    color: s.color,
-                    data,
-                    meta: { datums: s.data, user: s.meta },
-                    visibility: s.visibility,
-                }
-            }),
+                }),
+                meta: { datums: s.data, user: s.meta },
+                visibility: s.visibility,
+            })),
         [series, labels.length]
     )
 
     /** Synthetic series carrying min/max samples so `seriesValueRange` (inside createBarScales)
-     *  produces a y-domain that spans every whisker — not just the medians on `data`. */
+     *  produces a y-domain that spans every whisker — not just the medians on `data`. Same
+     *  source feeds `useChartMargins` once we pass `stackedSeries` to `createBarScales`. */
     const valueRangeSeries = useMemo<Series[]>(() => {
         const out: Series[] = []
         for (const s of series) {
@@ -191,12 +171,14 @@ function BoxPlotInner<Meta = unknown>({
         return out
     }, [series])
 
-    const datumsByKey = useMemo<Map<string, (BoxPlotDatum | null)[]>>(() => {
-        const m = new Map<string, (BoxPlotDatum | null)[]>()
+    const { datumsByKey, seriesByKey } = useMemo(() => {
+        const datums = new Map<string, (BoxPlotDatum | null)[]>()
+        const seriesMap = new Map<string, BoxPlotSeries<Meta>>()
         for (const s of series) {
-            m.set(s.key, s.data)
+            datums.set(s.key, s.data)
+            seriesMap.set(s.key, s)
         }
-        return m
+        return { datumsByKey: datums, seriesByKey: seriesMap }
     }, [series])
 
     const createScales: CreateScalesFn = useCallback(
@@ -274,14 +256,32 @@ function BoxPlotInner<Meta = unknown>({
                     scales: priv.scales,
                     grouped: priv.grouped,
                 })
-                drawSeriesBoxes(ctx, boxes, s.color, {
+                drawBoxes(ctx, boxes, {
+                    color: s.color,
+                    fillColor: dimColor(s.color, 0.25),
+                    meanFillColor: dimColor(s.color, 0.5),
                     meanRadius,
                     whiskerCapRatio,
-                    boxStrokeWidth,
+                    lineWidth: boxStrokeWidth,
                 })
             }
         },
         [showGrid, meanRadius, whiskerCapRatio, boxStrokeWidth]
+    )
+
+    /** Reshapes `coloredSeries` into the `BoxPlotSeries` shape `seriesKeysAtCursor` expects.
+     *  Hoisted out of the mousemove hot path so we don't reallocate the adapter array on
+     *  every frame — only when the series identity or per-key datum lookup changes. */
+    const hitTestSeries = useMemo<BoxPlotSeries<unknown>[]>(
+        () =>
+            series.map((s) => ({
+                key: s.key,
+                label: s.label,
+                color: s.color,
+                data: datumsByKey.get(s.key) ?? [],
+                visibility: s.visibility,
+            })),
+        [series, datumsByKey]
     )
 
     const drawHover = useCallback(
@@ -299,16 +299,11 @@ function BoxPlotInner<Meta = unknown>({
             }
             const hoveredLabel = drawLabels[hoverIndex]
 
-            // Same band-axis hit-test as BarChart's hover layer — keeps the highlight
-            // anchored to whichever group slot the cursor lines up with.
+            // Same band-axis hit-test as BarChart's hover layer — anchors the highlight to
+            // whichever group slot the cursor lines up with. `seriesKeysAtCursor` is now
+            // band-only, so we only materialise the full `BoxRect` for hit series in the loop.
             const hits = seriesKeysAtCursor<unknown>({
-                series: coloredSeries.map((s) => ({
-                    key: s.key,
-                    label: s.label,
-                    color: s.color,
-                    data: priv.datumsByKey.get(s.key) ?? [],
-                    visibility: s.visibility,
-                })),
+                series: hitTestSeries,
                 label: hoveredLabel,
                 dataIndex: hoverIndex,
                 cursor: hoverPosition,
@@ -339,12 +334,12 @@ function BoxPlotInner<Meta = unknown>({
                 if (!box) {
                     continue
                 }
-                drawBoxHighlight(ctx, box, hexToRgba(s.color, 0.25))
+                drawBoxHighlight(ctx, box, dimColor(s.color, 0.25))
                 drewAny = true
             }
             return drewAny
         },
-        []
+        [hitTestSeries]
     )
 
     const renderTooltip = useCallback(
@@ -361,22 +356,21 @@ function BoxPlotInner<Meta = unknown>({
             }
             const primaryDatums = data.series.meta?.datums
             const datum = primaryDatums?.[data.dataIndex]
-            if (!datum) {
+            const primarySeries = seriesByKey.get(data.series.key)
+            if (!datum || !primarySeries) {
                 return
             }
             const crossSeriesData: BoxPlotClickData<Meta>['crossSeriesData'] = []
             for (const entry of data.crossSeriesData) {
                 const ds = entry.series.meta?.datums?.[data.dataIndex]
-                if (!ds) {
+                const origin = seriesByKey.get(entry.series.key)
+                if (!ds || !origin) {
                     continue
                 }
-                crossSeriesData.push({
-                    series: originalSeries(series, entry.series.key),
-                    datum: ds,
-                })
+                crossSeriesData.push({ series: origin, datum: ds })
             }
             onBoxClick({
-                series: originalSeries(series, data.series.key),
+                series: primarySeries,
                 seriesIndex: data.seriesIndex,
                 dataIndex: data.dataIndex,
                 label: data.label,
@@ -384,14 +378,19 @@ function BoxPlotInner<Meta = unknown>({
                 crossSeriesData,
             })
         },
-        [onBoxClick, series]
+        [onBoxClick, seriesByKey]
+    )
+
+    const chartConfig = useMemo(
+        () => ({ ...config, axisOrientation: 'vertical' as const, xTickFormatter }),
+        [config, xTickFormatter]
     )
 
     return (
         <Chart<BoxPlotAdaptedMeta<Meta>>
             series={adaptedSeries}
             labels={labels}
-            config={{ ...config, axisOrientation: 'vertical', xTickFormatter }}
+            config={chartConfig}
             theme={theme}
             createScales={createScales}
             drawStatic={drawStatic}
@@ -406,61 +405,10 @@ function BoxPlotInner<Meta = unknown>({
     )
 }
 
-interface DrawSeriesBoxesOptions {
-    meanRadius: number
-    whiskerCapRatio: number
-    boxStrokeWidth: number
-}
-
-function drawSeriesBoxes(
-    ctx: CanvasRenderingContext2D,
-    boxes: BoxRect[],
-    color: string,
-    { meanRadius, whiskerCapRatio, boxStrokeWidth }: DrawSeriesBoxesOptions
-): void {
-    const fillColor = hexToRgba(color, 0.25)
-    const meanFillColor = hexToRgba(color, 0.5)
-    for (const box of boxes) {
-        drawBox(ctx, box, {
-            color,
-            fillColor,
-            meanFillColor,
-            meanRadius,
-            whiskerCapRatio,
-            lineWidth: boxStrokeWidth,
-        })
-    }
-}
-
-function originalSeries<Meta>(series: BoxPlotSeries<Meta>[], key: string): BoxPlotSeries<Meta> {
-    return series.find((s) => s.key === key) ?? series[0]
-}
-
-/** Best-effort hex/rgb-to-rgba conversion. Returns the original color string unchanged when
- *  the input isn't a recognised hex/rgb/rgba color — the canvas will attempt to use it as-is. */
-function hexToRgba(color: string, alpha: number): string {
-    if (color.startsWith('#')) {
-        let hex = color.slice(1)
-        if (hex.length === 3) {
-            hex = hex
-                .split('')
-                .map((c) => c + c)
-                .join('')
-        }
-        if (hex.length === 6) {
-            const r = parseInt(hex.slice(0, 2), 16)
-            const g = parseInt(hex.slice(2, 4), 16)
-            const b = parseInt(hex.slice(4, 6), 16)
-            if ([r, g, b].every((n) => Number.isFinite(n))) {
-                return `rgba(${r}, ${g}, ${b}, ${alpha})`
-            }
-        }
-    }
-    if (color.startsWith('rgb(')) {
-        return color.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`)
-    }
-    if (color.startsWith('rgba(')) {
-        return color.replace(/,\s*[0-9.]+\)$/, `, ${alpha})`)
-    }
-    return color
+/** Translucent variant of a series colour for box fills, mean markers, and the hover overlay.
+ *  Uses `d3.color` so we cover hex (3/6 digit), `rgb(…)`, `rgba(…)`, named colors, and HSL —
+ *  the previous hand-rolled hex parser only handled a subset of those. Falls back to the raw
+ *  string when `d3.color` returns `null`, matching the BarChart pattern. */
+function dimColor(color: string, alpha: number): string {
+    return d3.color(color)?.copy({ opacity: alpha }).toString() ?? color
 }

@@ -1,27 +1,13 @@
-import type { BoxRect } from '../../core/canvas-renderer'
+import type { BoxPlotDatum as SchemaBoxPlotDatum } from '~/queries/schema/schema-general'
+
 import type { BarScaleSet } from '../../core/scales'
 
-export type { BoxRect } from '../../core/canvas-renderer'
-
-/** Six-number summary for one box at one x-position. Aligned with the legacy
- *  `BoxPlotDatum` in `queries/schema-general.ts`. `day` is preserved so the consumer
- *  layer can use it for click handlers / persons-modal day labels — the chart itself
- *  treats it as opaque metadata. */
-export interface BoxPlotDatum {
-    /** Optional identifier for this x position (e.g. ISO date). The chart doesn't use it. */
+/** Six-number summary plus an opaque `day` identifier. Structurally compatible with the
+ *  canonical `BoxPlotDatum` in `queries/schema-general.ts` (we only care about the six
+ *  numbers; `day` is the consumer-side key for click handlers / persons-modal labels). */
+export type BoxPlotDatum = Pick<SchemaBoxPlotDatum, 'min' | 'p25' | 'median' | 'mean' | 'p75' | 'max'> & {
+    /** Optional identifier for this x position (e.g. ISO date). The chart treats it as opaque. */
     day?: string
-    /** Lower whisker endpoint. */
-    min: number
-    /** 25th percentile — bottom of the box. */
-    p25: number
-    /** Median — drawn as a line across the box. */
-    median: number
-    /** Mean — drawn as a marker (typically a circle) inside the box. */
-    mean: number
-    /** 75th percentile — top of the box. */
-    p75: number
-    /** Upper whisker endpoint. */
-    max: number
 }
 
 /** Series shape for the BoxPlot chart. Unlike the generic `Series` (whose `data` is
@@ -45,6 +31,50 @@ export interface BoxPlotSeries<Meta = unknown> {
     }
 }
 
+/** A laid-out box-and-whisker for a single (series, x) slot. Pre-computed by the geometry
+ *  helpers below so the canvas-renderer draw primitives don't touch scales — same shape
+ *  contract as `BarRect` ↔ `drawBars`. */
+export interface BoxRect {
+    x: number
+    width: number
+    top: number
+    bottom: number
+    medianY: number
+    mean: { x: number; y: number }
+    whiskerTop: number
+    whiskerBottom: number
+    dataIndex: number
+}
+
+interface BandSlot {
+    x: number
+    width: number
+}
+
+/** Resolve only the band-axis extent of a (series, x) slot. Cheap — touches the band/group
+ *  scales and nothing on the value axis — so callers like band-only hit-testing don't pay
+ *  for six value-axis lookups they'd immediately throw away. */
+export function computeBoxBand(
+    seriesKey: string,
+    label: string,
+    scales: BarScaleSet,
+    grouped: boolean
+): BandSlot | null {
+    const bandStart = scales.band(label)
+    if (bandStart == null) {
+        return null
+    }
+    if (grouped) {
+        const groupOffset = scales.group?.(seriesKey)
+        const groupBandwidth = scales.group?.bandwidth()
+        if (groupOffset == null || groupBandwidth == null) {
+            return null
+        }
+        return { x: bandStart + groupOffset, width: groupBandwidth }
+    }
+    return { x: bandStart, width: scales.band.bandwidth() }
+}
+
 export interface ComputeBoxRectOptions {
     seriesKey: string
     label: string
@@ -66,30 +96,15 @@ export function computeBoxRect({
     scales,
     grouped,
 }: ComputeBoxRectOptions): BoxRect | null {
-    const bandStart = scales.band(label)
-    if (bandStart == null) {
-        return null
-    }
     if (!isFinite(datum.min) || !isFinite(datum.max) || !isFinite(datum.p25) || !isFinite(datum.p75)) {
         return null
     }
     if (!isFinite(datum.median) || !isFinite(datum.mean)) {
         return null
     }
-
-    let slotStart: number
-    let slotWidth: number
-    if (grouped) {
-        const groupOffset = scales.group?.(seriesKey)
-        const groupBandwidth = scales.group?.bandwidth()
-        if (groupOffset == null || groupBandwidth == null) {
-            return null
-        }
-        slotStart = bandStart + groupOffset
-        slotWidth = groupBandwidth
-    } else {
-        slotStart = bandStart
-        slotWidth = scales.band.bandwidth()
+    const slot = computeBoxBand(seriesKey, label, scales, grouped)
+    if (!slot) {
+        return null
     }
 
     const p25Y = scales.value(datum.p25)
@@ -113,12 +128,12 @@ export function computeBoxRect({
     const whiskerBottom = Math.max(minY, maxY)
 
     return {
-        x: slotStart,
-        width: slotWidth,
+        x: slot.x,
+        width: slot.width,
         top,
         bottom,
         medianY,
-        mean: { x: slotStart + slotWidth / 2, y: meanY },
+        mean: { x: slot.x + slot.width / 2, y: meanY },
         whiskerTop,
         whiskerBottom,
         dataIndex,

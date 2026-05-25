@@ -26,6 +26,9 @@ function makeContext(
     dataIndex: number,
     label: string
 ): TooltipContext<AdaptedMeta> {
+    // `data`/`value` on the inner adapter Series are never read by BoxPlotTooltip — the
+    // tooltip reads from `meta.datums` directly. Falling back to 0 here lets the null-datum
+    // test (which intentionally passes a null entry) construct a context without throwing.
     return {
         dataIndex,
         label,
@@ -34,11 +37,10 @@ function makeContext(
                 key: s.key,
                 label: s.label,
                 color: s.color,
-                data: s.datums.map((d) => (d ? d.median : Number.NaN)),
+                data: s.datums.map((d) => d?.median ?? 0),
                 meta: { datums: s.datums },
             }
-            const value = s.datums[dataIndex]?.median ?? 0
-            return { series, value, color: s.color }
+            return { series, value: s.datums[dataIndex]?.median ?? 0, color: s.color }
         }),
         position: { x: 0, y: 0 },
         hoverPosition: { x: 0, y: 0 },
@@ -54,7 +56,7 @@ function layoutValue(): ChartLayoutContextValue {
         labels: [],
         series: [],
         theme: THEME,
-        resolvePositionValue: (s, i) => (typeof s.data[i] === 'number' ? s.data[i] : 0),
+        resolvePositionValue: (s, i) => s.data[i] as number,
         canvasBounds: () => mockRect,
         axis: { orientation: 'vertical', xTickFormatter: undefined, isPercent: false },
     }
@@ -81,8 +83,8 @@ describe('BoxPlotTooltip', () => {
             'Mon'
         )
         const { container } = renderWithLayout(<BoxPlotTooltip ctx={ctx} grouped={false} />)
-        const labels = Array.from(container.querySelectorAll('tr')).map(
-            (tr) => (tr.firstElementChild as HTMLElement)?.textContent?.trim() ?? ''
+        const labels = Array.from(container.querySelectorAll('tr')).map((tr) =>
+            (tr.firstElementChild as HTMLElement).textContent!.trim()
         )
         expect(labels).toEqual(['Max', '75th percentile', 'Median', 'Mean', '25th percentile', 'Min'])
     })
@@ -101,8 +103,8 @@ describe('BoxPlotTooltip', () => {
             'Mon'
         )
         const { container } = renderWithLayout(<BoxPlotTooltip ctx={ctx} grouped={false} />)
-        const values = Array.from(container.querySelectorAll('tr')).map(
-            (tr) => (tr.lastElementChild as HTMLElement)?.textContent?.trim() ?? ''
+        const values = Array.from(container.querySelectorAll('tr')).map((tr) =>
+            (tr.lastElementChild as HTMLElement).textContent!.trim()
         )
         expect(values).toEqual(['6', '5', '3', '4', '2', '1'])
     })

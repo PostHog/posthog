@@ -116,8 +116,8 @@ describe('BoxPlot', () => {
             const { chart } = renderHogChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
-            const aMeta = tooltip.series.a?.series.meta as { datums?: (BoxPlotDatum | null)[] } | undefined
-            expect(aMeta?.datums?.[1]).toEqual(
+            const aMeta = tooltip.series.a!.series.meta as { datums: (BoxPlotDatum | null)[] }
+            expect(aMeta.datums[1]).toEqual(
                 expect.objectContaining({
                     min: expect.any(Number),
                     p25: expect.any(Number),

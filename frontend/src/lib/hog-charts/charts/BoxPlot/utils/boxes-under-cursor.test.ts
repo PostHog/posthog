@@ -2,7 +2,7 @@ import { createBarScales } from '../../../core/scales'
 import type { ChartDimensions } from '../../../core/types'
 import { makeSeries } from '../../../testing'
 import type { BoxPlotDatum, BoxPlotSeries } from '../computeBoxLayout'
-import { cursorInsideBoxBand, cursorInsideBoxRect, nearestBoxIndex, seriesKeysAtCursor } from './boxes-under-cursor'
+import { cursorInsideBoxBand, seriesKeysAtCursor } from './boxes-under-cursor'
 
 const DIMS: ChartDimensions = {
     width: 400,
@@ -48,20 +48,6 @@ describe('cursorInsideBoxBand', () => {
         ['cursor right of box', { x: 60 }, false],
     ])('%s', (_name, cursor, expected) => {
         expect(cursorInsideBoxBand(box, cursor)).toBe(expected)
-    })
-})
-
-describe('cursorInsideBoxRect', () => {
-    const box = { x: 10, width: 40, top: 100, bottom: 150 }
-    it.each([
-        ['inside both axes', { x: 30, y: 120 }, true],
-        ['outside band axis', { x: 5, y: 120 }, false],
-        ['above the box (value axis)', { x: 30, y: 80 }, false],
-        ['below the box (value axis)', { x: 30, y: 170 }, false],
-        ['on top edge', { x: 30, y: 100 }, true],
-        ['on bottom edge', { x: 30, y: 150 }, true],
-    ])('%s', (_name, cursor, expected) => {
-        expect(cursorInsideBoxRect(box, cursor)).toBe(expected)
     })
 })
 
@@ -156,31 +142,5 @@ describe('seriesKeysAtCursor', () => {
             grouped: false,
         })
         expect(hits.size).toBe(0)
-    })
-})
-
-describe('nearestBoxIndex', () => {
-    it('returns -1 for an empty list', () => {
-        expect(nearestBoxIndex([], { x: 0 })).toBe(-1)
-    })
-
-    it('returns the index whose box center is nearest the cursor', () => {
-        const boxes = [
-            { x: 0, width: 20 }, // center 10
-            { x: 30, width: 20 }, // center 40
-            { x: 60, width: 20 }, // center 70
-        ]
-        expect(nearestBoxIndex(boxes, { x: 12 })).toBe(0)
-        expect(nearestBoxIndex(boxes, { x: 38 })).toBe(1)
-        expect(nearestBoxIndex(boxes, { x: 71 })).toBe(2)
-    })
-
-    it('breaks ties to the first match', () => {
-        const boxes = [
-            { x: 0, width: 10 }, // center 5
-            { x: 10, width: 10 }, // center 15
-        ]
-        // x=10 is equidistant from 5 and 15.
-        expect(nearestBoxIndex(boxes, { x: 10 })).toBe(0)
     })
 })
