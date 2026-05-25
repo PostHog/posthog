@@ -410,6 +410,23 @@ def _resolve_to_flat(
     return name, entry
 
 
+def _probe_endpoint(resource: StripeResource) -> tuple[str | None, str | None]:
+    """Cheap limit=1 probe. Returns ``(permission_msg, error_msg)``. 401 raises ``StripeAuthenticationError``.
+
+    Exactly one tuple slot is set on failure; both ``None`` means success.
+    """
+    try:
+        resource.method(params={"limit": 1})
+        return None, None
+    except stripe_lib.AuthenticationError as e:
+        raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
+    except stripe_lib.PermissionError as e:
+        raw = getattr(e, "user_message", None) or str(e)
+        return _clean_stripe_error_message(raw), None
+    except Exception as e:
+        return None, _clean_stripe_error_message(str(e))
+
+
 # customers.list is in default RAK scopes + OAuth-reachable — cheap auth probe.
 _BASIC_AUTH_PROBE_ENDPOINT = CUSTOMER_RESOURCE_NAME
 
@@ -429,16 +446,11 @@ def validate_credentials(
 
     if endpoints is None:
         probe_name, probe_resource = _resolve_to_flat(_BASIC_AUTH_PROBE_ENDPOINT, all_resources)
-        try:
-            probe_resource.method(params={"limit": 1})
-            return True
-        except stripe_lib.AuthenticationError as e:
-            raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
-        except stripe_lib.PermissionError:
-            # 403 = auth valid, scope missing. Per-endpoint check surfaces it later.
-            return True
-        except Exception as e:
-            raise StripeValidationError({probe_name: _clean_stripe_error_message(str(e))}) from e
+        # 403 = auth valid, scope missing — not a failure for the basic check.
+        _, error_msg = _probe_endpoint(probe_resource)
+        if error_msg is not None:
+            raise StripeValidationError({probe_name: error_msg})
+        return True
 
     missing_permissions: dict[str, str] = {}
     errors: dict[str, str] = {}
@@ -453,16 +465,11 @@ def validate_credentials(
         resources_to_check.append(_resolve_to_flat(name, all_resources))
 
     for display_name, resource in resources_to_check:
-        try:
-            resource.method(params={"limit": 1})
-        except stripe_lib.AuthenticationError as e:
-            # 401 short-circuits; every other probe would fail the same way.
-            raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
-        except stripe_lib.PermissionError as e:
-            raw = getattr(e, "user_message", None) or str(e)
-            missing_permissions[display_name] = _clean_stripe_error_message(raw)
-        except Exception as e:
-            errors[display_name] = _clean_stripe_error_message(str(e))
+        permission_msg, error_msg = _probe_endpoint(resource)
+        if permission_msg is not None:
+            missing_permissions[display_name] = permission_msg
+        elif error_msg is not None:
+            errors[display_name] = error_msg
 
     # Non-403 errors win but carry 403s along so the caller can report both.
     if errors:
@@ -495,16 +502,8 @@ def check_endpoint_permissions(
             continue
 
         _, probe_resource = _resolve_to_flat(name, all_resources)
-        try:
-            probe_resource.method(params={"limit": 1})
-            results[name] = None
-        except stripe_lib.AuthenticationError as e:
-            raise StripeAuthenticationError(_clean_stripe_error_message(str(e))) from e
-        except stripe_lib.PermissionError as e:
-            raw = getattr(e, "user_message", None) or str(e)
-            results[name] = _clean_stripe_error_message(raw)
-        except Exception as e:
-            results[name] = _clean_stripe_error_message(str(e))
+        permission_msg, error_msg = _probe_endpoint(probe_resource)
+        results[name] = permission_msg or error_msg
 
     return results
 

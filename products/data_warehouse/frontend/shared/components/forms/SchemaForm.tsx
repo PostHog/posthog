@@ -467,6 +467,20 @@ export default function SchemaForm(): JSX.Element {
                                                                                 <IconInfo className="text-muted-alt text-base shrink-0" />
                                                                             </Tooltip>
                                                                         )}
+                                                                        {schema.permission_error && (
+                                                                            <Tooltip
+                                                                                title={`Source credentials cannot read this table: ${schema.permission_error}. Grant the missing scope in your source provider and reconnect.`}
+                                                                                placement="top"
+                                                                            >
+                                                                                <LemonTag
+                                                                                    type="warning"
+                                                                                    className="cursor-help shrink-0"
+                                                                                >
+                                                                                    <IconWarning className="mr-1" />
+                                                                                    Permission missing
+                                                                                </LemonTag>
+                                                                            </Tooltip>
+                                                                        )}
                                                                         {isSuggested && (
                                                                             <Tooltip title={tooltip} placement="top">
                                                                                 <LemonTag
