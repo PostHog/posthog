@@ -1,5 +1,6 @@
 import re
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
@@ -678,11 +679,12 @@ async def discover_posthog_code_repository_via_agent_activity(
     )
 
     # Best-effort searching reaction so the user sees we're working before
-    # the agent (which can take ~10–60s) finishes.
+    # the agent (which can take ~10–60s) finishes. Offloaded to a thread since
+    # this is the only async activity in the file calling the sync Slack SDK.
     if user_message_ts:
         try:
             slack = SlackIntegration(integration)
-            _safe_react(slack.client, channel, user_message_ts, "mag")
+            await asyncio.to_thread(_safe_react, slack.client, channel, user_message_ts, "mag")
         except Exception:
             logger.warning("posthog_code_search_reaction_failed", channel=channel)
 
