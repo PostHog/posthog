@@ -4,8 +4,10 @@ from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 
 import structlog
+from exceptions_hog import exception_handler as _exceptions_hog_handler
 from rest_framework import status
 from rest_framework.exceptions import APIException
+from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
@@ -122,3 +124,20 @@ def generate_exception_response(
         tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr},
     )
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)
+
+
+def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Response]:
+    """
+    Wraps drf-exceptions-hog and, on 401, advertises the OAuth protected resource
+    metadata document via WWW-Authenticate per RFC 9728, so that MCP-style agents
+    can bootstrap from a stock 401.
+    """
+    response = _exceptions_hog_handler(exc, context)
+    if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
+        request = context.get("request") if isinstance(context, dict) else getattr(context, "request", None)
+        if isinstance(request, HttpRequest):
+            metadata_url = request.build_absolute_uri("/.well-known/oauth-protected-resource")
+        else:
+            metadata_url = "/.well-known/oauth-protected-resource"
+        response["WWW-Authenticate"] = f'Bearer resource_metadata="{metadata_url}"'
+    return response
