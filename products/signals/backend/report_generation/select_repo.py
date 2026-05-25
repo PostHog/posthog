@@ -1,12 +1,12 @@
 """Repository selection for Signals reports.
 
-Thin wrapper around the shared selector at
-`products.tasks.backend.repo_selection`. The wrapper renders Signals' domain
-types (`SignalData`) to text and catches `RepoSelectionRejectedError` so that
-LLM hallucinations surface as a `RepoSelectionResult(repository=None, ...)`
-— preserving the legacy contract Signals' workflow already handles
-gracefully (`summary.py` interprets `repository=None` as
-``REQUIRES_HUMAN_INPUT``).
+Thin wrapper around `products.tasks.backend.repo_selection.select_repository`.
+Renders `SignalData` to text and collapses both `RepoSelectionRejectedError`
+(LLM hallucination) and `RepoSelectionUnavailableError` (no eligible repos)
+into `RepoSelectionResult(repository=None, ...)` — Signals has no picker
+fallback, so the shared module's operational-vs-semantic distinction has
+nowhere to land; `summary.py` treats `repository=None` as
+``REQUIRES_HUMAN_INPUT``.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from products.tasks.backend.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
     RepoSelectionRejectedError,
     RepoSelectionResult,
+    RepoSelectionUnavailableError,
     resolve_team_github_integration,
     select_repository,
 )
@@ -73,3 +74,7 @@ async def select_repository_for_report(
                 f"Original reason: '{exc.reason}'"
             ),
         )
+    except RepoSelectionUnavailableError as exc:
+        # No picker in Signals — collapse operational failure into REQUIRES_HUMAN_INPUT.
+        logger.warning("signals repo selection unavailable: %s", exc.reason)
+        return RepoSelectionResult(repository=None, reason=exc.reason)
