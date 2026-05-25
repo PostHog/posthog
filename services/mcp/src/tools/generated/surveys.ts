@@ -191,22 +191,6 @@ const surveyLaunch = (): ToolBase<typeof SurveyLaunchSchema, WithPostHogUrl<Sche
         },
     })
 
-const SurveyStopSchema = SurveysStopParams.omit({ project_id: true })
-
-const surveyStop = (): ToolBase<typeof SurveyStopSchema, WithPostHogUrl<Schemas.Survey>> =>
-    withUiApp('survey', {
-        name: 'survey-stop',
-        schema: SurveyStopSchema,
-        handler: async (context: Context, params: z.infer<typeof SurveyStopSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.Survey>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/stop/`,
-            })
-            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
-        },
-    })
-
 const SurveyStatsSchema = SurveysStatsRetrieveParams.omit({ project_id: true }).extend(
     SurveysStatsRetrieveQueryParams.shape
 )
@@ -227,6 +211,22 @@ const surveyStats = (): ToolBase<typeof SurveyStatsSchema, WithPostHogUrl<Schema
                 },
             })
             return await withPostHogUrl(context, result, `/surveys/${result.survey_id}`)
+        },
+    })
+
+const SurveyStopSchema = SurveysStopParams.omit({ project_id: true })
+
+const surveyStop = (): ToolBase<typeof SurveyStopSchema, WithPostHogUrl<Schemas.Survey>> =>
+    withUiApp('survey', {
+        name: 'survey-stop',
+        schema: SurveyStopSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveyStopSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Survey>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/stop/`,
+            })
+            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
         },
     })
 
@@ -470,8 +470,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'survey-delete': surveyDelete,
     'survey-get': surveyGet,
     'survey-launch': surveyLaunch,
-    'survey-stop': surveyStop,
     'survey-stats': surveyStats,
+    'survey-stop': surveyStop,
     'survey-update': surveyUpdate,
     'surveys-get-all': surveysGetAll,
     'surveys-global-stats': surveysGlobalStats,
