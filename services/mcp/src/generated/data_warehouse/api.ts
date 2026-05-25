@@ -119,6 +119,12 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
+    enabled_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
 })
 
 export const ExternalDataSchemasCancelCreateParams = /* @__PURE__ */ zod.object({
@@ -196,6 +202,12 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+        ),
+    enabled_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
 })
 
@@ -284,6 +296,12 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
+    enabled_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
 })
 
 export const ExternalDataSchemasReloadCreateParams = /* @__PURE__ */ zod.object({
@@ -362,6 +380,12 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
         ),
+    enabled_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
 })
 
 export const ExternalDataSchemasResyncCreateParams = /* @__PURE__ */ zod.object({
@@ -439,6 +463,12 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both'
+        ),
+    enabled_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
 })
 
@@ -990,6 +1020,8 @@ export const WarehouseSavedQueriesCreateParams = /* @__PURE__ */ zod.object({
 
 export const warehouseSavedQueriesCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -999,10 +1031,12 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .optional()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}'
             ),
         folder_id: zod
             .uuid()
@@ -1041,6 +1075,8 @@ export const WarehouseSavedQueriesPartialUpdateParams = /* @__PURE__ */ zod.obje
 
 export const warehouseSavedQueriesPartialUpdateBodyNameMax = 128
 
+export const warehouseSavedQueriesPartialUpdateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod
@@ -1051,10 +1087,13 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesPartialUpdateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .optional()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}'
             ),
         folder_id: zod
             .uuid()
@@ -1097,6 +1136,8 @@ export const WarehouseSavedQueriesMaterializeCreateParams = /* @__PURE__ */ zod.
 
 export const warehouseSavedQueriesMaterializeCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesMaterializeCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
     .object({
         deleted: zod.boolean().nullish(),
@@ -1107,10 +1148,12 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .optional()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesMaterializeCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}'
             ),
         folder_id: zod
             .uuid()
@@ -1146,6 +1189,8 @@ export const WarehouseSavedQueriesRevertMaterializationCreateParams = /* @__PURE
 
 export const warehouseSavedQueriesRevertMaterializationCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesRevertMaterializationCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__ */ zod
     .object({
         deleted: zod.boolean().nullish(),
@@ -1156,10 +1201,14 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .optional()
+            .object({
+                kind: zod
+                    .enum(['HogQLQuery'])
+                    .default(warehouseSavedQueriesRevertMaterializationCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}'
             ),
         folder_id: zod
             .uuid()
@@ -1194,6 +1243,8 @@ export const WarehouseSavedQueriesRunCreateParams = /* @__PURE__ */ zod.object({
 
 export const warehouseSavedQueriesRunCreateBodyNameMax = 128
 
+export const warehouseSavedQueriesRunCreateBodyQueryKindDefault = `HogQLQuery`
+
 export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
     .object({
         deleted: zod.boolean().nullish(),
@@ -1204,10 +1255,12 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
                 'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
             ),
         query: zod
-            .unknown()
-            .optional()
+            .object({
+                kind: zod.enum(['HogQLQuery']).default(warehouseSavedQueriesRunCreateBodyQueryKindDefault),
+                query: zod.string(),
+            })
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}'
             ),
         folder_id: zod
             .uuid()

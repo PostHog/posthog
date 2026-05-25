@@ -45,6 +45,7 @@ use personhog_router::backend::{
     LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
 };
 use personhog_router::config::RetryConfig;
+use personhog_router::proxy::RawProxyService;
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
 use tokio::net::TcpListener;
@@ -502,6 +503,15 @@ pub async fn create_client(router_addr: SocketAddr) -> PersonHogServiceClient<Ch
     PersonHogServiceClient::connect(url).await.unwrap()
 }
 
+/// Create a client that sends Zstd-compressed requests.
+pub async fn create_compressed_client(router_addr: SocketAddr) -> PersonHogServiceClient<Channel> {
+    let url = format!("http://{}", router_addr);
+    let channel = Channel::from_shared(url).unwrap().connect().await.unwrap();
+    PersonHogServiceClient::new(channel)
+        .send_compressed(CompressionEncoding::Zstd)
+        .accept_compressed(CompressionEncoding::Zstd)
+}
+
 pub fn create_test_person() -> Person {
     Person {
         id: 42,
@@ -697,5 +707,134 @@ pub async fn start_test_router_with_leader(
 
     tokio::time::sleep(Duration::from_millis(10)).await;
 
+    addr
+}
+
+// ============================================================
+// Raw proxy test helpers
+// ============================================================
+
+fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+    Arc::new(ReplicaBackend::new(ReplicaBackendConfig {
+        url: format!("http://{}", replica_addr),
+        timeout: Duration::from_secs(5),
+        retry_config,
+        keepalive_interval: None,
+        keepalive_timeout: None,
+        max_send_message_size: 4 * 1024 * 1024,
+        max_recv_message_size: 4 * 1024 * 1024,
+        num_channels: 1,
+    }))
+}
+
+fn make_leader_backend(leader_addr: SocketAddr, num_partitions: u32) -> Arc<LeaderBackend> {
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+    let mut routing = HashMap::new();
+    for p in 0..num_partitions {
+        routing.insert(p, "leader-0".to_string());
+    }
+    let routing_table = Arc::new(RwLock::new(routing));
+    let leader_url = format!("http://{}", leader_addr);
+    let address_resolver: Arc<dyn Fn(&str) -> Option<String> + Send + Sync> =
+        Arc::new(move |_pod_name| Some(leader_url.clone()));
+    Arc::new(LeaderBackend::new(
+        routing_table,
+        address_resolver,
+        LeaderBackendConfig {
+            num_partitions,
+            timeout: Duration::from_secs(5),
+            retry_config,
+            max_send_message_size: 4 * 1024 * 1024,
+            max_recv_message_size: 4 * 1024 * 1024,
+        },
+        StashTable::with_bounds(usize::MAX, usize::MAX),
+    ))
+}
+
+/// Start a raw proxy router (replica only, no leader).
+pub async fn start_test_router_raw(replica_addr: SocketAddr) -> SocketAddr {
+    start_test_router_raw_with_max_recv(replica_addr, 4 * 1024 * 1024).await
+}
+
+/// Start a raw proxy router with a custom max receive message size.
+pub async fn start_test_router_raw_with_max_recv(
+    replica_addr: SocketAddr,
+    max_recv_message_size: usize,
+) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let replica = make_replica_backend(replica_addr);
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+    let proxy = RawProxyService::new(replica, None, retry_config, max_recv_message_size);
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(proxy)
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    addr
+}
+
+/// Start a raw proxy router with both replica and leader backends.
+pub async fn start_test_router_raw_with_leader(
+    replica_addr: SocketAddr,
+    leader_addr: SocketAddr,
+    num_partitions: u32,
+) -> SocketAddr {
+    start_test_router_raw_with_leader_and_max_recv(
+        replica_addr,
+        leader_addr,
+        num_partitions,
+        4 * 1024 * 1024,
+    )
+    .await
+}
+
+/// Start a raw proxy router with both backends and a custom max receive message size.
+pub async fn start_test_router_raw_with_leader_and_max_recv(
+    replica_addr: SocketAddr,
+    leader_addr: SocketAddr,
+    num_partitions: u32,
+    max_recv_message_size: usize,
+) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let replica = make_replica_backend(replica_addr);
+    let leader = make_leader_backend(leader_addr, num_partitions);
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+    let proxy = RawProxyService::new(replica, Some(leader), retry_config, max_recv_message_size);
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(proxy)
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
     addr
 }

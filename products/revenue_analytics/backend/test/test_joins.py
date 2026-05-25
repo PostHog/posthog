@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.revenue_analytics.backend.joins import (
     ensure_person_join,
     get_customer_revenue_view_name,

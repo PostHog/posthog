@@ -46,13 +46,12 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     sync_new_schemas_activity,
 )
 
-from products.data_warehouse.backend.models import (
-    ExternalDataJob,
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
-    ExternalDataSource,
-    get_latest_run_if_exists,
+    get_all_schemas_for_source_id,
 )
-from products.data_warehouse.backend.models.external_data_schema import get_all_schemas_for_source_id
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 BUCKET_NAME = "test-pipeline"
 SESSION = boto3.Session()
@@ -451,7 +450,8 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
         team_id=team.id,
     )
     with mock.patch(
-        "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
+        "products.warehouse_sources.backend.models.external_data_schema.external_data_workflow_exists",
+        return_value=False,
     ):
         await activity_environment.run(update_external_data_job_model, inputs)
 
@@ -502,7 +502,8 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
         team_id=team.id,
     )
     with mock.patch(
-        "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
+        "products.warehouse_sources.backend.models.external_data_schema.external_data_workflow_exists",
+        return_value=False,
     ):
         await activity_environment.run(update_external_data_job_model, inputs)
 
@@ -639,7 +640,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
@@ -662,7 +663,7 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "customer": {"clickhouse": "string", "hogql": "StringDatabaseField"},
@@ -728,7 +729,7 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
@@ -783,7 +784,8 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
 
     with (
         mock.patch(
-            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
+            return_value={"id": "string"},
         ),
         mock.patch.object(PipelineNonDLT, "run", mock_func),
     ):

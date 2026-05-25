@@ -10,6 +10,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition};
+use tracing::warn;
 
 use super::{
     js::FrameLocation,
@@ -50,8 +51,8 @@ impl RawNodeFrame {
                 Ok((self, JsResolveErr::NoSourcemapUploaded(chunk_id)).into())
             }
             Err(ResolveError::ResolutionError(e)) => {
-                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
-                unreachable!("Should not have received error {:?}", e)
+                warn!("Unexpected Node.js symbol resolution error: {:?}", e);
+                Ok((self, JsResolveErr::InvalidSourceMap(e.to_string())).into())
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }

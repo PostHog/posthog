@@ -144,17 +144,24 @@ ORDER BY ts_max DESC, trace_id DESC
 LIMIT {GENERATIONS_QUERY_LIMIT}
 """
 
-_SENTIMENT_GENERATIONS_HEAVY_SQL = """
+# The explicit `LIMIT` matches the preflight's `GENERATIONS_QUERY_LIMIT` —
+# without it, `execute_hogql_query` (via `LimitContext.QUERY`) injects its
+# default of 100 rows, silently truncating the heavy `GROUP BY trace_id`
+# to the first 100 trace_ids whenever the preflight returns more. That
+# manifests in the UI as blank sentiment cards for the truncated half,
+# even though the underlying input is present in ClickHouse.
+_SENTIMENT_GENERATIONS_HEAVY_SQL = f"""
 SELECT
     trace_id,
     argMax(input, timestamp) as ai_input
 FROM posthog.ai_events AS ai_events
 WHERE event = '$ai_generation'
-    AND trace_id IN {trace_ids}
-    AND uuid IN {uuids}
-    AND timestamp >= {ts_start}
-    AND timestamp <= {ts_end}
+    AND trace_id IN {{trace_ids}}
+    AND uuid IN {{uuids}}
+    AND timestamp >= {{ts_start}}
+    AND timestamp <= {{ts_end}}
 GROUP BY trace_id
+LIMIT {GENERATIONS_QUERY_LIMIT}
 """
 
 _PreflightRow = namedtuple("_PreflightRow", ["uuid", "trace_id", "model", "distinct_id", "ts_max", "ts_min"])
@@ -235,7 +242,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             400: OpenApiTypes.OBJECT,
             500: OpenApiTypes.OBJECT,
         },
-        tags=["LLM Analytics"],
+        tags=["AI observability"],
     )
     @llma_track_latency("llma_sentiment_create")
     @monitor(feature=None, endpoint="llma_sentiment_create", method="POST")
@@ -313,7 +320,7 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             400: OpenApiTypes.OBJECT,
             500: OpenApiTypes.OBJECT,
         },
-        tags=["LLM Analytics"],
+        tags=["AI observability"],
     )
     @action(detail=False, methods=["post"], url_path="generations")
     @llma_track_latency("llma_sentiment_generations")
@@ -370,15 +377,16 @@ class LLMAnalyticsSentimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             ts_end = max(row.ts_max for row in preflight_rows)
 
             heavy_query = parse_select(_SENTIMENT_GENERATIONS_HEAVY_SQL)
+            heavy_placeholders = {
+                "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
+                "uuids": ast.Tuple(exprs=[ast.Constant(value=u) for u in uuids]),
+                "ts_start": ast.Constant(value=ts_start),
+                "ts_end": ast.Constant(value=ts_end),
+            }
             try:
                 heavy_result = execute_with_ai_events_fallback(
                     query=heavy_query,
-                    placeholders={
-                        "trace_ids": ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids]),
-                        "uuids": ast.Tuple(exprs=[ast.Constant(value=u) for u in uuids]),
-                        "ts_start": ast.Constant(value=ts_start),
-                        "ts_end": ast.Constant(value=ts_end),
-                    },
+                    placeholders=heavy_placeholders,
                     team=self.team,
                     query_type="LLMSentimentGenerations",
                     limit_context=LimitContext.QUERY,

@@ -24,7 +24,10 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AccountsCreateSchema = AccountsCreateBody.extend({
     properties: AccountsCreateBody.shape['properties'].describe(
-        'Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}` of an existing user. All three are optional.'
+        'Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional.'
+    ),
+    tags: AccountsCreateBody.shape['tags'].describe(
+        'Tag names to attach to the account. Tags are created on demand if they do not already exist for the team.'
     ),
 })
 
@@ -42,6 +45,9 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
         }
         if (params.properties !== undefined) {
             body['properties'] = params.properties
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
@@ -67,7 +73,11 @@ const accountsDestroy = (): ToolBase<typeof AccountsDestroySchema, unknown> => (
     },
 })
 
-const AccountsListSchema = AccountsListQueryParams
+const AccountsListSchema = AccountsListQueryParams.extend({
+    tags: AccountsListQueryParams.shape['tags'].describe(
+        'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.'
+    ),
+})
 
 const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Schemas.PaginatedAccountList>> => ({
     name: 'accounts-list',
@@ -78,8 +88,15 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/`,
             query: {
+                account_executive: params.account_executive,
+                account_owner: params.account_owner,
+                all_roles_unassigned: params.all_roles_unassigned,
+                csm: params.csm,
                 limit: params.limit,
                 offset: params.offset,
+                ordering: params.ordering,
+                search: params.search,
+                tags: params.tags,
             },
         })
         return await withPostHogUrl(context, result, '/customer-analytics')
@@ -90,7 +107,10 @@ const AccountsPartialUpdateSchema = AccountsPartialUpdateParams.omit({ project_i
     .extend(AccountsPartialUpdateBody.shape)
     .extend({
         properties: AccountsPartialUpdateBody.shape['properties'].describe(
-            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner`, each taking `{id, email}` of an existing user.'
+            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner` (each `{id, email}` of an existing user), plus `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems).'
+        ),
+        tags: AccountsPartialUpdateBody.shape['tags'].describe(
+            'Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a delta. Tags are created on demand if they do not already exist for the team.'
         ),
     })
 
@@ -108,6 +128,9 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
         }
         if (params.properties !== undefined) {
             body['properties'] = params.properties
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',

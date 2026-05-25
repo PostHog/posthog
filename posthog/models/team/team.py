@@ -40,6 +40,7 @@ from posthog.settings.utils import get_list
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
@@ -126,7 +127,13 @@ class TeamManager(models.Manager):
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
         # Create default dashboards
-        dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
+        default_app_template = DashboardTemplate.original_template()
+        dashboard = Dashboard.objects.db_manager(self.db).create(
+            name="My App Dashboard",
+            pinned=True,
+            team=team,
+            description=default_app_template.dashboard_description or "",
+        )
         create_dashboard_from_template("DEFAULT_APP", dashboard)
         team.primary_dashboard = dashboard
 
@@ -297,7 +304,9 @@ class Team(UUIDTClassicModel):
         default=generate_random_token_project,
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
-    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
+    app_urls: ArrayField = field_access_control(
+        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "project", "admin"
+    )
     name = models.CharField(
         max_length=200,
         default="Default project",
@@ -486,7 +495,7 @@ class Team(UUIDTClassicModel):
         models.CharField(null=True, blank=True, max_length=24), "project", "admin"
     )
     signup_token = models.CharField(max_length=200, null=True, blank=True)
-    is_demo = models.BooleanField(default=False)
+    is_demo = field_access_control(models.BooleanField(default=False), "project", "admin")
 
     # DEPRECATED - do not use
     access_control = models.BooleanField(default=False)

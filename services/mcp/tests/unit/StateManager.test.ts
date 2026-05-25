@@ -419,6 +419,85 @@ describe('StateManager', () => {
         })
     })
 
+    describe('getOrFetchCached (via getOrFetchGroupTypes)', () => {
+        const projectId = '42'
+
+        it('should fetch and cache on first call', async () => {
+            const mockGroupTypes = [{ group_type: 'company', group_type_index: 0 }]
+            const mockApi = stateManager as any
+            mockApi._api = {
+                getGroupTypes: vi.fn().mockResolvedValue(mockGroupTypes),
+            }
+
+            const result = await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(result).toEqual(mockGroupTypes)
+            expect(await cache.get(`groupTypes:${projectId}` as any)).toEqual(mockGroupTypes)
+            expect(await cache.get(`groupTypesFetchedAt:${projectId}` as any)).toEqual(expect.any(Number))
+        })
+
+        it('should return cached value without re-fetching when not stale', async () => {
+            const mockGroupTypes = [{ group_type: 'company', group_type_index: 0 }]
+            await cache.set(`groupTypes:${projectId}` as any, mockGroupTypes as any)
+            await cache.set(`groupTypesFetchedAt:${projectId}` as any, Date.now() as any)
+
+            const getGroupTypes = vi.fn()
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes }
+
+            const result = await stateManager.getOrFetchGroupTypes(projectId)
+
+            expect(result).toEqual(mockGroupTypes)
+            expect(getGroupTypes).not.toHaveBeenCalled()
+        })
+
+        it('should not retry a failed fetch within the cache TTL (negative caching)', async () => {
+            const getGroupTypes = vi.fn().mockRejectedValue(new Error('API error'))
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes }
+
+            const first = await stateManager.getOrFetchGroupTypes(projectId)
+            expect(first).toBeUndefined()
+            expect(getGroupTypes).toHaveBeenCalledOnce()
+
+            const second = await stateManager.getOrFetchGroupTypes(projectId)
+            expect(second).toBeUndefined()
+            expect(getGroupTypes).toHaveBeenCalledOnce()
+        })
+
+        it('should retry after the cache TTL expires', async () => {
+            const getGroupTypes = vi.fn().mockRejectedValue(new Error('API error'))
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes }
+
+            await stateManager.getOrFetchGroupTypes(projectId)
+            expect(getGroupTypes).toHaveBeenCalledOnce()
+
+            await cache.set(`groupTypesFetchedAt:${projectId}` as any, (Date.now() - 11 * 60 * 1000) as any)
+
+            await stateManager.getOrFetchGroupTypes(projectId)
+            expect(getGroupTypes).toHaveBeenCalledTimes(2)
+        })
+
+        it('should return undefined (not stale data) when fetch succeeds then later fails', async () => {
+            const mockGroupTypes = [{ group_type: 'company', group_type_index: 0 }]
+            const getGroupTypes = vi
+                .fn()
+                .mockResolvedValueOnce(mockGroupTypes)
+                .mockRejectedValueOnce(new Error('API error'))
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes }
+
+            const first = await stateManager.getOrFetchGroupTypes(projectId)
+            expect(first).toEqual(mockGroupTypes)
+
+            await cache.set(`groupTypesFetchedAt:${projectId}` as any, (Date.now() - 11 * 60 * 1000) as any)
+
+            const second = await stateManager.getOrFetchGroupTypes(projectId)
+            expect(second).toEqual(mockGroupTypes)
+        })
+    })
+
     describe('getAnalyticsContext', () => {
         it('returns organization, project, UUID, and name from the cached project', async () => {
             await cache.set('orgId', 'org-1')

@@ -535,6 +535,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.UserInterviews,
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
         icon: iconForType('user_interview'),
+        modes: [AgentMode.UserInterview],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Analyzed user interviews'
@@ -548,6 +549,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.UserInterviews,
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
         icon: iconForType('user_interview'),
+        modes: [AgentMode.UserInterview],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created interview topic'
@@ -1112,8 +1114,8 @@ export const MODE_DEFINITIONS: Record<
         ]),
     },
     [AgentMode.LLMAnalytics]: {
-        name: 'LLM analytics',
-        description: 'Analyzes LLM traces and writes evaluation code for LLM analytics.',
+        name: 'AI observability',
+        description: 'Analyzes LLM traces and writes evaluation code for AI observability.',
         icon: iconForType('llm_analytics'),
         scenes: new Set([
             Scene.LLMAnalytics,
@@ -1125,6 +1127,13 @@ export const MODE_DEFINITIONS: Record<
             Scene.LLMAnalyticsPlayground,
             Scene.LLMAnalyticsUsers,
         ]),
+    },
+    [AgentMode.UserInterview]: {
+        name: 'User interviews',
+        description: 'Sets up live AI voice interviews and analyzes interview transcripts.',
+        icon: iconForType('user_interview'),
+        scenes: new Set([Scene.UserInterviews, Scene.UserInterview, Scene.UserInterviewResponse]),
+        flag: 'USER_INTERVIEWS',
     },
 }
 

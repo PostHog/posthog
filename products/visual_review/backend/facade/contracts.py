@@ -3,11 +3,22 @@ Contract types for visual_review.
 
 Stable, framework-free frozen dataclasses that define what this product
 exposes to the rest of the codebase. No Django imports.
+
+These use ``pydantic.dataclasses.dataclass`` rather than the stdlib variant — same
+syntax, same ``is_dataclass()`` compatibility (so ``DataclassSerializer`` keeps
+working), but with runtime validation on construction. Pydantic v2 coerces where
+the conversion is unambiguous (string→UUID/datetime, int→str) and raises
+``ValidationError`` otherwise, so structural mistakes from mappers or internal
+callers (None for a required int, a dict where a list is expected, an
+unparseable UUID) surface at the facade boundary instead of producing a
+malformed JSON payload twelve stack frames later.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import datetime
 from uuid import UUID
+
+from pydantic.dataclasses import dataclass
 
 # --- Input DTOs ---
 

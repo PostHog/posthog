@@ -10,11 +10,12 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseTable
-from products.data_warehouse.backend.models.credential import DataWarehouseCredential
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestViewLinkQuery(APIBaseTest):
@@ -636,7 +637,7 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(data["detail"], "This field is required.")
         self.assertEqual(data["type"], "validation_error")
 
-    def test_with_type_mismatch_warning(self):
+    def test_with_join_key_type_error(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
             {
@@ -650,7 +651,7 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         data = response.json()
         self.assertEqual(data["attr"], None)
-        self.assertEqual(data["code"], "CHQueryErrorTypeMismatch")
+        self.assertEqual(data["code"], "CHQueryErrorIllegalTypeOfArgument")
         self.assertEqual(data["type"], "query_error")
         self.assertEqual(data["hogql"], "SELECT validation.id FROM events LIMIT 10")
 

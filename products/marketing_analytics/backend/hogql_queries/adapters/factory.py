@@ -12,7 +12,6 @@ from posthog.schema import NativeMarketingSource, SourceMap
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 
-from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
 from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import BingAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
@@ -20,6 +19,8 @@ from products.marketing_analytics.backend.hogql_queries.adapters.pinterest_ads i
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads import SnapchatAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ..constants import (
     NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES,

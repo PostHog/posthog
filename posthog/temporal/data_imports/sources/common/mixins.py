@@ -7,8 +7,8 @@ from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
 from posthog.utils import get_instance_region
 
-from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnel
-from products.data_warehouse.backend.models.util import _is_safe_public_ip
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
+from products.warehouse_sources.backend.models.util import _is_safe_public_ip
 
 
 def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
@@ -61,40 +61,54 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
     return True, None
 
 
-class SSHTunnelMixin:
-    """Mixin for sources that support SSH tunnels"""
+@contextmanager
+def open_ssh_tunnel(config) -> Generator[tuple[str, int], Any, None]:
+    """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
+    if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
+        ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
 
-    @contextmanager
-    def with_ssh_tunnel(self, config) -> Generator[tuple[str, int], Any, None]:
-        if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
-            ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
+        with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
+            if tunnel is None:
+                raise Exception("Can't open tunnel to SSH server")
 
+            yield tunnel.local_bind_host, tunnel.local_bind_port
+    else:
+        yield config.host, config.port
+
+
+def make_ssh_tunnel_factory(config) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
+    """Return a zero-arg factory that opens a fresh `open_ssh_tunnel(config)` context each call.
+
+    The dlt pipeline factories accept a tunnel-factory callable so the tunnel can be
+    (re)opened inside the pipeline process.
+    """
+    if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
+        ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
+
+        @contextmanager
+        def with_ssh_func():
             with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
                 if tunnel is None:
                     raise Exception("Can't open tunnel to SSH server")
-
                 yield tunnel.local_bind_host, tunnel.local_bind_port
-        else:
-            yield config.host, config.port
+
+        return with_ssh_func
+
+    @contextmanager
+    def without_ssh_func():
+        yield config.host, config.port
+
+    return without_ssh_func
+
+
+class SSHTunnelMixin:
+    """Mixin for sources that support SSH tunnels"""
+
+    def with_ssh_tunnel(self, config) -> _GeneratorContextManager[tuple[str, int]]:
+        return open_ssh_tunnel(config)
 
     def make_ssh_tunnel_func(self, config) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
-        if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
-            ssh_tunnel = SSHTunnel.from_config(config.ssh_tunnel)
-
-            @contextmanager
-            def with_ssh_func():
-                with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
-                    if tunnel is None:
-                        raise Exception("Can't open tunnel to SSH server")
-                    yield tunnel.local_bind_host, tunnel.local_bind_port
-
-            return with_ssh_func
-
-        @contextmanager
-        def without_ssh_func():
-            yield config.host, config.port
-
-        return without_ssh_func
+        return make_ssh_tunnel_factory(config)
 
     def ssh_tunnel_is_valid(self, config, team_id: int) -> tuple[bool, str | None]:
         if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
