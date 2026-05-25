@@ -7,6 +7,7 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 import {
     defineAuthTests,
     defineCatalogFilterTests,
+    defineExecModeTests,
     defineHttpRouteTests,
     defineJsonRpcEdgeCaseTests,
     defineMcpProtocolTests,
@@ -83,3 +84,4 @@ defineJsonRpcEdgeCaseTests('Hono', harness)
 defineSessionLifecycleTests('Hono', harness)
 defineResourceCatalogTests('Hono', harness)
 defineCatalogFilterTests('Hono', harness)
+defineExecModeTests('Hono', harness)

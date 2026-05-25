@@ -91,13 +91,18 @@ export class RequestStateResolver {
         ])
 
         const flagVersion = allFlags['mcp-version-2'] ? 2 : undefined
-        const toolFeatureFlags = toolFlagKeys.length > 0
-            ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]]))
-            : undefined
+        const toolFeatureFlags =
+            toolFlagKeys.length > 0 ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]])) : undefined
 
         const oauthClientName = (await reqCtx.cache.get('clientName')) || undefined
         const mcpClientName = props.mcpClientName || (await reqCtx.cache.get('mcpClientName')) || undefined
         const mcpClientVersion = props.mcpClientVersion || (await reqCtx.cache.get('mcpClientVersion')) || undefined
+        const mcpProtocolVersion =
+            props.mcpProtocolVersion || (await reqCtx.cache.get('mcpProtocolVersion')) || undefined
+
+        props.mcpClientName = mcpClientName
+        props.mcpClientVersion = mcpClientVersion
+        props.mcpProtocolVersion = mcpProtocolVersion
         const clientProfile = new MCPClientProfile({
             clientName: mcpClientName,
             clientVersion: mcpClientVersion,
@@ -111,6 +116,10 @@ export class RequestStateResolver {
             flagVersion,
             clientVersion,
         })
+
+        if (!props.mode) {
+            props.mode = useSingleExec ? 'cli' : 'tools'
+        }
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
@@ -151,7 +160,9 @@ export class RequestStateResolver {
         flagKeys: string[],
         groups?: FlagGroups
     ): Promise<Record<string, boolean>> {
-        if (flagKeys.length === 0) {return {}}
+        if (flagKeys.length === 0) {
+            return {}
+        }
         try {
             const distinctId = await reqCtx.getDistinctId()
             return await evaluateFeatureFlags(flagKeys, distinctId, groups)

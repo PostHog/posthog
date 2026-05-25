@@ -48,6 +48,22 @@ function buildStreamableClient(
     return { client, transport }
 }
 
+function buildExecModeClient(
+    harness: ProtocolTestHarness
+): { client: Client; transport: StreamableHTTPClientTransport } {
+    const transport = new StreamableHTTPClientTransport(new URL('/mcp', harness.baseUrl), {
+        fetch: harness.fetch,
+        requestInit: {
+            headers: {
+                Authorization: `Bearer ${harness.token}`,
+                'x-posthog-mcp-mode': 'cli',
+            },
+        },
+    })
+    const client = new Client({ name: 'mcp-exec-test', version: '0.0.0' }, { capabilities: {} })
+    return { client, transport }
+}
+
 // SDK exposes `sessionId` as `string | undefined` but the `Transport` interface
 // declares it as `string`. The runtime contract is satisfied (the transport
 // sets the id after the initialize handshake); the assignability mismatch is a
@@ -1111,17 +1127,12 @@ export function defineToolBehaviorTests(
                 fetch: harness.fetch,
                 requestInit: { headers: { Authorization: `Bearer ${harness.token}` } },
             })
-            const pinnedClient = new Client(
-                { name: 'pinned-project-test', version: '0.0.0' },
-                { capabilities: {} }
-            )
+            const pinnedClient = new Client({ name: 'pinned-project-test', version: '0.0.0' }, { capabilities: {} })
             try {
                 await pinnedClient.connect(transport as ConnectableTransport)
                 const result = await pinnedClient.callTool({ name: 'feature-flag-get-all', arguments: {} })
                 if (result.isError) {
-                    throw new Error(
-                        `feature-flag-get-all errored with pinned projectId: ${decodeText(result.content)}`
-                    )
+                    throw new Error(`feature-flag-get-all errored with pinned projectId: ${decodeText(result.content)}`)
                 }
             } finally {
                 await safeClose(pinnedClient)
@@ -1234,10 +1245,7 @@ export function defineCatalogFilterTests(
 
         it('pins the catalog to specific tools when ?tools= is set', async () => {
             const harness = await getHarness()
-            const { tools } = await listToolsWithQuery(
-                harness,
-                '?tools=organization-get,projects-get'
-            )
+            const { tools } = await listToolsWithQuery(harness, '?tools=organization-get,projects-get')
             expect(tools.length).toBeGreaterThan(0)
             const names = tools.map((t) => t.name)
             // Pinned tools must appear; non-pinned ones must not.
@@ -1450,6 +1458,101 @@ export function defineResourceCatalogTests(
             expect(Array.isArray(prompts)).toBe(true)
             const unnamed = prompts.filter((p) => !p.name)
             expect(unnamed).toEqual([])
+        })
+    })
+}
+
+// Single-exec mode: the server exposes one `exec` tool that wraps all inner
+// tools. Clients send `x-posthog-mcp-mode: cli` to enter this mode. The exec
+// tool accepts a `command` string that dispatches to the inner tool catalog
+// via verbs: `tools`, `search <regex>`, `info <tool>`, `call <tool> <json>`.
+//
+// These tests exercise the full exec flow end-to-end through the dispatcher,
+// state resolver, and tool executor — catching regressions in command parsing,
+// inner tool dispatch, and result formatting that unit tests on exec.ts alone
+// would miss.
+export function defineExecModeTests(
+    label: string,
+    getHarness: () => Promise<ProtocolTestHarness> | ProtocolTestHarness
+): void {
+    describe(`MCP exec mode (${label})`, () => {
+        let client: Client
+
+        beforeEach(async () => {
+            const harness = await getHarness()
+            const built = buildExecModeClient(harness)
+            client = built.client
+            await client.connect(built.transport as ConnectableTransport)
+        })
+
+        afterEach(async () => {
+            await safeClose(client)
+        })
+
+        it('lists only the exec tool when in cli mode', async () => {
+            const { tools } = await client.listTools()
+            expect(tools).toHaveLength(1)
+            expect(tools[0]!.name).toBe('exec')
+        })
+
+        it('exec "tools" lists available inner tools', async () => {
+            const result = await client.callTool({ name: 'exec', arguments: { command: 'tools' } })
+            expect(result.isError).toBeFalsy()
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text).toContain('execute-sql')
+            expect(text).toContain('organization-get')
+        })
+
+        it('exec "search" finds tools by regex', async () => {
+            const result = await client.callTool({ name: 'exec', arguments: { command: 'search feature-flag' } })
+            expect(result.isError).toBeFalsy()
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text).toContain('feature-flag')
+        })
+
+        it('exec "info" returns tool description and schema', async () => {
+            const result = await client.callTool({ name: 'exec', arguments: { command: 'info organization-get' } })
+            expect(result.isError).toBeFalsy()
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text.length).toBeGreaterThan(50)
+            expect(text.toLowerCase()).toContain('organization')
+        })
+
+        it('exec "call" dispatches to an inner tool and returns a result', async () => {
+            const result = await client.callTool({
+                name: 'exec',
+                arguments: { command: 'call organization-get {}' },
+            })
+            expect(result.isError).toBeFalsy()
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text.length).toBeGreaterThan(0)
+        })
+
+        it('exec "call" with an unknown tool returns an error message', async () => {
+            const result = await client.callTool({
+                name: 'exec',
+                arguments: { command: 'call nonexistent-tool-xyz {}' },
+            })
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text.toLowerCase()).toMatch(/not found|unknown tool/)
+        })
+
+        it('exec with an unknown verb returns a helpful error', async () => {
+            const result = await client.callTool({
+                name: 'exec',
+                arguments: { command: 'badverb something' },
+            })
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text.toLowerCase()).toMatch(/unknown|unrecognized|invalid/)
+        })
+
+        it('exec "call" with invalid JSON returns a parse error', async () => {
+            const result = await client.callTool({
+                name: 'exec',
+                arguments: { command: 'call organization-get {not-json}' },
+            })
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text.toLowerCase()).toContain('json')
         })
     })
 }
