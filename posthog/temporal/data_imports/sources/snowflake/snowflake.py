@@ -10,8 +10,6 @@ credentials.
 
 from __future__ import annotations
 
-import os
-import tempfile
 import collections
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -19,6 +17,8 @@ from typing import Any, Optional
 
 import structlog
 import snowflake.connector
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -144,51 +144,47 @@ class SnowflakeImplementation(
         """Open a Snowflake connection for the duration of the context.
 
         Branches on `config.auth_type.selection`. In keypair mode the
-        private key is written to a `NamedTemporaryFile` that is unlinked
-        when the context exits — both on success and on exception — so
-        the secret never lingers on disk.
+        PEM private key is parsed in process and handed to the
+        connector as DER bytes via `private_key=` — never written to
+        disk, matching the streaming-side helper that the pre-refactor
+        code used.
 
         Uses `config.schema` as the session schema. All listing queries
         use fully qualified `information_schema.<table>` references so
         the session schema does not affect their results.
         """
-        auth_connect_args: dict[str, str | None] = {}
-        file_name: str | None = None
+        auth_connect_args: dict[str, Any] = {}
 
-        try:
-            if config.auth_type.selection == "keypair" and config.auth_type.private_key is not None:
-                with tempfile.NamedTemporaryFile(delete=False) as tf:
-                    tf.write(config.auth_type.private_key.encode("utf-8"))
-                    file_name = tf.name
+        if config.auth_type.selection == "keypair" and config.auth_type.private_key is not None:
+            p_key = serialization.load_pem_private_key(
+                config.auth_type.private_key.encode("utf-8"),
+                password=config.auth_type.passphrase.encode() if config.auth_type.passphrase else None,
+                backend=default_backend(),
+            )
+            pkb = p_key.private_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+            auth_connect_args = {
+                "user": config.auth_type.user,
+                "private_key": pkb,
+            }
+        else:
+            auth_connect_args = {
+                "password": config.auth_type.password,
+                "user": config.auth_type.user,
+            }
 
-                auth_connect_args = {
-                    "user": config.auth_type.user,
-                    "private_key_file": file_name,
-                    "private_key_file_pwd": config.auth_type.passphrase
-                    if config.auth_type.passphrase and len(config.auth_type.passphrase) > 0
-                    else None,
-                }
-            else:
-                auth_connect_args = {
-                    "password": config.auth_type.password,
-                    "user": config.auth_type.user,
-                }
-
-            with snowflake.connector.connect(
-                account=config.account_id,
-                warehouse=config.warehouse,
-                database=config.database,
-                schema=config.schema,
-                role=config.role,
-                **auth_connect_args,
-            ) as connection:
-                yield connection
-        finally:
-            if file_name is not None:
-                try:
-                    os.unlink(file_name)
-                except OSError:
-                    pass
+        with snowflake.connector.connect(
+            account=config.account_id,
+            warehouse=config.warehouse,
+            database=config.database,
+            schema=config.schema,
+            role=config.role,
+            **auth_connect_args,
+        ) as connection:
+            yield connection
 
     # ------------------------------------------------------------------
     # Listing — batch queries run once during `get_schemas`

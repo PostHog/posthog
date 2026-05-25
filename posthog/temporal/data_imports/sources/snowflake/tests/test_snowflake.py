@@ -1,7 +1,9 @@
-import os
-
 import pytest
 from unittest.mock import MagicMock, patch
+
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
@@ -19,6 +21,16 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 # ---------------------------------------------------------------------------
 
 
+def _generate_pem_key() -> str:
+    """Generate a real PEM-encoded RSA key so `serialization.load_pem_private_key` succeeds."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+    return key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+
+
 def _make_config(auth_type: str = "password", **overrides) -> SnowflakeSourceConfig:
     auth: dict
     if auth_type == "password":
@@ -27,7 +39,7 @@ def _make_config(auth_type: str = "password", **overrides) -> SnowflakeSourceCon
         auth = {
             "selection": "keypair",
             "user": "u",
-            "private_key": "-----BEGIN PRIVATE KEY-----\nABC\n-----END PRIVATE KEY-----",
+            "private_key": _generate_pem_key(),
             "passphrase": "",
         }
     defaults: dict = {
@@ -159,44 +171,24 @@ def cursor() -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# connect() — keypair tempfile lifecycle
+# connect() — keypair auth passes DER bytes in-memory (no tempfile)
 # ---------------------------------------------------------------------------
 
 
 class TestConnect:
-    def test_keypair_writes_and_cleans_up_tempfile_on_success(self, impl):
-        captured: dict[str, str] = {}
-
-        def capture_connect(*args, **kwargs):
-            captured["file"] = kwargs["private_key_file"]
-            # Must exist while connection is open
-            assert os.path.exists(kwargs["private_key_file"])
-            cm = MagicMock()
-            cm.__enter__.return_value = MagicMock()
-            return cm
-
-        with patch("snowflake.connector.connect", side_effect=capture_connect):
+    def test_keypair_passes_der_bytes_in_memory(self, impl):
+        # Regression guard: the pre-refactor streaming path never wrote the
+        # private key to disk. Make sure `connect()` matches it — DER bytes
+        # via `private_key=`, no `private_key_file` kwarg.
+        with patch("snowflake.connector.connect") as mock_connect:
+            mock_connect.return_value.__enter__.return_value = MagicMock()
             with impl.connect(_make_config("keypair")):
                 pass
-
-        # Cleaned up after context exits
-        assert not os.path.exists(captured["file"])
-
-    def test_keypair_cleans_up_tempfile_on_exception(self, impl):
-        captured: dict[str, str] = {}
-
-        def capture_connect(*args, **kwargs):
-            captured["file"] = kwargs["private_key_file"]
-            cm = MagicMock()
-            cm.__enter__.return_value = MagicMock()
-            return cm
-
-        with patch("snowflake.connector.connect", side_effect=capture_connect):
-            with pytest.raises(RuntimeError):
-                with impl.connect(_make_config("keypair")):
-                    raise RuntimeError("boom")
-
-        assert not os.path.exists(captured["file"])
+            kwargs = mock_connect.call_args.kwargs
+            assert "private_key_file" not in kwargs
+            assert isinstance(kwargs["private_key"], bytes)
+            # Sanity-check it's a DER-encoded PKCS8 blob the connector can parse.
+            serialization.load_der_private_key(kwargs["private_key"], password=None, backend=default_backend())
 
 
 # ---------------------------------------------------------------------------
