@@ -224,6 +224,14 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     const exitAction = () => ({ type: 'exit' as const, config: {} })
 
+    // Mirrors what HogFlowSerializer compiles for {events: [{id: <name>}]}: a single
+    // equality check on the `event` global. The matcher is fail-closed when bytecode
+    // is absent, so fixtures must supply it the same way Django would on save.
+    const eventNameBytecode = (eventName: string): any[] => ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11]
+    const eventNameFilter = (eventName: string) => ({
+        filters: { events: [{ id: eventName }], bytecode: eventNameBytecode(eventName) },
+    })
+
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
             await createWorkflow({
@@ -593,7 +601,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             await createWaitUntilWorkflow({
                 // Property condition never matches the trigger event, so the job parks.
                 condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
-                events: [{ filters: { events: [{ id: 'wakeup_event' }] } }],
+                events: [eventNameFilter('wakeup_event')],
                 max_wait_duration: '5m',
             })
             await triggerWorkflow(createGlobals())
@@ -633,7 +641,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         it('takes the timeout branch when neither events nor the condition match before max_wait', async () => {
             await createWaitUntilWorkflow({
                 condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
-                events: [{ filters: { events: [{ id: 'never_fires' }] } }],
+                events: [eventNameFilter('never_fires')],
                 max_wait_duration: '2s',
             })
             await triggerWorkflow(createGlobals())
@@ -651,7 +659,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         it('leaves the job parked when an event matches neither the events nor the condition', async () => {
             await createWaitUntilWorkflow({
                 condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
-                events: [{ filters: { events: [{ id: 'wakeup_event' }] } }],
+                events: [eventNameFilter('wakeup_event')],
                 max_wait_duration: '5m',
             })
             await triggerWorkflow(createGlobals())
