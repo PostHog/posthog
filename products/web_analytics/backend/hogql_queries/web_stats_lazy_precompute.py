@@ -54,12 +54,17 @@ WEB_STATS_LAZY_FAILED = Counter(
     ["error_type"],
 )
 
-# Low-cardinality breakdowns served by `SimpleBreakdownStrategy` /
-# `ChannelTypeStrategy`. Restricted to bounded-cardinality dimensions on purpose:
-# the precompute read returns every breakdown row and paginates in Python, so a
-# high-cardinality breakdown (every distinct URL/path) would be a memory/latency
-# risk. The page/path/referring-URL breakdowns, FRUSTRATION_METRICS and LANGUAGE
-# all fall through to the raw path.
+# Breakdowns served by `SimpleBreakdownStrategy` / `ChannelTypeStrategy` that we
+# expect to behave well under precompute. UTM/browser/OS/region/city values are
+# user-controlled at ingestion so cardinality is not strictly bounded, but in
+# practice they sit several orders of magnitude below the per-URL breakdowns we
+# deliberately route to the raw path (page/path/referring-URL, FRUSTRATION_METRICS,
+# LANGUAGE). The failure mode for a pathological team is a slow precompute INSERT,
+# not an incorrect result — sort, pagination and HAVING all run in SQL so the
+# read returns exactly the page the user asked for regardless of total distinct
+# values. If a team's INSERT becomes a hotspot we can carve them out via the
+# rollout gate; we are not adding a defensive SQL-side cardinality cap because
+# it would silently truncate results vs. the raw path.
 #
 # Tuple/float breakdowns (REGION, CITY, VIEWPORT, TIMEZONE) are supported: the
 # breakdown value is JSON-encoded into the `breakdown_value` String column and
