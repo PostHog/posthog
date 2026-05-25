@@ -47,6 +47,15 @@ export function AccountsTable(): JSX.Element {
                 ),
         },
         {
+            title: 'Notebooks',
+            key: 'notebooks',
+            dataIndex: 'notebooks',
+            render: (_, account) => {
+                const count = account.notebooks?.length ?? 0
+                return count > 0 ? <span>{count}</span> : <span className="text-muted">—</span>
+            },
+        },
+        {
             title: 'CSM',
             key: 'csm',
             render: (_, account) => <AssigneeCell assignment={account.properties?.csm ?? null} />,
