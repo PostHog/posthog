@@ -1,2 +1,0 @@
-team_id	cnt	over_5s	avg_ms	p95_ms	max_ms	max_read_rows	total_memory_gb	first_seen	last_seen
-10085	2	0	184.0	184.0	184	297311	0.0	2026-05-19T09:57:33Z	2026-05-19T09:57:38Z

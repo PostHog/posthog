@@ -1,6 +1,0 @@
-query_type	query_count	avg_duration_ms	p95_duration_ms	p99_duration_ms	max_duration_ms	first_seen	last_seen
-web_overview_query	2864	695.5	1590.3	3805.0	13051	2026-05-18T22:05:29Z	2026-05-19T04:05:20Z
-web_vitals_path_breakdown_query	380	280.3	535.1	1161.4	2389	2026-05-18T22:06:57Z	2026-05-19T04:05:11Z
-stats_table_query	323	900.2	1656.2	4015.2	17298	2026-05-18T22:09:51Z	2026-05-19T04:05:18Z
-web_goals_query	256	1152.6	3467.2	8682.5	15400	2026-05-18T22:05:27Z	2026-05-19T04:04:49Z
-WebAnalyticsPageURLSearch	69	206.2	381.6	476.0	525	2026-05-18T22:09:40Z	2026-05-19T03:41:28Z

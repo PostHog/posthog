@@ -1,9 +1,0 @@
-query_type	cnt	avg_ms	p95_ms	p99_ms	first_seen	last_seen
-stats_table_main_query	308	650.5	1255.1	2213.4	2026-05-19T04:37:00Z	2026-05-19T10:35:13Z
-web_overview_query	124	678.3	1090.8	6190.2	2026-05-19T04:38:35Z	2026-05-19T10:35:12Z
-stats_table_path_bounce_query	105	1238.8	2740.6	3984.4	2026-05-19T04:36:58Z	2026-05-19T10:33:42Z
-stats_table_frustration_metrics_query	92	684.5	1821.0	3704.3	2026-05-19T04:43:15Z	2026-05-19T10:26:46Z
-web_goals_query	20	920.5	2001.4	2417.1	2026-05-19T04:44:33Z	2026-05-19T09:52:51Z
-stats_table_entry_bounce_query	16	557.8	693.0	724.2	2026-05-19T05:09:43Z	2026-05-19T10:34:15Z
-web_vitals_path_breakdown_query	13	263.8	535.2	853.4	2026-05-19T05:17:59Z	2026-05-19T10:27:17Z
-external_clicks_query	3	669.7	1095.4	1155.1	2026-05-19T06:05:27Z	2026-05-19T09:19:10Z

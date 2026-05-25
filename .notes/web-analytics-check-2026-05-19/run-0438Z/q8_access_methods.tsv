@@ -1,7 +1,0 @@
-access_method	kind	cnt
-	request	2798
-personal_api_key	request	535
-oauth	request	26
-sharing_token	request	4
-	celery	1
-sharing_token	celery	1

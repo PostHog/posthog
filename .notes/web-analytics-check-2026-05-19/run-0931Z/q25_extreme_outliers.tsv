@@ -1,5 +1,0 @@
-team_id	access_method	query_type	query_duration_ms	read_rows	memory_mb	event_time	query_id
-2		web_goals_query	54960	1245240806	26021.0	2026-05-19T09:08:26Z	2_b6e0ff84-4e82-4d5d-a758-416aea4003d6_lFsBVXle
-2		web_overview_query	27447	727911500	16847.0	2026-05-19T09:07:29Z	2_044eb00c-5c06-423d-b3e9-16b0f867ff38_HpdPhDAZ
-298634		stats_table_main_query	21086	3736434	721.0	2026-05-19T04:10:21Z	298634_5ebb8b92-bdfe-40c2-a0b2-9442faa5a538_r2zDiUnl
-10085		stats_table_main_query	20067	245963371	5056.0	2026-05-19T08:57:00Z	10085_1e0127b5-e94f-4868-9baf-4d9fd9bfd7b1_aQTN6xYS

@@ -1,6 +1,0 @@
-type	exception_code	error_name	query_type	access_method	cnt	avg_ms	max_ms	first_seen	last_seen
-ExceptionWhileProcessing	159	TIMEOUT_EXCEEDED	stats_table_path_bounce_query		7	60033.0	60090	2026-05-18T23:59:21Z	2026-05-19T22:03:00Z
-ExceptionWhileProcessing	159	TIMEOUT_EXCEEDED	stats_table_frustration_metrics_query		7	60029.0	60087	2026-05-18T23:59:29Z	2026-05-19T22:03:02Z
-ExceptionWhileProcessing	159	TIMEOUT_EXCEEDED	stats_table_main_query		6	60115.0	60198	2026-05-19T19:25:06Z	2026-05-19T22:03:01Z
-ExceptionWhileProcessing	159	TIMEOUT_EXCEEDED	stats_table_entry_bounce_query		2	60052.0	60104	2026-05-19T19:25:07Z	2026-05-19T21:48:52Z
-ExceptionWhileProcessing	159	TIMEOUT_EXCEEDED	external_clicks_query		1	60048.0	60048	2026-05-19T09:08:02Z	2026-05-19T09:08:02Z
