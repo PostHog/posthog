@@ -586,14 +586,14 @@ class Database(BaseModel):
             has the resource-level "none" + specific-grant pattern) the
             relevant rows. See `posthog/hogql/printer/access_control.py`.
         """
-        from posthog.models import OrganizationMembership
-        from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
-
         from posthog.hogql.database.schema.access_control_internal import (
             INTERNAL_ACCESS_CONTROL_TABLE_NAME,
             build_internal_access_control_table,
         )
         from posthog.hogql.printer.access_control import build_object_access_control_predicate
+
+        from posthog.models import OrganizationMembership
+        from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 
         self.user_access_control = UserAccessControl(user=user, team=team)
 

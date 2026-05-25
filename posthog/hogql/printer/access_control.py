@@ -42,8 +42,8 @@ from posthog.hogql.parser import parse_expr
 
 if TYPE_CHECKING:
     from posthog.hogql.database.postgres_table import PostgresTable
-    from posthog.rbac.user_access_control import UserAccessControl
 
+    from posthog.rbac.user_access_control import UserAccessControl
     from posthog.scopes import APIScopeObject
 
 
