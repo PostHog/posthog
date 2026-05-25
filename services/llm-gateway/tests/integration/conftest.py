@@ -17,6 +17,8 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 FIREWORKS_API_KEY = os.environ.get("FIREWORKS_API_KEY")
+CLOUDFLARE_API_KEY = os.environ.get("CLOUDFLARE_API_KEY")
+CLOUDFLARE_ACCOUNT_ID = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
 BEDROCK_REGION = (
     os.environ.get("LLM_GATEWAY_BEDROCK_REGION_NAME")
     or os.environ.get("AWS_REGION")
@@ -81,6 +83,15 @@ MOCK_MODEL_COSTS = {
         "input_cost_per_token": 0.0000002,
         "output_cost_per_token": 0.0000002,
     },
+    "openai/@cf/moonshotai/kimi-k2.6": {
+        "litellm_provider": "openai",
+        "max_input_tokens": 262144,
+        "supports_vision": True,
+        "supports_function_calling": True,
+        "mode": "chat",
+        "input_cost_per_token": 0.00000095,
+        "output_cost_per_token": 0.000004,
+    },
 }
 
 
@@ -131,6 +142,12 @@ def run_gateway_server(configure_all_providers: bool = False, bedrock_region_nam
         env_patches["ANTHROPIC_API_KEY"] = "sk-ant-test-fake-key"
         env_patches["OPENROUTER_API_KEY"] = "or-test-fake-key"
         env_patches["FIREWORKS_API_KEY"] = "fw-test-fake-key"
+    if CLOUDFLARE_API_KEY:
+        env_patches["LLM_GATEWAY_CLOUDFLARE_API_KEY"] = CLOUDFLARE_API_KEY
+        env_patches["CLOUDFLARE_API_KEY"] = CLOUDFLARE_API_KEY
+    if CLOUDFLARE_ACCOUNT_ID:
+        env_patches["LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID"] = CLOUDFLARE_ACCOUNT_ID
+        env_patches["CLOUDFLARE_ACCOUNT_ID"] = CLOUDFLARE_ACCOUNT_ID
 
     with patch.dict(os.environ, env_patches):
         get_settings.cache_clear()
@@ -217,4 +234,27 @@ def bedrock_anthropic_client(bedrock_gateway_url):
         api_key=TEST_POSTHOG_API_KEY,
         base_url=bedrock_gateway_url,
         default_headers={"X-PostHog-Provider": "bedrock"},
+    )
+
+
+@pytest.fixture
+def cloudflare_gateway_url():
+    with run_gateway_server() as url:
+        yield url
+
+
+@pytest.fixture
+def cloudflare_anthropic_client(cloudflare_gateway_url):
+    return Anthropic(
+        api_key=TEST_POSTHOG_API_KEY,
+        base_url=cloudflare_gateway_url,
+        default_headers={"X-PostHog-Provider": "cloudflare"},
+    )
+
+
+@pytest.fixture
+def cloudflare_openai_client(cloudflare_gateway_url):
+    return OpenAI(
+        api_key=TEST_POSTHOG_API_KEY,
+        base_url=f"{cloudflare_gateway_url}/v1",
     )

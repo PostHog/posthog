@@ -137,6 +137,8 @@ class Settings(BaseSettings):
     openai_organization: str | None = None
     openrouter_api_key: str | None = None
     fireworks_api_key: str | None = None
+    cloudflare_api_key: str | None = None
+    cloudflare_account_id: str | None = None
 
     # Project token for AI observability events
     posthog_project_token: str | None = None

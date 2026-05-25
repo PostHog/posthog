@@ -5,11 +5,14 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import (
+    CLOUDFLARE_CONFIG,
     OPENAI_CONFIG,
     OPENAI_RESPONSES_CONFIG,
     OPENAI_TRANSCRIPTION_CONFIG,
     handle_llm_request,
 )
+from llm_gateway.cloudflare import ensure_cloudflare_configured
+from llm_gateway.config import get_settings
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
 from llm_gateway.products.config import validate_product
@@ -24,12 +27,39 @@ def _normalize_model_name(model: str) -> str:
     return f"openai/{model}"
 
 
+def _is_cloudflare_model(model: str) -> bool:
+    return model.startswith("@cf/")
+
+
+def _make_cloudflare_completion_call(api_base: str, api_key: str):
+    async def llm_call(**kwargs):
+        kwargs["api_base"] = api_base
+        kwargs["api_key"] = api_key
+        kwargs["model"] = f"openai/{kwargs['model']}"
+        return await litellm.acompletion(**kwargs)
+
+    return llm_call
+
+
 async def _handle_chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True)
+
+    if _is_cloudflare_model(body.model):
+        settings = get_settings()
+        api_base, api_key = ensure_cloudflare_configured(settings)
+        return await handle_llm_request(
+            request_data=data,
+            user=user,
+            model=body.model,
+            is_streaming=body.stream or False,
+            provider_config=CLOUDFLARE_CONFIG,
+            llm_call=_make_cloudflare_completion_call(api_base, api_key),
+            product=product,
+        )
 
     return await handle_llm_request(
         request_data=data,

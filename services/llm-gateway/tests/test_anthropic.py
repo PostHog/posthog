@@ -478,6 +478,44 @@ class TestAnthropicMessagesEndpoint:
         assert "provider" not in call_kwargs
         assert "use_bedrock_fallback" not in call_kwargs
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_cloudflare_provider_routes_to_cloudflare(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        from llm_gateway.cloudflare import make_cloudflare_anthropic_call
+
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+
+        with patch(
+            "llm_gateway.api.anthropic.make_cloudflare_anthropic_call",
+        ) as mock_make_call:
+            mock_llm_call = AsyncMock(return_value=mock_response)
+            mock_make_call.return_value = mock_llm_call
+
+            with patch(
+                "llm_gateway.api.anthropic.ensure_cloudflare_configured",
+                return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
+            ):
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/moonshotai/kimi-k2.6",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                )
+
+            assert response.status_code == 200
+            mock_make_call.assert_called_once()
+            mock_anthropic.assert_not_called()
+
     def test_invalid_provider_header_returns_400(
         self,
         authenticated_client: TestClient,
@@ -491,7 +529,7 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
-        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+        assert "Expected one of: anthropic, bedrock, cloudflare" in response.json()["error"]["message"]
 
     def test_invalid_fallback_header_returns_400(
         self,
@@ -912,7 +950,7 @@ class TestAnthropicCountTokensEndpoint:
 
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
-        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+        assert "Expected one of: anthropic, bedrock, cloudflare" in response.json()["error"]["message"]
 
     def test_invalid_fallback_header_returns_400(
         self,
