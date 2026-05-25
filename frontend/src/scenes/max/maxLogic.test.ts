@@ -119,6 +119,44 @@ describe('maxLogic', () => {
         expect(Array.isArray(logic.values.conversationHistory)).toBe(true)
     })
 
+    it('keeps conversationLoading=true while pollConversation is in flight so NotFound does not flash', async () => {
+        // Re-creates the race in the signal report: loadConversationHistory resolves with
+        // no matching conversation, pollConversation is fired, and during that window we
+        // must NOT collapse to the NotFound view.
+        const conversationIdMissingFromHistory = 'pending-conversation-id'
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${conversationIdMissingFromHistory}`]: () => [
+                    404,
+                    { detail: 'Not found.' },
+                ],
+            },
+        })
+
+        logic = maxLogic({ tabId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess']).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setConversationId(conversationIdMissingFromHistory)
+            logic.actions.pollConversation(conversationIdMissingFromHistory, 0, 0)
+        })
+            .toMatchValues({
+                pollingConversationCount: 1,
+                conversationLoading: true,
+            })
+            .toDispatchActions(['pollConversationFinished'])
+            .toMatchValues({
+                pollingConversationCount: 0,
+                conversationLoading: false,
+            })
+    })
+
     it('manages suggestion group selection correctly', async () => {
         logic = maxLogic({ tabId: 'test' })
         logic.mount()

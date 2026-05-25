@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -119,7 +119,21 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
 
                 loadConversation: async (conversationId: string) => {
-                    const response = await api.conversations.get(conversationId)
+                    let response: ConversationDetail
+                    try {
+                        response = await api.conversations.get(conversationId)
+                    } catch (err) {
+                        // A 404 here is benign: it happens when loadConversation races
+                        // with a still-streaming generation, when the URL references a
+                        // conversation from a different team, or when the conversation
+                        // was deleted. Swallow it so we don't fire posthog.captureException
+                        // via the global kea-loaders onFailure handler. pollConversation
+                        // (maxLogic) is responsible for the eventual NotFound UX.
+                        if (err instanceof ApiError && err.status === 404) {
+                            return values.conversationHistory
+                        }
+                        throw err
+                    }
                     const itemIndex = values.conversationHistory.findIndex((c) => c.id === conversationId)
 
                     if (itemIndex !== -1) {

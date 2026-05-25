@@ -194,6 +194,7 @@ export const maxLogic = kea<maxLogicType>([
             currentRecursionDepth,
             leadingTimeout,
         }),
+        pollConversationFinished: true,
         goBack: true,
         setBackScreen: (screen: 'history') => ({ screen }),
         focusInput: true,
@@ -268,6 +269,22 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun, startNewConversation: () => false }],
+
+        /**
+         * Count of in-flight pollConversation invocations. Used to keep the
+         * `<NotFound>` block from flashing during the race between `loadConversationHistory`
+         * resolving with no matching conversation and `pollConversation` resolving the chat
+         * (pollConversation can also recurse, hence the counter). The counter is
+         * self-balancing via the listener's try/finally — we don't reset it on
+         * conversation change so concurrent polls during a switch remain accounted for.
+         */
+        pollingConversationCount: [
+            0,
+            {
+                pollConversation: (state) => state + 1,
+                pollConversationFinished: (state) => Math.max(state - 1, 0),
+            },
+        ],
     }),
 
     selectors({
@@ -315,9 +332,28 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         conversationLoading: [
-            (s) => [s.conversationHistory, s.conversationHistoryLoading, s.conversationId, s.conversation],
-            (conversationHistory, conversationHistoryLoading, conversationId, conversation) => {
-                return !conversationHistory.length && conversationHistoryLoading && !!conversationId && !conversation
+            (s) => [
+                s.conversationHistory,
+                s.conversationHistoryLoading,
+                s.conversationId,
+                s.conversation,
+                s.pollingConversationCount,
+            ],
+            (
+                conversationHistory,
+                conversationHistoryLoading,
+                conversationId,
+                conversation,
+                pollingConversationCount
+            ) => {
+                if (!conversationId || conversation) {
+                    return false
+                }
+                // We're still resolving the conversation if either the history is loading
+                // (existing behavior) or pollConversation is in flight. The latter prevents
+                // a NotFound flash between loadConversationHistorySuccess (no match yet) and
+                // pollConversation succeeding for a freshly-generated chat.
+                return (!conversationHistory.length && conversationHistoryLoading) || pollingConversationCount > 0
             },
         ],
 
@@ -490,35 +526,41 @@ export const maxLogic = kea<maxLogicType>([
          * Polls the conversation status until it's idle or reaches a max recursion depth.
          */
         pollConversation: async ({ conversationId, currentRecursionDepth, leadingTimeout }, breakpoint) => {
-            if (currentRecursionDepth > 10) {
-                return
-            }
-
-            if (leadingTimeout) {
-                await breakpoint(leadingTimeout)
-            }
-
-            let conversation: ConversationDetail | null = null
-
             try {
-                conversation = await api.conversations.get(conversationId)
-            } catch (err: any) {
-                if (err.status === 404) {
-                    // If conversation is not found, do nothing. In the normal case a NotFound will be shown.
-                    // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
-                    // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
-                    // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
+                if (currentRecursionDepth > 10) {
                     return
                 }
 
-                lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
-            }
+                if (leadingTimeout) {
+                    await breakpoint(leadingTimeout)
+                }
 
-            if (conversation && conversation.status === ConversationStatus.Idle) {
-                actions.prependOrReplaceConversation(conversation)
-                actions.scrollThreadToBottom('instant')
-            } else {
-                actions.pollConversation(conversationId, currentRecursionDepth + 1)
+                let conversation: ConversationDetail | null = null
+
+                try {
+                    conversation = await api.conversations.get(conversationId)
+                } catch (err: any) {
+                    if (err.status === 404) {
+                        // If conversation is not found, do nothing. In the normal case a NotFound will be shown.
+                        // There's also a not-quite-normal case of a race condition: when loadConversationHistory succeeds WHILE
+                        // a message is being generated (e.g. because user messaged Max before initial load of conversations completed).
+                        // In this case, we especially want to do nothing, so that the normal course of generation isn't interrupted.
+                        return
+                    }
+
+                    lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
+                }
+
+                if (conversation && conversation.status === ConversationStatus.Idle) {
+                    actions.prependOrReplaceConversation(conversation)
+                    actions.scrollThreadToBottom('instant')
+                } else {
+                    actions.pollConversation(conversationId, currentRecursionDepth + 1)
+                }
+            } finally {
+                // Drives the `pollingConversationCount` counter back down — the breakpoint
+                // call above may throw on cancellation, so we cover that path too.
+                actions.pollConversationFinished()
             }
         },
 
