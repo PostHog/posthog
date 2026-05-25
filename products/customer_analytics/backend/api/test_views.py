@@ -736,15 +736,25 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         self.assertEqual(response.json()["count"], 1)
 
-    def test_list_ignores_malformed_tags_param(self):
+    @parameterized.expand(
+        [
+            ("not_json", "not-json"),
+            ("bare_token", "billing"),
+            ("json_string", '"billing"'),
+            ("json_object", '{"name":"billing"}'),
+            ("list_of_ints", "[1, 2]"),
+            ("mixed_list", '["billing", 1]'),
+        ]
+    )
+    def test_list_rejects_malformed_tags_param(self, _name, tags_value):
         Tag.objects.create(name="billing", team=self.team)
         self._create_account(name="Account A")
         self._create_account(name="Account B")
 
-        response = self.client.get(f"{self.endpoint_base}?tags=not-json")
+        response = self.client.get(f"{self.endpoint_base}?tags={tags_value}")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
-        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertIn("Must be a JSON-encoded list of strings.", str(response.json()))
 
     def test_list_ignores_empty_tags_array(self):
         self._create_account(name="Account A")
