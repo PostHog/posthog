@@ -172,6 +172,77 @@ class CopyDashboardTileRequestSerializer(serializers.Serializer):
     tileId = serializers.IntegerField(help_text="Dashboard tile id to copy.")
 
 
+class TileLayoutBoxSerializer(serializers.Serializer):
+    x = serializers.IntegerField(required=False, help_text="Column position in the dashboard grid (0-indexed).")
+    y = serializers.IntegerField(required=False, help_text="Row position in the dashboard grid (0-indexed).")
+    w = serializers.IntegerField(
+        required=False, help_text="Width in grid columns. The desktop grid is 12 columns wide."
+    )
+    h = serializers.IntegerField(required=False, help_text="Height in grid rows.")
+
+
+class TileLayoutsSerializer(serializers.Serializer):
+    sm = TileLayoutBoxSerializer(
+        required=False,
+        help_text="Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+    )
+    xs = TileLayoutBoxSerializer(
+        required=False,
+        help_text="Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+    )
+
+
+class CreateTextTileRequestSerializer(serializers.Serializer):
+    body = serializers.CharField(
+        max_length=4000,
+        required=True,
+        allow_blank=False,
+        help_text=(
+            "Markdown body for the text tile. Supports headings, lists, and inline formatting. "
+            "Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters."
+        ),
+        error_messages={"max_length": "Text body cannot exceed 4000 characters"},
+    )
+    layouts = TileLayoutsSerializer(
+        required=False,
+        help_text=(
+            "Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard "
+            "using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1)."
+        ),
+    )
+    color = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional accent color name (e.g. 'blue', 'green', 'purple', 'black').",
+    )
+
+
+class UpdateTextTileRequestSerializer(serializers.Serializer):
+    tile_id = serializers.IntegerField(
+        required=True,
+        help_text="ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.",
+    )
+    body = serializers.CharField(
+        max_length=4000,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.",
+        error_messages={"max_length": "Text body cannot exceed 4000 characters"},
+    )
+    layouts = TileLayoutsSerializer(
+        required=False,
+        help_text="New grid layout per breakpoint. Omit to leave the layout unchanged.",
+    )
+    color = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="New accent color name, or null to clear. Omit to leave unchanged.",
+    )
+
+
 class CanEditDashboard(BasePermission):
     message = "You don't have edit permissions for this dashboard."
 
@@ -1651,6 +1722,95 @@ class DashboardsViewSet(
         DashboardTile.objects.bulk_update(tile_map.values(), ["layouts"])
 
         return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=CreateTextTileRequestSerializer,
+        responses={201: DashboardTileSerializer},
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    def create_text_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Add a markdown text tile to a dashboard.
+
+        Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
+        or annotations between insight tiles to give the dashboard structure.
+        """
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+        if not self.user_permissions.dashboard(dashboard).can_edit:
+            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
+
+        serializer = CreateTextTileRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        user = cast(User, request.user)
+        with transaction.atomic():
+            text = Text.objects.create(
+                body=validated["body"],
+                team=dashboard.team,
+                created_by=user,
+                last_modified_at=now(),
+            )
+            tile_data: dict[str, Any] = {}
+            if "layouts" in validated:
+                tile_data["layouts"] = validated["layouts"]
+            if "color" in validated:
+                tile_data["color"] = validated["color"]
+            tile, _ = DashboardSerializer._upsert_tile(dashboard, tile_data, text=text)
+
+        return Response(
+            DashboardTileSerializer(tile, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        request=UpdateTextTileRequestSerializer,
+        responses={200: DashboardTileSerializer},
+    )
+    @action(methods=["PATCH"], detail=True, required_scopes=["dashboard:write"])
+    def update_text_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Update the markdown body, layout, or color of an existing text tile on a dashboard."""
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+        if not self.user_permissions.dashboard(dashboard).can_edit:
+            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
+
+        serializer = UpdateTextTileRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        tile = get_object_or_404(
+            DashboardTile,
+            id=validated["tile_id"],
+            dashboard=dashboard,
+            dashboard__team__project_id=self.team.project_id,
+        )
+        if tile.text is None:
+            raise exceptions.ValidationError("Tile is not a text tile.")
+
+        user = cast(User, request.user)
+        with transaction.atomic():
+            text = tile.text
+            if "body" in validated:
+                text.body = validated["body"]
+            text.last_modified_by = user
+            text.last_modified_at = now()
+            text.save()
+
+            tile_updates: list[str] = []
+            if "layouts" in validated:
+                tile.layouts = validated["layouts"]
+                tile_updates.append("layouts")
+            if "color" in validated:
+                tile.color = validated["color"]
+                tile_updates.append("color")
+            if tile_updates:
+                tile.save(update_fields=tile_updates)
+
+        tile.refresh_from_db()
+        return Response(DashboardTileSerializer(tile, context=self.get_serializer_context()).data)
 
     @extend_schema(
         parameters=[
