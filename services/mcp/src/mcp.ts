@@ -358,21 +358,25 @@ export class MCP extends McpAgent<Env> {
         properties: Record<string, any> = {},
         options?: { context?: MCPAnalyticsContext; previousContext?: MCPAnalyticsContext }
     ): Promise<void> {
+        const profiler = new InitProfiler()
+        console.log('trackEvent_start')
         try {
             const distinctId = await this.getDistinctId()
+            console.log('getDistinctId_end')
 
             const client = getPostHogClient()
-
+            console.log('getPostHogClient_end')
             await this.resolveClientInfo()
+            console.log('resolveClientInfo_end')
 
             const clientName = await this.cache.get('clientName')
-
+            console.log('cache.get_clientName_end')
             const contextProperties = options?.context ? buildMCPContextProperties(options.context) : {}
             const previousContextProperties = options?.previousContext
                 ? buildMCPContextProperties(options.previousContext, { prefix: 'previous_' })
                 : {}
             const groups = options?.context ? buildMCPAnalyticsGroups(options.context) : {}
-
+            console.log('buildMCPAnalyticsGroups_end')
             // `groups` is translated to `$groups` server-side by posthog-node. No separate
             // `groupIdentify` call: org/project group properties are populated by the main
             // PostHog backend (see `posthog/event_usage.py`), and duplicating them from here
@@ -409,6 +413,7 @@ export class MCP extends McpAgent<Env> {
         } catch {
             // skip
         }
+        console.log('trackEvent_end')
     }
 
     private async getAnalyticsContextSafe(
@@ -801,6 +806,11 @@ export class MCP extends McpAgent<Env> {
             ? Date.now() - this.requestProperties.requestStartTime
             : undefined
 
+        // Resolve analytics context from the already-primed cache (getEnvironmentPrompt
+        // above populated `cachedProject`/`cachedOrg`), so this is effectively free here.
+        const analyticsContext = await this.getAnalyticsContextSafe(context)
+        profiler.mark('analytics_context')
+
         // One structured log per init. Filter on `event=mcp_init_timeline`
         // in the prod log pipeline to attribute the setName/init() wallTime+CPU
         // to the specific phase that owns it. We can't measure bundle parse +
@@ -815,10 +825,6 @@ export class MCP extends McpAgent<Env> {
             version,
             mode: mode ?? null,
         })
-
-        // Resolve analytics context from the already-primed cache (getEnvironmentPrompt
-        // above populated `cachedProject`/`cachedOrg`), so this is effectively free here.
-        const analyticsContext = await this.getAnalyticsContextSafe(context)
 
         this.ctx.waitUntil(
             this.trackEvent(
