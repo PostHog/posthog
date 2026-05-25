@@ -9,16 +9,20 @@ export interface ApiUser {
     last_name?: string
     email: string
     organizations: Array<{ id: string; name: string }>
+    // `team` and `organization` mirror the Django User's nullable `current_team`
+    // / `current_organization` FKs — the `/api/users/@me/` serializer returns
+    // `null` when the user has no current selection (e.g. newly provisioned
+    // accounts or users who left their last org). Callers must null-check.
     team: {
         id: number
         name: string
         timezone: string
         organization: string
-    }
+    } | null
     organization: {
         id: string
         name: string
-    }
+    } | null
 }
 
 // `scoped_teams` and `scoped_organizations` arrive from the API as either an
