@@ -414,6 +414,28 @@ export function isAnthropicToolCallMessage(output: unknown): output is Anthropic
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_use'
 }
 
+export function isToolStepItem(item: unknown): boolean {
+    if (
+        isAnthropicToolCallMessage(item) ||
+        isAnthropicToolResultMessage(item) ||
+        isVercelSDKToolCallMessage(item) ||
+        isVercelSDKToolResultMessage(item) ||
+        isOpenAIResponsesFunctionCall(item) ||
+        isOpenAIResponsesBuiltinToolCall(item)
+    ) {
+        return true
+    }
+    return (
+        typeof item === 'object' &&
+        item !== null &&
+        'type' in item &&
+        item.type === 'function' &&
+        'function' in item &&
+        typeof item.function === 'object' &&
+        item.function !== null
+    )
+}
+
 export function isAnthropicThinkingMessage(output: unknown): output is AnthropicThinkingMessage {
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'thinking'
 }

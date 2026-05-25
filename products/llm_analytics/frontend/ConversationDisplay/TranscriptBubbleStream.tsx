@@ -1,8 +1,11 @@
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef } from 'react'
+
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { MessageTemplate } from 'scenes/max/messages/MessageTemplate'
 
 import { CompatMessage } from '../types'
-import { AVAILABLE_TOOLS_ROLE, hasStringContentField, isTextContentItem } from '../utils'
+import { AVAILABLE_TOOLS_ROLE, hasStringContentField, isTextContentItem, isToolStepItem } from '../utils'
 
 // Roles that carry no user-visible content in a chat-app view. System prompts
 // and the synthetic "available tools" message are noise here; their effects are
@@ -34,6 +37,44 @@ function extractText(message: CompatMessage): string {
     return ''
 }
 
+export function hasNonTextContent(message: CompatMessage): boolean {
+    const content = message.content
+    if (!Array.isArray(content)) {
+        return false
+    }
+    return content.some((item) => typeof item !== 'string' && !isTextContentItem(item) && !isToolStepItem(item))
+}
+
+// Item kinds for the analytics capture, so we can pivot by what we failed to render.
+export function unrenderableContentKinds(message: CompatMessage): string[] {
+    const content = message.content
+    if (!Array.isArray(content)) {
+        return []
+    }
+    const kinds = content
+        .filter((item) => typeof item !== 'string' && !isTextContentItem(item) && !isToolStepItem(item))
+        .map((item) => (typeof item === 'object' && item !== null && 'type' in item ? String(item.type) : typeof item))
+    return Array.from(new Set(kinds)).sort()
+}
+
+// Content-hash so the analytics capture dedups across kea selector recomputes
+// (a sibling turn's `loadFullTrace` invalidates every turn's `newInputs` reference).
+function unrenderableKey(message: CompatMessage): string {
+    return `${message.role}::${JSON.stringify(message.content)}`
+}
+
+export function captureUnrenderableMessageOnce(message: CompatMessage, seen: Set<string>): void {
+    const key = unrenderableKey(message)
+    if (seen.has(key)) {
+        return
+    }
+    seen.add(key)
+    posthog.capture('llma transcript message unrenderable', {
+        role: message.role,
+        content_kinds: unrenderableContentKinds(message),
+    })
+}
+
 /**
  * Renders a deduplicated turn as a chat-app-style bubble stream — user on the
  * right, everything else (assistant, tool responses, etc.) on the left. Skips
@@ -43,11 +84,6 @@ function extractText(message: CompatMessage): string {
  * Deliberately minimal: no headers, no per-message expand toggles, no metadata
  * row, no playground button. The Trace page's `ConversationMessagesDisplay`
  * covers those cases; this surface optimizes for top-to-bottom readability.
- *
- * Messages with empty extractable text (e.g. an assistant message whose only
- * payload is `tool_calls`) are dropped — they'd render as empty bubbles. Tool
- * calls are surfaced through the steps panel until the dedicated tool-call
- * rendering polish lands as its own follow-up.
  */
 export function TranscriptBubbleStream({
     inputs,
@@ -56,10 +92,21 @@ export function TranscriptBubbleStream({
     inputs: CompatMessage[]
     outputs: CompatMessage[]
 }): JSX.Element | null {
-    const visible = [...inputs, ...outputs]
-        .filter((m) => !HIDDEN_ROLES.has(m.role))
-        .map((m) => ({ message: m, text: extractText(m) }))
-        .filter(({ text }) => text.length > 0)
+    const visible = useMemo(() => {
+        return [...inputs, ...outputs]
+            .filter((m) => !HIDDEN_ROLES.has(m.role))
+            .map((m) => ({ message: m, text: extractText(m), nonText: hasNonTextContent(m) }))
+            .filter(({ text, nonText }) => text.length > 0 || nonText)
+    }, [inputs, outputs])
+
+    const capturedRef = useRef<Set<string>>(new Set())
+    useEffect(() => {
+        for (const { message, nonText } of visible) {
+            if (nonText) {
+                captureUnrenderableMessageOnce(message, capturedRef.current)
+            }
+        }
+    }, [visible])
 
     if (visible.length === 0) {
         return null
@@ -67,9 +114,10 @@ export function TranscriptBubbleStream({
 
     return (
         <div className="flex flex-col gap-1.5">
-            {visible.map(({ message, text }, i) => (
+            {visible.map(({ message, text, nonText }, i) => (
                 <MessageTemplate key={i} type={message.role === 'user' ? 'human' : 'ai'} wrapperClassName="max-w-[75%]">
-                    <LemonMarkdown className="whitespace-pre-wrap break-words">{text}</LemonMarkdown>
+                    {text && <LemonMarkdown className="whitespace-pre-wrap break-words">{text}</LemonMarkdown>}
+                    {nonText && <div className="italic text-muted text-xs mt-1">(has attachments)</div>}
                 </MessageTemplate>
             ))}
         </div>

@@ -1,6 +1,11 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { buildInputSourceIndices, extractSessionTurns, pickUserVisibleTurn } from './extractSessionTurns'
+import {
+    buildInputSourceIndices,
+    extractSessionTurns,
+    pickUserVisibleTurn,
+    SessionTurnError,
+} from './extractSessionTurns'
 
 function makeGeneration(
     id: string,
@@ -342,6 +347,51 @@ describe('extractSessionTurns — cross-trace dedup', () => {
         expect(turns[1].newInputs.map((m) => m.role)).toEqual(['assistant'])
     })
 
+    it('keeps two image+text messages distinct when the images differ', () => {
+        // Regression guard: someone stripping attachment data from
+        // `messageSignature` thinking it's not needed for identity would
+        // collapse these two messages and silently drop the second image.
+        const t1 = makeTrace('t1', [
+            makeGeneration('g1', '2026-05-11T00:00:00.000Z', {
+                $ai_input: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: 'What about this one?' },
+                            { type: 'image_url', image_url: { url: 'https://example.com/a.png' } },
+                        ],
+                    },
+                ],
+                $ai_output_choices: [{ role: 'assistant', content: 'A cat.' }],
+            }),
+        ])
+        const t2 = makeTrace('t2', [
+            makeGeneration('g2', '2026-05-11T00:00:01.000Z', {
+                $ai_input: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: 'What about this one?' },
+                            { type: 'image_url', image_url: { url: 'https://example.com/a.png' } },
+                        ],
+                    },
+                    { role: 'assistant', content: 'A cat.' },
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: 'What about this one?' },
+                            { type: 'image_url', image_url: { url: 'https://example.com/b.png' } },
+                        ],
+                    },
+                ],
+                $ai_output_choices: [{ role: 'assistant', content: 'A dog.' }],
+            }),
+        ])
+        const turns = extractSessionTurns([t1, t2], { t1, t2 })
+        expect(turns[1].newInputs).toHaveLength(1)
+        expect(turns[1].newInputs[0].role).toBe('user')
+    })
+
     it('dedups an assistant message even when its output shape differs from the next-turn-input shape', () => {
         // SDK pattern observed in the wild: $ai_output_choices comes back as a
         // flat-string OpenAI-style message, but the next call's $ai_input
@@ -433,42 +483,30 @@ describe('extractSessionTurns — tools and errors', () => {
         expect(turn.errors).toEqual([])
     })
 
-    it('treats `$ai_is_error: "false"` as NOT an error (string-boolean serialization)', () => {
-        // PostHog SDKs serialize booleans as strings. A naive truthy check (`!!is_error`)
-        // would treat the string 'false' as truthy and surface a non-error as an error.
-        // Pin the strict `=== 'true'` check so we don't regress.
-        const nonErrorEvent: LLMTraceEvent = {
-            id: 's1',
-            event: '$ai_span',
-            createdAt: '2026-05-11T00:00:01.000Z',
-            properties: {
-                $ai_span_name: 'subscription_lookup',
-                $ai_is_error: 'false',
-                // No $ai_error payload — the SDK explicitly marked this as a non-error.
-            },
-        }
-        const t1 = makeTrace('t1', [makeGeneration('g1', '2026-05-11T00:00:00.000Z'), nonErrorEvent])
-        const [turn] = extractSessionTurns([t1], { t1 })
-        expect(turn.errors).toEqual([])
-    })
-
-    it('treats a populated `$ai_error` payload as an error even when `$ai_is_error` is "false"', () => {
-        // The payload is the authoritative signal — if it's there, surface the error
-        // regardless of what the flag says. SDKs that mis-populate `$ai_is_error: 'false'`
-        // would otherwise hide a real failure.
-        const payloadEvent: LLMTraceEvent = {
+    // Payload-wins rule: a populated `$ai_error` outranks `$ai_is_error: "false"`,
+    // and the flag-only path uses strict `=== 'true'` so the string `"false"` doesn't
+    // get treated as truthy.
+    it.each<[name: string, errorPayload: unknown, expectedErrors: SessionTurnError[]]>([
+        ['no $ai_error payload — flag rules, stays non-error', undefined, []],
+        [
+            '$ai_error populated — payload rules, becomes an error',
+            { message: 'connection timeout' },
+            [{ label: 'fetch_user', message: 'connection timeout' }],
+        ],
+    ])('with `$ai_is_error: "false"` and %s', (_, errorPayload, expectedErrors) => {
+        const event: LLMTraceEvent = {
             id: 's1',
             event: '$ai_span',
             createdAt: '2026-05-11T00:00:01.000Z',
             properties: {
                 $ai_span_name: 'fetch_user',
                 $ai_is_error: 'false',
-                $ai_error: { message: 'connection timeout' },
+                ...(errorPayload !== undefined ? { $ai_error: errorPayload } : {}),
             },
         }
-        const t1 = makeTrace('t1', [makeGeneration('g1', '2026-05-11T00:00:00.000Z'), payloadEvent])
+        const t1 = makeTrace('t1', [makeGeneration('g1', '2026-05-11T00:00:00.000Z'), event])
         const [turn] = extractSessionTurns([t1], { t1 })
-        expect(turn.errors).toEqual([{ label: 'fetch_user', message: 'connection timeout' }])
+        expect(turn.errors).toEqual(expectedErrors)
     })
 
     it('dedups errors by label + message — retries collapse to one entry', () => {

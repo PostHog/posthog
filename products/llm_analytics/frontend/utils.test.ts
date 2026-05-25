@@ -15,6 +15,7 @@ import {
     isEmptyJSONStructure,
     isLangChainMessage,
     isTextContentItem,
+    isToolStepItem,
     looksLikeXml,
     normalizeMessage,
     normalizeMessages,
@@ -2180,6 +2181,43 @@ describe('AI observability utils', () => {
             ['rejects an array', [{ content: 'hi' }], false],
         ])('%s', (_, input, expected) => {
             expect(hasStringContentField(input)).toBe(expected)
+        })
+    })
+
+    describe('isToolStepItem', () => {
+        it.each<[name: string, input: unknown, expected: boolean]>([
+            ['accepts Anthropic `tool_use`', { type: 'tool_use', id: 'toolu_1', name: 'x', input: {} }, true],
+            ['accepts Vercel SDK `tool-call`', { type: 'tool-call', toolCallId: 'a', toolName: 'x', input: {} }, true],
+            ['accepts unified `{type: "function"}`', { type: 'function', function: { name: 'x' } }, true],
+            [
+                'accepts OpenAI Responses `function_call`',
+                { type: 'function_call', call_id: 'c1', name: 'x', arguments: '{}' },
+                true,
+            ],
+            [
+                'accepts OpenAI Responses built-in tool call (e.g. web_search_call)',
+                { id: 'ws1', type: 'web_search_call', status: 'completed' },
+                true,
+            ],
+            ['accepts Anthropic `tool_result`', { type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }, true],
+            [
+                'accepts Vercel SDK `tool-result`',
+                { type: 'tool-result', toolCallId: 'a', toolName: 'search_docs', result: 'ok' },
+                true,
+            ],
+            ['rejects text content items', { type: 'text', text: 'hi' }, false],
+            ['rejects image items', { type: 'image_url', image_url: { url: 'x' } }, false],
+            ['rejects file items', { type: 'file', file: { filename: 'f', file_data: 'd' } }, false],
+            ['rejects null', null, false],
+            ['rejects a plain string', 'function', false],
+            ['rejects `{type: "function"}` without a `function` payload', { type: 'function' }, false],
+            [
+                'rejects `{type: "function", function: "not-an-object"}`',
+                { type: 'function', function: 'not-an-object' },
+                false,
+            ],
+        ])('%s', (_, input, expected) => {
+            expect(isToolStepItem(input)).toBe(expected)
         })
     })
 
