@@ -64,7 +64,7 @@ class TestShouldUseSearchPath:
         schema = MagicMock()
         schema.initial_sync_complete = initial_sync_complete
         return patch(
-            "products.data_warehouse.backend.models.ExternalDataSchema.objects.get",
+            "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
             return_value=schema,
         )
 
@@ -105,7 +105,7 @@ class TestShouldUseSearchPath:
         src = HubspotSource()
         inputs = _make_inputs()
         with patch(
-            "products.data_warehouse.backend.models.ExternalDataSchema.objects.get",
+            "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
             side_effect=Exception("db down"),
         ):
             assert src._should_use_search_path(inputs) is False
@@ -135,7 +135,7 @@ class TestSourceForPipelineRouting:
                 return_value=True,
             ),
             patch(
-                "products.data_warehouse.backend.models.ExternalDataSchema.objects.get",
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
                 return_value=schema,
             ),
         ):
@@ -165,7 +165,7 @@ class TestSourceForPipelineRouting:
                 return_value=True,
             ),
             patch(
-                "products.data_warehouse.backend.models.ExternalDataSchema.objects.get",
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
                 return_value=schema,
             ),
         ):

@@ -1,6 +1,6 @@
-# LLM analytics
+# AI observability
 
-LLM analytics started as an analytics view over generation events and
+AI observability started as an analytics view over generation events and
 has grown into a full LLM platform: traces, evaluations, clustering,
 prompt management, a model gateway, a playground, and review queues.
 

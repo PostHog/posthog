@@ -3,6 +3,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition};
+use tracing::warn;
 
 use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
@@ -52,8 +53,8 @@ impl RawJSFrame {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
             Err(ResolveError::ResolutionError(e)) => {
-                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
-                unreachable!("Should not have received error {:?}", e)
+                warn!("Unexpected JS symbol resolution error: {:?}", e);
+                Ok(self.handle_resolution_error(JsResolveErr::InvalidSourceMap(e.to_string())))
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }
@@ -106,8 +107,7 @@ impl RawJSFrame {
     }
 
     pub fn symbol_set_ref(&self) -> Option<String> {
-        // If we have a chunk ID for a frame, no matter where the data we save comes from, we save it with that
-        // chunk id as the ref.
+        // Prefer the chunk id in frame metadata when present; persistence derives its keys separately.
         self.get_ref().ok().map(|r| r.to_string())
     }
 

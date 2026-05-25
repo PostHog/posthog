@@ -21,9 +21,10 @@ tools:
         title: Create account
         description: >
             Create a new Customer Analytics account. An account is a logical container for assigning ownership across
-            the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), and
-            optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external
-            system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`).
+            the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional
+            `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system
+            identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional
+            `tags` to categorize the account.
         param_overrides:
             properties:
                 description: >
@@ -31,6 +32,10 @@ tools:
                     takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`,
                     `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All
                     fields are optional.
+            tags:
+                description: >
+                    Tag names to attach to the account. Tags are created on demand if they do not already exist for the
+                    team.
         feature_flag: customer-analytics-csp
     accounts-destroy:
         operation: accounts_destroy
@@ -60,7 +65,14 @@ tools:
             List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the
             account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive,
             account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
-            zendesk_id), and creation/update metadata. Use `accounts-retrieve` for a single account by id.
+            zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g.
+            `["enterprise","priority"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve`
+            for a single account by id.
+        param_overrides:
+            tags:
+                description: >
+                    JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
+                    that have any of the listed tags.
         feature_flag: customer-analytics-csp
     accounts-partial-update:
         operation: accounts_partial_update
@@ -74,7 +86,7 @@ tools:
         title: Update account
         description: >
             Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are
-            left unchanged.
+            left unchanged. Pass `tags` to replace the full set of tags on the account.
         param_overrides:
             properties:
                 description: >
@@ -82,6 +94,10 @@ tools:
                     existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner`
                     (each `{id, email}` of an existing user), plus `stripe_customer_id`, `hubspot_deal_id`,
                     `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems).
+            tags:
+                description: >
+                    Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a
+                    delta. Tags are created on demand if they do not already exist for the team.
         feature_flag: customer-analytics-csp
     accounts-retrieve:
         operation: accounts_retrieve
@@ -96,7 +112,7 @@ tools:
         description: >
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
             account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
-            zendesk_id external identifiers).
+            zendesk_id external identifiers) and `tags`.
         feature_flag: customer-analytics-csp
     accounts-update:
         operation: accounts_update

@@ -414,15 +414,17 @@ urlpatterns = [
 
 # Personal LLM spend data only lives in PostHog Cloud US — EU forwards its product
 # LLM telemetry over, so EU callers get a 302 to the US-hosted endpoint instead of
-# a silent 404.
+# a silent 404. Must be inserted *before* the `^api.+` catch-all above; otherwise
+# the catch-all matches first and the redirect is unreachable.
 if settings.CLOUD_DEPLOYMENT == "EU":
-    urlpatterns += [
+    urlpatterns.insert(
+        0,
         path(
             "api/llm_analytics/@me/spend/",
             personal_spend_eu_redirect,
             name="personal_spend_eu_redirect",
         ),
-    ]
+    )
 
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
@@ -480,6 +482,7 @@ frontend_unauthenticated_routes = [
     "login",
     "unsubscribe",
     "verify_email",
+    r"agentic/account-mismatch",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

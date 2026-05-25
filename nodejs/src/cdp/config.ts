@@ -48,9 +48,6 @@ export type CdpConfig = ClickhouseConfig & {
     DISABLE_OPENTELEMETRY_TRACING: boolean
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
-    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: string
-    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: string
-    CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: boolean
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
@@ -97,6 +94,9 @@ export type CdpConfig = ClickhouseConfig & {
     HOG_INVOCATION_RESULTS_PRODUCER: CdpProducerName
     HOG_INVOCATION_RESULTS_ENABLED: boolean
     HOG_INVOCATION_RERUN_MAX_COUNT: number
+    // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
+    // Kept small by default — each job runs a full ClickHouse query per page.
+    CDP_RERUN_WORKER_BATCH_SIZE: number
     CDP_PREFILTERED_EVENTS_TOPIC: string
     CDP_PREFILTERED_EVENTS_PRODUCER: CdpProducerName
     CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: string
@@ -162,9 +162,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         DISABLE_OPENTELEMETRY_TRACING: false,
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
-        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING: '*:kafka',
-        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING: '',
-        CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES: false,
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
@@ -212,6 +209,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
+        // Small by default — rerun jobs are heavy (a full ClickHouse query per
+        // page), so a replica drains one wrapper job at a time unless tuned up.
+        CDP_RERUN_WORKER_BATCH_SIZE: 1,
         CDP_PREFILTERED_EVENTS_TOPIC: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
         CDP_PREFILTERED_EVENTS_PRODUCER: WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
         CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,

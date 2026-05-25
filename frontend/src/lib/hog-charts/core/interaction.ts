@@ -70,7 +70,11 @@ export function buildTooltipContext<Meta = unknown>(
     yAxes?: Record<string, YAxisScale>,
     /** Returned `position.{x,y}` are canvas-pixel coordinates regardless of orientation. */
     interactionAxis: 'x' | 'y' = 'x',
-    hoverPosition: { x: number; y: number } | null = null
+    hoverPosition: { x: number; y: number } | null = null,
+    /** Resolves the value used to *anchor* the tooltip per series. Defaults to `resolveValue`.
+     *  Stacked charts pass the stacked-top resolver here so the anchor lands at the visual top
+     *  of each segment while each tooltip row still shows its own value via `resolveValue`. */
+    resolvePositionValue: ResolveValueFn = resolveValue
 ): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
@@ -88,12 +92,13 @@ export function buildTooltipContext<Meta = unknown>(
         if (s.visibility?.excluded) {
             continue
         }
-        const value = resolveValue(s, dataIndex)
+        // `resolveValue` is the value shown to the user (the segment); `resolvePositionValue`
+        // is where to anchor (the stacked top). They diverge only for stacked charts.
         if (s.visibility?.tooltip !== false) {
-            seriesData.push({ series: s, value, color: s.color })
+            seriesData.push({ series: s, value: resolveValue(s, dataIndex), color: s.color })
         }
         const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
-        const px = seriesValueScale(value)
+        const px = seriesValueScale(resolvePositionValue(s, dataIndex))
         if (isFinite(px)) {
             valuePixels.push(px)
         }

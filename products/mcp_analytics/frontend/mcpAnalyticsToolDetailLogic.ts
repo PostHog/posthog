@@ -69,7 +69,7 @@ SELECT
     round(quantileIf(0.5)(toFloat(properties.$mcp_duration_ms), timestamp >= now() - INTERVAL 7 DAY)) AS p50_ms,
     round(quantileIf(0.95)(toFloat(properties.$mcp_duration_ms), timestamp >= now() - INTERVAL 7 DAY)) AS p95_ms,
     uniqIf(distinct_id, timestamp >= now() - INTERVAL 7 DAY) AS users,
-    uniqIf(coalesce(nullIf(toString(properties.$mcp_conversation_id), ''), toString(properties.$session_id)), timestamp >= now() - INTERVAL 7 DAY) AS conversations,
+    uniqIf(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)), timestamp >= now() - INTERVAL 7 DAY) AS conversations,
     countIf(timestamp >= now() - INTERVAL 14 DAY AND timestamp < now() - INTERVAL 7 DAY) AS calls_prev,
     countIf(timestamp >= now() - INTERVAL 14 DAY AND timestamp < now() - INTERVAL 7 DAY AND toBool(properties.$mcp_is_error)) AS errors_prev
 FROM events
@@ -301,14 +301,14 @@ LIMIT 5
                     query: `
 WITH tool_calls AS (
     SELECT
-        coalesce(nullIf(toString(properties.$mcp_conversation_id), ''), toString(properties.$session_id)) AS conv_id,
+        coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)) AS conv_id,
         timestamp,
         ${EFFECTIVE_TOOL_HOGQL} AS tool
     FROM events
     WHERE event = 'mcp_tool_call'
         AND timestamp >= now() - INTERVAL 7 DAY
         AND ${NEW_SDK_FILTER}
-        AND notEmpty(coalesce(nullIf(toString(properties.$mcp_conversation_id), ''), toString(properties.$session_id)))
+        AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
 )
 SELECT
     prev_tool AS tool,
@@ -344,14 +344,14 @@ LIMIT 5
                     query: `
 WITH tool_calls AS (
     SELECT
-        coalesce(nullIf(toString(properties.$mcp_conversation_id), ''), toString(properties.$session_id)) AS conv_id,
+        coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)) AS conv_id,
         timestamp,
         ${EFFECTIVE_TOOL_HOGQL} AS tool
     FROM events
     WHERE event = 'mcp_tool_call'
         AND timestamp >= now() - INTERVAL 7 DAY
         AND ${NEW_SDK_FILTER}
-        AND notEmpty(coalesce(nullIf(toString(properties.$mcp_conversation_id), ''), toString(properties.$session_id)))
+        AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
 )
 SELECT
     next_tool AS tool,
