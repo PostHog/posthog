@@ -2,7 +2,8 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 
 import { projectLogic } from 'scenes/projectLogic'
 
-import type { WizardSessionApi } from './generated/api.schemas'
+import { getWizardSessionsStreamRetrieveUrl } from './generated/api'
+import type { WizardSessionDTOApi } from './generated/api.schemas'
 import type { wizardSessionStreamLogicType } from './wizardSessionStreamLogicType'
 
 export type WizardConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
@@ -40,20 +41,20 @@ export interface WizardSessionStreamLogicProps {
 export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
     props({} as WizardSessionStreamLogicProps),
     key((props) => `${props.workflowId}::${props.skillId ?? '*'}`),
-    path((key) => ['products', 'wizard', 'streams', key]),
+    path((key) => ['products', 'wizard', 'wizardSessionStreamLogic', key]),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],
     })),
     actions({
         connect: true,
         disconnect: true,
-        sessionUpdated: (session: WizardSessionApi) => ({ session }),
+        sessionUpdated: (session: WizardSessionDTOApi) => ({ session }),
         connectionOpened: true,
         connectionErrored: (error: string) => ({ error }),
     }),
     reducers({
         latestSession: [
-            null as WizardSessionApi | null,
+            null as WizardSessionDTOApi | null,
             {
                 sessionUpdated: (_, { session }) => session,
             },
@@ -85,28 +86,32 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
             }
 
             cache.disposables.add((): (() => void) => {
-                const params = new URLSearchParams({ workflow_id: props.workflowId })
-                if (props.skillId) {
-                    params.set('skill_id', props.skillId)
-                }
-                const url = `/api/projects/${projectId}/wizard_sessions/stream/?${params.toString()}`
+                const url = getWizardSessionsStreamRetrieveUrl(String(projectId), {
+                    workflow_id: props.workflowId,
+                    skill_id: props.skillId,
+                })
                 const eventSource = new EventSource(url, { withCredentials: true })
 
-                eventSource.onopen = (): void => {
-                    actions.connectionOpened()
-                }
+                eventSource.onopen = actions.connectionOpened
                 eventSource.onmessage = (event: MessageEvent<string>): void => {
                     try {
-                        const session = JSON.parse(event.data) as WizardSessionApi
+                        const session = JSON.parse(event.data) as WizardSessionDTOApi
                         actions.sessionUpdated(session)
                     } catch (err) {
                         actions.connectionErrored(`Failed to parse SSE payload: ${String(err)}`)
                     }
                 }
                 eventSource.onerror = (): void => {
-                    // EventSource reconnects automatically on transient errors; we surface
-                    // the state so consumers can show a "reconnecting" UI if desired.
-                    actions.connectionErrored('EventSource transport error')
+                    // EventSource readyState distinguishes terminal close vs transient retry:
+                    //   CLOSED (2)     → browser gave up; will NOT auto-reconnect.
+                    //                    Consumers must call connect() again.
+                    //   CONNECTING (0) → browser is already retrying; ride it out, surface
+                    //                    the state so the UI can show "reconnecting".
+                    if (eventSource.readyState === EventSource.CLOSED) {
+                        actions.connectionErrored('EventSource connection closed by server — call connect() to retry')
+                    } else {
+                        actions.connectionErrored('EventSource transport error — reconnecting')
+                    }
                 }
 
                 return () => eventSource.close()
