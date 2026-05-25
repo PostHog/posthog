@@ -5,15 +5,10 @@ vi.mock('@/resources/kv-store', () => ({
     getResourceText: vi.fn(),
 }))
 
-vi.mock('@/resources', () => ({
-    getPromptsFromManifest: vi.fn(),
-}))
-
 vi.mock('@/resources/ui-apps.generated', async (importOriginal) => importOriginal())
 vi.mock('@/resources/ui-apps', async (importOriginal) => importOriginal())
 
 import { ResourceCatalog } from '@/hono/resource-catalog'
-import { getPromptsFromManifest } from '@/resources'
 import { getManifest, getResourceText } from '@/resources/kv-store'
 
 const mockEnv = {
@@ -50,19 +45,11 @@ describe('ResourceCatalog', () => {
     })
 
     describe('warmup and resource listing', () => {
-        it('serves resources and prompts after warmup', async () => {
+        it('serves resources after warmup', async () => {
             mockManifestWith([
                 makeContextMillEntry('guide-id', 'guide', 'posthog://guide'),
                 makeContextMillEntry('faq-id', 'faq', 'posthog://faq'),
             ])
-            vi.mocked(getPromptsFromManifest).mockResolvedValue([
-                {
-                    name: 'greet',
-                    title: 'Greet',
-                    description: 'A greeting',
-                    messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }],
-                },
-            ] as any)
 
             const catalog = new ResourceCatalog(mockEnv)
             await catalog.warmup()
@@ -70,15 +57,10 @@ describe('ResourceCatalog', () => {
             const { resources } = catalog.getResourcesList()
             expect(resources.map((r) => r.name)).toContain('guide')
             expect(resources.map((r) => r.name)).toContain('faq')
-
-            const { prompts } = catalog.getPromptsList()
-            expect(prompts).toHaveLength(1)
-            expect(prompts[0]!.name).toBe('greet')
         })
 
         it('pre-merges resource list so getResourcesList returns a stable array', async () => {
             mockManifestWith([makeContextMillEntry('a-id', 'a', 'posthog://a')])
-            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv)
             await catalog.warmup()
@@ -90,7 +72,6 @@ describe('ResourceCatalog', () => {
 
         it('does not pre-materialize resource text — lazy fetch happens on read', async () => {
             mockManifestWith([makeContextMillEntry('doc-id', 'doc', 'posthog://doc')])
-            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv)
             await catalog.warmup()
@@ -102,7 +83,6 @@ describe('ResourceCatalog', () => {
     describe('readResource', () => {
         it('returns contents for a known URI by calling getResourceText with the manifest version', async () => {
             mockManifestWith([makeContextMillEntry('doc-id', 'doc', 'posthog://doc')])
-            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
             vi.mocked(getResourceText).mockResolvedValue('lazy-fetched-text')
 
             const catalog = new ResourceCatalog(mockEnv)
@@ -120,7 +100,6 @@ describe('ResourceCatalog', () => {
 
         it('returns empty contents for unknown URI without calling getResourceText', async () => {
             mockManifestWith([])
-            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv)
             await catalog.warmup()
@@ -131,61 +110,33 @@ describe('ResourceCatalog', () => {
         })
     })
 
-    describe('getPrompt', () => {
-        it('returns messages for a known prompt name', async () => {
+    describe('prompts (placeholder)', () => {
+        // The prompt source was removed; the dispatcher still routes these
+        // methods so the catalog must answer with well-formed empty results.
+        it('getPromptsList returns empty prompts array', async () => {
             mockManifestWith([])
-            vi.mocked(getPromptsFromManifest).mockResolvedValue([
-                {
-                    name: 'test-prompt',
-                    title: 'T',
-                    description: 'D',
-                    messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
-                },
-            ] as any)
-
             const catalog = new ResourceCatalog(mockEnv)
             await catalog.warmup()
-
-            const result = catalog.getPrompt({ name: 'test-prompt' }) as any
-            expect(result.messages).toHaveLength(1)
+            expect(catalog.getPromptsList()).toEqual({ prompts: [] })
         })
 
-        it('returns empty messages for unknown prompt', async () => {
+        it('getPrompt returns empty messages regardless of name', async () => {
             mockManifestWith([])
-            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
-
             const catalog = new ResourceCatalog(mockEnv)
             await catalog.warmup()
-
-            const result = catalog.getPrompt({ name: 'nope' }) as any
-            expect(result.messages).toEqual([])
+            expect(catalog.getPrompt({ name: 'anything' })).toEqual({ messages: [] })
         })
     })
 
     describe('error resilience', () => {
-        it('continues serving prompts when manifest fetch fails', async () => {
+        it('continues serving an empty resource list when manifest fetch fails', async () => {
             vi.mocked(getManifest).mockRejectedValue(new Error('network'))
-            vi.mocked(getPromptsFromManifest).mockResolvedValue([
-                { name: 'p', title: 'P', description: 'D', messages: [] },
-            ] as any)
 
             const catalog = new ResourceCatalog(mockEnv)
             await catalog.warmup()
 
             const names = catalog.getResourcesList().resources.map((r) => r.name)
             expect(names).not.toContain('guide')
-            expect(catalog.getPromptsList().prompts).toHaveLength(1)
-        })
-
-        it('continues serving resources when prompt fetch fails', async () => {
-            mockManifestWith([makeContextMillEntry('r-id', 'r', 'posthog://r')])
-            vi.mocked(getPromptsFromManifest).mockRejectedValue(new Error('fail'))
-
-            const catalog = new ResourceCatalog(mockEnv)
-            await catalog.warmup()
-
-            expect(catalog.getResourcesList().resources.map((r) => r.name)).toContain('r')
-            expect(catalog.getPromptsList().prompts).toEqual([])
         })
     })
 })

@@ -3,13 +3,11 @@ import type {
     GetPromptResult,
     ListPromptsResult,
     ListResourcesResult,
-    Prompt,
     ReadResourceResult,
     Resource,
     TextResourceContents,
 } from '@modelcontextprotocol/sdk/types.js'
 
-import { getPromptsFromManifest } from '@/resources'
 import { getManifest, getResourceText } from '@/resources/kv-store'
 import type { ContextMillResource } from '@/resources/manifest-types'
 import { buildAppStubHtml } from '@/resources/ui-apps'
@@ -32,8 +30,6 @@ export class ResourceCatalog {
     private uiAppReadEntries = new Map<string, TextResourceContents>()
     private allResources: Resource[] = []
     private contextMillData: readonly ContextMillResource[] = []
-    private prompts: Prompt[] = []
-    private promptsByName = new Map<string, GetPromptResult>()
     private uiAppResources: Resource[] = []
 
     constructor(env: Env) {
@@ -84,17 +80,15 @@ export class ResourceCatalog {
         return { contents: [] }
     }
 
+    // No prompts are currently served. The dispatcher still needs these so
+    // `prompts/list` / `prompts/get` return a well-formed empty response rather
+    // than 404ing — wire up a real source here when prompts are reintroduced.
     getPromptsList(): ListPromptsResult {
-        return { prompts: this.prompts }
+        return { prompts: [] }
     }
 
-    getPrompt(params: Record<string, unknown> | undefined): GetPromptResult {
-        const name = (params?.name as string) ?? ''
-        const entry = this.promptsByName.get(name)
-        if (!entry) {
-            return { messages: [] }
-        }
-        return { messages: entry.messages }
+    getPrompt(_params: Record<string, unknown> | undefined): GetPromptResult {
+        return { messages: [] }
     }
 
     private async warmupResources(): Promise<void> {
@@ -114,20 +108,6 @@ export class ResourceCatalog {
             }
         } catch (error) {
             console.error('[ResourceCatalog] Failed to pre-load context-mill resources:', error)
-        }
-
-        try {
-            const manifestPrompts = await getPromptsFromManifest()
-            for (const prompt of manifestPrompts) {
-                this.prompts.push({
-                    name: prompt.name,
-                    title: prompt.title,
-                    description: prompt.description,
-                })
-                this.promptsByName.set(prompt.name, { messages: prompt.messages as GetPromptResult['messages'] })
-            }
-        } catch (error) {
-            console.error('[ResourceCatalog] Failed to pre-load prompts:', error)
         }
     }
 

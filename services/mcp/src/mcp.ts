@@ -32,7 +32,6 @@ import { evaluateFeatureFlags, type FlagGroups, isFeatureFlagEnabled } from '@/l
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
-import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
@@ -718,12 +717,8 @@ export class MCP extends McpAgent<Env> {
         // Server, so cast through unknown.
         ;(this.server.server as unknown as { _instructions: string })._instructions = instructions
 
-        // Register prompts and resources
-        await Promise.all([
-            registerPrompts(this.server),
-            registerResources(this.server, context),
-            registerUiAppResources(this.server, context),
-        ])
+        // Register resources (context-mill catalog metadata + UI apps).
+        await Promise.all([registerResources(this.server, context), registerUiAppResources(this.server, context)])
 
         // execute-sql is v2-only. Swap its description with the rich SQL prompt
         // (visible via `info execute-sql` in single-exec, and as the tool's own

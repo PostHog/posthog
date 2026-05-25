@@ -3,13 +3,9 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Context } from '@/tools/types'
 
 import { getManifest, getResourceText } from './kv-store'
-import type { ContextMillManifest, ContextMillResource, ResourceManifest } from './manifest-types'
+import type { ContextMillManifest, ContextMillResource } from './manifest-types'
 
 export { getManifest, getResourceText } from './kv-store'
-
-export async function getPromptsFromManifest(): Promise<ResourceManifest['resources']['prompts']> {
-    return []
-}
 
 /**
  * Register every context-mill resource with the MCP server using metadata only.
