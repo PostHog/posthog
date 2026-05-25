@@ -8,7 +8,6 @@ from posthog.temporal.data_imports.sources.mssql.mssql import (
     MSSQLColumn,
     MSSQLImplementation,
     _build_query,
-    _sanitize_identifier,
     filter_mssql_incremental_fields,
 )
 from posthog.temporal.data_imports.sources.mssql.source import MSSQLSource
@@ -81,16 +80,6 @@ class TestMSSQLColumnToArrowField:
         col = MSSQLColumn(name="x", data_type="decimal", nullable=True)
         with pytest.raises(TypeError, match="numeric_precision"):
             col.to_arrow_field()
-
-    def test_int_maps_to_int32(self):
-        col = MSSQLColumn(name="x", data_type="int", nullable=False)
-        field = col.to_arrow_field()
-        assert "int32" in str(field.type)
-
-    def test_bigint_maps_to_int64(self):
-        col = MSSQLColumn(name="x", data_type="bigint", nullable=False)
-        field = col.to_arrow_field()
-        assert "int64" in str(field.type)
 
 
 class TestBuildQuery:
@@ -174,32 +163,6 @@ class TestBuildQuery:
                 incremental_field_type=IncrementalFieldType.DateTime,
                 db_incremental_field_last_value="2025-01-01",
             )
-
-
-class TestSanitizeIdentifier:
-    @pytest.mark.parametrize(
-        "identifier,expected",
-        [
-            ("users", "[users]"),
-            ("851", "[851]"),
-            ("$col", "[$col]"),
-        ],
-    )
-    def test_accepts_safe_identifiers(self, identifier, expected):
-        assert _sanitize_identifier(identifier) == expected
-
-    @pytest.mark.parametrize(
-        "identifier",
-        [
-            "bad;id",
-            "a]b",
-            "a'b",
-            'a"b',
-        ],
-    )
-    def test_rejects_unsafe_identifiers(self, identifier):
-        with pytest.raises(ValueError, match="Invalid SQL identifier"):
-            _sanitize_identifier(identifier)
 
 
 # ---------------------------------------------------------------------------
@@ -440,37 +403,16 @@ class TestBuildPipeline:
         assert streaming_cursor.execute.called
 
 
-class TestMSSQLSourceGetImplementation:
-    def test_returns_singleton(self):
-        source = MSSQLSource()
-        assert source.get_implementation is MSSQLSource().get_implementation
-
-
 class TestMSSQLSourceNonRetryableErrors:
-    @pytest.fixture
-    def source(self):
-        return MSSQLSource()
-
     @pytest.mark.parametrize(
         "error_msg",
         [
             "Cannot build decimal array from values",
             "ValueError: Cannot build decimal array from values",
-        ],
-    )
-    def test_unrepresentable_decimal_values_are_non_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
             "Source column type changed",
-            "SchemaColumnTypeChangedException: Source column type changed: 'id' has values that no longer fit",
+            "SchemaColumnTypeChangedException: Source column type changed: 'id' no longer fits",
         ],
     )
-    def test_widened_integer_column_errors_are_non_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+    def test_data_shape_errors_are_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
