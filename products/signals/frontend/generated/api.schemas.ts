@@ -210,9 +210,9 @@ export interface EvidenceEntryApi {
  * `P3` - P3
  * `P4` - P4
  */
-export type SignalsScoutSeverityEnumApi = (typeof SignalsScoutSeverityEnumApi)[keyof typeof SignalsScoutSeverityEnumApi]
+export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
 
-export const SignalsScoutSeverityEnumApi = {
+export const AutonomyPriorityEnumApi = {
     P0: 'P0',
     P1: 'P1',
     P2: 'P2',
@@ -262,7 +262,7 @@ export interface EmitFindingRequestApi {
   * `P2` - P2
   * `P3` - P3
   * `P4` - P4 */
-    severity?: SignalsScoutSeverityEnumApi | null
+    severity?: AutonomyPriorityEnumApi | null
     /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
     dedupe_keys?: string[]
     /** Optional time window the finding refers to. */
@@ -449,7 +449,26 @@ export const BlankEnumApi = {
 export interface SignalUserAutonomyConfigApi {
     readonly id: string
     readonly user: _UserApi
-    autostart_priority?: SignalsScoutSeverityEnumApi | BlankEnumApi | null
+    autostart_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
+    /**
+     * ID of the Slack Integration to deliver inbox-item notifications through, or null when notifications are disabled.
+     * @nullable
+     */
+    readonly slack_notification_integration_id: number | null
+    /**
+     * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
+     * @maxLength 255
+     * @nullable
+     */
+    slack_notification_channel?: string | null
+    /** Minimum report priority that triggers a Slack notification. P0 is highest. Null means notify on every priority (and reports without a priority judgment).
+
+  * `P0` - P0
+  * `P1` - P1
+  * `P2` - P2
+  * `P3` - P3
+  * `P4` - P4 */
+    slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
     readonly created_at: string
     readonly updated_at: string
 }
