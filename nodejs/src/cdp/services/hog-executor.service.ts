@@ -155,6 +155,42 @@ export const MAX_ASYNC_STEPS = 5
 export const MAX_HOG_LOGS = 25
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
+// Hosts that we consider to be PostHog's own ingest endpoints. Hog function `fetch()` calls
+// targeting these hosts with the same project's API token would create an event-forwarding loop,
+// so we block them and surface guidance to use `postHogCapture` or a transformation instead.
+export const isPostHogIngestHost = (urlString: string): boolean => {
+    try {
+        const hostname = new URL(urlString).hostname.toLowerCase()
+        return hostname === 'posthog.com' || hostname.endsWith('.posthog.com')
+    } catch {
+        return false
+    }
+}
+
+export const extractEmittedEventNames = (body: string | null | undefined): string[] | null => {
+    if (!body) {
+        return null
+    }
+    try {
+        const parsed = parseJSON(body)
+        if (parsed && typeof parsed === 'object') {
+            if (typeof (parsed as any).event === 'string') {
+                return [(parsed as any).event]
+            }
+            const batch = (parsed as any).batch
+            if (Array.isArray(batch) && batch.length > 0) {
+                const names = batch.map((e: any) => e?.event).filter((n: any): n is string => typeof n === 'string')
+                if (names.length > 0) {
+                    return names
+                }
+            }
+        }
+    } catch {
+        // unparseable
+    }
+    return null
+}
+
 const hogExecutionDuration = new Histogram({
     name: 'cdp_hog_function_execution_duration_ms',
     help: 'Processing time and success status of internal functions',
@@ -407,8 +443,12 @@ export class HogExecutorService {
             let execRes: ExecResult | undefined = undefined
 
             try {
-                // NOTE: As of the mappings work, we added input generation to the caller, reducing the amount of data passed into the function
-                // This is just a fallback to support the old format - once fully migrated we can remove the building and just use the globals
+                // Build inputs here when the invocation arrives without them.
+                // This is a supported path, not a transitional fallback: the
+                // rerun pipeline deliberately re-enqueues invocations with only
+                // the bare globals so the run resolves inputs against the
+                // current hog function config. Callers that pre-resolve inputs
+                // (e.g. the mappings path) skip the rebuild.
                 if (invocation.state.globals.inputs) {
                     globals = invocation.state.globals
                 } else {
@@ -654,6 +694,43 @@ export class HogExecutorService {
                         Object.entries(params.headers ?? {}).map(([key, value]) => [key, replace(value)])
                     )
                     params.url = replace(params.url)
+                }
+            }
+        }
+
+        if (isPostHogIngestHost(params.url)) {
+            const team = await this.asyncContext.teamManager.getTeam(invocation.teamId)
+            const teamTokens = [team?.api_token, team?.secret_api_token].filter(
+                (token): token is string => typeof token === 'string' && token.length > 0
+            )
+            if (teamTokens.length > 0) {
+                const haystack = `${params.url}\n${params.body ?? ''}\n${Object.values(headers).join('\n')}`
+                const matchedToken = teamTokens.find((token) => haystack.includes(token))
+                if (matchedToken) {
+                    const emittedEvents = extractEmittedEventNames(params.body)
+                    const triggerEventIds = (invocation.hogFunction.filters?.events ?? []).map((event) => event.id)
+                    const matchesAllEvents = triggerEventIds.length === 0 || triggerEventIds.some((id) => id === null)
+                    const wouldLoop =
+                        matchesAllEvents ||
+                        (emittedEvents !== null && emittedEvents.some((e) => triggerEventIds.includes(e)))
+
+                    if (wouldLoop) {
+                        const message =
+                            "Refusing to fetch a posthog.com endpoint using this project's own API token — this would create an event-forwarding loop. " +
+                            'If you want to capture an event back into this project, use the `postHogCapture` helper. ' +
+                            'If you want to enrich or modify incoming events, use a transformation instead.'
+                        addLog('error', message)
+                        result.metrics.push({
+                            team_id: invocation.teamId,
+                            app_source_id: invocation.parentRunId ?? invocation.functionId,
+                            metric_kind: 'failure',
+                            metric_name: 'failed',
+                            count: 1,
+                        })
+                        result.error = new Error(message)
+                        result.finished = true
+                        return result
+                    }
                 }
             }
         }

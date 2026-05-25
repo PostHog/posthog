@@ -215,6 +215,24 @@ export const userInterviewTopicsGenerateLinksCreate = async (
     })
 }
 
+export const getUserInterviewTopicsLinksCsvCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/user_interview_topics/${id}/links_csv/`
+}
+
+/**
+ * Same materialization as generate_links, returned as a downloadable CSV. Intended for users who want to mail-merge the per-person interview links into their own email tooling.
+ */
+export const userInterviewTopicsLinksCsvCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getUserInterviewTopicsLinksCsvCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getUserInterviewTopicsRemoveIntervieweeCreateUrl = (projectId: string, id: string) => {
     return `/api/environments/${projectId}/user_interview_topics/${id}/remove_interviewee/`
 }

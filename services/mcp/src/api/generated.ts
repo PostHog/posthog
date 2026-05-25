@@ -1265,6 +1265,20 @@ export namespace Schemas {
       breakpoints: ActiveBreakpoint[];
     }
 
+    /**
+     * * `true` - true
+    * `false` - false
+    * `STALE` - STALE
+     */
+    export type ActiveEnum = typeof ActiveEnum[keyof typeof ActiveEnum];
+
+
+    export const ActiveEnum = {
+      True: 'true',
+      False: 'false',
+      Stale: 'STALE',
+    } as const;
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -1468,6 +1482,8 @@ export namespace Schemas {
       CppWithRustShadow: 'cpp_with_rust_shadow',
       RustWithCppShadow: 'rust_with_cpp_shadow',
       RustOnly: 'rust_only',
+      RustPyOnly: 'rust_py_only',
+      RustPyWithCppShadow: 'rust_py_with_cpp_shadow',
     } as const;
 
     export type PersonsArgMaxVersion = typeof PersonsArgMaxVersion[keyof typeof PersonsArgMaxVersion];
@@ -1540,7 +1556,7 @@ export namespace Schemas {
       materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationMode | null;
       optimizeJoinedFilters?: boolean | null;
       optimizeProjections?: boolean | null;
-      /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. */
+      /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
@@ -4475,10 +4491,10 @@ export namespace Schemas {
     * `P3` - P3
     * `P4` - P4
      */
-    export type AutostartPriorityEnum = typeof AutostartPriorityEnum[keyof typeof AutostartPriorityEnum];
+    export type AutonomyPriorityEnum = typeof AutonomyPriorityEnum[keyof typeof AutonomyPriorityEnum];
 
 
-    export const AutostartPriorityEnum = {
+    export const AutonomyPriorityEnum = {
       P0: 'P0',
       P1: 'P1',
       P2: 'P2',
@@ -6467,6 +6483,134 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    /**
+     * * `fully_rolled_out` - fully_rolled_out
+    * `not_rolled_out` - not_rolled_out
+    * `partial` - partial
+     */
+    export type RolloutStateEnum = typeof RolloutStateEnum[keyof typeof RolloutStateEnum];
+
+
+    export const RolloutStateEnum = {
+      FullyRolledOut: 'fully_rolled_out',
+      NotRolledOut: 'not_rolled_out',
+      Partial: 'partial',
+    } as const;
+
+    export interface BulkDeleteDeletedItem {
+      /** ID of the soft-deleted flag. */
+      id: number;
+      /** The flag key at the time of deletion. */
+      key: string;
+      /** Rollout state captured before deletion.
+
+      * `fully_rolled_out` - fully_rolled_out
+      * `not_rolled_out` - not_rolled_out
+      * `partial` - partial */
+      rollout_state: RolloutStateEnum;
+      /**
+         * Variant key when a multivariate flag was fully rolled out to a single variant; otherwise null.
+         * @nullable
+         */
+      active_variant: string | null;
+    }
+
+    export interface BulkDeleteErrorItem {
+      /** Feature flag ID — integer for valid inputs; the original raw value for invalid inputs. */
+      id: unknown;
+      /** The flag key, when known. */
+      key?: string;
+      /** Human-readable reason the flag could not be deleted. */
+      reason: string;
+    }
+
+    /**
+     * * `boolean` - boolean
+    * `multivariant` - multivariant
+    * `experiment` - experiment
+    * `remote_config` - remote_config
+     */
+    export type BulkDeleteFiltersTypeEnum = typeof BulkDeleteFiltersTypeEnum[keyof typeof BulkDeleteFiltersTypeEnum];
+
+
+    export const BulkDeleteFiltersTypeEnum = {
+      Boolean: 'boolean',
+      Multivariant: 'multivariant',
+      Experiment: 'experiment',
+      RemoteConfig: 'remote_config',
+    } as const;
+
+    /**
+     * * `server` - Server
+    * `client` - Client
+    * `all` - All
+     */
+    export type EvaluationRuntimeEnum = typeof EvaluationRuntimeEnum[keyof typeof EvaluationRuntimeEnum];
+
+
+    export const EvaluationRuntimeEnum = {
+      Server: 'server',
+      Client: 'client',
+      All: 'all',
+    } as const;
+
+    /**
+     * Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.
+     */
+    export interface BulkDeleteFilters {
+      /** Filter by active state.
+
+      * `true` - true
+      * `false` - false
+      * `STALE` - STALE */
+      active?: ActiveEnum;
+      /** Filter to flags created by a specific user ID. */
+      created_by_id?: number;
+      /** Search by feature flag key or name (case-insensitive). */
+      search?: string;
+      /** Filter by flag type.
+
+      * `boolean` - boolean
+      * `multivariant` - multivariant
+      * `experiment` - experiment
+      * `remote_config` - remote_config */
+      type?: BulkDeleteFiltersTypeEnum;
+      /** Filter by evaluation runtime.
+
+      * `server` - Server
+      * `client` - Client
+      * `all` - All */
+      evaluation_runtime?: EvaluationRuntimeEnum;
+      /** JSON-encoded property filter to exclude. Same shape as the list endpoint. */
+      excluded_properties?: string;
+      /** Tag names to filter by. Flags carrying at least one of these tags match. */
+      tags?: string[];
+      /** When true, only matches flags with at least one evaluation context. */
+      has_evaluation_contexts?: boolean;
+    }
+
+    export interface BulkDeleteRequest {
+      /** Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs. */
+      filters?: BulkDeleteFilters;
+      /** Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`. */
+      ids?: number[];
+    }
+
+    /**
+     * Schema-only — referenced from ``@extend_schema(responses=...)`` to describe the wire format.
+    Never instantiate this for validation or call ``.is_valid()`` / ``.errors`` on it: the
+    declared ``errors`` field shadows DRF's inherited ``Serializer.errors`` ReturnDict property,
+    so accessing ``serializer.errors`` would return this field descriptor instead of validation
+    errors. The handler builds the response dict directly; this class exists only so drf-spectacular
+    can render the response in the OpenAPI spec and downstream generated clients.
+     */
+    export interface BulkDeleteResponse {
+      /** Flags successfully soft-deleted. */
+      deleted: BulkDeleteDeletedItem[];
+      /** Flags that could not be deleted, with reasons. */
+      errors: BulkDeleteErrorItem[];
+    }
+
     export interface BulkIntervieweeContextItem {
       /**
          * Identifier for the interviewee — typically an email address or PostHog distinct ID. Must match a value in the parent topic's interviewee_emails or interviewee_distinct_ids.
@@ -6492,6 +6636,23 @@ export namespace Schemas {
       skipped_count: number;
       /** Identifiers from the request whose rows were skipped because a row for that (topic, interviewee_identifier) already existed. */
       skipped_identifiers: string[];
+    }
+
+    export interface BulkKeysRequest {
+      /** Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored. */
+      ids?: unknown[];
+    }
+
+    /**
+     * Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.
+     */
+    export type BulkKeysResponseKeys = {[key: string]: string};
+
+    export interface BulkKeysResponse {
+      /** Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project. */
+      keys: BulkKeysResponseKeys;
+      /** Present when some submitted IDs were not numeric and were ignored. */
+      warning?: string;
     }
 
     export interface BulkNotificationIdsRequest {
@@ -13049,20 +13210,6 @@ export namespace Schemas {
      * Feature flag payload for this early access feature
      */
     export type EarlyAccessFeaturePayload = { [key: string]: unknown };
-
-    /**
-     * * `server` - Server
-    * `client` - Client
-    * `all` - All
-     */
-    export type EvaluationRuntimeEnum = typeof EvaluationRuntimeEnum[keyof typeof EvaluationRuntimeEnum];
-
-
-    export const EvaluationRuntimeEnum = {
-      Server: 'server',
-      Client: 'client',
-      All: 'all',
-    } as const;
 
     export type MinimalFeatureFlagFilters = { [key: string]: unknown };
 
@@ -20080,97 +20227,6 @@ export namespace Schemas {
       created_at: string;
     }
 
-    /**
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-    * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
-     */
-    export type LensModelEnum = typeof LensModelEnum[keyof typeof LensModelEnum];
-
-
-    export const LensModelEnum = {
-      Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
-    } as const;
-
-    /**
-     * * `google` - Google
-     */
-    export type LensProviderEnum = typeof LensProviderEnum[keyof typeof LensProviderEnum];
-
-
-    export const LensProviderEnum = {
-      Google: 'google',
-    } as const;
-
-    /**
-     * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
-     */
-    export type LensResultEventIdMapping = { [key: string]: unknown };
-
-    /**
-     * Mirrors `temporal.types.LensResult` for OpenAPI generation.
-     */
-    export interface LensResult {
-      /** Validated lens output. Shape depends on `lens_snapshot.lens_type`; always carries `confidence` and `lens_type`. */
-      model_output: unknown;
-      /**
-         * Number of PostHog Signals emitted from this observation.
-         * @minimum 0
-         */
-      signals_count: number;
-      /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
-      event_id_mapping: LensResultEventIdMapping;
-    }
-
-    /**
-     * * `monitor` - Monitor
-    * `classifier` - Classifier
-    * `scorer` - Scorer
-    * `summarizer` - Summarizer
-    * `indexer` - Indexer
-     */
-    export type LensTypeEnum = typeof LensTypeEnum[keyof typeof LensTypeEnum];
-
-
-    export const LensTypeEnum = {
-      Monitor: 'monitor',
-      Classifier: 'classifier',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-      Indexer: 'indexer',
-    } as const;
-
-    /**
-     * Mirrors `temporal.types.LensSnapshot` for OpenAPI generation.
-     */
-    export interface LensSnapshot {
-      /** Lens name at run time. */
-      name: string;
-      /** Lens type (monitor, classifier, scorer, summarizer, indexer) at run time.
-
-      * `monitor` - Monitor
-      * `classifier` - Classifier
-      * `scorer` - Scorer
-      * `summarizer` - Summarizer
-      * `indexer` - Indexer */
-      lens_type: LensTypeEnum;
-      /** The `ReplayLens.lens_version` value at the moment the workflow ran. */
-      lens_version: number;
-      /** Concrete model that ran the observation.
-
-      * `gemini-3-flash-preview` - Gemini 3 Flash
-      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
-      model: LensModelEnum;
-      /** Concrete provider that ran the observation.
-
-      * `google` - Google */
-      provider: LensProviderEnum;
-      /** Whether the observation was run with Signal emission enabled. */
-      emits_signals: boolean;
-      /** Lens-type-specific configuration at run time (prompt, tags, scale, etc.). */
-      lens_config: unknown;
-    }
-
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
 
@@ -21560,21 +21616,21 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Body of POST /vision/lenses/{id}/observe/.
+     * Body of POST /vision/scanners/{id}/observe/.
      */
     export interface ObserveRequest {
       /**
-         * ID of the session recording to apply the lens to.
+         * ID of the session recording to apply the scanner to.
          * @maxLength 128
          */
       session_id: string;
     }
 
     /**
-     * Async-accepted response for POST /vision/lenses/{id}/observe/.
+     * Async-accepted response for POST /vision/scanners/{id}/observe/.
      */
     export interface ObserveResponse {
-      /** Temporal workflow id for this lens application. Look up the resulting ReplayObservation via GET /vision/lenses/{id}/observations/?session_id=<session_id>. */
+      /** Temporal workflow id for this scanner application. Look up the resulting ReplayObservation via GET /vision/scanners/{id}/observations/?session_id=<session_id>. */
       workflow_id: string;
     }
 
@@ -23289,70 +23345,102 @@ export namespace Schemas {
       results: QuickFilter[];
     }
 
-    export interface ReplayLens {
-      readonly id: string;
-      /**
-         * Human-readable lens name. Unique within the team.
-         * @maxLength 255
-         */
+    /**
+     * * `monitor` - Monitor
+    * `classifier` - Classifier
+    * `scorer` - Scorer
+    * `summarizer` - Summarizer
+    * `indexer` - Indexer
+     */
+    export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
+
+
+    export const ScannerTypeEnum = {
+      Monitor: 'monitor',
+      Classifier: 'classifier',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+      Indexer: 'indexer',
+    } as const;
+
+    /**
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+    * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
+     */
+    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
+
+
+    export const ScannerModelEnum = {
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
+    } as const;
+
+    /**
+     * * `google` - Google
+     */
+    export type ScannerProviderEnum = typeof ScannerProviderEnum[keyof typeof ScannerProviderEnum];
+
+
+    export const ScannerProviderEnum = {
+      Google: 'google',
+    } as const;
+
+    /**
+     * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
+     */
+    export interface ScannerSnapshot {
+      /** Scanner name at run time. */
       name: string;
-      /** Free-form description shown in the lens management UI. */
-      description?: string;
-      /** What the lens does: monitor, classifier, scorer, summarizer, or indexer.
+      /** Scanner type (monitor, classifier, scorer, summarizer, indexer) at run time.
 
       * `monitor` - Monitor
       * `classifier` - Classifier
       * `scorer` - Scorer
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
-      lens_type: LensTypeEnum;
-      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
-      lens_config: unknown;
-      /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
-      query?: unknown;
-      /**
-         * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).
-         * @minimum 0
-         * @maximum 1
-         */
-      sampling_rate?: number;
-      /** LLM provider. v1 is Google-only.
-
-      * `google` - Google */
-      provider?: LensProviderEnum;
-      /** Concrete model to use for this lens.
+      scanner_type: ScannerTypeEnum;
+      /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
+      scanner_version: number;
+      /** Concrete model that ran the observation.
 
       * `gemini-3-flash-preview` - Gemini 3 Flash
       * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
-      model: LensModelEnum;
-      /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
-      enabled?: boolean;
-      /** When true, the prompt is augmented with the Signal side mission and the lens emits PostHog Signals. */
-      emits_signals?: boolean;
-      /** Increments on every config-changing save. Observations snapshot this value. */
-      readonly lens_version: number;
-      /** Watermark for the lens's last scheduled fire. Mirrors Temporal schedule state for recovery. */
-      readonly last_swept_at: string;
-      readonly created_at: string;
-      /** User who created the lens. */
-      readonly created_by: UserBasic | null;
-      readonly updated_at: string;
+      model: ScannerModelEnum;
+      /** Concrete provider that ran the observation.
+
+      * `google` - Google */
+      provider: ScannerProviderEnum;
+      /** Whether the observation was run with Signal emission enabled. */
+      emits_signals: boolean;
+      /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
+      scanner_config: unknown;
     }
 
-    export interface PaginatedReplayLensList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ReplayLens[];
+    /**
+     * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
+     */
+    export type ScannerResultEventIdMapping = { [key: string]: unknown };
+
+    /**
+     * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
+     */
+    export interface ScannerResult {
+      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
+      model_output: unknown;
+      /**
+         * Number of PostHog Signals emitted from this observation.
+         * @minimum 0
+         */
+      signals_count: number;
+      /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
+      event_id_mapping: ScannerResultEventIdMapping;
     }
 
     export interface ReplayObservation {
       readonly id: string;
-      /** The lens that produced this observation. */
-      readonly lens_id: string;
-      /** Session recording id this lens was applied to. */
+      /** The scanner that produced this observation. */
+      readonly scanner_id: string;
+      /** Session recording id this scanner was applied to. */
       readonly session_id: string;
       /** Observation status (pending, running, succeeded, failed).
 
@@ -23365,10 +23453,10 @@ export namespace Schemas {
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
-      /** Frozen view of the lens at run time; lens edits do not retroactively mutate this observation. */
-      readonly lens_snapshot: LensSnapshot | null;
+      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
+      readonly scanner_snapshot: ScannerSnapshot | null;
       /** Result data persisted on success; null until the observation succeeds. */
-      readonly lens_result: LensResult | null;
+      readonly scanner_result: ScannerResult | null;
       /** Whether this observation came from the schedule or an on-demand request.
 
       * `schedule` - Schedule
@@ -23390,6 +23478,65 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ReplayObservation[];
+    }
+
+    export interface ReplayScanner {
+      readonly id: string;
+      /**
+         * Human-readable scanner name. Unique within the team.
+         * @maxLength 255
+         */
+      name: string;
+      /** Free-form description shown in the scanner management UI. */
+      description?: string;
+      /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+
+      * `monitor` - Monitor
+      * `classifier` - Classifier
+      * `scorer` - Scorer
+      * `summarizer` - Summarizer
+      * `indexer` - Indexer */
+      scanner_type: ScannerTypeEnum;
+      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+      scanner_config: unknown;
+      /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
+      query?: unknown;
+      /**
+         * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).
+         * @minimum 0
+         * @maximum 1
+         */
+      sampling_rate?: number;
+      /** LLM provider. v1 is Google-only.
+
+      * `google` - Google */
+      provider?: ScannerProviderEnum;
+      /** Concrete model to use for this scanner.
+
+      * `gemini-3-flash-preview` - Gemini 3 Flash
+      * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+      model: ScannerModelEnum;
+      /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
+      enabled?: boolean;
+      /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
+      emits_signals?: boolean;
+      /** Increments on every config-changing save. Observations snapshot this value. */
+      readonly scanner_version: number;
+      /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
+      readonly last_swept_at: string;
+      readonly created_at: string;
+      /** User who created the scanner. */
+      readonly created_by: UserBasic | null;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedReplayScannerList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReplayScanner[];
     }
 
     export type RepoBaselineFilePaths = {[key: string]: string};
@@ -29587,25 +29734,25 @@ export namespace Schemas {
       person_id?: string;
     }
 
-    export interface PatchedReplayLens {
+    export interface PatchedReplayScanner {
       readonly id?: string;
       /**
-         * Human-readable lens name. Unique within the team.
+         * Human-readable scanner name. Unique within the team.
          * @maxLength 255
          */
       name?: string;
-      /** Free-form description shown in the lens management UI. */
+      /** Free-form description shown in the scanner management UI. */
       description?: string;
-      /** What the lens does: monitor, classifier, scorer, summarizer, or indexer.
+      /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
 
       * `monitor` - Monitor
       * `classifier` - Classifier
       * `scorer` - Scorer
       * `summarizer` - Summarizer
       * `indexer` - Indexer */
-      lens_type?: LensTypeEnum;
+      scanner_type?: ScannerTypeEnum;
       /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
-      lens_config?: unknown;
+      scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
       /**
@@ -29617,22 +29764,22 @@ export namespace Schemas {
       /** LLM provider. v1 is Google-only.
 
       * `google` - Google */
-      provider?: LensProviderEnum;
-      /** Concrete model to use for this lens.
+      provider?: ScannerProviderEnum;
+      /** Concrete model to use for this scanner.
 
       * `gemini-3-flash-preview` - Gemini 3 Flash
       * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
-      model?: LensModelEnum;
-      /** When false, the reconciler removes the lens's Temporal schedule. On-demand triggers still work. */
+      model?: ScannerModelEnum;
+      /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
-      /** When true, the prompt is augmented with the Signal side mission and the lens emits PostHog Signals. */
+      /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
       emits_signals?: boolean;
       /** Increments on every config-changing save. Observations snapshot this value. */
-      readonly lens_version?: number;
-      /** Watermark for the lens's last scheduled fire. Mirrors Temporal schedule state for recovery. */
+      readonly scanner_version?: number;
+      /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
-      /** User who created the lens. */
+      /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
       readonly updated_at?: string;
     }
@@ -35143,7 +35290,26 @@ export namespace Schemas {
     export interface SignalUserAutonomyConfig {
       readonly id: string;
       readonly user: _User;
-      autostart_priority?: AutostartPriorityEnum | BlankEnum | null;
+      autostart_priority?: AutonomyPriorityEnum | BlankEnum | null;
+      /**
+         * ID of the Slack Integration to deliver inbox-item notifications through, or null when notifications are disabled.
+         * @nullable
+         */
+      readonly slack_notification_integration_id: number | null;
+      /**
+         * Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null disables Slack notifications.
+         * @maxLength 255
+         * @nullable
+         */
+      slack_notification_channel?: string | null;
+      /** Minimum report priority that triggers a Slack notification. P0 is highest. Null means notify on every priority (and reports without a priority judgment).
+
+      * `P0` - P0
+      * `P1` - P1
+      * `P2` - P2
+      * `P3` - P3
+      * `P4` - P4 */
+      slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -35171,6 +35337,8 @@ export namespace Schemas {
          * @nullable
          */
       lastRefreshedAt?: string | null;
+      /** Whether more channels match the current search beyond this page. */
+      has_more?: boolean;
     }
 
     /**
@@ -35815,6 +35983,21 @@ export namespace Schemas {
       conditions?: TaggerCondition[];
       model_configuration?: TaggerModelConfigurationWrite | null;
       deleted?: boolean;
+    }
+
+    /**
+     * Request body for the presence beacon and beacon-leave endpoints.
+
+    `device_id` is the UUID of the caller's `UserPushToken` row, which the
+    client received when it registered for push via `/api/users/@me/push_tokens/`.
+    The client is expected to use the same identifier on the beacon and leave
+    calls; if the user has unregistered the underlying push token, the value
+    won't resolve and the call returns 404 — at which point pushes were
+    already not going there anyway.
+     */
+    export interface TaskPresenceBeaconRequest {
+      /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
+      device_id: string;
     }
 
     export interface TaskRepositoriesResponse {
@@ -39389,6 +39572,24 @@ export namespace Schemas {
       Vercel: 'vercel',
     } as const;
 
+    export type EnvironmentsIntegrationsChannelsRetrieveParams = {
+    /**
+     * Maximum number of channels to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Number of channels to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string;
+    };
+
     export type EnvironmentsIntegrationsGithubBranchesRetrieveParams = {
     /**
      * Maximum number of branches to return
@@ -40159,6 +40360,22 @@ export namespace Schemas {
 
     export type AccountsListParams = {
     /**
+     * Filter by account executive. Use 'unassigned' or an integer user id.
+     */
+    account_executive?: string;
+    /**
+     * Filter by account owner. Use 'unassigned' or an integer user id.
+     */
+    account_owner?: string;
+    /**
+     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     */
+    all_roles_unassigned?: boolean;
+    /**
+     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
+     */
+    csm?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -40166,6 +40383,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort order. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Case-insensitive substring search across account name and external ID.
+     */
+    search?: string;
     /**
      * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
      */
@@ -41325,25 +41550,15 @@ export namespace Schemas {
     topic?: string;
     };
 
-    export type VisionLensesListParams = {
+    export type VisionScannersListParams = {
     /**
-     * Filter to lenses that emit Signals.
+     * Filter to scanners that emit Signals.
      */
     emits_signals?: boolean;
     /**
-     * Filter to enabled vs disabled lenses.
+     * Filter to enabled vs disabled scanners.
      */
     enabled?: boolean;
-    /**
-     * Filter by lens type (monitor, classifier, scorer, summarizer, indexer).
-
-    * `monitor` - Monitor
-    * `classifier` - Classifier
-    * `scorer` - Scorer
-    * `summarizer` - Summarizer
-    * `indexer` - Indexer
-     */
-    lens_type?: VisionLensesListLensType;
     /**
      * Number of results to return per page.
      */
@@ -41353,7 +41568,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort lenses by name, created_at, updated_at, or lens_type. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
 
     * `name` - Name
     * `-name` - Name (descending)
@@ -41361,16 +41576,26 @@ export namespace Schemas {
     * `-created_at` - Created at (descending)
     * `updated_at` - Updated at
     * `-updated_at` - Updated at (descending)
-    * `lens_type` - Lens type
-    * `-lens_type` - Lens type (descending)
+    * `scanner_type` - Scanner type
+    * `-scanner_type` - Scanner type (descending)
      */
     order_by?: string[];
+    /**
+     * Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).
+
+    * `monitor` - Monitor
+    * `classifier` - Classifier
+    * `scorer` - Scorer
+    * `summarizer` - Summarizer
+    * `indexer` - Indexer
+     */
+    scanner_type?: VisionScannersListScannerType;
     };
 
-    export type VisionLensesListLensType = typeof VisionLensesListLensType[keyof typeof VisionLensesListLensType];
+    export type VisionScannersListScannerType = typeof VisionScannersListScannerType[keyof typeof VisionScannersListScannerType];
 
 
-    export const VisionLensesListLensType = {
+    export const VisionScannersListScannerType = {
       Classifier: 'classifier',
       Indexer: 'indexer',
       Monitor: 'monitor',
@@ -41378,7 +41603,7 @@ export namespace Schemas {
       Summarizer: 'summarizer',
     } as const;
 
-    export type VisionLensesObservationsListParams = {
+    export type VisionScannersObservationsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -41412,30 +41637,30 @@ export namespace Schemas {
     * `succeeded` - Succeeded
     * `failed` - Failed
      */
-    status?: VisionLensesObservationsListStatus;
+    status?: VisionScannersObservationsListStatus;
     /**
      * Filter by trigger source (schedule or on_demand).
 
     * `schedule` - Schedule
     * `on_demand` - On demand
      */
-    triggered_by?: VisionLensesObservationsListTriggeredBy;
+    triggered_by?: VisionScannersObservationsListTriggeredBy;
     };
 
-    export type VisionLensesObservationsListStatus = typeof VisionLensesObservationsListStatus[keyof typeof VisionLensesObservationsListStatus];
+    export type VisionScannersObservationsListStatus = typeof VisionScannersObservationsListStatus[keyof typeof VisionScannersObservationsListStatus];
 
 
-    export const VisionLensesObservationsListStatus = {
+    export const VisionScannersObservationsListStatus = {
       Failed: 'failed',
       Pending: 'pending',
       Running: 'running',
       Succeeded: 'succeeded',
     } as const;
 
-    export type VisionLensesObservationsListTriggeredBy = typeof VisionLensesObservationsListTriggeredBy[keyof typeof VisionLensesObservationsListTriggeredBy];
+    export type VisionScannersObservationsListTriggeredBy = typeof VisionScannersObservationsListTriggeredBy[keyof typeof VisionScannersObservationsListTriggeredBy];
 
 
-    export const VisionLensesObservationsListTriggeredBy = {
+    export const VisionScannersObservationsListTriggeredBy = {
       OnDemand: 'on_demand',
       Schedule: 'schedule',
     } as const;
@@ -43145,6 +43370,14 @@ export namespace Schemas {
 
     export type EventDefinitionsListParams = {
     /**
+     * When true, omit events that have been explicitly hidden by a team admin (Enterprise only).
+     */
+    exclude_hidden?: boolean;
+    /**
+     * When true, omit events whose last ingested occurrence is older than 30 days. Events that have never been seen (`last_seen_at` is null) are kept so newly-defined events remain discoverable. Default false. If a search returns zero results with this filter on, retry with `exclude_stale=false` and tell the user the matches are stale.
+     */
+    exclude_stale?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -44641,6 +44874,24 @@ export namespace Schemas {
       Twilio: 'twilio',
       Vercel: 'vercel',
     } as const;
+
+    export type IntegrationsChannelsRetrieveParams = {
+    /**
+     * Maximum number of channels to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Number of channels to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive channel name or ID search query.
+     */
+    search?: string;
+    };
 
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**

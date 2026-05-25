@@ -149,8 +149,14 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         ],
         activeTab: [
             (s) => [s.sceneKey],
-            (sceneKey): 'dashboard' | 'journeys' => {
-                return sceneKey === 'customerAnalyticsJourneys' ? 'journeys' : 'dashboard'
+            (sceneKey): 'dashboard' | 'journeys' | 'accounts' => {
+                if (sceneKey === 'customerAnalyticsJourneys') {
+                    return 'journeys'
+                }
+                if (sceneKey === 'customerAnalyticsAccounts') {
+                    return 'accounts'
+                }
+                return 'dashboard'
             },
         ],
         breadcrumbs: [
