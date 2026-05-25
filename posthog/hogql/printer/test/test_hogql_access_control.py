@@ -303,6 +303,61 @@ class TestObjectLevelAccessControl(BaseTest):
         assert "in(toString(system__dashboards.id)" in sql
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_creator_bypass_emitted_for_table_with_created_by_id(self):
+        """Tables that expose `created_by_id` get an OR-clause exempting the
+        user's own rows from the deny list — matches the
+        `Q(created_by=self._user)` OR in `filter_queryset_by_access_level`.
+
+        We use `system.insights` because it exposes `created_by_id`;
+        `system.dashboards` deliberately does not.
+        """
+        from ee.models import AccessControl
+
+        membership = self._enable_ac()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id="1",
+            access_level="none",
+            organization_member=membership,
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        ctx = HogQLContext(
+            team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True, database=database
+        )
+        sql = self._compile_select("SELECT id FROM system.insights", ctx)
+
+        # The predicate is wrapped in `or(<deny subquery>, equals(created_by_id, <user_id>))`.
+        assert "notIn" in sql, "deny-list path should emit NOT IN"
+        assert f"system__insights.created_by_id" in sql, "creator bypass missing — created_by_id reference"
+
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_creator_bypass_absent_for_table_without_created_by_id(self):
+        """`system.dashboards` does not expose `created_by_id`, so the bypass
+        clause must NOT be emitted (the predicate would otherwise fail to
+        resolve)."""
+        from ee.models import AccessControl
+
+        membership = self._enable_ac()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="1",
+            access_level="none",
+            organization_member=membership,
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        ctx = HogQLContext(
+            team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True, database=database
+        )
+        sql = self._compile_select("SELECT id FROM system.dashboards", ctx)
+
+        assert "notIn" in sql
+        assert "created_by_id" not in sql, "should not reference created_by_id on a table that doesn't expose it"
+
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_admin_skips_object_level_predicate(self):
         from ee.models import AccessControl
 
