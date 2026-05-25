@@ -108,7 +108,9 @@ export const getToolsFromContext = async (
     const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
     const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
     const excludeTools = options?.excludeTools ?? []
-    const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
+    const allowedToolNames = (await getFilteredToolNames(effectiveOptions)).filter(
+        (name) => !excludeTools.includes(name)
+    )
     const toolBases: ToolBase<ZodObjectAny>[] = []
 
     for (const toolName of allowedToolNames) {
@@ -122,16 +124,18 @@ export const getToolsFromContext = async (
     const effectiveVersion = options?.version ?? 1
     const filteredBases = toolBases.filter((tb) => tb.mcpVersion === undefined || tb.mcpVersion === effectiveVersion)
 
-    const tools: Tool<ZodObjectAny>[] = filteredBases.map((toolBase) => {
-        const definition = getToolDefinition(toolBase.name, options?.version)
-        return {
-            ...toolBase,
-            title: definition.title,
-            description: definition.description,
-            scopes: definition.required_scopes ?? [],
-            annotations: definition.annotations,
-        }
-    })
+    const tools: Tool<ZodObjectAny>[] = await Promise.all(
+        filteredBases.map(async (toolBase) => {
+            const definition = await getToolDefinition(toolBase.name, options?.version)
+            return {
+                ...toolBase,
+                title: definition.title,
+                description: definition.description,
+                scopes: definition.required_scopes ?? [],
+                annotations: definition.annotations,
+            }
+        })
+    )
 
     const apiKey = await context.stateManager.getApiKey()
     const scopes = apiKey?.scopes ?? []

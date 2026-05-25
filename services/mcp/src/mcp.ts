@@ -33,7 +33,10 @@ import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
-import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+// `createExecTool` is dynamically imported below to keep `@/tools/exec` and
+// its `yaml` dep out of the DO's module-load path. Only single-exec mode pays
+// for it, and only once init() has run (after `setName`).
+import type { ExecInnerCallTracker } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
@@ -666,20 +669,24 @@ export class MCP extends McpAgent<Env> {
             this._api.config.oauthClientName = oauthClientName
         }
 
-        const toolInfos = allTools.map((t) => ({
-            name: t.name,
-            category: getToolDefinition(t.name, version).category,
-        }))
-        const queryToolInfos: QueryToolInfo[] = allTools
-            .filter((t) => t.name.startsWith('query-'))
-            .map((t) => {
-                const def = getToolDefinition(t.name, version)
-                return {
-                    name: t.name,
-                    title: def.title,
-                    ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
-                }
-            })
+        const toolInfos = await Promise.all(
+            allTools.map(async (t) => ({
+                name: t.name,
+                category: (await getToolDefinition(t.name, version)).category,
+            }))
+        )
+        const queryToolInfos: QueryToolInfo[] = await Promise.all(
+            allTools
+                .filter((t) => t.name.startsWith('query-'))
+                .map(async (t): Promise<QueryToolInfo> => {
+                    const def = await getToolDefinition(t.name, version)
+                    return {
+                        name: t.name,
+                        title: def.title,
+                        ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                    }
+                })
+        )
 
         const supportsInstructions = clientProfile.capabilities.supportsInstructions
 
@@ -753,6 +760,7 @@ export class MCP extends McpAgent<Env> {
                 )
             }
 
+            const { createExecTool } = await import('@/tools/exec')
             const execTool = createExecTool(
                 allTools,
                 context,
@@ -853,7 +861,7 @@ export class MCP extends McpAgent<Env> {
     ): Promise<Record<string, boolean> | undefined> {
         try {
             const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
-            const flagKeys = getRequiredFeatureFlags(version)
+            const flagKeys = await getRequiredFeatureFlags(version)
             if (flagKeys.length === 0) {
                 return undefined
             }

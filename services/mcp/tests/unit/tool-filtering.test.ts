@@ -16,8 +16,8 @@ import type { Context } from '@/tools/types'
  * Tests use this to assert that filtered results never drop these tools,
  * without hard-coding the exact set (which grows as utility tools are added).
  */
-const collectAlwaysAvailableToolNames = (version?: number): string[] =>
-    Object.entries(getToolDefinitions(version))
+const collectAlwaysAvailableToolNames = async (version?: number): Promise<string[]> =>
+    Object.entries(await getToolDefinitions(version))
         .filter(([_, def]: [string, ToolDefinition]) => def.always_available === true)
         .map(([name]) => name)
 
@@ -103,16 +103,16 @@ describe('Tool Filtering - Features', () => {
     ]
 
     describe('getToolsForFeatures', () => {
-        it.each(featureTests)('should return $description', ({ features, expectedTools }) => {
-            const tools = getToolsForFeatures({ features })
+        it.each(featureTests)('should return $description', async ({ features, expectedTools }) => {
+            const tools = await getToolsForFeatures({ features })
 
             for (const tool of expectedTools) {
                 expect(tools).toContain(tool)
             }
         })
 
-        it('should expose all annotation tools in v2', () => {
-            const tools = getToolsForFeatures({ features: ['annotations'], version: 2 })
+        it('should expose all annotation tools in v2', async () => {
+            const tools = await getToolsForFeatures({ features: ['annotations'], version: 2 })
 
             expect(tools).toContain('annotation-create')
             expect(tools).toContain('annotation-delete')
@@ -124,20 +124,20 @@ describe('Tool Filtering - Features', () => {
 
 describe('Tool Filtering - Tools Allowlist', () => {
     describe('getToolsForFeatures with tools', () => {
-        it('should return all tools when tools is undefined', () => {
-            const allTools = getToolsForFeatures({})
-            const withUndefinedTools = getToolsForFeatures({ tools: undefined })
+        it('should return all tools when tools is undefined', async () => {
+            const allTools = await getToolsForFeatures({})
+            const withUndefinedTools = await getToolsForFeatures({ tools: undefined })
             expect(withUndefinedTools).toEqual(allTools)
         })
 
-        it('should return all tools when tools is empty array', () => {
-            const allTools = getToolsForFeatures({})
-            const withEmptyTools = getToolsForFeatures({ tools: [] })
+        it('should return all tools when tools is empty array', async () => {
+            const allTools = await getToolsForFeatures({})
+            const withEmptyTools = await getToolsForFeatures({ tools: [] })
             expect(withEmptyTools).toEqual(allTools)
         })
 
-        it('should return only specified tools (plus always_available tools when enabled)', () => {
-            const tools = getToolsForFeatures({
+        it('should return only specified tools (plus always_available tools when enabled)', async () => {
+            const tools = await getToolsForFeatures({
                 tools: ['dashboard-get', 'dashboard-create'],
                 featureFlags: { 'mcp-feedback-tool': true },
             })
@@ -146,7 +146,7 @@ describe('Tool Filtering - Tools Allowlist', () => {
 
             // always_available tools are included alongside the allowlist regardless of order
             // (when their gating feature flag is enabled).
-            const alwaysAvailableTools = collectAlwaysAvailableToolNames()
+            const alwaysAvailableTools = await collectAlwaysAvailableToolNames()
             expect(tools).toContain('agent-feedback')
 
             // Every extra tool beyond the explicit allowlist must be always_available.
@@ -156,38 +156,38 @@ describe('Tool Filtering - Tools Allowlist', () => {
             }
         })
 
-        it('should return only always_available tools for nonexistent tool names', () => {
-            const tools = getToolsForFeatures({
+        it('should return only always_available tools for nonexistent tool names', async () => {
+            const tools = await getToolsForFeatures({
                 tools: ['nonexistent-tool'],
                 featureFlags: { 'mcp-feedback-tool': true },
             })
-            const alwaysAvailableTools = collectAlwaysAvailableToolNames()
+            const alwaysAvailableTools = await collectAlwaysAvailableToolNames()
 
             // The result is exactly the always_available set (order-independent).
             expect(tools).toContain('agent-feedback')
             expect(new Set(tools)).toEqual(new Set(alwaysAvailableTools))
         })
 
-        it('should always include agent-feedback even when feature filter matches no tools', () => {
-            const tools = getToolsForFeatures({
+        it('should always include agent-feedback even when feature filter matches no tools', async () => {
+            const tools = await getToolsForFeatures({
                 features: ['nonexistent-feature'],
                 featureFlags: { 'mcp-feedback-tool': true },
             })
             expect(tools).toContain('agent-feedback')
         })
 
-        it('should hide agent-feedback when its gating feature flag is off', () => {
+        it('should hide agent-feedback when its gating feature flag is off', async () => {
             // Flag explicitly off — tool is hidden even though it's always_available.
-            const toolsWithFlagOff = getToolsForFeatures({ featureFlags: { 'mcp-feedback-tool': false } })
+            const toolsWithFlagOff = await getToolsForFeatures({ featureFlags: { 'mcp-feedback-tool': false } })
             expect(toolsWithFlagOff).not.toContain('agent-feedback')
 
             // No flags evaluated at all — also hidden (default behavior is `enable`).
-            const toolsWithoutFlags = getToolsForFeatures({})
+            const toolsWithoutFlags = await getToolsForFeatures({})
             expect(toolsWithoutFlags).not.toContain('agent-feedback')
         })
 
-        it('should union with features (OR) when both are provided', () => {
-            const tools = getToolsForFeatures({ features: ['flags'], tools: ['dashboard-get'] })
+        it('should union with features (OR) when both are provided', async () => {
+            const tools = await getToolsForFeatures({ features: ['flags'], tools: ['dashboard-get'] })
 
             // Should include flag tools from features
             expect(tools).toContain('feature-flag-get-definition')
@@ -200,22 +200,25 @@ describe('Tool Filtering - Tools Allowlist', () => {
             expect(tools).not.toContain('insights-list')
         })
 
-        it('should still apply readOnly on top of tools filter', () => {
-            const tools = getToolsForFeatures({ tools: ['dashboard-get', 'dashboard-create'], readOnly: true })
+        it('should still apply readOnly on top of tools filter', async () => {
+            const tools = await getToolsForFeatures({
+                tools: ['dashboard-get', 'dashboard-create'],
+                readOnly: true,
+            })
 
             expect(tools).toContain('dashboard-get')
             expect(tools).not.toContain('dashboard-create')
         })
 
-        it('should still apply aiConsentGiven on top of tools filter', () => {
-            const withoutConsent = getToolsForFeatures({
+        it('should still apply aiConsentGiven on top of tools filter', async () => {
+            const withoutConsent = await getToolsForFeatures({
                 tools: ['dashboard-get', 'query-generate-hogql-from-question'],
                 aiConsentGiven: false,
             })
             expect(withoutConsent).toContain('dashboard-get')
             expect(withoutConsent).not.toContain('query-generate-hogql-from-question')
 
-            const withConsent = getToolsForFeatures({
+            const withConsent = await getToolsForFeatures({
                 tools: ['dashboard-get', 'query-generate-hogql-from-question'],
                 aiConsentGiven: true,
             })
@@ -329,7 +332,7 @@ describe('Tool Filtering - API Scopes', () => {
         // Only tools with no required scopes (or that bypass scope checks) should be available.
         expect(toolNames).toContain('debug-mcp-ui-apps')
         expect(toolNames).toContain('agent-feedback')
-        expectAllToolsHaveNoRequiredScopes(toolNames)
+        await expectAllToolsHaveNoRequiredScopes(toolNames)
     })
 
     it('should return only tools with no required scopes when user has empty scopes', async () => {
@@ -339,7 +342,7 @@ describe('Tool Filtering - API Scopes', () => {
 
         expect(toolNames).toContain('debug-mcp-ui-apps')
         expect(toolNames).toContain('agent-feedback')
-        expectAllToolsHaveNoRequiredScopes(toolNames)
+        await expectAllToolsHaveNoRequiredScopes(toolNames)
     })
 })
 
@@ -348,8 +351,8 @@ describe('Tool Filtering - API Scopes', () => {
  * in its definition. Used by the "user has no scopes" tests so they don't
  * break when a new no-scope utility tool is added.
  */
-function expectAllToolsHaveNoRequiredScopes(toolNames: string[]): void {
-    const definitions = getToolDefinitions()
+async function expectAllToolsHaveNoRequiredScopes(toolNames: string[]): Promise<void> {
+    const definitions = await getToolDefinitions()
     for (const name of toolNames) {
         const def = definitions[name]
         if (def === undefined) {
@@ -362,12 +365,12 @@ function expectAllToolsHaveNoRequiredScopes(toolNames: string[]): void {
 }
 
 describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
-    it('should include every scope referenced in tool definitions', () => {
+    it('should include every scope referenced in tool definitions', async () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
 
         const allDefinitions = {
-            ...getToolDefinitions(1),
-            ...getToolDefinitions(2),
+            ...(await getToolDefinitions(1)),
+            ...(await getToolDefinitions(2)),
         }
 
         const scopesFromTools = new Set<string>()
@@ -443,29 +446,29 @@ describe('Tool Filtering - excludeTools', () => {
 })
 
 describe('Tool Filtering - AI Consent', () => {
-    it('should exclude tools requiring AI consent when aiConsentGiven is false', () => {
-        const tools = getToolsForFeatures({ aiConsentGiven: false })
+    it('should exclude tools requiring AI consent when aiConsentGiven is false', async () => {
+        const tools = await getToolsForFeatures({ aiConsentGiven: false })
         expect(tools).not.toContain('query-generate-hogql-from-question')
     })
 
-    it('should include tools requiring AI consent when aiConsentGiven is true', () => {
-        const tools = getToolsForFeatures({ aiConsentGiven: true })
+    it('should include tools requiring AI consent when aiConsentGiven is true', async () => {
+        const tools = await getToolsForFeatures({ aiConsentGiven: true })
         expect(tools).toContain('query-generate-hogql-from-question')
     })
 
-    it('should exclude tools requiring AI consent when aiConsentGiven is undefined', () => {
-        const tools = getToolsForFeatures({ aiConsentGiven: undefined })
+    it('should exclude tools requiring AI consent when aiConsentGiven is undefined', async () => {
+        const tools = await getToolsForFeatures({ aiConsentGiven: undefined })
         expect(tools).not.toContain('query-generate-hogql-from-question')
     })
 
-    it('should not exclude tools that do not require AI consent when aiConsentGiven is false', () => {
-        const tools = getToolsForFeatures({ aiConsentGiven: false })
+    it('should not exclude tools that do not require AI consent when aiConsentGiven is false', async () => {
+        const tools = await getToolsForFeatures({ aiConsentGiven: false })
         expect(tools).toContain('dashboard-get')
         expect(tools).toContain('feature-flag-get-all')
     })
 
-    it('should combine aiConsentGiven with feature filtering', () => {
-        const tools = getToolsForFeatures({ features: ['insights', 'product_analytics'], aiConsentGiven: false })
+    it('should combine aiConsentGiven with feature filtering', async () => {
+        const tools = await getToolsForFeatures({ features: ['insights', 'product_analytics'], aiConsentGiven: false })
         expect(tools).not.toContain('query-generate-hogql-from-question')
         expect(tools).toContain('insights-list')
     })
@@ -525,9 +528,9 @@ describe('Tool Filtering - AI Consent', () => {
 })
 
 describe('Tool Filtering - Read-Only Mode', () => {
-    it('should only return read-only tools when readOnly is true', () => {
-        const tools = getToolsForFeatures({ readOnly: true })
-        const definitions = getToolDefinitions()
+    it('should only return read-only tools when readOnly is true', async () => {
+        const tools = await getToolsForFeatures({ readOnly: true })
+        const definitions = await getToolDefinitions()
 
         for (const toolName of tools) {
             const def = definitions[toolName] as ToolDefinition
@@ -542,22 +545,22 @@ describe('Tool Filtering - Read-Only Mode', () => {
         expect(tools).not.toContain('insight-create')
     })
 
-    it('should return all tools when readOnly is false', () => {
-        const allTools = getToolsForFeatures({})
-        const readOnlyFalseTools = getToolsForFeatures({ readOnly: false })
+    it('should return all tools when readOnly is false', async () => {
+        const allTools = await getToolsForFeatures({})
+        const readOnlyFalseTools = await getToolsForFeatures({ readOnly: false })
 
         expect(readOnlyFalseTools).toEqual(allTools)
     })
 
-    it('should return all tools when readOnly is undefined', () => {
-        const allTools = getToolsForFeatures({})
-        const readOnlyUndefinedTools = getToolsForFeatures({ readOnly: undefined })
+    it('should return all tools when readOnly is undefined', async () => {
+        const allTools = await getToolsForFeatures({})
+        const readOnlyUndefinedTools = await getToolsForFeatures({ readOnly: undefined })
 
         expect(readOnlyUndefinedTools).toEqual(allTools)
     })
 
-    it('should combine readOnly with feature filtering', () => {
-        const tools = getToolsForFeatures({ features: ['dashboards'], readOnly: true })
+    it('should combine readOnly with feature filtering', async () => {
+        const tools = await getToolsForFeatures({ features: ['dashboards'], readOnly: true })
 
         expect(tools).toContain('dashboard-get')
         expect(tools).toContain('dashboards-get-all')
@@ -635,8 +638,8 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(withFlags).toEqual(withoutFlags)
     })
 
-    it('getRequiredFeatureFlags should return flags used by current definitions', () => {
-        const flags = getRequiredFeatureFlags()
+    it('getRequiredFeatureFlags should return flags used by current definitions', async () => {
+        const flags = await getRequiredFeatureFlags()
         // Includes the gating flag for agent-feedback alongside the other gated tools.
         expect(flags).toEqual(
             expect.arrayContaining([

@@ -1,5 +1,6 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { toJsonSchemaCompat } from '@modelcontextprotocol/sdk/server/zod-json-schema-compat.js'
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScopes } from '@/lib/api'
 import {
@@ -9,8 +10,6 @@ import {
     getToolsForFeatures,
 } from '@/tools/toolDefinitions'
 import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
-
-import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 interface PreBuiltTool {
     base: ToolBase<ZodObjectAny>
@@ -56,8 +55,7 @@ export class ToolCatalog {
             ...GENERATED_TOOL_MAP,
         }
 
-        const v1Defs = getToolDefinitions(1)
-        const v2Defs = getToolDefinitions(2)
+        const [v1Defs, v2Defs] = await Promise.all([getToolDefinitions(1), getToolDefinitions(2)])
 
         for (const [name, factory] of Object.entries(allFactories)) {
             const base = factory()
@@ -84,7 +82,9 @@ export class ToolCatalog {
 
         for (const [name, preBuilt] of this._preBuilt) {
             const def = preBuilt.definitions.v1 ?? preBuilt.definitions.v2
-            if (!def) {continue}
+            if (!def) {
+                continue
+            }
 
             let jsonSchema: Record<string, unknown>
             try {
@@ -132,9 +132,11 @@ export class ToolCatalog {
         return this._entriesByName.get(name)
     }
 
-    getFilteredTools(options: ToolCatalogFilterOptions): Tool<ZodObjectAny>[] {
+    async getFilteredTools(options: ToolCatalogFilterOptions): Promise<Tool<ZodObjectAny>[]> {
         const { scopes = [], excludeTools = [], ...filterOptions } = options
-        const allowedToolNames = getToolsForFeatures(filterOptions).filter((name) => !excludeTools.includes(name))
+        const allowedToolNames = (await getToolsForFeatures(filterOptions)).filter(
+            (name) => !excludeTools.includes(name)
+        )
         const effectiveVersion = filterOptions.version ?? 1
 
         const tools: Tool<ZodObjectAny>[] = []

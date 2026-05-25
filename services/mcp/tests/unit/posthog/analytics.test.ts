@@ -121,7 +121,7 @@ describe('initMcpAnalytics', () => {
                 posthogClient: expect.any(Object),
                 context: false,
                 enableAITracing: true,
-                enableTracing: true,
+                enableTracing: false,
                 identify: expect.objectContaining({ userId: expect.any(String) }),
                 eventTags: expect.any(Function),
                 eventProperties: expect.any(Function),

@@ -1,8 +1,12 @@
 import z from 'zod'
 
-import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
-import toolDefinitionsV2Json from '../../schema/tool-definitions-v2.json'
-import toolDefinitionsJson from '../../schema/tool-definitions.json'
+// Each of these JSON files is bundled as a JS object literal and would be
+// materialized into a JS object tree (~1-2 MiB combined) at module-load time
+// if we imported them statically. Instead we `await import(...)` from inside
+// the getters so the object trees are only allocated the first time tool
+// definitions are actually consulted — which is during init(), well after the
+// agents framework's `setName` lifecycle call. This is the single biggest
+// boot-time allocation we can move off the cold-start path.
 
 export const ToolDefinitionSchema = z.object({
     description: z.string(),
@@ -45,33 +49,39 @@ let _toolDefinitionsV1: ToolDefinitions | undefined = undefined
 let _toolDefinitionsV2: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
 
-function getGeneratedToolDefinitions(): ToolDefinitions {
+async function getGeneratedToolDefinitions(): Promise<ToolDefinitions> {
     if (!_generatedToolDefinitions) {
-        _generatedToolDefinitions = toolDefinitionsSchema.parse(generatedToolDefinitionsJson)
+        const mod = await import('../../schema/generated-tool-definitions.json')
+        _generatedToolDefinitions = toolDefinitionsSchema.parse(mod.default)
     }
     return _generatedToolDefinitions
 }
 
-export function getToolDefinitions(version?: number): ToolDefinitions {
-    const generated = getGeneratedToolDefinitions()
+export async function getToolDefinitions(version?: number): Promise<ToolDefinitions> {
+    const generated = await getGeneratedToolDefinitions()
 
     if (version === 2) {
         if (!_toolDefinitionsV2) {
-            const base = toolDefinitionsSchema.parse(toolDefinitionsJson)
-            const new_tools = toolDefinitionsSchema.parse(toolDefinitionsV2Json)
+            const [baseMod, v2Mod] = await Promise.all([
+                import('../../schema/tool-definitions.json'),
+                import('../../schema/tool-definitions-v2.json'),
+            ])
+            const base = toolDefinitionsSchema.parse(baseMod.default)
+            const new_tools = toolDefinitionsSchema.parse(v2Mod.default)
             _toolDefinitionsV2 = { ...new_tools, ...base }
         }
         return { ..._toolDefinitionsV2, ...generated }
     }
 
     if (!_toolDefinitionsV1) {
-        _toolDefinitionsV1 = toolDefinitionsSchema.parse(toolDefinitionsJson)
+        const baseMod = await import('../../schema/tool-definitions.json')
+        _toolDefinitionsV1 = toolDefinitionsSchema.parse(baseMod.default)
     }
     return { ..._toolDefinitionsV1, ...generated }
 }
 
-export function getToolDefinition(toolName: string, version?: number): ToolDefinition {
-    const toolDefinitions = getToolDefinitions(version)
+export async function getToolDefinition(toolName: string, version?: number): Promise<ToolDefinition> {
+    const toolDefinitions = await getToolDefinitions(version)
 
     const definition = toolDefinitions[toolName]
 
@@ -100,8 +110,8 @@ export interface ToolFilterOptions {
  * Collect all distinct feature flag keys referenced by tool definitions.
  * Used at init time to batch-evaluate flags before filtering tools.
  */
-export function getRequiredFeatureFlags(version?: number): string[] {
-    const toolDefinitions = getToolDefinitions(version)
+export async function getRequiredFeatureFlags(version?: number): Promise<string[]> {
+    const toolDefinitions = await getToolDefinitions(version)
     const flags = new Set<string>()
     for (const definition of Object.values(toolDefinitions)) {
         if (definition.feature_flag) {
@@ -115,9 +125,9 @@ function normalizeFeatureName(name: string): string {
     return name.replace(/-/g, '_')
 }
 
-export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
+export async function getToolsForFeatures(options?: ToolFilterOptions): Promise<string[]> {
     const { features, tools, version, readOnly, aiConsentGiven, featureFlags } = options || {}
-    const toolDefinitions = getToolDefinitions(version)
+    const toolDefinitions = await getToolDefinitions(version)
 
     let entries = Object.entries(toolDefinitions)
 

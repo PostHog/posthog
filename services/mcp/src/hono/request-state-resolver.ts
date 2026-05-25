@@ -78,7 +78,7 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.cache.get('projectId')) ?? undefined
         }
 
-        const toolFlagKeys = getRequiredFeatureFlags(clientVersion)
+        const toolFlagKeys = await getRequiredFeatureFlags(clientVersion)
         const allFlagKeys = [...SYSTEM_FLAGS, ...toolFlagKeys]
 
         const flagAnalyticsContext = await reqCtx.getAnalyticsContextSafe(context)
@@ -91,9 +91,8 @@ export class RequestStateResolver {
         ])
 
         const flagVersion = allFlags['mcp-version-2'] ? 2 : undefined
-        const toolFeatureFlags = toolFlagKeys.length > 0
-            ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]]))
-            : undefined
+        const toolFeatureFlags =
+            toolFlagKeys.length > 0 ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]])) : undefined
 
         const oauthClientName = (await reqCtx.cache.get('clientName')) || undefined
         const mcpClientName = props.mcpClientName || (await reqCtx.cache.get('mcpClientName')) || undefined
@@ -122,7 +121,7 @@ export class RequestStateResolver {
             excludeTools.push('switch-organization')
         }
 
-        const allTools = this.catalog.getFilteredTools({
+        const allTools = await this.catalog.getFilteredTools({
             features,
             tools,
             version,
@@ -151,7 +150,9 @@ export class RequestStateResolver {
         flagKeys: string[],
         groups?: FlagGroups
     ): Promise<Record<string, boolean>> {
-        if (flagKeys.length === 0) {return {}}
+        if (flagKeys.length === 0) {
+            return {}
+        }
         try {
             const distinctId = await reqCtx.getDistinctId()
             return await evaluateFeatureFlags(flagKeys, distinctId, groups)

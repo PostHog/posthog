@@ -593,20 +593,24 @@ describe('exec tool', () => {
         it('keeps the tool description within 2048 characters', async () => {
             const context = createSnapshotContext()
             const v2Tools = await getToolsFromContext(context, { version: 2 })
-            const toolInfos = v2Tools.map((t) => ({
-                name: t.name,
-                category: getToolDefinition(t.name, 2).category,
-            }))
-            const queryToolInfos = v2Tools
-                .filter((t) => t.name.startsWith('query-'))
-                .map((t) => {
-                    const def = getToolDefinition(t.name, 2)
-                    return {
-                        name: t.name,
-                        title: def.title,
-                        ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
-                    }
-                })
+            const toolInfos = await Promise.all(
+                v2Tools.map(async (t) => ({
+                    name: t.name,
+                    category: (await getToolDefinition(t.name, 2)).category,
+                }))
+            )
+            const queryToolInfos = await Promise.all(
+                v2Tools
+                    .filter((t) => t.name.startsWith('query-'))
+                    .map(async (t) => {
+                        const def = await getToolDefinition(t.name, 2)
+                        return {
+                            name: t.name,
+                            title: def.title,
+                            ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                        }
+                    })
+            )
             const formatter = new InstructionsFormatter()
             const commandReference = formatter.buildExecCommandReference(
                 { guidelines, tools: toolInfos, queryTools: queryToolInfos },
@@ -639,20 +643,24 @@ describe('exec tool', () => {
             const v2Tools = [...(await getToolsFromContext(context, { version: 2 }))].sort((a, b) =>
                 a.name.localeCompare(b.name)
             )
-            const toolInfos = v2Tools.map((t) => ({
-                name: t.name,
-                category: getToolDefinition(t.name, 2).category,
-            }))
-            const queryToolInfos = v2Tools
-                .filter((t) => t.name.startsWith('query-'))
-                .map((t) => {
-                    const def = getToolDefinition(t.name, 2)
-                    return {
-                        name: t.name,
-                        title: def.title,
-                        ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
-                    }
-                })
+            const toolInfos = await Promise.all(
+                v2Tools.map(async (t) => ({
+                    name: t.name,
+                    category: (await getToolDefinition(t.name, 2)).category,
+                }))
+            )
+            const queryToolInfos = await Promise.all(
+                v2Tools
+                    .filter((t) => t.name.startsWith('query-'))
+                    .map(async (t) => {
+                        const def = await getToolDefinition(t.name, 2)
+                        return {
+                            name: t.name,
+                            title: def.title,
+                            ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                        }
+                    })
+            )
             const formatter = new InstructionsFormatter()
             const commandReference = formatter.buildExecCommandReference(
                 { guidelines, tools: toolInfos, queryTools: queryToolInfos },

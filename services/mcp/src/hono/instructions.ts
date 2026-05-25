@@ -1,3 +1,5 @@
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
+
 import { hasScope } from '@/lib/api'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
@@ -5,8 +7,6 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { formatPrompt } from '@/lib/utils'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { getToolDefinition } from '@/tools/toolDefinitions'
-
-import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import type { ResolvedState } from './request-state-resolver'
 
@@ -21,7 +21,9 @@ export class InstructionsBuilder {
 
     async build(props: RequestProperties, state: ResolvedState): Promise<string> {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
-        if (!supportsInstructions) {return ''}
+        if (!supportsInstructions) {
+            return ''
+        }
 
         const { projectId } = props
         const resolvedProjectId = projectId || (await state.reqCtx.cache.get('projectId'))
@@ -33,7 +35,7 @@ export class InstructionsBuilder {
         ])
 
         const ctx: InstructionsContext = {
-            ...this.buildContext(state),
+            ...(await this.buildContext(state)),
             groupTypes,
             metadata,
         }
@@ -46,30 +48,36 @@ export class InstructionsBuilder {
         return this.formatter.buildV1Instructions(metadata)
     }
 
-    buildContext(state: ResolvedState): InstructionsContext {
-        return {
-            guidelines: this.guidelines,
-            tools: state.allTools.map((t) => ({
+    async buildContext(state: ResolvedState): Promise<InstructionsContext> {
+        const tools = await Promise.all(
+            state.allTools.map(async (t) => ({
                 name: t.name,
-                category: getToolDefinition(t.name, state.version).category,
-            })),
-            queryTools: state.allTools
+                category: (await getToolDefinition(t.name, state.version)).category,
+            }))
+        )
+        const queryTools = await Promise.all(
+            state.allTools
                 .filter((t) => t.name.startsWith('query-'))
-                .map((t) => {
-                    const def = getToolDefinition(t.name, state.version)
+                .map(async (t): Promise<QueryToolInfo> => {
+                    const def = await getToolDefinition(t.name, state.version)
                     return {
                         name: t.name,
                         title: def.title,
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
-                    } as QueryToolInfo
-                }),
+                    }
+                })
+        )
+        return {
+            guidelines: this.guidelines,
+            tools,
+            queryTools,
             featureFlags: state.toolFeatureFlags,
         }
     }
 
-    buildExecToolEntry(state: ResolvedState, _props: RequestProperties): McpTool {
+    async buildExecToolEntry(state: ResolvedState, _props: RequestProperties): Promise<McpTool> {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
-        const ctx = this.buildContext(state)
+        const ctx = await this.buildContext(state)
         const commandReference = this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
         })
@@ -83,9 +91,9 @@ export class InstructionsBuilder {
         }
     }
 
-    buildExecCommandReference(state: ResolvedState): string {
+    async buildExecCommandReference(state: ResolvedState): Promise<string> {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
-        const ctx = this.buildContext(state)
+        const ctx = await this.buildContext(state)
         return this.formatter.buildExecCommandReference(ctx, {
             stripEnvContext: supportsInstructions,
         })

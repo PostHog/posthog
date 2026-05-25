@@ -124,14 +124,14 @@ describe('ToolCatalog', () => {
             await catalog.warmup()
         })
 
-        it('should return all tools when no filters applied', () => {
-            const tools = catalog.getFilteredTools({ scopes: ['project:read', 'action:write'] })
+        it('should return all tools when no filters applied', async () => {
+            const tools = await catalog.getFilteredTools({ scopes: ['project:read', 'action:write'] })
             const names = tools.map((t) => t.name).sort()
             expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-b'])
         })
 
-        it('should exclude tools by name', () => {
-            const tools = catalog.getFilteredTools({
+        it('should exclude tools by name', async () => {
+            const tools = await catalog.getFilteredTools({
                 scopes: ['project:read', 'action:write'],
                 excludeTools: ['tool-b'],
             })
@@ -139,20 +139,20 @@ describe('ToolCatalog', () => {
             expect(names).toEqual(['gen-tool-c', 'tool-a'])
         })
 
-        it('should filter by scopes', () => {
-            const tools = catalog.getFilteredTools({ scopes: ['project:read'] })
+        it('should filter by scopes', async () => {
+            const tools = await catalog.getFilteredTools({ scopes: ['project:read'] })
             const names = tools.map((t) => t.name).sort()
             expect(names).toEqual(['tool-a', 'tool-b'])
         })
 
-        it('should exclude tools when scopes are missing', () => {
-            const tools = catalog.getFilteredTools({ scopes: [] })
+        it('should exclude tools when scopes are missing', async () => {
+            const tools = await catalog.getFilteredTools({ scopes: [] })
             const names = tools.map((t) => t.name)
             expect(names).toEqual(['tool-b'])
         })
 
-        it('should include v2-only tools when version is 2', () => {
-            const tools = catalog.getFilteredTools({
+        it('should include v2-only tools when version is 2', async () => {
+            const tools = await catalog.getFilteredTools({
                 scopes: ['project:read', 'action:write'],
                 version: 2,
             })
@@ -160,16 +160,16 @@ describe('ToolCatalog', () => {
             expect(names).toEqual(['gen-tool-c', 'tool-a', 'tool-b', 'tool-v2-only'])
         })
 
-        it('should exclude v2-only tools when version is 1', () => {
-            const tools = catalog.getFilteredTools({
+        it('should exclude v2-only tools when version is 1', async () => {
+            const tools = await catalog.getFilteredTools({
                 scopes: ['project:read', 'action:write'],
                 version: 1,
             })
             expect(tools.find((t) => t.name === 'tool-v2-only')).toBeUndefined()
         })
 
-        it('should filter by readOnly when passed through to getToolsForFeatures', () => {
-            const tools = catalog.getFilteredTools({
+        it('should filter by readOnly when passed through to getToolsForFeatures', async () => {
+            const tools = await catalog.getFilteredTools({
                 scopes: ['project:read', 'action:write'],
                 readOnly: true,
             })
@@ -177,8 +177,8 @@ describe('ToolCatalog', () => {
             expect(names).toEqual(['tool-b'])
         })
 
-        it('should filter by features when passed through to getToolsForFeatures', () => {
-            const tools = catalog.getFilteredTools({
+        it('should filter by features when passed through to getToolsForFeatures', async () => {
+            const tools = await catalog.getFilteredTools({
                 scopes: ['project:read'],
                 features: ['insights'],
             })
@@ -186,24 +186,24 @@ describe('ToolCatalog', () => {
             expect(names).toEqual(['tool-b'])
         })
 
-        it('should merge title and description from definitions onto the tool', () => {
-            const tools = catalog.getFilteredTools({ scopes: ['project:read'] })
+        it('should merge title and description from definitions onto the tool', async () => {
+            const tools = await catalog.getFilteredTools({ scopes: ['project:read'] })
             const toolA = tools.find((t) => t.name === 'tool-a')
             expect(toolA).toBeTruthy()
             expect(toolA!.title).toBe('Title')
             expect(toolA!.description).toBe('Desc')
         })
 
-        it('should attach scopes and annotations from definitions', () => {
-            const tools = catalog.getFilteredTools({ scopes: ['project:read'] })
+        it('should attach scopes and annotations from definitions', async () => {
+            const tools = await catalog.getFilteredTools({ scopes: ['project:read'] })
             const toolA = tools.find((t) => t.name === 'tool-a')
             expect(toolA!.scopes).toEqual(['project:read'])
             expect(toolA!.annotations).toEqual(expect.objectContaining({ readOnlyHint: false }))
         })
 
-        it('should return empty array when catalog is not warmed up', () => {
+        it('should return empty array when catalog is not warmed up', async () => {
             const coldCatalog = new ToolCatalog()
-            const tools = coldCatalog.getFilteredTools({ scopes: [] })
+            const tools = await coldCatalog.getFilteredTools({ scopes: [] })
             expect(tools).toEqual([])
         })
     })

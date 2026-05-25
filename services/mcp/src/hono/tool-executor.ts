@@ -12,7 +12,10 @@ import {
 } from '@/lib/errors'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
-import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
+// `createExecTool` is dynamically imported below so `@/tools/exec` (and its
+// `yaml` dep) only enter the Worker's module graph the first time a request
+// actually runs through single-exec mode.
+import type { ExecInnerCallTracker } from '@/tools/exec'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
 import { trackToolCall } from './analytics'
@@ -39,7 +42,7 @@ export class ToolExecutor {
 
     async handleToolsList(state: ResolvedState, props: RequestProperties): Promise<ListToolsResult> {
         if (state.useSingleExec) {
-            return { tools: [this.instructionsBuilder.buildExecToolEntry(state, props)] }
+            return { tools: [await this.instructionsBuilder.buildExecToolEntry(state, props)] }
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
@@ -68,7 +71,7 @@ export class ToolExecutor {
         }
 
         if (state.useSingleExec && toolName === 'exec') {
-            return this.callTool(this.resolveExecTool(state, props), params, props, state)
+            return this.callTool(await this.resolveExecTool(state, props), params, props, state)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -157,8 +160,8 @@ export class ToolExecutor {
         }
     }
 
-    private resolveExecTool(state: ResolvedState, props: RequestProperties): ResolvedTool {
-        const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
+    private async resolveExecTool(state: ResolvedState, props: RequestProperties): Promise<ResolvedTool> {
+        const commandReference = await this.instructionsBuilder.buildExecCommandReference(state)
 
         const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
             void (async () => {
@@ -174,6 +177,7 @@ export class ToolExecutor {
             })().catch(() => {})
         }
 
+        const { createExecTool } = await import('@/tools/exec')
         const execTool = createExecTool(
             state.allTools,
             state.context,
