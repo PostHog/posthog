@@ -137,8 +137,7 @@ async fn all_events_quota_dropped() {
     // Poll until the background task populates the cache (avoids flaky fixed sleep).
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
-        let batch: Batch =
-            serde_json::from_slice(&payload).expect("payload must parse as Batch");
+        let batch: Batch = serde_json::from_slice(&payload).expect("payload must parse as Batch");
         let mut ctx = test_utils::test_context();
         ctx.api_token = "*".to_string();
         let result = process_batch(&ts.state, &mut ctx, batch).await;
