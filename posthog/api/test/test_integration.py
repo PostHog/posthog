@@ -232,6 +232,38 @@ class TestSlackIntegration:
         assert not channel["is_private"]
         assert not channel["is_private_without_access"]
 
+    def test_granted_scopes_parses_comma_separated_string(self):
+        self.integration.config["scope"] = "chat:write,users:read,users:read.email"
+        slack = SlackIntegration(self.integration)
+        assert slack.granted_scopes() == frozenset({"chat:write", "users:read", "users:read.email"})
+
+    def test_granted_scopes_tolerates_whitespace_and_empty_entries(self):
+        self.integration.config["scope"] = " chat:write , ,users:read"
+        slack = SlackIntegration(self.integration)
+        assert slack.granted_scopes() == frozenset({"chat:write", "users:read"})
+
+    def test_granted_scopes_returns_empty_when_field_missing(self):
+        self.integration.config.pop("scope", None)
+        slack = SlackIntegration(self.integration)
+        assert slack.granted_scopes() == frozenset()
+
+    def test_granted_scopes_returns_empty_when_field_is_empty_string(self):
+        self.integration.config["scope"] = ""
+        slack = SlackIntegration(self.integration)
+        assert slack.granted_scopes() == frozenset()
+
+    def test_missing_scopes_returns_difference(self):
+        self.integration.config["scope"] = "chat:write,users:read"
+        slack = SlackIntegration(self.integration)
+        required = {"chat:write", "users:read", "users:read.email", "reactions:write"}
+        assert slack.missing_scopes(required) == frozenset({"users:read.email", "reactions:write"})
+
+    def test_missing_scopes_returns_empty_when_all_granted(self):
+        required = {"chat:write", "users:read"}
+        self.integration.config["scope"] = "chat:write,users:read,extra:scope"
+        slack = SlackIntegration(self.integration)
+        assert slack.missing_scopes(required) == frozenset()
+
 
 class TestEmailIntegration:
     @pytest.fixture(autouse=True)

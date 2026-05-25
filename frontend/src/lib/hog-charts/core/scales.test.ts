@@ -3,6 +3,7 @@ import {
     autoFormatYTick,
     buildSegmentResolveValue,
     buildStackedPositionValue,
+    computeDivergingStackData,
     computePercentStackData,
     computeStackData,
     createScales,
@@ -425,6 +426,18 @@ describe('hog-charts scales', () => {
             expect(result.get('s1')!.top).toEqual([0, 20])
             expect(result.get('s2')!.bottom).toEqual([0, 20])
             expect(result.get('s2')!.top).toEqual([30, 30])
+        })
+
+        it('computeDivergingStackData preserves negative values, stacking them below 0', () => {
+            const positive = makeSeries({ key: 'pos', data: [10, 20] })
+            const negative = makeSeries({ key: 'neg', data: [-5, -7] })
+            const result = computeDivergingStackData([positive, negative], ['a', 'b'])
+            // Positive stacks above zero, negative stacks below zero — diverging offset
+            // keeps both signs intact instead of clamping the negative to 0.
+            expect(result.get('pos')!.bottom).toEqual([0, 0])
+            expect(result.get('pos')!.top).toEqual([10, 20])
+            expect(result.get('neg')!.bottom).toEqual([-5, -7])
+            expect(result.get('neg')!.top).toEqual([0, 0])
         })
 
         it('stacks per yAxisId so series on different axes do not contaminate each others totals', () => {

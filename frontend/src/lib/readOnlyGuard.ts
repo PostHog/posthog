@@ -44,12 +44,25 @@ export function isReadOnly(): boolean {
     return getter?.() ?? false
 }
 
-// URLs that look like writes but are actually reads. The query endpoint is the
-// obvious one — it serves HogQL / trends / funnels / retention via POST because
-// the payload is too large for a query string. Block-listing these would make
-// the entire app unusable in read-only mode.
+// Writes that should pass through in read-only mode. Three categories:
+//   1. Reads disguised as writes — /query serves HogQL / trends / funnels /
+//      retention via POST because the payload is too large for a query string.
+//      Block-listing it would make the entire app unusable.
+//   2. Passive telemetry that fires automatically on view/mount and should not
+//      raise: /file_system/log_view, /insights/viewed, /insights/timing
+//      (time-to-see-data), and /metalytics (side-panel scene view tracking).
+//   3. PostHog AI (Max) conversations — the read-only toast tells users to
+//      "Use Max or the MCP to make this change", so Max must remain usable.
+//      Matches /conversations except the two ticket sub-features (`views` and
+//      `tickets`). Mount-path-agnostic — works under /environments/ or
+//      /projects/ — so the discriminator is the sub-feature, not the prefix.
 const READ_ONLY_ALLOWED_PATTERNS = [
     /\/query(?:\/|$|\?)/, // /api/environments/:team_id/query, /api/environments/:team_id/query/:queryId/log, etc.
+    /\/file_system\/log_view(?:\/|$|\?)/, // /api/environments/:team_id/file_system/log_view
+    /\/insights\/viewed(?:\/|$|\?)/, // /api/environments/:team_id/insights/viewed — passive "recently viewed" telemetry
+    /\/insights\/timing(?:\/|$|\?)/, // /api/projects/:team_id/insights/timing — time-to-see-data telemetry fired after every dashboard/insight load
+    /\/metalytics(?:\/|$|\?)/, // /api/projects/:team_id/metalytics — side-panel scene view tracking (only accepts metric_name=viewed)
+    /\/conversations(?!\/(?:views|tickets))(?:\/|$|\?)/, // /api/.../conversations[/:id[/queue|/append_message|/cancel|...]] — PostHog AI (Max), excluding /conversations/views and /conversations/tickets
 ]
 
 function isReadDisguisedAsWrite(url: string): boolean {

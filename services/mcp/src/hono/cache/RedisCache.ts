@@ -8,6 +8,9 @@ export interface RedisLike {
     del(...keys: string[]): Promise<number>
     unlink?(...keys: string[]): Promise<number>
     scan(cursor: string | number, ...args: (string | number)[]): Promise<[cursor: string, keys: string[]]>
+    incr(key: string): Promise<number>
+    expire(key: string, seconds: number): Promise<number>
+    ttl(key: string): Promise<number>
 }
 
 const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days
