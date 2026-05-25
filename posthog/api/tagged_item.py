@@ -32,85 +32,93 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
     Batches the Tag + TaggedItem reads and writes so the DB cost is constant
     per call rather than O(tags). `bulk_create` and queryset `.delete()` bypass
     the model save/delete hooks, so the activity-log signal is fired manually
-    for each added/removed row to preserve the existing per-row activity log
+    for each added/removed row to preserve the existing per-row activity-log
     fanout (including the related-object mirror on Ticket / Account streams).
     """
-    deduped_names = {tagify(t) for t in tags}
+    requested_names = {tagify(t) for t in tags}
 
     # `tag__team` is prefetched because the activity-log signal handler reads
     # `tagged_item.tag.team` to resolve organization_id for each fired signal.
     existing_items = list(obj.tagged_items.select_related("tag", "tag__team"))
     existing_names = {ti.tag.name for ti in existing_items}
 
-    to_add = deduped_names - existing_names
-    to_keep = [ti for ti in existing_items if ti.tag.name in deduped_names]
-    to_remove = [ti for ti in existing_items if ti.tag.name not in deduped_names]
+    names_to_add = requested_names - existing_names
+    items_to_keep = [ti for ti in existing_items if ti.tag.name in requested_names]
+    items_to_remove = [ti for ti in existing_items if ti.tag.name not in requested_names]
 
-    current_user = get_current_user()
-    was_impersonated = get_was_impersonated()
+    new_items = _add_tagged_items(obj, names_to_add) if names_to_add else []
+    if items_to_remove:
+        _remove_tagged_items(obj, items_to_remove)
 
-    new_items: list[TaggedItem] = []
-    if to_add:
-        tags_by_name: dict[str, Tag] = {t.name: t for t in Tag.objects.filter(team_id=obj.team_id, name__in=to_add)}
-        missing_tag_names = to_add - tags_by_name.keys()
-        newly_created_tags: list[Tag] = []
-        if missing_tag_names:
-            # ignore_conflicts swallows races with parallel inserts of the same (team_id, name)
-            Tag.objects.bulk_create(
-                [Tag(name=name, team_id=obj.team_id) for name in missing_tag_names],
-                ignore_conflicts=True,
-            )
-            # bulk_create + ignore_conflicts does not reliably populate PKs, so refetch.
-            # `team` is selected because handle_tag_change reads `after_update.team.organization_id`.
-            refetched = list(Tag.objects.filter(team_id=obj.team_id, name__in=missing_tag_names).select_related("team"))
-            for t in refetched:
-                newly_created_tags.append(t)
-                tags_by_name[t.name] = t
+    return items_to_keep + new_items
 
-        # `obj.tagged_items` is a reverse manager; `.field` is the FK on TaggedItem
-        # pointing back at `obj` (e.g. `account`, `dashboard`, `insight`).
-        fk_attname = obj.tagged_items.field.attname
-        TaggedItem.objects.bulk_create(
-            [TaggedItem(tag=tags_by_name[name], **{fk_attname: obj.pk}) for name in to_add],
-            ignore_conflicts=True,
-        )
-        new_items = list(obj.tagged_items.filter(tag__name__in=to_add).select_related("tag", "tag__team"))
 
-        for tag in newly_created_tags:
-            model_activity_signal.send(
-                sender=Tag,
-                scope="Tag",
-                before_update=None,
-                after_update=tag,
-                activity="created",
-                user=current_user,
-                was_impersonated=was_impersonated,
-            )
-        for ti in new_items:
-            model_activity_signal.send(
-                sender=TaggedItem,
-                scope="TaggedItem",
-                before_update=None,
-                after_update=ti,
-                activity="created",
-                user=current_user,
-                was_impersonated=was_impersonated,
-            )
+def _add_tagged_items(obj: Any, names_to_add: set[str]) -> list[TaggedItem]:
+    """Create Tags (if missing) + TaggedItems linking them to `obj`, in two bulk writes."""
+    tags_by_name = _resolve_or_create_tags(obj.team_id, names_to_add)
 
-    if to_remove:
-        obj.tagged_items.filter(pk__in=[ti.pk for ti in to_remove]).delete()
-        for ti in to_remove:
-            model_activity_signal.send(
-                sender=TaggedItem,
-                scope="TaggedItem",
-                before_update=ti,
-                after_update=None,
-                activity="deleted",
-                user=current_user,
-                was_impersonated=was_impersonated,
-            )
+    # `obj.tagged_items` is a reverse manager; `.field` is the FK on TaggedItem
+    # pointing back at `obj` (e.g. `account`, `dashboard`, `insight`).
+    fk_attname = obj.tagged_items.field.attname
+    TaggedItem.objects.bulk_create(
+        [TaggedItem(tag=tags_by_name[name], **{fk_attname: obj.pk}) for name in names_to_add],
+        ignore_conflicts=True,
+    )
+    new_items = list(obj.tagged_items.filter(tag__name__in=names_to_add).select_related("tag", "tag__team"))
 
-    return to_keep + new_items
+    for ti in new_items:
+        _send_model_activity(TaggedItem, "TaggedItem", before=None, after=ti, activity="created")
+
+    return new_items
+
+
+def _resolve_or_create_tags(team_id: int, names: set[str]) -> dict[str, Tag]:
+    """Return ``{name: Tag}`` for every name, creating any missing rows in one bulk insert."""
+    tags_by_name: dict[str, Tag] = {t.name: t for t in Tag.objects.filter(team_id=team_id, name__in=names)}
+    missing_names = names - tags_by_name.keys()
+    if not missing_names:
+        return tags_by_name
+
+    # ignore_conflicts swallows races with parallel inserts of the same (team_id, name).
+    Tag.objects.bulk_create(
+        [Tag(name=name, team_id=team_id) for name in missing_names],
+        ignore_conflicts=True,
+    )
+    # bulk_create + ignore_conflicts does not reliably populate PKs, so refetch.
+    # `team` is selected because handle_tag_change reads `after_update.team.organization_id`.
+    newly_created = list(Tag.objects.filter(team_id=team_id, name__in=missing_names).select_related("team"))
+    for tag in newly_created:
+        tags_by_name[tag.name] = tag
+        _send_model_activity(Tag, "Tag", before=None, after=tag, activity="created")
+
+    return tags_by_name
+
+
+def _remove_tagged_items(obj: Any, items: list[TaggedItem]) -> None:
+    """Delete TaggedItems in one query and fire a `deleted` signal for each removed row."""
+    obj.tagged_items.filter(pk__in=[ti.pk for ti in items]).delete()
+    for ti in items:
+        _send_model_activity(TaggedItem, "TaggedItem", before=ti, after=None, activity="deleted")
+
+
+def _send_model_activity(
+    sender: type[models.Model],
+    scope: str,
+    *,
+    before: Optional[models.Model],
+    after: Optional[models.Model],
+    activity: str,
+) -> None:
+    """Manually fire ``model_activity_signal`` for a row mutated via ``bulk_create`` / queryset ``.delete()``."""
+    model_activity_signal.send(
+        sender=sender,
+        scope=scope,
+        before_update=before,
+        after_update=after,
+        activity=activity,
+        user=get_current_user(),
+        was_impersonated=get_was_impersonated(),
+    )
 
 
 def cleanup_orphan_tags(team_id: int) -> None:
