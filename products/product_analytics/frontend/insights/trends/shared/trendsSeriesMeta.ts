@@ -1,6 +1,7 @@
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
+import type { Noun } from '~/models/groupsModel'
 import type { ActionFilter, LifecycleToggle } from '~/types'
 
 export type TrendsSeriesMeta = {
@@ -26,3 +27,19 @@ export const buildTrendsSeriesMeta = (r: IndexedTrendResult): TrendsSeriesMeta =
     order: r.action?.order ?? r.id,
     filter: r.filter,
 })
+
+/** Resolve the `groupTypeLabel` shown by tooltips and persons-modal titles.
+ *  `'people'` is the default; `'none'` suppresses the noun; anything else
+ *  defers to the team's group-type plural. */
+export function resolveGroupTypeLabel(
+    labelGroupType: 'people' | 'none' | number,
+    aggregationLabel: (groupTypeIndex: number | null | undefined) => Noun
+): string {
+    if (labelGroupType === 'people') {
+        return 'people'
+    }
+    if (labelGroupType === 'none') {
+        return ''
+    }
+    return aggregationLabel(labelGroupType).plural
+}

@@ -134,13 +134,18 @@ describe('RequestContext', () => {
                 })
             )
 
-            expect(ctx.buildClientProperties()).toEqual({
+            const result = ctx.buildClientProperties()
+            expect(result).toMatchObject({
+                $ai_product: 'mcp',
+                $mcp_source: 'posthog_mcp_analytics',
+                $mcp_server_name: 'PostHog',
+                $mcp_server_version: '1.0.0',
+                $mcp_client_name: 'claude-code',
+                $mcp_client_version: '2.0',
+                $mcp_protocol_version: '2025-03-26',
+                $mcp_consumer: 'posthog-code',
+                $mcp_transport: 'streamable-http',
                 mcp_runtime: 'hono',
-                mcp_client_name: 'claude-code',
-                mcp_client_version: '2.0',
-                mcp_protocol_version: '2025-03-26',
-                mcp_consumer: 'posthog-code',
-                mcp_transport: 'streamable-http',
             })
         })
 
@@ -157,7 +162,17 @@ describe('RequestContext', () => {
                 })
             )
 
-            expect(ctx.buildClientProperties()).toEqual({ mcp_runtime: 'hono' })
+            const result = ctx.buildClientProperties()
+            expect(result).toMatchObject({
+                $ai_product: 'mcp',
+                $mcp_source: 'posthog_mcp_analytics',
+                $mcp_server_name: 'PostHog',
+                $mcp_server_version: '1.0.0',
+                mcp_runtime: 'hono',
+            })
+            expect(result.$mcp_client_name).toBeUndefined()
+            expect(result.$mcp_consumer).toBeUndefined()
+            expect(result.$mcp_transport).toBeUndefined()
         })
     })
 

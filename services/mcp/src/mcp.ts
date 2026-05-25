@@ -11,6 +11,8 @@ import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import {
     getCustomApiBaseUrl,
+    MCP_SERVER_NAME,
+    MCP_SERVER_VERSION,
     POSTHOG_EU_BASE_URL,
     POSTHOG_US_BASE_URL,
     getBaseUrlForRegion,
@@ -86,7 +88,7 @@ export type RequestProperties = {
 
 export class MCP extends McpAgent<Env> {
     server = new McpServer(
-        { name: 'PostHog', version: '1.0.0' },
+        { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
         { instructions: instructionsFormatter.buildV1Instructions() }
     )
 
@@ -712,7 +714,7 @@ export class MCP extends McpAgent<Env> {
             }
         }
 
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+        this.server = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION }, { instructions })
 
         // Register prompts and resources
         await Promise.all([
