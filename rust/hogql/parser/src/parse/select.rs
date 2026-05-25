@@ -50,16 +50,20 @@ impl<'a> Parser<'a> {
                 | TokenKind::Keyword(Kw::Limit)
                 | TokenKind::Keyword(Kw::Offset)
         );
-        // A `{placeholder}` body can't carry set-level LIMIT / OFFSET (only
+        // A lone `{placeholder}` body can't carry set-level LIMIT / OFFSET (only
         // SelectQuery / SelectSetQuery do), so cpp drops them and never visits
-        // the subtree — see the `body_takes_decorators` drop below. Tell the
-        // decorator parser so it tolerates an unsupported date literal in that
-        // discarded LIMIT / OFFSET, the same way the always-discarded ORDER BY
-        // does. A real `(select …)` body keeps them, so it stays strict.
-        let body_is_placeholder = !matches!(
-            first.get("node").and_then(Value::as_str),
-            Some("SelectQuery") | Some("SelectSetQuery")
-        );
+        // the subtree — see the `body_takes_decorators` drop below, which only
+        // fires when `subsequent.is_empty()`. Tell the decorator parser so it
+        // tolerates an unsupported date literal in that discarded LIMIT /
+        // OFFSET, the same way the always-discarded ORDER BY does. A real
+        // `(select …)` body keeps them, AND a set op (UNION / EXCEPT / …) wraps
+        // the result in a decorator-carrying SelectSetQuery — so both stay
+        // strict; only the lone-placeholder case is suppressed.
+        let body_is_placeholder = subsequent.is_empty()
+            && !matches!(
+                first.get("node").and_then(Value::as_str),
+                Some("SelectQuery") | Some("SelectSetQuery")
+            );
         let trailing = self.parse_trailing_set_decorators(body_is_placeholder)?;
 
         if subsequent.is_empty() {

@@ -1110,13 +1110,19 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
         # Still strict where cpp DOES visit: a real SelectQuery's kept order by /
         # limit / offset, and a bare / placeholder-block date literal. All must
         # reject on both backends (the placeholder LIMIT suppression must not
-        # leak to a real `(select …)` body).
+        # leak to a real `(select …)` body). A set op (UNION / EXCEPT) wraps the
+        # result in a decorator-carrying SelectSetQuery, so its LIMIT is KEPT and
+        # visited even when the operands are placeholders — the suppression must
+        # not fire there either.
         for query, fn in (
             ("select 1 order by date 'x'", parse_select),
             ("select 1 order by (select date 'z')", parse_select),
             ("select 1 limit date 'x'", parse_select),
             ("(select 1) limit date 'x'", parse_select),
             ("(select 1) offset date 'x'", parse_select),
+            ("{1} except {2} limit date 'x'", parse_select),
+            ("({1}) union all ({2}) limit date 'x'", parse_select),
+            ("({1}) except {2} limit interval 'p'", parse_select),
             ("date 'x'", parse_expr),
             ("{ date 'x' }", parse_program),
         ):
