@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { logsSceneLogic } from './logsSceneLogic'
 
@@ -142,6 +143,50 @@ describe('logsSceneLogic', () => {
 
             expect(logic.values.activeTab).toEqual('viewer')
             expect(router.values.searchParams).not.toHaveProperty('activeTab')
+        })
+    })
+
+    describe('URL-driven filter changes do not feed back into syncUrl', () => {
+        const urlFilterGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            key: 'service.name',
+                            value: ['api'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.LogResourceAttribute,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        it('applying filterGroup from URL does not redispatch syncUrl', async () => {
+            // Drive a URL-driven filter change that mutates filterGroup (the only path that
+            // fires the kea-subscriptions handler in logsViewerDataLogic). Without the
+            // isApplyingUrlState guard, the subscription -> handleQueryChange listener would
+            // re-emit syncUrl, exactly what the kea-router rapid URL change tracker flags.
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { filterGroup: urlFilterGroup })
+            })
+                .toDispatchActions(['handleQueryChange'])
+                .toNotHaveDispatchedActions(['syncUrl'])
+
+            expect(logic.values.filters.filterGroup).toEqual(urlFilterGroup)
+        })
+
+        it('subsequent user-triggered filter change still syncs to URL', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { filterGroup: urlFilterGroup })
+            }).toFinishAllListeners()
+
+            // A user-driven change after the URL apply must still write the URL via syncUrl.
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ severityLevels: ['warn'] })
+            }).toDispatchActions(['handleQueryChange', 'syncUrl'])
         })
     })
 })

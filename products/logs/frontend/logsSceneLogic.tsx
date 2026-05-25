@@ -90,83 +90,98 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (cache.isSyncingUrl) {
                 return
             }
-            const requestedTab = resolveActiveTabFromParams(params)
-            if (requestedTab && requestedTab !== values.activeTab) {
-                actions.setActiveTab(requestedTab)
-            }
+            // setFilters / setOrderBy below trigger the filterGroup subscription in
+            // logsViewerDataLogic, which dispatches handleQueryChange. Without this flag,
+            // the handleQueryChange listener in this logic would call syncUrl(), writing
+            // the URL back as a side-effect of just reading it — bouncing through the kea
+            // router rapid-URL-change tracker. We still want handleQueryChange itself to
+            // fire so runQuery picks up the new filters; we only suppress the URL write.
+            cache.isApplyingUrlState = true
+            try {
+                const requestedTab = resolveActiveTabFromParams(params)
+                if (requestedTab && requestedTab !== values.activeTab) {
+                    actions.setActiveTab(requestedTab)
+                }
 
-            const filtersFromUrl: Partial<LogsViewerFilters> = {}
-            let hasFilterChanges = false
+                const filtersFromUrl: Partial<LogsViewerFilters> = {}
+                let hasFilterChanges = false
 
-            if (params.dateRange) {
-                try {
-                    const dateRange =
-                        typeof params.dateRange === 'string' ? JSON.parse(params.dateRange) : params.dateRange
-                    if (!equal(dateRange, values.filters.dateRange)) {
-                        filtersFromUrl.dateRange = dateRange
-                        hasFilterChanges = true
-                    }
-                } catch {
-                    // Ignore malformed dateRange JSON in URL
-                }
-            }
-            if (params.filterGroup) {
-                if (!equal(params.filterGroup, values.filters.filterGroup)) {
-                    filtersFromUrl.filterGroup = params.filterGroup
-                    hasFilterChanges = true
-                }
-            } else if (!equal(DEFAULT_UNIVERSAL_GROUP_FILTER, values.filters.filterGroup)) {
-                filtersFromUrl.filterGroup = DEFAULT_UNIVERSAL_GROUP_FILTER
-                hasFilterChanges = true
-            }
-            if (params.searchTerm) {
-                if (!equal(params.searchTerm, values.filters.searchTerm)) {
-                    filtersFromUrl.searchTerm = params.searchTerm
-                    hasFilterChanges = true
-                }
-            } else if (values.filters.searchTerm !== '') {
-                filtersFromUrl.searchTerm = ''
-                hasFilterChanges = true
-            }
-            if (params.severityLevels) {
-                const parsed = parseTagsFilter(params.severityLevels)
-                if (parsed) {
-                    const levels = parsed.filter(isValidSeverityLevel)
-                    if (levels.length > 0 && !equal(levels, values.filters.severityLevels)) {
-                        filtersFromUrl.severityLevels = levels
-                        hasFilterChanges = true
+                if (params.dateRange) {
+                    try {
+                        const dateRange =
+                            typeof params.dateRange === 'string' ? JSON.parse(params.dateRange) : params.dateRange
+                        if (!equal(dateRange, values.filters.dateRange)) {
+                            filtersFromUrl.dateRange = dateRange
+                            hasFilterChanges = true
+                        }
+                    } catch {
+                        // Ignore malformed dateRange JSON in URL
                     }
                 }
-            } else if (!equal(DEFAULT_SEVERITY_LEVELS, values.filters.severityLevels)) {
-                filtersFromUrl.severityLevels = DEFAULT_SEVERITY_LEVELS
-                hasFilterChanges = true
-            }
-            if (params.serviceNames) {
-                const names = parseTagsFilter(params.serviceNames)
-                if (names && !equal(names, values.filters.serviceNames)) {
-                    filtersFromUrl.serviceNames = names
+                if (params.filterGroup) {
+                    if (!equal(params.filterGroup, values.filters.filterGroup)) {
+                        filtersFromUrl.filterGroup = params.filterGroup
+                        hasFilterChanges = true
+                    }
+                } else if (!equal(DEFAULT_UNIVERSAL_GROUP_FILTER, values.filters.filterGroup)) {
+                    filtersFromUrl.filterGroup = DEFAULT_UNIVERSAL_GROUP_FILTER
                     hasFilterChanges = true
                 }
-            } else if (!equal(DEFAULT_SERVICE_NAMES, values.filters.serviceNames)) {
-                filtersFromUrl.serviceNames = DEFAULT_SERVICE_NAMES
-                hasFilterChanges = true
-            }
+                if (params.searchTerm) {
+                    if (!equal(params.searchTerm, values.filters.searchTerm)) {
+                        filtersFromUrl.searchTerm = params.searchTerm
+                        hasFilterChanges = true
+                    }
+                } else if (values.filters.searchTerm !== '') {
+                    filtersFromUrl.searchTerm = ''
+                    hasFilterChanges = true
+                }
+                if (params.severityLevels) {
+                    const parsed = parseTagsFilter(params.severityLevels)
+                    if (parsed) {
+                        const levels = parsed.filter(isValidSeverityLevel)
+                        if (levels.length > 0 && !equal(levels, values.filters.severityLevels)) {
+                            filtersFromUrl.severityLevels = levels
+                            hasFilterChanges = true
+                        }
+                    }
+                } else if (!equal(DEFAULT_SEVERITY_LEVELS, values.filters.severityLevels)) {
+                    filtersFromUrl.severityLevels = DEFAULT_SEVERITY_LEVELS
+                    hasFilterChanges = true
+                }
+                if (params.serviceNames) {
+                    const names = parseTagsFilter(params.serviceNames)
+                    if (names && !equal(names, values.filters.serviceNames)) {
+                        filtersFromUrl.serviceNames = names
+                        hasFilterChanges = true
+                    }
+                } else if (!equal(DEFAULT_SERVICE_NAMES, values.filters.serviceNames)) {
+                    filtersFromUrl.serviceNames = DEFAULT_SERVICE_NAMES
+                    hasFilterChanges = true
+                }
 
-            if (hasFilterChanges) {
-                actions.setFilters(filtersFromUrl, false)
-            }
+                if (hasFilterChanges) {
+                    actions.setFilters(filtersFromUrl, false)
+                }
 
-            // Non-filter params handled separately
-            if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
-                actions.setOrderBy(params.orderBy)
-            }
-            if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
-                actions.setInitialLogsLimit(+params.initialLogsLimit)
-            }
+                // Non-filter params handled separately
+                if (params.orderBy && !equal(params.orderBy, values.orderBy)) {
+                    actions.setOrderBy(params.orderBy)
+                }
+                if (params.initialLogsLimit != null && +params.initialLogsLimit !== values.initialLogsLimit) {
+                    actions.setInitialLogsLimit(+params.initialLogsLimit)
+                }
 
-            const linkToLogId = params.linkToLogId as string | undefined
-            if (linkToLogId && linkToLogId !== values.linkToLogId) {
-                actions.setLinkToLogId(linkToLogId)
+                const linkToLogId = params.linkToLogId as string | undefined
+                if (linkToLogId && linkToLogId !== values.linkToLogId) {
+                    actions.setLinkToLogId(linkToLogId)
+                }
+            } finally {
+                // Keep the flag alive through any same-tick subscription / listener
+                // cascades, then clear so the next real user action can sync to URL.
+                queueMicrotask(() => {
+                    cache.isApplyingUrlState = false
+                })
             }
         }
         return {
@@ -274,10 +289,19 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             actions.setExpandedAttributeBreaksdowns(breakdowns)
         },
         handleQueryChange: () => {
+            if (cache.isApplyingUrlState) {
+                // Filters were just applied from the URL — skip the round-trip back to the
+                // URL (and the redundant filter-history push). runQuery still fires via the
+                // listener in logsViewerDataLogic, so results stay in sync with the URL.
+                return
+            }
             actions.pushToFilterHistory(values.filters)
             actions.syncUrl()
         },
         setOrderBy: () => {
+            if (cache.isApplyingUrlState) {
+                return
+            }
             actions.syncUrl()
         },
         keepSqlEditorMounted: ({ editorTabId }) => {
