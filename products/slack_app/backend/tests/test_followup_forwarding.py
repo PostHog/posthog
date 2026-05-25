@@ -287,8 +287,8 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert task.latest_run.state["pr_authorship_mode"] == "user"
         mock_execute_workflow.assert_called_once()
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_description_uses_initiator_as_prompt_with_thread_as_context(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
         mock_slack_instance.client.chat_getPermalink.return_value = {
@@ -334,8 +334,8 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         last_context_pos = task.description.index("we just need to inject those better")
         assert placeholder_pos < last_context_pos
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_description_with_no_thread_context_is_just_the_prompt(self, mock_slack_cls, mock_execute_workflow):
         mock_slack_instance = MagicMock()
         mock_slack_instance.client.chat_getPermalink.return_value = {
@@ -359,8 +359,8 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         task = self.Task.objects.get(team=self.team)
         assert task.description == "do something"
 
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    @patch("posthog.models.integration.SlackIntegration")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_description_encloses_thread_context_in_a_tag(self, mock_slack_cls, mock_execute_workflow):
         # A Slack participant shouldn't be able to forge the context delimiter to
         # break out of the background block and have their message read as the ask.
