@@ -32,6 +32,9 @@ interface TrendsTooltipProps {
      *  is an interval-count integer, not a date — letting InsightTooltip format it as
      *  a calendar date produces a wrong "Thursday, 1 Jan 1970" header. */
     altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
+    /** Overrides the default value formatter — needed for the pie chart, which renders the
+     *  raw aggregation plus the slice's share of the total. */
+    renderCount?: (value: number) => string
     // Overrides the default SeriesLetter + InsightLabel row renderer. Mirrors the
     // legacy ActionsLineGraph escape hatch used for lifecycle, where the label
     // is the lifecycle status itself (e.g. "New") and InsightLabel's action.name
@@ -58,6 +61,7 @@ export function TrendsTooltip({
     onRowClick,
     showHeader,
     altTitle,
+    renderCount: renderCountOverride,
     renderSeriesOverride,
 }: TrendsTooltipProps): React.ReactElement {
     const seriesData = useMemo<SeriesDatum[]>(
@@ -86,6 +90,9 @@ export function TrendsTooltip({
 
     const renderCount = useCallback(
         (value: number): string => {
+            if (renderCountOverride) {
+                return renderCountOverride(value)
+            }
             if (showPercentView) {
                 // Stickiness percent view: value is already a percentage.
                 return `${value.toFixed(1)}%`
@@ -95,7 +102,7 @@ export function TrendsTooltip({
             }
             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency)
         },
-        [showPercentView, isPercentStackView, trendsFilter, baseCurrency]
+        [renderCountOverride, showPercentView, isPercentStackView, trendsFilter, baseCurrency]
     )
 
     const hasMultipleSeries = seriesData.length > 1

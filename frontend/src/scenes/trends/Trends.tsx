@@ -39,6 +39,11 @@ const StickinessLineChart = lazy(() =>
         default: m.StickinessLineChart,
     }))
 )
+const TrendsPieChart = lazy(() =>
+    import('products/product_analytics/frontend/insights/trends/TrendsPieChart/TrendsPieChart').then((m) => ({
+        default: m.TrendsPieChart,
+    }))
+)
 const TrendsLifecycleChart = lazy(() =>
     import('products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart').then(
         (m) => ({
@@ -117,6 +122,11 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             )
         }
         if (display === ChartDisplayType.ActionsPie) {
+            if (hogChartsTrendsEnabled) {
+                return (
+                    <TrendsPieChart context={context} inSharedMode={inSharedMode} showPersonsModal={showPersonsModal} />
+                )
+            }
             return <ActionsPie {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
