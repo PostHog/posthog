@@ -136,12 +136,14 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     # manage.py bootstrap (before Django apps are loaded).
     from exceptions_hog import exception_handler as _exceptions_hog_handler
 
+    # Imported lazily to avoid pulling settings into module import.
+    from posthog.utils import absolute_uri
+
     response = _exceptions_hog_handler(exc, context)
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
-        request = context.get("request")
-        if isinstance(request, HttpRequest):
-            metadata_url = request.build_absolute_uri("/.well-known/oauth-protected-resource")
-        else:
-            metadata_url = "/.well-known/oauth-protected-resource"
+        # Pin to SITE_URL rather than request.build_absolute_uri(): with permissive
+        # ALLOWED_HOSTS, the Host header can otherwise steer the discovery hint to an
+        # attacker-controlled origin.
+        metadata_url = absolute_uri("/.well-known/oauth-protected-resource")
         response["WWW-Authenticate"] = f'Bearer resource_metadata="{metadata_url}"'
     return response
