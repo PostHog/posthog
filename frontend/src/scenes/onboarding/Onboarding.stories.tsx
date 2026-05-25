@@ -136,9 +136,9 @@ export const AIObservabilitySDKInstall: Story = {
         const { setProduct } = useActions(onboardingLogic)
 
         useDelayedOnMountEffect(() => {
-            setProduct(availableOnboardingProducts[ProductKey.LLM_ANALYTICS])
+            setProduct(availableOnboardingProducts[ProductKey.AI_OBSERVABILITY])
             router.actions.push(
-                urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+                urls.onboarding({ productKey: ProductKey.AI_OBSERVABILITY, stepKey: OnboardingStepKey.INSTALL })
             )
         })
 

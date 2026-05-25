@@ -194,7 +194,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
     listeners(({ actions, values }) => ({
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
             if (hasSentAiEvent) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
+                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstAiEvent)
             }
         },
         setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => {
@@ -312,7 +312,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             clearDashboardTimer()
             cache.dashboardDwellTimer = setTimeout(() => {
                 actions.addProductIntent({
-                    product_type: ProductKey.LLM_ANALYTICS,
+                    product_type: ProductKey.AI_OBSERVABILITY,
                     intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
                 })
             }, 15000)

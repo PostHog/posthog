@@ -33,7 +33,7 @@ export const onboardingProviderRegistry: Partial<Record<ProductKey, ProductOnboa
     [ProductKey.SURVEYS]: surveysOnboarding,
     [ProductKey.DATA_WAREHOUSE]: dataWarehouseOnboarding,
     [ProductKey.ERROR_TRACKING]: errorTrackingOnboarding,
-    [ProductKey.LLM_ANALYTICS]: aiObservabilityOnboarding,
+    [ProductKey.AI_OBSERVABILITY]: aiObservabilityOnboarding,
     [ProductKey.WORKFLOWS]: workflowsOnboarding,
     [ProductKey.LOGS]: logsOnboarding,
 }

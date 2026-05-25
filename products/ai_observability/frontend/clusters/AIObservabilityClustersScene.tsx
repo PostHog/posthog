@@ -11,7 +11,7 @@ import { ClustersView } from './ClustersView'
 export const scene: SceneExport = {
     component: AIObservabilityClustersScene,
     logic: clustersLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
 }
 
 export function AIObservabilityClustersScene(): JSX.Element {

@@ -49,7 +49,7 @@ import { EvaluationConfig } from './types'
 export const scene: SceneExport = {
     component: AIObservabilityEvaluationsScene,
     logic: llmEvaluationsLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
 }
 
 function getActiveTab(

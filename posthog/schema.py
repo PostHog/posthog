@@ -48,7 +48,7 @@ class AgentMode(StrEnum):
     SURVEY = "survey"
     RESEARCH = "research"
     FLAGS = "flags"
-    LLM_ANALYTICS = "llm_analytics"
+    AI_OBSERVABILITY = "llm_analytics"
     SANDBOX = "sandbox"
     USER_INTERVIEW = "user_interview"
 
@@ -3891,7 +3891,7 @@ class ProductKey(StrEnum):
     INTEGRATIONS = "integrations"
     LINKS = "links"
     LIVE_DEBUGGER = "live_debugger"
-    LLM_ANALYTICS = "llm_analytics"
+    AI_OBSERVABILITY = "llm_analytics"
     LLM_CLUSTERS = "llm_clusters"
     LLM_DATASETS = "llm_datasets"
     LLM_EVALUATIONS = "llm_evaluations"

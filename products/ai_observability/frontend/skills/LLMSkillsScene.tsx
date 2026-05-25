@@ -33,7 +33,7 @@ import { openArchiveSkillDialog } from './skillSceneComponents'
 export const scene: SceneExport = {
     component: LLMSkillsScene,
     logic: llmSkillsLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
 }
 
 function buildSkillColumns(

@@ -29,7 +29,7 @@ import { ClusterItemInfo, ClusterMetrics, ClusteringLevel, TraceSummary } from '
 export const scene: SceneExport<ClusterDetailLogicProps> = {
     component: AIObservabilityClusterScene,
     logic: clusterDetailLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
     paramsToProps: ({ params: { runId, clusterId } }) => ({
         runId: runId ? decodeURIComponent(runId) : '',
         clusterId: clusterId ? parseInt(clusterId, 10) : 0,

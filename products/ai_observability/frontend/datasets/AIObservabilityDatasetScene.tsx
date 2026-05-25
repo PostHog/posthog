@@ -53,7 +53,7 @@ const RESOURCE_TYPE = 'dataset'
 export const scene: SceneExport<DatasetLogicProps> = {
     component: AIObservabilityDatasetScene,
     logic: aiObservabilityDatasetLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
     paramsToProps: ({ params: { id } }) => ({
         datasetId: id && id !== 'new' ? id : 'new',
     }),

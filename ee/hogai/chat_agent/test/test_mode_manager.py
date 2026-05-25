@@ -682,7 +682,7 @@ class TestRootNodeTools(BaseTest):
 class TestChatAgentModeManagerModeFallback(BaseTest):
     @parameterized.expand(
         [
-            [AgentMode.LLM_ANALYTICS],
+            [AgentMode.AI_OBSERVABILITY],
             [AgentMode.ERROR_TRACKING],
             [AgentMode.SURVEY],
             [AgentMode.FLAGS],

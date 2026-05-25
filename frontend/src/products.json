@@ -1,7 +1,7 @@
 {
     "products": [
         {
-            "path": "AI observability",
+            "path": "LLM analytics",
             "category": "AI engineering",
             "iconType": null,
             "type": "llm_analytics",

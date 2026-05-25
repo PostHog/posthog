@@ -13,11 +13,11 @@ import { OnboardingStepKey } from '~/types'
 export const aiObservabilityOnboarding: ProductOnboardingProvider = {
     steps: (ctx) => [
         {
-            id: `${OnboardingStepKey.INSTALL}:${ProductKey.LLM_ANALYTICS}`,
-            productKey: ProductKey.LLM_ANALYTICS,
+            id: `${OnboardingStepKey.INSTALL}:${ProductKey.AI_OBSERVABILITY}`,
+            productKey: ProductKey.AI_OBSERVABILITY,
             stepKey: OnboardingStepKey.INSTALL,
             role: ctx.role,
-            setupTaskId: SetupTaskId.IngestFirstLlmEvent,
+            setupTaskId: SetupTaskId.IngestFirstAiEvent,
             render: () => (
                 <OnboardingInstallStep
                     sdkInstructionMap={AIObservabilitySDKInstructions}

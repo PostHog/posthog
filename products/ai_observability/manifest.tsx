@@ -368,9 +368,10 @@ export const manifest: ProductManifest = {
     treeItemsNew: [],
     treeItemsProducts: [
         {
-            path: 'AI observability',
+            path: 'LLM analytics',
+            displayLabel: 'AI observability',
             intents: [
-                ProductKey.LLM_ANALYTICS,
+                ProductKey.AI_OBSERVABILITY,
                 ProductKey.LLM_EVALUATIONS,
                 ProductKey.LLM_DATASETS,
                 ProductKey.LLM_PROMPTS,
@@ -386,7 +387,7 @@ export const manifest: ProductManifest = {
         },
         {
             path: 'Playground',
-            intents: [ProductKey.LLM_ANALYTICS],
+            intents: [ProductKey.AI_OBSERVABILITY],
             category: ProductItemCategory.AI_ENGINEERING,
             type: 'llm_playground',
             iconType: 'llm_playground' as FileSystemIconType,
@@ -429,7 +430,7 @@ export const manifest: ProductManifest = {
         },
         {
             path: 'Taggers',
-            intents: [ProductKey.LLM_ANALYTICS],
+            intents: [ProductKey.AI_OBSERVABILITY],
             category: ProductItemCategory.AI_ENGINEERING,
             type: 'llm_tags',
             iconType: 'llm_tags' as FileSystemIconType,

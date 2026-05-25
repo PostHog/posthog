@@ -169,7 +169,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         setupEffort: 'automatic',
         socialProof: 'Used by 160K+ teams',
     },
-    [ProductKey.LLM_ANALYTICS]: {
+    [ProductKey.AI_OBSERVABILITY]: {
         name: 'AI observability',
         description: 'Monitor AI usage, costs, and quality',
         userCentricDescription: 'Keep your AI costs down and quality up',

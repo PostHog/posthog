@@ -302,7 +302,7 @@ export const clustersLogic = kea<clustersLogicType>([
                         // Required for the query runner to populate the `product` ClickHouse
                         // tag — without it the dev-mode `UntaggedQueryError` enforcement 500s
                         // every request.
-                        tags: { productKey: ProductKey.LLM_ANALYTICS, scene: AI_OBSERVABILITY_CLUSTERS_SCENE_TAG },
+                        tags: { productKey: ProductKey.AI_OBSERVABILITY, scene: AI_OBSERVABILITY_CLUSTERS_SCENE_TAG },
                     }
 
                     const response = await api.query(eventsQuery)

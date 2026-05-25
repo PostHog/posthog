@@ -22,7 +22,7 @@ import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic } from './aiObservabili
 export const scene: SceneExport = {
     component: AIObservabilityDatasetsScene,
     logic: aiObservabilityDatasetsLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
 }
 
 export function AIObservabilityDatasetsScene(): JSX.Element {

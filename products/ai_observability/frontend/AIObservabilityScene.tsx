@@ -65,7 +65,7 @@ import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from '
 export const scene: SceneExport = {
     component: AIObservabilityScene,
     logic: aiObservabilitySharedLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
 }
 
 const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {

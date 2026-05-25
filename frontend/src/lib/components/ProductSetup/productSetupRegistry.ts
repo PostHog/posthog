@@ -476,18 +476,18 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
         ],
     },
 
-    [ProductKey.LLM_ANALYTICS]: {
-        productKey: ProductKey.LLM_ANALYTICS,
+    [ProductKey.AI_OBSERVABILITY]: {
+        productKey: ProductKey.AI_OBSERVABILITY,
         title: 'Get started with AI observability',
         tasks: [
             {
-                id: SetupTaskId.IngestFirstLlmEvent,
+                id: SetupTaskId.IngestFirstAiEvent,
                 title: 'Send your first AI event',
                 description: 'Install the PostHog LLM SDK to start tracking AI usage.',
                 skipWarning: "Without AI events, you can't track AI model usage.",
                 taskType: 'setup',
                 getUrl: () =>
-                    urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL }),
+                    urls.onboarding({ productKey: ProductKey.AI_OBSERVABILITY, stepKey: OnboardingStepKey.INSTALL }),
                 targetSelector: '[data-attr="menu-item-llm_analytics"]',
             },
             SET_UP_REVERSE_PROXY,
@@ -509,7 +509,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 getUrl: () => urls.aiObservabilityDashboard(),
             },
             {
-                id: SetupTaskId.SetUpLlmEvaluation,
+                id: SetupTaskId.SetUpAiEvaluation,
                 title: 'Set up LLM evaluation',
                 description: 'Score and evaluate AI outputs for quality.',
                 taskType: 'explore',

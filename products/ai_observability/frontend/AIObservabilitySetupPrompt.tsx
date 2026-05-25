@@ -40,7 +40,7 @@ function IngestionStatusCheck({ className, thing }: { className?: string; thing:
             titleOverride={`No LLM ${thing} events have been detected!`}
             description="To use AI observability, please instrument your LLM calls with the PostHog SDK."
             isEmpty={true}
-            productKey={ProductKey.LLM_ANALYTICS}
+            productKey={ProductKey.AI_OBSERVABILITY}
             className={className}
             docsURL="https://posthog.com/docs/ai-observability/installation"
         />

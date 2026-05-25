@@ -468,7 +468,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                 // Mark both tasks as completed - viewing a trace implies AI events were sent
                 globalSetupLogic
                     .findMounted()
-                    ?.actions.markTaskAsCompleted([SetupTaskId.IngestFirstLlmEvent, SetupTaskId.ViewFirstTrace])
+                    ?.actions.markTaskAsCompleted([SetupTaskId.IngestFirstAiEvent, SetupTaskId.ViewFirstTrace])
             }
         },
     })),
@@ -477,7 +477,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         [urls.aiObservabilityTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab, msg }) => {
             actions.setTraceId(id ?? '')
             void addProductIntent({
-                product_type: ProductKey.LLM_ANALYTICS,
+                product_type: ProductKey.AI_OBSERVABILITY,
                 intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,
             })
             actions.setEventId(event || null)

@@ -28,7 +28,7 @@ import { openArchivePromptDialog } from './utils'
 export const scene: SceneExport = {
     component: LLMPromptsScene,
     logic: llmPromptsLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
 }
 
 export function LLMPromptsScene(): JSX.Element {

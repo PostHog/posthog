@@ -60,7 +60,7 @@ export const ErrorTracking: StoryFn<{ productKey: ProductKey }> = Template.bind(
 ErrorTracking.args = { productKey: ProductKey.ERROR_TRACKING }
 
 export const AIObservability: StoryFn<{ productKey: ProductKey }> = Template.bind({})
-AIObservability.args = { productKey: ProductKey.LLM_ANALYTICS }
+AIObservability.args = { productKey: ProductKey.AI_OBSERVABILITY }
 
 export const RevenueAnalytics: StoryFn<{ productKey: ProductKey }> = Template.bind({})
 RevenueAnalytics.args = { productKey: ProductKey.REVENUE_ANALYTICS }

@@ -34,7 +34,7 @@ import { Tagger } from './types'
 export const scene: SceneExport = {
     component: AIObservabilityTagsScene,
     logic: llmTaggersLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
 }
 
 function TaggerMetrics({ tabId }: { tabId?: string }): JSX.Element {

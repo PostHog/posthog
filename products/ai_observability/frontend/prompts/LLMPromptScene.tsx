@@ -33,7 +33,7 @@ import { openArchivePromptDialog } from './utils'
 export const scene: SceneExport<PromptLogicProps> = {
     component: LLMPromptScene,
     logic: llmPromptLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
     paramsToProps: ({ params: { name }, searchParams }) => ({
         promptName: name && name !== 'new' ? name : 'new',
         mode: searchParams?.edit === 'true' ? PromptMode.Edit : PromptMode.View,

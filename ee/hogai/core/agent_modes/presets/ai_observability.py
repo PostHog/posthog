@@ -101,14 +101,14 @@ class AIObservabilityAgentToolkit(AgentToolkit):
 
 
 ai_observability_agent = AgentModeDefinition(
-    mode=AgentMode.LLM_ANALYTICS,
+    mode=AgentMode.AI_OBSERVABILITY,
     mode_description=AI_OBSERVABILITY_MODE_DESCRIPTION,
     toolkit_class=AIObservabilityAgentToolkit,
 )
 
 
 chat_agent_plan_ai_observability_agent = AgentModeDefinition(
-    mode=AgentMode.LLM_ANALYTICS,
+    mode=AgentMode.AI_OBSERVABILITY,
     mode_description=AI_OBSERVABILITY_MODE_DESCRIPTION,
     toolkit_class=AIObservabilityAgentToolkit,
     node_class=ChatAgentPlanExecutable,

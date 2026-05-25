@@ -18,7 +18,7 @@ BASE_PREFERENCE_WEIGHTS: dict[ProductKey, int] = {
 }
 
 LLM_ADJACENT_KEYS: list[ProductKey] = [
-    ProductKey.LLM_ANALYTICS,
+    ProductKey.AI_OBSERVABILITY,
     ProductKey.LLM_EVALUATIONS,
     ProductKey.LLM_DATASETS,
     ProductKey.LLM_PROMPTS,
@@ -146,7 +146,7 @@ class CrossSellCandidateSelector:
         return weights
 
     def _apply_llm_adjacent_boost(self, weights: defaultdict[str, int]) -> None:
-        llm_analytics_paths = self._resolve_paths(ProductKey.LLM_ANALYTICS)
+        llm_analytics_paths = self._resolve_paths(ProductKey.AI_OBSERVABILITY)
         if not any(p in self.user_enabled_products for p in llm_analytics_paths):
             return
 

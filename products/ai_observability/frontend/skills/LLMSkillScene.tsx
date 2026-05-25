@@ -35,7 +35,7 @@ const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 export const scene: SceneExport<SkillLogicProps> = {
     component: LLMSkillScene,
     logic: llmSkillLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
     paramsToProps: ({ params: { name }, searchParams }) => ({
         skillName: name && name !== 'new' ? name : 'new',
         mode: searchParams?.edit === 'true' ? SkillMode.Edit : SkillMode.View,

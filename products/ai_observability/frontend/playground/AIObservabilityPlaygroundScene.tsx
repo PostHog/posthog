@@ -102,7 +102,7 @@ function CollapsibleChevron({ collapsed }: { collapsed: boolean }): JSX.Element 
 export const scene: SceneExport = {
     component: AIObservabilityPlaygroundScene,
     logic: llmPlaygroundPromptsLogic,
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
 }
 
 export function AIObservabilityPlaygroundScene({ tabId }: { tabId?: string }): JSX.Element {

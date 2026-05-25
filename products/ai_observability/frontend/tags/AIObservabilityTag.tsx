@@ -49,7 +49,7 @@ export const scene: SceneExport = {
     component: AIObservabilityTagScene,
     logic: llmTaggerLogic,
     paramsToProps: ({ params }): { id: string } => ({ id: params.id || 'new' }),
-    productKey: ProductKey.LLM_ANALYTICS,
+    productKey: ProductKey.AI_OBSERVABILITY,
 }
 
 function TagDefinitionsEditor({ id }: { id: string }): JSX.Element {
