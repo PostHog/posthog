@@ -186,8 +186,10 @@ Expected to show:
 - "Dry run" selected in the mode segmented button
 - Filter tree: root OR containing \`event_name = "$drop_me"\` and a nested AND group with two conditions
 - Four test cases, all with green "Pass" tags
-- Metrics chart with a "would_be_dropped" series populated across seven days
-  (May 18–24, 2026); "dropped" is flat at zero because the filter is not live
+- Metrics summary: "Dropped" card shows 0 (+0.0%), "Would be dropped" card shows 850
+  (sum of the mocked values) — dry-run only counts matches, doesn't drop them
+- The Chart.js line graph canvas underneath is intentionally blank in snapshots
+  (Chart.ts overrides \`draw\` to skip rendering under the storybook test runner)
                 `,
             },
         },
@@ -207,8 +209,10 @@ Expected to show:
 - "Live" selected in the mode segmented button
 - Status copy "Matching events are being dropped from ingestion."
 - Same tree and test cases as the dry-run story
-- Metrics chart with a "dropped" series populated across the same seven days;
-  "would_be_dropped" is flat at zero (live mode no longer counts matches separately)
+- Metrics summary: "Dropped" card shows 850 (sum of the mocked values),
+  "Would be dropped" card shows 0 — live mode actually drops, doesn't shadow-count
+- The Chart.js line graph canvas underneath is intentionally blank in snapshots
+  (Chart.ts overrides \`draw\` to skip rendering under the storybook test runner)
                 `,
             },
         },
