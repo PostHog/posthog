@@ -1,6 +1,6 @@
-import '@testing-library/jest-dom'
-
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
+import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
