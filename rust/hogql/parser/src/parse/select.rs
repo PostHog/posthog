@@ -1694,11 +1694,19 @@ impl<'a> Parser<'a> {
             // clause. So when a later `from` exists, don't break — fall through
             // and parse this `from X` as a column (`from b` then rejects via
             // `is_bare_from_field`; `from(b)` stays a valid call column).
+            // A `from <implicitAlias>` whose FROM region dangles a `, USING SAMPLE`
+            // / `, ARRAY JOIN` is, per cpp's greedy `selectColumnExprListBeforeFrom`,
+            // a `ColumnExprInvalidFromImplicitAlias` column (not the FROM clause) —
+            // so don't break; fall through to parse `from X` as a column, which
+            // rejects via `is_bare_from_field`. Mirrors the second-`from` carve-out.
             if !cols.is_empty()
                 && self.peek_next() != TokenKind::Colon
                 && self.peek_is_clause_terminator()
                 && !(self.peek() == TokenKind::Keyword(Kw::From)
                     && self.from_clause_followed_by_another_from())
+                && !(self.peek() == TokenKind::Keyword(Kw::From)
+                    && self.peek_next_is_implicit_alias()
+                    && self.from_region_has_dangling_clause_comma())
             {
                 break;
             }
@@ -1788,6 +1796,73 @@ impl<'a> Parser<'a> {
                 _ => {}
             }
         }
+    }
+
+    /// Probe forward from the current `from` (`peek0 == Keyword(From)`) for a
+    /// depth-0 `COMMA` immediately followed by a two-token clause introducer —
+    /// `USING SAMPLE` or `ARRAY JOIN`. Consulted only in the leading/trailing-
+    /// comma column context (the column-loop break is unreachable otherwise), so
+    /// a hit means cpp's greedy `selectColumnExprListBeforeFrom` consumes this
+    /// `from <implicitAlias>` (and any following cross-join tables) as columns up
+    /// to that trailing comma, leaving the introducer as a select-level clause —
+    /// then its visitor rejects the `ColumnExprInvalidFromImplicitAlias`. cpp:
+    /// `select 1, from f, using sample 1` and `… , array join x` reject, while
+    /// `select 1, from f, using` / `… , array` (a bare keyword cross-join table,
+    /// no SAMPLE/JOIN) and the no-leading-comma `select 1 from f, using sample 1`
+    /// stay valid — hence the two-token check and the comma-context gate. Stops
+    /// at the from-region's end (depth-0 terminator, closing bracket below the
+    /// start depth, `;`, or EOF).
+    fn from_region_has_dangling_clause_comma(&self) -> bool {
+        let mut probe = Lexer::with_pos(self.src, self.peek0.end);
+        let mut depth: i32 = 0;
+        let mut prev_was_comma = false;
+        loop {
+            let kind = match probe.next_token() {
+                Ok(t) => t.kind,
+                Err(_) => return false,
+            };
+            match kind {
+                TokenKind::Eof | TokenKind::Semicolon => return false,
+                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => {
+                    depth += 1;
+                    prev_was_comma = false;
+                }
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                    depth -= 1;
+                    if depth < 0 {
+                        return false;
+                    }
+                    prev_was_comma = false;
+                }
+                TokenKind::Comma if depth == 0 => prev_was_comma = true,
+                TokenKind::Keyword(Kw::Using) if depth == 0 && prev_was_comma => {
+                    return matches!(
+                        probe.next_token().map(|t| t.kind),
+                        Ok(TokenKind::Keyword(Kw::Sample))
+                    );
+                }
+                TokenKind::Keyword(Kw::Array) if depth == 0 && prev_was_comma => {
+                    return matches!(
+                        probe.next_token().map(|t| t.kind),
+                        Ok(TokenKind::Keyword(Kw::Join))
+                    );
+                }
+                TokenKind::Keyword(kw) if depth == 0 && from_region_terminator(kw) => return false,
+                _ => {
+                    if depth == 0 {
+                        prev_was_comma = false;
+                    }
+                }
+            }
+        }
+    }
+
+    /// True when the token after `peek0` can be an `implicitAlias`
+    /// (`IDENTIFIER | QUOTED_IDENTIFIER | keywordForImplicitAlias`) — i.e. a bare
+    /// `from <here>` could be the grammar's `FROM implicitAlias` column form.
+    fn peek_next_is_implicit_alias(&self) -> bool {
+        matches!(self.peek_next(), TokenKind::Ident | TokenKind::QuotedIdent)
+            || matches!(self.peek_next(), TokenKind::Keyword(kw) if kw_allowed_as_implicit_alias(kw))
     }
 
     fn try_consume_implicit_alias(&mut self) -> Result<Option<String>, ParseError> {

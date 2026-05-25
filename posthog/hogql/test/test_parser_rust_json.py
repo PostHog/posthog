@@ -6,7 +6,6 @@ the `rust-json` backend into that suite and lists the cases the Rust
 parser does not yet match the C++ reference on.
 """
 
-import pytest
 from posthog.test.base import no_memory_leak_check
 
 from posthog.hogql.errors import BaseHogQLError
@@ -1076,29 +1075,41 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 msg=query,
             )
 
-    # ---- Known divergences, tracked as xfail (strict) --------------------
-    # Each asserts the DESIRED cpp/rust parity and currently fails. strict=True
-    # flips a fix to a hard failure so the marker gets removed when the gap closes.
-
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Irreducible ALL(*) greedy-column artifact. `select 1, from f, using sample 1`: "
-            "cpp's `selectColumnExprListBeforeFrom` greedily eats `from f` as a "
-            "`ColumnExprInvalidFromImplicitAlias` column (trailing-comma form), leaving "
-            "`using sample 1` to match the select-level `(USING? sampleClause)?` clause — "
-            "then the from-implicit-alias column rejects. rust's single pass instead opens the "
-            "FROM clause at `from f` and consumes `using` as a cross-join table + sample. Both "
-            "AGREE on the explicit-from `select 1 from a, using sample 1` (using = cross-join "
-            "table); only the leading-comma column/from boundary resolution diverges, which "
-            "needs whole-query backtracking to replicate (a general fix, not a 3-condition hack)."
-        ),
-    )
     @no_memory_leak_check
-    def test_xfail_select_leading_comma_keyword_table_sample(self):
-        for backend in ("cpp-json", "rust-json"):
-            with self.assertRaises(BaseHogQLError):
-                parse_select("select 1, from f, using sample 1", backend=backend)
+    def test_leading_comma_from_implicit_alias_dangling_clause(self):
+        # Under a leading/trailing comma, cpp's greedy `selectColumnExprListBeforeFrom`
+        # consumes `from <implicitAlias>` (+ any following cross-join tables) as
+        # columns up to a trailing comma when a two-token clause introducer
+        # (`USING SAMPLE` / `ARRAY JOIN`) follows it — then its visitor rejects the
+        # `ColumnExprInvalidFromImplicitAlias` column. rust used to open the FROM
+        # clause at `from f` and consume `using`/`array` as a cross-join table.
+        # A depth-0 dangling-clause forward-scan now matches cpp: both reject.
+        for query in (
+            "select 1, from f, using sample 1",
+            "select 1, from f, array join x",
+            "select 1, from f, g, using sample 1",
+            "select 1, from f, g, array join x",
+        ):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError, msg=query):
+                    parse_select(query, backend=backend)
+        # A bare keyword cross-join table (no SAMPLE/JOIN completing the clause),
+        # and the no-leading-comma form, keep `using`/`array` as real tables — both
+        # accept, so the suppression stays scoped to the dangling-comma case.
+        for query in (
+            "select 1, from f, using",
+            "select 1, from f, array",
+            "select 1, from f, using x",
+            "select 1, from f, array x",
+            "select 1 from f, using sample 1",
+            "select 1 from f, array join x",
+            "select 1, from f, g",
+        ):
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )
 
     @no_memory_leak_check
     def test_date_literal_tolerated_in_discarded_set_decorators(self):
