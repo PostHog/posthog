@@ -177,33 +177,27 @@ export function TrendsPieChart({
         [valueFormatter]
     )
 
-    const centerLabel = useMemo(() => {
-        if (!showAggregation) {
-            return null
-        }
-        return (
-            <div className="text-center font-bold text-3xl leading-tight">
-                {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
-            </div>
-        )
-    }, [showAggregation, total, trendsFilter, baseCurrency])
-
     if (!visibleResults.length) {
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
     return (
-        <PieChart<TrendsSeriesMeta>
-            series={series}
-            theme={theme}
-            config={pieConfig}
-            tooltip={renderTooltip}
-            onSliceClick={canHandleClick ? onSliceClick : undefined}
-            valueFormatter={valueFormatter}
-            centerLabel={centerLabel}
-            className={inSharedMode ? 'ActionsPie--shared' : 'ActionsPie'}
-            dataAttr="trend-pie-graph"
-            onError={handleChartError}
-        />
+        <div className={`flex flex-col w-full h-full ${inSharedMode ? 'ActionsPie--shared' : 'ActionsPie'}`}>
+            <PieChart<TrendsSeriesMeta>
+                series={series}
+                theme={theme}
+                config={pieConfig}
+                tooltip={renderTooltip}
+                onSliceClick={canHandleClick ? onSliceClick : undefined}
+                valueFormatter={valueFormatter}
+                dataAttr="trend-pie-graph"
+                onError={handleChartError}
+            />
+            {showAggregation && (
+                <div className="text-7xl text-center font-bold m-0">
+                    {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
+                </div>
+            )}
+        </div>
     )
 }
