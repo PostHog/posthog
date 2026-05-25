@@ -9,39 +9,36 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.marketing_analytics.backend.services.attribution_health import (
-    FUZZY_LIKELY_THRESHOLD,
     HOGQL_GROUP_LIMIT,
-    _fuzzy_best_integration,
+    _suggest_integration_by_alias_token,
     _UtmRow,
     get_attribution_health,
 )
+from products.marketing_analytics.backend.services.native_integrations import NATIVE_TO_KEY, build_combined_alias_map
+
+_ALIAS_MAP = build_combined_alias_map({})
+_ALL_TARGETS = set(NATIVE_TO_KEY.values())
 
 
-class TestFuzzyBestIntegration:
+class TestSuggestIntegrationByAliasToken:
     @parameterized.expand(
         [
-            ("no_candidates", "anything", []),
-            ("empty_string", "", ["meta_ads"]),
+            ("no_token_match", "zzzzzz"),
+            ("empty_string", ""),
+            ("typo_is_not_a_token", "fcebook"),
         ]
     )
-    def test_returns_none_and_zero_ratio(self, _name, raw, candidates):
-        target, ratio = _fuzzy_best_integration(raw, candidates=candidates)
-        assert target is None
-        assert ratio == 0.0
+    def test_returns_none(self, _name, raw):
+        assert _suggest_integration_by_alias_token(raw, _ALIAS_MAP, _ALL_TARGETS) is None
 
-    @parameterized.expand(
-        [
-            (
-                "close_match_returns_target_with_high_ratio",
-                "fcebook",
-                lambda t, r: t == "meta_ads" and r >= FUZZY_LIKELY_THRESHOLD,
-            ),
-            ("unrelated_value_returns_low_ratio", "zzzzzz", lambda t, r: r < FUZZY_LIKELY_THRESHOLD),
-        ]
-    )
-    def test_ratio_against_threshold(self, _name, raw, predicate):
-        target, ratio = _fuzzy_best_integration(raw, candidates=["meta_ads", "google_ads"])
-        assert predicate(target, ratio)
+    def test_token_matches_a_known_alias(self):
+        alias, integration = next(iter(_ALIAS_MAP.items()))
+        assert _suggest_integration_by_alias_token(f"{alias}_paid", _ALIAS_MAP, _ALL_TARGETS) == integration
+
+    def test_respects_allowed_scope(self):
+        alias, integration = next(iter(_ALIAS_MAP.items()))
+        allowed_without = _ALL_TARGETS - {integration}
+        assert _suggest_integration_by_alias_token(f"{alias}_paid", _ALIAS_MAP, allowed_without) is None
 
 
 class TestGetAttributionHealth(APIBaseTest):
@@ -96,9 +93,9 @@ class TestGetAttributionHealth(APIBaseTest):
         assert meta.matched_pct == round(120 / 200 * 100, 2)
 
     @pytest.mark.asyncio
-    async def test_fuzzy_value_classified_as_likely_yours(self):
+    async def test_token_variant_classified_as_likely_yours(self):
         self.mock_fetch.return_value = [
-            _UtmRow(raw_utm_source="fcebook", event_count=50, last_seen_at=None),
+            _UtmRow(raw_utm_source="facebook_paid", event_count=50, last_seen_at=None),
         ]
 
         response = await get_attribution_health(self.team)
@@ -109,7 +106,7 @@ class TestGetAttributionHealth(APIBaseTest):
         assert response.total_events_unmatched == 50
         assert response.sample_globally_unmatched
         first_sample = response.sample_globally_unmatched[0]
-        assert first_sample.raw_value == "fcebook"
+        assert first_sample.raw_value == "facebook_paid"
         assert first_sample.suggested_integration == "meta_ads"
 
     @pytest.mark.asyncio

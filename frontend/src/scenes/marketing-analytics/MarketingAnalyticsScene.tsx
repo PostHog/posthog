@@ -220,6 +220,8 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
 const MarketingAnalyticsMaxToolWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { dateFilter, integrationFilter, compareFilter } = useValues(marketingAnalyticsLogic)
     const { conversion_goals, marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const aiEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_AI]
 
     // Shared context for every Marketing analytics Max tool — consumed by
     // MARKETING_CONTEXT_PROMPT in products/marketing_analytics/backend/max_tools.py.
@@ -234,16 +236,17 @@ const MarketingAnalyticsMaxToolWrapper = ({ children }: { children: React.ReactN
     // Register the follow-up tools so Max can actually call them when the
     // diagnostic recommends them. Only `marketing_diagnose_setup` gets the
     // visible MaxTool button below — the rest are data tools with no UI anchor.
-    useMaxTool({ identifier: 'marketing_explain_conversion_goal', context: maxContext })
-    useMaxTool({ identifier: 'marketing_list_conversion_goals', context: maxContext })
-    useMaxTool({ identifier: 'marketing_list_data_sources', context: maxContext })
-    useMaxTool({ identifier: 'marketing_audit_utm', context: maxContext })
-    useMaxTool({ identifier: 'marketing_suggest_conversion_goals', context: maxContext })
-    useMaxTool({ identifier: 'marketing_suggest_utm_mappings', context: maxContext })
+    useMaxTool({ identifier: 'marketing_explain_conversion_goal', context: maxContext, active: aiEnabled })
+    useMaxTool({ identifier: 'marketing_list_conversion_goals', context: maxContext, active: aiEnabled })
+    useMaxTool({ identifier: 'marketing_list_data_sources', context: maxContext, active: aiEnabled })
+    useMaxTool({ identifier: 'marketing_audit_utm', context: maxContext, active: aiEnabled })
+    useMaxTool({ identifier: 'marketing_suggest_conversion_goals', context: maxContext, active: aiEnabled })
+    useMaxTool({ identifier: 'marketing_suggest_utm_mappings', context: maxContext, active: aiEnabled })
 
     return (
         <MaxTool
             identifier="marketing_diagnose_setup"
+            active={aiEnabled}
             context={maxContext}
             contextDescription={{
                 text: 'Marketing analytics setup',

@@ -321,9 +321,6 @@ class MarketingSuggestUtmMappingsArgs(BaseModel):
         ge=0,
         description="Only suggest mappings for raw values with at least this many events in the lookback window.",
     )
-    confidence_threshold: float = Field(
-        default=0.72, ge=0, le=1, description="Minimum confidence to include a suggestion (0-1)."
-    )
     lookback_days: int | None = Field(
         default=None,
         ge=1,
@@ -344,7 +341,7 @@ class MarketingSuggestUtmMappingsTool(MaxTool):
 
         Returns:
         - `full_utm_source_catalogue`: every utm_source value seen on events in the window (matched + unmatched), with event count and which integration it resolves to (if any). Use this to answer "which UTMs are arriving" without running SQL.
-        - `source_suggestions`: high-confidence mapping recommendations (e.g. raw `fcebook` → MetaAds via fuzzy match).
+        - `source_suggestions`: mapping recommendations where a value's token matches a known alias (e.g. raw `facebook_paid` → MetaAds). For ambiguous values (typos like `fcebook`, novel sources) use `raw_unmatched_samples` and judge them yourself.
         - `raw_unmatched_samples`: every unmatched value (including likely-not-an-ad values like `organic`, `newsletter`, `partner`).
         - `current_mappings`: every alias already in effect (canonical + team_custom) so you don't suggest duplicates.
 
@@ -361,14 +358,12 @@ class MarketingSuggestUtmMappingsTool(MaxTool):
     async def _arun_impl(
         self,
         min_event_count: int = 10,
-        confidence_threshold: float = 0.72,
         lookback_days: int | None = None,
     ) -> tuple[str, dict[str, Any]]:
         resolved_lookback = _resolve_lookback_days(self._team, self.context, lookback_days, fallback=90)
         response = await suggest_utm_mappings(
             self._team,
             min_event_count=min_event_count,
-            confidence_threshold=confidence_threshold,
             lookback_days=resolved_lookback,
         )
         return _format_utm_mapping_suggestions_for_llm(response), response.to_dict()
@@ -713,7 +708,6 @@ def _format_utm_mapping_suggestions_for_llm(response) -> str:
         f"Lookback window: {window}.",
         f"Total events with utm_source in {window}: {response.total_events_with_utm_in_window}.",
         f"Total events with UNMATCHED utm_source in {window}: {response.total_unmatched_events_in_window}.",
-        f"Confidence threshold: {response.confidence_threshold_used}.",
         "",
         "REPORTING INSTRUCTIONS for the assistant:",
         "- DO NOT run a SQL query for this — `full_utm_source_catalogue` below already lists every utm_source value with counts and integration matches.",
@@ -733,29 +727,29 @@ def _format_utm_mapping_suggestions_for_llm(response) -> str:
         for entry in response.full_utm_source_catalogue:
             if entry.matched_integration_display_name:
                 match_col = f"✅ {entry.matched_integration_display_name}"
-            elif entry.fuzzy_best_target and entry.fuzzy_best_ratio >= response.confidence_threshold_used:
-                match_col = f"≈ likely {entry.fuzzy_best_target} (fuzzy={entry.fuzzy_best_ratio:.2f})"
+            elif entry.suggested_integration:
+                match_col = f"≈ likely {entry.suggested_integration} (alias token)"
             else:
                 match_col = "❌ unmatched"
             lines.append(f"| `{_sanitize_for_prompt(entry.raw_utm_source)}` | {entry.event_count} | {match_col} |")
         lines.append("")
 
-    # Suggestions: high-confidence, ready to apply
+    # Suggestions: value's token matches a known alias, ready to apply
     if response.source_suggestions:
-        lines.append(f"## High-confidence suggestions ({len(response.source_suggestions)})")
+        lines.append(f"## Suggestions ({len(response.source_suggestions)})")
         for s in response.source_suggestions:
             lines.append(
                 f"- raw `{_sanitize_for_prompt(s.raw_utm_source)}` → **{s.suggested_target_display_name}** "
-                f"(confidence={s.confidence:.2f}, method={s.method}, events_in_window={s.event_count_30d})"
+                f"(events_in_window={s.event_count_30d})"
             )
-            # `reason` embeds the raw utm_source value in some code paths — sanitize.
+            # `reason` embeds the raw utm_source value — sanitize.
             lines.append(f"    {_sanitize_for_prompt(s.reason, max_len=400)}")
         lines.append("")
     else:
-        lines.append("## High-confidence suggestions: none")
+        lines.append("## Suggestions: none")
         lines.append("")
 
-    # Raw catalogue: every unmatched value we saw, with fuzzy hint (low or high)
+    # Raw catalogue: every unmatched value we saw, with the alias-token hint if any
     if response.raw_unmatched_samples:
         lines.append(
             f"## Raw unmatched utm_source values seen in {window} "
@@ -767,9 +761,9 @@ def _format_utm_mapping_suggestions_for_llm(response) -> str:
         )
         for s in response.raw_unmatched_samples:
             hint = (
-                f" — closest fuzzy match: {s.fuzzy_best_target} (ratio={s.fuzzy_best_ratio:.2f})"
-                if s.fuzzy_best_target
-                else " — no fuzzy match found (likely organic/direct/test)"
+                f" — likely {s.suggested_integration} (alias token)"
+                if s.suggested_integration
+                else " — no alias match (likely organic/direct/test, or a typo to judge yourself)"
             )
             lines.append(f"- `{_sanitize_for_prompt(s.raw_utm_source)}` ({s.event_count} events){hint}")
         lines.append("")

@@ -2,19 +2,17 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from parameterized import parameterized
-
 from products.marketing_analytics.backend.services.attribution_health import (
     AttributionHealthEntry,
     AttributionHealthResponse,
     UnmatchedUtmSample,
 )
-from products.marketing_analytics.backend.services.mapping_suggester import (
-    DEFAULT_CONFIDENCE_THRESHOLD,
-    _closest_alias,
-    suggest_utm_mappings,
-)
-from products.marketing_analytics.backend.services.native_integrations import NativeIntegration, aliases_for
+from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
+from products.marketing_analytics.backend.services.native_integrations import NativeIntegration
+
+
+def _sample(raw_value: str, event_count: int, suggested_integration: NativeIntegration | None) -> UnmatchedUtmSample:
+    return UnmatchedUtmSample(raw_value=raw_value, event_count=event_count, suggested_integration=suggested_integration)
 
 
 def _entry_with_samples(
@@ -30,29 +28,6 @@ def _entry_with_samples(
         matched_pct=0.0,
         sample_unmatched_utm_sources=samples,
     )
-
-
-class TestClosestAlias:
-    # Each case asserts a different invariant, so the predicate travels with its inputs.
-    @parameterized.expand(
-        [
-            (
-                "fb_typo_resolves_close_to_facebook",
-                "fcebook",
-                "meta_ads",
-                lambda alias: alias in ("facebook", "facebookads", "fb", "fbads"),
-            ),
-            (
-                "returns_empty_or_alias_of_target",
-                "abc",
-                "google_ads",
-                lambda alias: alias == "" or alias in aliases_for("google_ads"),
-            ),
-        ]
-    )
-    def test_closest_alias(self, _name, raw_value, target, predicate):
-        alias = _closest_alias(raw_value, target)
-        assert predicate(alias)
 
 
 class TestSuggestUtmMappings(APIBaseTest):
@@ -88,13 +63,8 @@ class TestSuggestUtmMappings(APIBaseTest):
         assert response.total_unmatched_events_in_window == 0
 
     @pytest.mark.asyncio
-    async def test_high_confidence_sample_becomes_suggestion(self):
-        sample = UnmatchedUtmSample(
-            raw_value="fcebook",
-            event_count=120,
-            suggested_integration="meta_ads",
-            fuzzy_ratio=0.85,
-        )
+    async def test_token_matched_sample_becomes_suggestion(self):
+        sample = _sample("facebook_paid", 120, "meta_ads")
         self.mock_attribution.return_value = AttributionHealthResponse(
             lookback_days=30,
             integrations=[_entry_with_samples("meta_ads", [sample])],
@@ -108,21 +78,14 @@ class TestSuggestUtmMappings(APIBaseTest):
 
         assert len(response.source_suggestions) == 1
         suggestion = response.source_suggestions[0]
-        assert suggestion.raw_utm_source == "fcebook"
+        assert suggestion.raw_utm_source == "facebook_paid"
         assert suggestion.suggested_target == "meta_ads"
         assert suggestion.suggested_target_display_name == "Meta Ads"
         assert suggestion.event_count_30d == 120
-        assert suggestion.method == "fuzzy_match"
-        assert suggestion.confidence >= DEFAULT_CONFIDENCE_THRESHOLD
 
     @pytest.mark.asyncio
-    async def test_below_threshold_filtered_out(self):
-        sample = UnmatchedUtmSample(
-            raw_value="zzzzz",
-            event_count=200,
-            suggested_integration="meta_ads",
-            fuzzy_ratio=0.4,
-        )
+    async def test_sample_without_alias_token_is_not_suggested(self):
+        sample = _sample("organic", 200, None)
         self.mock_attribution.return_value = AttributionHealthResponse(
             lookback_days=30,
             integrations=[_entry_with_samples("meta_ads", [sample])],
@@ -134,16 +97,11 @@ class TestSuggestUtmMappings(APIBaseTest):
 
         response = await suggest_utm_mappings(self.team)
         assert response.source_suggestions == []
-        assert any("threshold" in n for n in response.notes)
+        assert any("alias" in n for n in response.notes)
 
     @pytest.mark.asyncio
     async def test_below_min_event_count_filtered_out(self):
-        sample = UnmatchedUtmSample(
-            raw_value="fcebook",
-            event_count=3,
-            suggested_integration="meta_ads",
-            fuzzy_ratio=0.95,
-        )
+        sample = _sample("facebook_paid", 3, "meta_ads")
         self.mock_attribution.return_value = AttributionHealthResponse(
             lookback_days=30,
             integrations=[_entry_with_samples("meta_ads", [sample])],
@@ -158,15 +116,7 @@ class TestSuggestUtmMappings(APIBaseTest):
 
     @pytest.mark.asyncio
     async def test_max_per_integration_caps_output(self):
-        samples = [
-            UnmatchedUtmSample(
-                raw_value=f"fbtypo_{i}",
-                event_count=100 - i,
-                suggested_integration="meta_ads",
-                fuzzy_ratio=0.9,
-            )
-            for i in range(15)
-        ]
+        samples = [_sample(f"facebook_{i}", 100 - i, "meta_ads") for i in range(15)]
         self.mock_attribution.return_value = AttributionHealthResponse(
             lookback_days=30,
             integrations=[_entry_with_samples("meta_ads", samples)],
@@ -179,7 +129,6 @@ class TestSuggestUtmMappings(APIBaseTest):
         response = await suggest_utm_mappings(self.team, max_per_integration=3)
         meta_count = sum(1 for s in response.source_suggestions if s.suggested_target == "meta_ads")
         assert meta_count == 3
-        # Cap surfaced as a note.
         assert any("Meta Ads" in n and "showing top 3" in n for n in response.notes)
 
     @pytest.mark.asyncio
@@ -190,18 +139,8 @@ class TestSuggestUtmMappings(APIBaseTest):
 
     @pytest.mark.asyncio
     async def test_dedupe_when_same_raw_value_appears_in_multiple_integrations(self):
-        sample_meta = UnmatchedUtmSample(
-            raw_value="paidsocial",
-            event_count=80,
-            suggested_integration="meta_ads",
-            fuzzy_ratio=0.71,
-        )
-        sample_linkedin = UnmatchedUtmSample(
-            raw_value="paidsocial",
-            event_count=80,
-            suggested_integration="linkedin_ads",
-            fuzzy_ratio=0.78,
-        )
+        sample_meta = _sample("paidsocial", 80, "meta_ads")
+        sample_linkedin = _sample("paidsocial", 80, "linkedin_ads")
         self.mock_attribution.return_value = AttributionHealthResponse(
             lookback_days=30,
             integrations=[
@@ -215,7 +154,7 @@ class TestSuggestUtmMappings(APIBaseTest):
         )
 
         response = await suggest_utm_mappings(self.team)
-        # The same raw value is suggested only once, with the higher-confidence target.
+        # The same raw value is suggested only once — the first occurrence wins.
         raw_values = [s.raw_utm_source for s in response.source_suggestions]
         assert raw_values.count("paidsocial") == 1
-        assert response.source_suggestions[0].suggested_target == "linkedin_ads"
+        assert response.source_suggestions[0].suggested_target == "meta_ads"

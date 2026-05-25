@@ -681,7 +681,6 @@ class TestFormatUtmMappingSuggestionsForLlm(BaseTest):
             lookback_days_used=90,
             total_events_with_utm_in_window=0,
             total_unmatched_events_in_window=0,
-            confidence_threshold_used=0.72,
         )
 
     def test_lookback_window_in_output(self):
@@ -694,8 +693,7 @@ class TestFormatUtmMappingSuggestionsForLlm(BaseTest):
             event_count=500,
             matched_integration="google_ads",
             matched_integration_display_name="Google Ads",
-            fuzzy_best_target=None,
-            fuzzy_best_ratio=0.0,
+            suggested_integration=None,
         )
         response = self._make_empty_response()
         response.full_utm_source_catalogue = [entry]
@@ -703,20 +701,18 @@ class TestFormatUtmMappingSuggestionsForLlm(BaseTest):
         assert "google" in result
         assert "Google Ads" in result
 
-    def test_high_confidence_suggestions_shown(self):
+    def test_suggestions_shown(self):
         suggestion = SourceMappingSuggestion(
-            raw_utm_source="fcebook",
+            raw_utm_source="facebook_paid",
             suggested_target="meta_ads",
             suggested_target_display_name="Meta Ads",
-            confidence=0.85,
-            method="fuzzy_match",
-            reason="Fuzzy match to Meta Ads.",
+            reason="'facebook_paid' contains a known alias of Meta Ads.",
             event_count_30d=200,
         )
         response = self._make_empty_response()
         response.source_suggestions = [suggestion]
         result = _format_utm_mapping_suggestions_for_llm(response)
-        assert "fcebook" in result
+        assert "facebook_paid" in result
         assert "Meta Ads" in result
 
     def test_no_suggestions_shows_none(self):
@@ -727,8 +723,7 @@ class TestFormatUtmMappingSuggestionsForLlm(BaseTest):
         sample = RawUnmatchedSample(
             raw_utm_source="organic",
             event_count=50,
-            fuzzy_best_target=None,
-            fuzzy_best_ratio=0.0,
+            suggested_integration=None,
         )
         response = self._make_empty_response()
         response.raw_unmatched_samples = [sample]
@@ -1108,7 +1103,6 @@ class TestMarketingSuggestUtmMappingsTool(BaseTest):
             lookback_days_used=90,
             total_events_with_utm_in_window=500,
             total_unmatched_events_in_window=50,
-            confidence_threshold_used=0.72,
         )
         with patch(
             "products.marketing_analytics.backend.max_tools.suggest_utm_mappings",
@@ -1128,7 +1122,6 @@ class TestMarketingSuggestUtmMappingsTool(BaseTest):
             lookback_days_used=60,
             total_events_with_utm_in_window=0,
             total_unmatched_events_in_window=0,
-            confidence_threshold_used=0.72,
         )
         with patch(
             "products.marketing_analytics.backend.max_tools.suggest_utm_mappings",
@@ -1148,7 +1141,6 @@ class TestMarketingSuggestUtmMappingsTool(BaseTest):
             lookback_days_used=365,
             total_events_with_utm_in_window=0,
             total_unmatched_events_in_window=0,
-            confidence_threshold_used=0.72,
         )
         with patch(
             "products.marketing_analytics.backend.max_tools.suggest_utm_mappings",

@@ -5,9 +5,9 @@ The DW-sync side lives in `data_source_health`; cross-domain correlation in
 `marketing_diagnostic`.
 """
 
+import re
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
-from difflib import SequenceMatcher
 from typing import Any, cast
 
 from django.utils import timezone
@@ -25,7 +25,6 @@ from products.marketing_analytics.backend.services.native_integrations import (
     EXTERNAL_SOURCE_TYPE_TO_NATIVE,
     NATIVE_TO_KEY,
     NativeIntegration,
-    aliases_for,
     build_combined_alias_map,
     display_name_for_key,
     lookup_in,
@@ -38,17 +37,13 @@ logger = structlog.get_logger(__name__)
 # Analytics dashboard's typical "last 7 days" view.
 DEFAULT_LOOKBACK_DAYS = 7
 
-# Minimum fuzzy ratio to flag a raw utm_source as "likely yours" for an
-# integration. SequenceMatcher.ratio() returns 0..1.
-FUZZY_LIKELY_THRESHOLD = 0.72
-
 # Cap on how many distinct utm_source values we report as samples per
 # integration. Keep small — this is fed to LLMs and dashboards.
 MAX_SAMPLE_UNMATCHED = 5
 
-# Cap on how many globally-unmatched raw values we surface (regardless of
-# fuzzy ratio). Higher than MAX_SAMPLE_UNMATCHED because callers like
-# `mapping_suggester` need the full unmatched catalogue to reason about it.
+# Cap on how many globally-unmatched raw values we surface. Higher than
+# MAX_SAMPLE_UNMATCHED because callers like `mapping_suggester` need the full
+# unmatched catalogue to reason about it.
 MAX_GLOBAL_UNMATCHED = 50
 
 # Cap on how many distinct utm_source values we pull from ClickHouse, ordered
@@ -60,12 +55,12 @@ HOGQL_GROUP_LIMIT = 500
 
 @dataclass
 class UnmatchedUtmSample:
-    """A specific raw utm_source value that doesn't match any integration."""
+    """A raw utm_source value that doesn't match any integration. `suggested_integration`
+    is set when one of its tokens is a known alias (e.g. `facebook_paid` → Meta)."""
 
     raw_value: str
     event_count: int
     suggested_integration: NativeIntegration | None
-    fuzzy_ratio: float
 
 
 @dataclass
@@ -82,14 +77,13 @@ class AttributionHealthEntry:
 
 @dataclass
 class UtmSourceSample:
-    """Catalogue entry: a raw utm_source value, its event count, and how it classifies
-    against known integrations. Includes both matched and unmatched values."""
+    """Catalogue entry for a raw utm_source value (matched or not). `matched_integration`
+    is an exact alias hit; `suggested_integration` is a softer token-level guess."""
 
     raw_value: str
     event_count: int
     matched_integration: NativeIntegration | None
-    fuzzy_best_target: NativeIntegration | None
-    fuzzy_best_ratio: float
+    suggested_integration: NativeIntegration | None
 
 
 @dataclass
@@ -142,6 +136,7 @@ async def get_attribution_health(
         native = EXTERNAL_SOURCE_TYPE_TO_NATIVE.get(source_type)
         targets = [NATIVE_TO_KEY[native]] if native else []
 
+    allowed = set(targets)
     per_integration: dict[NativeIntegration, _IntegrationAccumulator] = {
         key: _IntegrationAccumulator(key=key) for key in targets
     }
@@ -159,15 +154,13 @@ async def get_attribution_health(
         total_with_utm += count
 
         matched_key = lookup_in(raw_value, alias_map)
-        # Fuzzy hint computed for every sample (even matched) so the LLM can sanity-check alias resolution.
-        suggestion, ratio = _fuzzy_best_integration(raw_value, candidates=targets)
+        suggestion = _suggest_integration_by_alias_token(raw_value, alias_map, allowed)
         all_samples.append(
             UtmSourceSample(
                 raw_value=raw_value,
                 event_count=count,
                 matched_integration=matched_key,
-                fuzzy_best_target=suggestion,
-                fuzzy_best_ratio=ratio,
+                suggested_integration=suggestion,
             )
         )
 
@@ -185,11 +178,10 @@ async def get_attribution_health(
             raw_value=raw_value,
             event_count=count,
             suggested_integration=suggestion,
-            fuzzy_ratio=ratio,
         )
         globally_unmatched.append(sample)
         total_unmatched += count
-        if suggestion is not None and ratio >= FUZZY_LIKELY_THRESHOLD:
+        if suggestion is not None:
             acc = per_integration[suggestion]
             acc.likely_yours_count += count
             acc.likely_yours_samples.append(sample)
@@ -301,21 +293,17 @@ def _fetch_utm_groups(team: Team, *, lookback_days: int) -> list[_UtmRow]:
     return rows
 
 
-def _fuzzy_best_integration(
-    raw_utm_source: str, *, candidates: list[NativeIntegration]
-) -> tuple[NativeIntegration | None, float]:
-    """Best fuzzy match across the candidates' aliases, as (integration, ratio).
-    Caller decides whether to act on it via FUZZY_LIKELY_THRESHOLD."""
-    norm_raw = normalize(raw_utm_source)
-    if not norm_raw or not candidates:
-        return None, 0.0
+def _suggest_integration_by_alias_token(
+    raw_utm_source: str, alias_map: dict[str, NativeIntegration], allowed: set[NativeIntegration]
+) -> NativeIntegration | None:
+    """Suggest an integration for a value that didn't match exactly, when one of
+    its tokens is a known alias (canonical or team-custom) — e.g. `facebook_paid`
+    → Meta via the `facebook` token.
 
-    best_ratio = 0.0
-    best_integration: NativeIntegration | None = None
-    for integration in candidates:
-        for alias in aliases_for(integration):
-            ratio = SequenceMatcher(None, norm_raw, alias).ratio()
-            if ratio > best_ratio:
-                best_ratio = ratio
-                best_integration = integration
-    return best_integration, round(best_ratio, 4)
+    `allowed` scopes the result to the integrations the caller is reporting on, so
+    a `source_type` filter can't yield an out-of-scope integration."""
+    for token in re.split(r"[^a-z0-9]+", raw_utm_source.lower()):
+        integration = alias_map.get(normalize(token))
+        if integration is not None and integration in allowed:
+            return integration
+    return None

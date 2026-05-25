@@ -1,13 +1,12 @@
 """Suggest `custom_source_mappings` entries from recent unmatched UTM-tagged events.
 
-Deterministic: alias lookups (`native_integrations`) plus fuzzy match via
-`difflib.SequenceMatcher`. Reuses `attribution_health` so what counts as
-"unmatched" stays consistent across both surfaces.
+Reuses `attribution_health`'s alias-token suggestions (canonical + team-custom) so
+"unmatched" stays consistent across both surfaces. Ambiguous values are left in the
+catalogue for the LLM to interpret.
 """
 
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
-from difflib import SequenceMatcher
 from typing import Any, Literal
 
 import structlog
@@ -21,18 +20,13 @@ from products.marketing_analytics.backend.services.attribution_health import Unm
 from products.marketing_analytics.backend.services.native_integrations import (
     NATIVE_TO_KEY,
     NativeIntegration,
-    aliases_for,
     canonical_source_aliases,
     display_name_for_key,
-    normalize,
 )
 
 logger = structlog.get_logger(__name__)
 
-MappingMethod = Literal["fuzzy_match", "exact_alias", "llm"]
-
-# Reused by `attribution_health` for "likely yours" so both surfaces stay consistent.
-DEFAULT_CONFIDENCE_THRESHOLD = 0.72
+MappingMethod = Literal["exact_alias", "llm"]
 
 # Minimum 30d event count worth suggesting — tiny tails don't justify config changes.
 DEFAULT_MIN_EVENT_COUNT = 10
@@ -46,8 +40,6 @@ class SourceMappingSuggestion:
     raw_utm_source: str
     suggested_target: NativeIntegration
     suggested_target_display_name: str
-    confidence: float
-    method: MappingMethod
     reason: str
     event_count_30d: int
 
@@ -72,8 +64,7 @@ class RawUnmatchedSample:
 
     raw_utm_source: str
     event_count: int
-    fuzzy_best_target: NativeIntegration | None
-    fuzzy_best_ratio: float
+    suggested_integration: NativeIntegration | None
 
 
 @dataclass
@@ -92,8 +83,7 @@ class CatalogueEntry:
     event_count: int
     matched_integration: NativeIntegration | None
     matched_integration_display_name: str | None
-    fuzzy_best_target: NativeIntegration | None
-    fuzzy_best_ratio: float
+    suggested_integration: NativeIntegration | None
 
 
 @dataclass
@@ -106,7 +96,6 @@ class UtmMappingSuggestionsResponse:
     total_unmatched_events_in_window: int = 0
     total_events_with_utm_in_window: int = 0
     lookback_days_used: int = 0
-    confidence_threshold_used: float = DEFAULT_CONFIDENCE_THRESHOLD
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -117,7 +106,6 @@ async def suggest_utm_mappings(
     team: Team,
     *,
     min_event_count: int = DEFAULT_MIN_EVENT_COUNT,
-    confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
     max_per_integration: int = MAX_SUGGESTIONS_PER_INTEGRATION,
     lookback_days: int = 90,
 ) -> UtmMappingSuggestionsResponse:
@@ -130,21 +118,18 @@ async def suggest_utm_mappings(
     current_mappings = await _read_current_mappings(team)
     notes: list[str] = []
 
-    # 1. High-confidence suggestions: raw values where fuzzy match crosses the
-    # threshold. These are safe to apply directly. Aggregate across integrations
-    # so each raw value appears once with its best-confidence target.
+    # 1. Suggestions: unmatched raw values whose token matches a known alias
+    # (canonical or custom), so they're safe to propose directly. Aggregate
+    # across integrations so each raw value appears once.
     # Source candidates from the global unmatched list (capped at
     # MAX_GLOBAL_UNMATCHED), not each integration's per-entry samples — those
     # are capped at the much smaller MAX_SAMPLE_UNMATCHED, which would make
     # `max_per_integration` unreachable.
     by_raw: dict[str, SourceMappingSuggestion] = {}
     for sample in attribution.sample_globally_unmatched:
-        if sample.event_count < min_event_count:
+        if sample.event_count < min_event_count or sample.suggested_integration is None:
             continue
-        if sample.suggested_integration is None or sample.fuzzy_ratio < confidence_threshold:
-            continue
-        current = by_raw.get(sample.raw_value)
-        if current is None or sample.fuzzy_ratio > current.confidence:
+        if sample.raw_value not in by_raw:
             by_raw[sample.raw_value] = _to_source_suggestion(sample, sample.suggested_integration)
 
     # Cap per integration to keep output digestible.
@@ -161,10 +146,10 @@ async def suggest_utm_mappings(
         source_suggestions.extend(items[:max_per_integration])
     source_suggestions.sort(key=lambda s: s.event_count_30d, reverse=True)
 
-    # 2. ALL raw unmatched samples, regardless of fuzzy confidence. The LLM
-    # needs to see the actual catalogue (not just high-confidence guesses) to
-    # produce useful explanations like "you have 152 conversions tagged
-    # utm_source=organic — these are not from any ad platform".
+    # 2. ALL raw unmatched samples, including ones with no suggestion. The LLM
+    # needs the actual catalogue (not just confident guesses) to produce useful
+    # explanations like "you have 152 conversions tagged utm_source=organic —
+    # these are not from any ad platform".
     raw_unmatched: list[RawUnmatchedSample] = []
     for s in attribution.sample_globally_unmatched:
         if s.event_count < min_event_count:
@@ -173,18 +158,17 @@ async def suggest_utm_mappings(
             RawUnmatchedSample(
                 raw_utm_source=s.raw_value,
                 event_count=s.event_count,
-                fuzzy_best_target=s.suggested_integration,
-                fuzzy_best_ratio=s.fuzzy_ratio,
+                suggested_integration=s.suggested_integration,
             )
         )
 
     if attribution.total_events_unmatched > 0 and not source_suggestions:
         notes.append(
             f"{attribution.total_events_unmatched} events with unmatched utm_source were seen "
-            f"in the last {lookback_days} days but none crossed the confidence threshold "
-            f"({confidence_threshold:.2f}). The raw values are listed under `raw_unmatched_samples` "
-            "for the LLM/user to review manually — many will be 'organic', 'direct', test campaigns, "
-            "or partner traffic that should NOT be mapped to ad platforms."
+            f"in the last {lookback_days} days but none had a token matching a known alias. "
+            "The raw values are listed under `raw_unmatched_samples` for the LLM/user to review "
+            "manually — many will be 'organic', 'direct', test campaigns, or partner traffic that "
+            "should NOT be mapped to ad platforms."
         )
 
     if attribution.total_events_with_utm == 0:
@@ -218,8 +202,7 @@ async def suggest_utm_mappings(
                 matched_integration_display_name=(
                     display_name_for_key(entry.matched_integration) if entry.matched_integration else None
                 ),
-                fuzzy_best_target=entry.fuzzy_best_target,
-                fuzzy_best_ratio=entry.fuzzy_best_ratio,
+                suggested_integration=entry.suggested_integration,
             )
         )
 
@@ -232,7 +215,6 @@ async def suggest_utm_mappings(
         total_unmatched_events_in_window=attribution.total_events_unmatched,
         total_events_with_utm_in_window=attribution.total_events_with_utm,
         lookback_days_used=lookback_days,
-        confidence_threshold_used=confidence_threshold,
         notes=final_notes,
     )
 
@@ -282,32 +264,11 @@ async def _read_current_mappings(team: Team) -> list[CurrentMapping]:
 
 
 def _to_source_suggestion(sample: UnmatchedUtmSample, target: NativeIntegration) -> SourceMappingSuggestion:
+    display = display_name_for_key(target)
     return SourceMappingSuggestion(
         raw_utm_source=sample.raw_value,
         suggested_target=target,
-        suggested_target_display_name=display_name_for_key(target),
-        confidence=sample.fuzzy_ratio,
-        method="fuzzy_match",
-        reason=_build_reason(sample.raw_value, target, sample.fuzzy_ratio),
+        suggested_target_display_name=display,
+        reason=f"'{sample.raw_value}' contains a known alias of {display}.",
         event_count_30d=sample.event_count,
     )
-
-
-def _build_reason(raw: str, target: NativeIntegration, ratio: float) -> str:
-    closest_alias = _closest_alias(raw, target)
-    return (
-        f"Fuzzy match '{raw}' ↔ '{closest_alias}' (ratio={ratio:.2f}); "
-        f"'{closest_alias}' is a known alias of {display_name_for_key(target)}."
-    )
-
-
-def _closest_alias(raw: str, target: NativeIntegration) -> str:
-    norm_raw = normalize(raw)
-    best_alias = ""
-    best_ratio = 0.0
-    for alias in aliases_for(target):
-        ratio = SequenceMatcher(None, norm_raw, alias).ratio()
-        if ratio > best_ratio:
-            best_ratio = ratio
-            best_alias = alias
-    return best_alias
