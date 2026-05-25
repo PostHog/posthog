@@ -35,23 +35,21 @@ class TestAuthorTestLink(_FeatureFlagEnabledMixin):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         return UserInterviewTopic.objects.get(id=response.json()["id"])
 
-    def test_topic_creation_seeds_author_test_context_and_share(self) -> None:
+    def test_topic_creation_does_not_eagerly_seed_author_context(self) -> None:
         topic = self._create_topic_via_api()
-
-        author_contexts = IntervieweeContext.objects.filter(topic=topic, is_author_test=True)
-        assert author_contexts.count() == 1
-        author_ic = author_contexts.get()
-        assert author_ic.interviewee_identifier == self.user.email
-        assert author_ic.created_by_id == self.user.id
-
-        assert SharingConfiguration.objects.filter(team=self.team, interviewee_context=author_ic, enabled=True).exists()
-
-    def test_author_test_context_excluded_from_targeted_aggregates(self) -> None:
-        topic = self._create_topic_via_api()
-        targeted = IntervieweeContext.objects.filter(topic=topic, is_author_test=False)
-        assert targeted.count() == 0
+        assert not IntervieweeContext.objects.filter(topic=topic).exists()
         assert self.user.email not in topic.interviewee_emails
         assert self.user.email not in topic.interviewee_distinct_ids
+
+    def test_test_link_materializes_author_context_and_share(self) -> None:
+        topic = self._create_topic_via_api()
+
+        response = self.client.post(self._test_link_url(str(topic.id)))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        ic = IntervieweeContext.objects.get(topic=topic, interviewee_identifier=self.user.email)
+        assert ic.created_by_id == self.user.id
+        assert SharingConfiguration.objects.filter(team=self.team, interviewee_context=ic, enabled=True).exists()
 
     def test_test_link_returns_url_and_no_latest_when_no_interviews(self) -> None:
         topic = self._create_topic_via_api()
@@ -63,41 +61,42 @@ class TestAuthorTestLink(_FeatureFlagEnabledMixin):
         assert "/interview/" in body["interview_url"]
         assert body["latest_test_interview"] is None
 
-    def test_test_link_is_self_healing_for_topics_created_before_field_existed(self) -> None:
-        legacy_topic = UserInterviewTopic.objects.create(
-            team=self.team,
-            created_by=self.user,
-            interviewee_emails=["alex@example.com"],
-            topic="Legacy topic",
-        )
-        assert not IntervieweeContext.objects.filter(topic=legacy_topic, is_author_test=True).exists()
-
-        response = self.client.post(self._test_link_url(str(legacy_topic.id)))
-
-        assert response.status_code == status.HTTP_200_OK, response.content
-        assert IntervieweeContext.objects.filter(topic=legacy_topic, is_author_test=True).count() == 1
-
     def test_test_link_is_idempotent(self) -> None:
         topic = self._create_topic_via_api()
         first = self.client.post(self._test_link_url(str(topic.id))).json()
         second = self.client.post(self._test_link_url(str(topic.id))).json()
         assert first["interview_url"] == second["interview_url"]
-        assert IntervieweeContext.objects.filter(topic=topic, is_author_test=True).count() == 1
+        assert IntervieweeContext.objects.filter(topic=topic, interviewee_identifier=self.user.email).count() == 1
         assert (
             SharingConfiguration.objects.filter(
-                team=self.team, interviewee_context__topic=topic, interviewee_context__is_author_test=True
+                team=self.team,
+                interviewee_context__topic=topic,
+                interviewee_context__interviewee_identifier=self.user.email,
             ).count()
             == 1
         )
 
+    def test_test_link_uses_topic_creator_not_request_user(self) -> None:
+        topic = self._create_topic_via_api()
+        other_user = self._create_user("other@example.com")
+        self.client.force_login(other_user)
+
+        response = self.client.post(self._test_link_url(str(topic.id)))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        contexts = IntervieweeContext.objects.filter(topic=topic)
+        assert contexts.count() == 1
+        assert contexts.get().interviewee_identifier == self.user.email
+
     def test_test_link_surfaces_latest_test_interview(self) -> None:
         topic = self._create_topic_via_api()
-        author_ic = IntervieweeContext.objects.get(topic=topic, is_author_test=True)
+        self.client.post(self._test_link_url(str(topic.id)))
+        ic = IntervieweeContext.objects.get(topic=topic, interviewee_identifier=self.user.email)
         UserInterview.objects.create(
             team=self.team,
             created_by=self.user,
             topic=topic,
-            interviewee_identifier=author_ic.interviewee_identifier,
+            interviewee_identifier=ic.interviewee_identifier,
             transcript="hello",
             summary="said hello",
         )

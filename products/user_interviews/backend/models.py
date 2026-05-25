@@ -75,14 +75,6 @@ class IntervieweeContext(UUIDTModel, CreatedMetaFields):
     )
     interviewee_identifier = models.CharField(max_length=400)
     agent_context = models.TextField()
-    is_author_test = models.BooleanField(
-        default=False,
-        help_text=(
-            "True for the synthetic context row that lets the topic author dogfood the "
-            "voice interview without consuming a real interviewee slot. Exactly one such "
-            "row exists per topic, distinct from the targeting arrays."
-        ),
-    )
 
     class Meta:
         ordering = ["-created_at"]

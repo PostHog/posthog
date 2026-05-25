@@ -527,14 +527,11 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict) -> UserInterviewTopic:
         request = self.context["request"]
         team = self.context["get_team"]()
-        with transaction.atomic():
-            topic = UserInterviewTopic.objects.create(
-                team=team,
-                created_by=request.user,
-                **validated_data,
-            )
-            _ensure_author_test_context(topic=topic, team=team, author=request.user)
-        return topic
+        return UserInterviewTopic.objects.create(
+            team=team,
+            created_by=request.user,
+            **validated_data,
+        )
 
     def update(self, instance: UserInterviewTopic, validated_data: dict) -> UserInterviewTopic:
         old_emails = set(instance.interviewee_emails or [])
@@ -618,15 +615,18 @@ def _author_test_identifier(author: User) -> str:
 def _ensure_author_test_context(
     *, topic: UserInterviewTopic, team: Any, author: User
 ) -> tuple[IntervieweeContext, SharingConfiguration]:
-    """Idempotently create the author's `IntervieweeContext` + enabled `SharingConfiguration`
-    for a topic. Used at topic creation and as a self-healing get-or-create on the
-    `test_link` endpoint so older topics created before this field existed still work."""
+    """Idempotently get-or-create the author's `IntervieweeContext` + enabled
+    `SharingConfiguration` for a topic. The author's IC is keyed on the same identifier
+    a real interviewee would use (their email), so if the author also adds themselves
+    to the targeting arrays the same row serves both — we deliberately don't carry an
+    `is_author_test` flag because `(ic.interviewee_identifier == topic.created_by.email)`
+    is all the signal we ever need.
+    """
     ic, _ = IntervieweeContext.objects.get_or_create(
         topic=topic,
-        is_author_test=True,
+        interviewee_identifier=_author_test_identifier(author),
         defaults={
             "team": team,
-            "interviewee_identifier": _author_test_identifier(author),
             "agent_context": "",
             "created_by": author,
         },
@@ -991,16 +991,21 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: OpenApiResponse(response=TestInterviewLinkSerializer)},
         description=(
             "Return the topic author's personal dogfood interview link plus the latest test "
-            "interview they have completed for this topic. Materializes the author's "
-            "IntervieweeContext (`is_author_test=True`) and an enabled SharingConfiguration on "
-            "first call, so the link is stable across calls. The author's interviews stay tied "
-            "to the topic but are excluded from the targeted-interviewee aggregates."
+            "interview that has been recorded against it. Lazily get-or-creates an "
+            "IntervieweeContext + enabled SharingConfiguration for the topic author so the "
+            "link is stable across calls. The author's identifier is their email (or distinct "
+            "ID fallback) and is intentionally _not_ added to the topic's targeting arrays, "
+            "so author interviews stay separate from the targeted-interviewee aggregates."
         ),
     )
     @action(detail=True, methods=["post"], url_path="test_link")
     def test_link(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         topic = self.get_object()
-        ic, sharing_config = _ensure_author_test_context(topic=topic, team=self.team, author=request.user)
+        ic, sharing_config = _ensure_author_test_context(
+            topic=topic,
+            team=self.team,
+            author=topic.created_by or request.user,
+        )
 
         latest = (
             UserInterview.objects.filter(
