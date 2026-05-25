@@ -1489,10 +1489,11 @@ class FeatureFlagSerializer(
 
     def _free_key_held_by_soft_deleted_flags(self, key: str, exclude_pk: int | None = None) -> None:
         # The (team, key) unique constraint spans soft-deleted rows, so we must
-        # clear any tombstone holding `key`. Hard-delete first; if an Experiment
-        # FK blocks it (RESTRICT), rename the tombstone instead — same scheme as
-        # the soft-delete update path. Only safe when no active experiment
-        # references it; re-check that invariant and error clearly if violated.
+        # clear any tombstone holding `key`. Hard-delete first; if an FK blocks
+        # it (Experiment uses RESTRICT, EarlyAccessFeature uses PROTECT), rename
+        # the tombstone instead — same scheme as the soft-delete update path.
+        # Only safe when no active dependent references it; re-check that
+        # invariant and error clearly if violated.
         soft_deleted_qs = FeatureFlag.objects_including_soft_deleted.filter(
             key=key,
             team__project_id=self.context["project_id"],
@@ -1504,14 +1505,18 @@ class FeatureFlagSerializer(
         for flag in soft_deleted_qs:
             try:
                 flag.delete()
-            except deletion.RestrictedError:
-                active_experiments = flag.experiment_set.filter(deleted=False)
-                if active_experiments.exists():
-                    experiment_ids = list(active_experiments.values_list("id", flat=True))
+            except (deletion.RestrictedError, deletion.ProtectedError):
+                blockers = []
+                active_experiment_ids = list(flag.experiment_set.filter(deleted=False).values_list("id", flat=True))
+                if active_experiment_ids:
+                    blockers.append(f"active experiment(s) with ID(s): {', '.join(map(str, active_experiment_ids))}")
+                eaf_count = flag.features.count()
+                if eaf_count:
+                    blockers.append(f"{eaf_count} early access feature(s)")
+                if blockers:
                     raise exceptions.ValidationError(
                         f"Cannot reuse key '{flag.key}': a soft-deleted flag with this key is still "
-                        f"referenced by active experiment(s) with ID(s): {', '.join(map(str, experiment_ids))}. "
-                        f"Please contact support."
+                        f"referenced by {' and '.join(blockers)}. Please contact support."
                     )
                 flag.key = f"{flag.key}:deleted:{flag.id}"
                 flag.save(update_fields=["key"])

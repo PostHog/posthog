@@ -3424,6 +3424,45 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         legacy_flag.refresh_from_db()
         assert legacy_flag.key == "inconsistent-key"
 
+    @parameterized.expand(
+        [
+            ("create",),
+            ("rename",),
+        ]
+    )
+    def test_reuse_key_with_inconsistent_soft_deleted_flag_referenced_by_eaf(self, mode: str):
+        # EarlyAccessFeature.feature_flag uses on_delete=PROTECT (sibling of
+        # RESTRICT). A tombstone with an EAF must surface the same defensive
+        # error, not a 500.
+        legacy_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="eaf-key")
+        EarlyAccessFeature.objects.create(
+            team=self.team,
+            name="EAF",
+            description="",
+            stage="alpha",
+            feature_flag=legacy_flag,
+        )
+        FeatureFlag.objects_including_soft_deleted.filter(pk=legacy_flag.pk).update(deleted=True)
+
+        if mode == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "EAF Reuse", "key": "eaf-key"},
+            )
+        else:
+            other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="eaf-key-v2")
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{other.id}/",
+                {"key": "eaf-key"},
+            )
+
+        assert response.status_code == 400
+        assert "early access feature(s)" in response.json()["detail"]
+        assert "eaf-key" in response.json()["detail"]
+
+        legacy_flag.refresh_from_db()
+        assert legacy_flag.key == "eaf-key"
+
     def test_soft_delete_flag_blocked_with_active_experiment(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="flag2")
         exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag)
