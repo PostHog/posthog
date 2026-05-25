@@ -29,22 +29,6 @@ tools:
     llma-clustering-job-create:
         operation: llm_analytics_clustering_jobs_create
         enabled: false
-    llma-clustering-job-delete:
-        operation: llm_analytics_clustering_jobs_destroy
-        enabled: false
-    llma-clustering-job-get:
-        operation: llm_analytics_clustering_jobs_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get clustering job
-        description: >
-            Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or
-            generation), event filters, enabled status, and timestamps.
     llma-clustering-job-list:
         operation: llm_analytics_clustering_jobs_list
         enabled: true
@@ -60,50 +44,20 @@ tools:
             level (trace or generation) and event filters that scope which traces are included in clustering runs.
             Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or
             execute-sql to query them.
-    llma-clustering-job-update:
-        operation: llm_analytics_clustering_jobs_partial_update
-        enabled: false
-    llma-clustering-job-update-full:
-        operation: llm_analytics_clustering_jobs_update
-        enabled: false
     llma-clustering-run-create:
         operation: llm_analytics_clustering_runs_create
         enabled: false
     llma-dataset-create:
         operation: datasets_create
         enabled: false
-    llma-dataset-delete:
-        operation: datasets_destroy
-        enabled: false
-    llma-dataset-get:
-        operation: datasets_retrieve
-        enabled: false
     llma-dataset-item-create:
         operation: dataset_items_create
-        enabled: false
-    llma-dataset-item-delete:
-        operation: dataset_items_destroy
-        enabled: false
-    llma-dataset-item-get:
-        operation: dataset_items_retrieve
         enabled: false
     llma-dataset-item-list:
         operation: dataset_items_list
         enabled: false
-    llma-dataset-item-update:
-        operation: dataset_items_partial_update
-        enabled: false
-    llma-dataset-item-update-full:
-        operation: dataset_items_update
-        enabled: false
     llma-dataset-list:
         operation: datasets_list
-        enabled: false
-    llma-dataset-update:
-        operation: datasets_partial_update
-        enabled: false
-    llma-dataset-update-full:
-        operation: datasets_update
         enabled: false
     llma-evaluation-config-get:
         operation: llm_analytics_evaluation_config_retrieve
@@ -150,33 +104,6 @@ tools:
             (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When
             enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation'
             events.
-    llma-evaluation-delete:
-        operation: evaluations_destroy
-        enabled: true
-        scopes:
-            - evaluation:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete evaluation
-        description: >
-            Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views. Historical
-            evaluation results ($ai_evaluation events) are preserved.
-        soft_delete: true
-    llma-evaluation-get:
-        operation: evaluations_retrieve
-        enabled: true
-        scopes:
-            - evaluation:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get evaluation
-        description: >
-            Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config,
-            output type, enabled status, and model configuration.
     llma-evaluation-judge-models:
         operation: llm_analytics_models_retrieve
         enabled: true
@@ -249,50 +176,6 @@ tools:
             - timezone_name
             - max_sample_size
             - report_prompt_guidance
-    llma-evaluation-report-delete:
-        operation: llm_analytics_evaluation_reports_destroy
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete evaluation report config
-        description: >
-            Soft-delete an evaluation report configuration. The report stops firing and is hidden from list views;
-            historical report runs are preserved. Equivalent to calling llma-evaluation-report-update with deleted=true
-            — that update path is the canonical way to soft-delete and is the only option when you also want to change
-            other fields in the same call.
-        soft_delete: true
-    llma-evaluation-report-generate:
-        operation: llm_analytics_evaluation_reports_generate_create
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Trigger evaluation report generation
-        description: >
-            Immediately trigger an AI-generated evaluation report for this report config. Enqueues a Temporal workflow
-            that analyzes recent evaluation runs and delivers the report to configured targets (email or Slack). Returns
-            202 on success. Duplicate requests within the same minute are coalesced — only one report is generated.
-            Rate-limited by daily_run_cap.
-    llma-evaluation-report-get:
-        operation: llm_analytics_evaluation_reports_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get evaluation report config
-        description: >
-            Get a specific evaluation report configuration by UUID. Returns the full config including frequency,
-            delivery targets, trigger thresholds, and schedule settings.
     llma-evaluation-report-list:
         operation: llm_analytics_evaluation_reports_list
         enabled: true
@@ -307,38 +190,6 @@ tools:
             List all evaluation report configurations for the current project. Optionally filter by evaluation UUID
             using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are
             generated and delivered (email or Slack).
-    llma-evaluation-report-run-list:
-        operation: llm_analytics_evaluation_reports_runs_list
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List evaluation report runs
-        description: >
-            List the run history for a specific evaluation report config. Each run record includes the generated report
-            content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery
-            error details.
-    llma-evaluation-report-update:
-        operation: llm_analytics_evaluation_reports_partial_update
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update evaluation report config
-        description: >
-            Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email
-            or Slack), or switch frequency between 'every_n' and 'scheduled'. For 'every_n' mode set trigger_threshold
-            (10–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule and starts_at. Set
-            deleted=true to soft-delete the config.
-    llma-evaluation-report-update-full:
-        operation: llm_analytics_evaluation_reports_update
-        enabled: false
     llma-evaluation-run:
         operation: evaluation_runs_create
         enabled: true
@@ -386,22 +237,6 @@ tools:
             Test Hog evaluation source code against a sample of recent $ai_generation events without saving. Returns
             per-event results (pass/fail/N/A), reasoning, and input/output previews. Use this to validate Hog code
             before creating or updating a 'hog' type evaluation.
-    llma-evaluation-update:
-        operation: evaluations_partial_update
-        enabled: true
-        scopes:
-            - evaluation:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update evaluation
-        description: >
-            Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config
-            (prompt or Hog source), or change the model configuration.
-    llma-evaluation-update-full:
-        operation: evaluations_update
-        enabled: false
     llma-personal-spend:
         operation: llm_analytics_personal_spend_list
         enabled: true
@@ -418,126 +253,14 @@ tools:
             `product` query param is required and scopes the tool / model / trace breakdowns to a single product;
             currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass
             `refresh=true` to bypass the 5-minute cache.
-    llma-prompt-archive:
-        operation: llm_prompts_name_archive_create
-        enabled: false
-    llma-prompt-create:
-        operation: llm_prompts_create
-        enabled: true
-        scopes:
-            - llm_prompt:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create prompt
-        description: >
-            Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON
-            object).
-        include_params:
-            - name
-            - prompt
-    llma-prompt-duplicate:
-        operation: llm_prompts_name_duplicate_create
-        enabled: true
-        scopes:
-            - llm_prompt:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Duplicate prompt
-        description: >
-            Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new
-            prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after
-            creation.
-    llma-prompt-get:
-        operation: llm_prompts_name_retrieve
-        enabled: true
-        scopes:
-            - llm_prompt:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get prompt
-        description: |
-            Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.
-            The response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful
-            as a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,
-            or `content=preview` for a short `prompt_preview` snippet instead of the full prompt.
-    llma-prompt-list:
-        operation: llm_prompts_list
-        enabled: true
-        scopes:
-            - llm_prompt:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        input_schema: PromptListInputSchema
-        response_type: |-
-            Omit<Schemas.PaginatedLLMPromptListList, 'results'> & {
-              results: (Omit<Schemas.LLMPromptList, 'prompt'> & { prompt?: unknown })[]
-            }
-        title: List prompts
-        description: >
-            List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt
-            summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes
-            `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of
-            contents, and pair with `content=none` to keep responses small.
-    llma-prompt-resolve:
-        operation: llm_prompts_resolve_name_retrieve
-        enabled: false
-    llma-prompt-update:
-        operation: llm_prompts_name_partial_update
-        enabled: true
-        scopes:
-            - llm_prompt:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update prompt
-        description: |
-            Publish a new version of an existing LLM prompt by name. Name is immutable after creation.
-            You can either provide the full prompt content via 'prompt', or use 'edits' for incremental
-            find/replace updates. Each edit must have 'old' (text to find, must match exactly once) and
-            'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'
-            may be provided.
-        include_params:
-            - prompt
-            - edits
-            - base_version
-    llma-provider-key-assign:
-        operation: llm_analytics_provider_keys_assign_create
-        enabled: false
     llma-provider-key-create:
         operation: llm_analytics_provider_keys_create
-        enabled: false
-    llma-provider-key-delete:
-        operation: llm_analytics_provider_keys_destroy
-        enabled: false
-    llma-provider-key-dependent-configs-get:
-        operation: llm_analytics_provider_keys_dependent_configs_retrieve
-        enabled: false
-    llma-provider-key-get:
-        operation: llm_analytics_provider_keys_retrieve
         enabled: false
     llma-provider-key-list:
         operation: llm_analytics_provider_keys_list
         enabled: false
     llma-provider-key-trial-evaluations-get:
         operation: llm_analytics_provider_keys_trial_evaluations_retrieve
-        enabled: false
-    llma-provider-key-update:
-        operation: llm_analytics_provider_keys_partial_update
-        enabled: false
-    llma-provider-key-update-full:
-        operation: llm_analytics_provider_keys_update
-        enabled: false
-    llma-provider-key-validate:
-        operation: llm_analytics_provider_keys_validate_create
         enabled: false
     llma-provider-key-validation-create:
         operation: llm_analytics_provider_key_validations_create
@@ -556,33 +279,6 @@ tools:
         description: >
             Create a review queue for routing traces that still need review. Queue names must be unique among active
             queues in the current project.
-    llma-review-queue-delete:
-        operation: llm_analytics_review_queues_destroy
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete review queue
-        description: >
-            Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments
-            that still belong to it.
-    llma-review-queue-get:
-        operation: llm_analytics_review_queues_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: reviews?queue_id={id}
-        title: Get review queue
-        description: |
-            Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.
-        mcp_version: 1
     llma-review-queue-item-create:
         operation: llm_analytics_review_queue_items_create
         enabled: true
@@ -597,34 +293,6 @@ tools:
         description: >
             Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if
             the trace already has an active review or is already pending in any review queue.
-    llma-review-queue-item-delete:
-        operation: llm_analytics_review_queue_items_destroy
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete review queue item
-        description: >
-            Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the trace
-            can be queued again later if needed.
-    llma-review-queue-item-get:
-        operation: llm_analytics_review_queue_items_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: traces/{trace_id}
-        title: Get review queue item
-        description: >
-            Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and
-            timestamps for the pending review task.
-        mcp_version: 1
     llma-review-queue-item-list:
         operation: llm_analytics_review_queue_items_list
         enabled: true
@@ -641,20 +309,6 @@ tools:
             List pending trace review assignments across review queues. Supports filtering by queue_id, trace_id,
             trace_id__in, search, and ordering so agents can find traces that are still queued for review.
         mcp_version: 1
-    llma-review-queue-item-update:
-        operation: llm_analytics_review_queue_items_partial_update
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: traces/{trace_id}
-        title: Update review queue item
-        description: >
-            Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace
-            has already been reviewed and can no longer stay queued.
     llma-review-queue-list:
         operation: llm_analytics_review_queues_list
         enabled: true
@@ -671,19 +325,6 @@ tools:
             List review queues used for trace reviews. Returns queue names, pending_item_count, creator info, and
             timestamps. Supports queue-name search and ordering.
         mcp_version: 1
-    llma-review-queue-update:
-        operation: llm_analytics_review_queues_partial_update
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: reviews?queue_id={id}
-        title: Update review queue
-        description: |
-            Rename an existing review queue. The updated name must stay unique among active queues in the project.
     llma-score-definition-create:
         operation: llm_analytics_score_definitions_create
         enabled: true
@@ -704,19 +345,6 @@ tools:
         param_overrides:
             config:
                 input_schema: ScoreDefinitionConfigSchema
-    llma-score-definition-get:
-        operation: llm_analytics_score_definitions_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get scorer
-        description: >
-            Retrieve a scorer by ID, including its current immutable `config` payload, `current_version` number, kind,
-            archived state, and timestamps.
     llma-score-definition-list:
         operation: llm_analytics_score_definitions_list
         enabled: true
@@ -733,40 +361,6 @@ tools:
             to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over
             name/description. Returns metadata plus the current config snapshot.
         mcp_version: 1
-    llma-score-definition-new-version:
-        operation: llm_analytics_score_definitions_new_version_create
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Bump scorer to a new version
-        description: >
-            Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change
-            (add/remove categorical options, tweak numeric bounds, rename boolean labels). Existing trace reviews keep
-            their snapshot of the previous version, so historical scores remain stable. The `config` shape must match
-            the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number
-            you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already
-            advanced the scorer.
-        param_overrides:
-            config:
-                input_schema: ScoreDefinitionConfigSchema
-    llma-score-definition-update:
-        operation: llm_analytics_score_definitions_partial_update
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update scorer metadata
-        description: >
-            Update a scorer's metadata: rename via `name`, edit `description`, or toggle `archived` to hide (`true`) or
-            restore (`false`). Archiving is reversible — there is no destroy endpoint. To change the scoring rules
-            instead, call `llma-score-definition-new-version`. `kind` cannot be changed.
     llma-sentiment-create:
         operation: llm_analytics_sentiment_create
         enabled: true
@@ -1052,34 +646,6 @@ tools:
         description: >
             Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to
             clear a matching pending review-queue item after the review is saved.
-    llma-trace-review-delete:
-        operation: llm_analytics_trace_reviews_destroy
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete trace review
-        description: >
-            Delete a trace review by ID. This soft-deletes the review so the same trace can be reviewed again later if
-            needed.
-    llma-trace-review-get:
-        operation: llm_analytics_trace_reviews_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: traces/{trace_id}
-        title: Get trace review
-        description: >
-            Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and
-            timestamps.
-        mcp_version: 1
     llma-trace-review-list:
         operation: llm_analytics_trace_reviews_list
         enabled: true
@@ -1096,20 +662,6 @@ tools:
             List saved trace reviews. Supports filtering by trace_id, definition_id, search, and ordering. Returns
             comments, scores, reviewers, and timestamps.
         mcp_version: 1
-    llma-trace-review-update:
-        operation: llm_analytics_trace_reviews_partial_update
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: traces/{trace_id}
-        title: Update trace review
-        description: >
-            Update a trace review. Pass comment and/or the full desired scores array. You can also pass queue_id to
-            clear only a matching pending queue item after the review is saved.
     llma-translate-create:
         operation: llm_analytics_translate_create
         enabled: false
