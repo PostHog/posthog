@@ -25,7 +25,13 @@ function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefine
 
 function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
     const persistedFeatureFlags = appContext?.persisted_feature_flags || []
-    return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
+    const flags = Object.fromEntries(
+        persistedFeatureFlags.map((f) => {
+            return [f, true]
+        })
+    )
+
+    return flags
 }
 
 let cachedFlagsSerialized: string | null = null
