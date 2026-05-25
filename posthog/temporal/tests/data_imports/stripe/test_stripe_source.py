@@ -658,3 +658,27 @@ class TestGetApiKey:
         config = StripeSourceConfig.from_dict({"auth_method": {"selection": "oauth", "stripe_integration_id": 99999}})
         with pytest.raises(ValueError, match="Integration not found"):
             stripe_source._get_api_key(config, team.pk)
+
+
+class TestGetEndpointPermissions:
+    """`get_endpoint_permissions` feeds the UI — it must never leak unexpected exception details."""
+
+    @pytest.fixture
+    def stripe_source(self):
+        return StripeSource()
+
+    def test_value_error_from_get_api_key_surfaces_message(self, stripe_source):
+        config = StripeSourceConfig.from_dict({"auth_method": {"selection": "api_key"}})
+        result = stripe_source.get_endpoint_permissions(config, team_id=1, endpoints=["Customer", "Charge"])
+        # Curated ValueError messages from _get_api_key are safe to render verbatim.
+        assert result == {"Customer": "Missing Stripe API key", "Charge": "Missing Stripe API key"}
+
+    def test_unexpected_exception_renders_generic_reason(self, stripe_source):
+        config = StripeSourceConfig.from_dict(
+            {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}}
+        )
+        with mock.patch.object(stripe_source, "_get_api_key", side_effect=RuntimeError("internal token=secret123")):
+            result = stripe_source.get_endpoint_permissions(config, team_id=1, endpoints=["Customer"])
+        # Generic message — never leak the raw exception body to the UI.
+        assert result == {"Customer": "Stripe credentials are not available"}
+        assert "secret123" not in result["Customer"]

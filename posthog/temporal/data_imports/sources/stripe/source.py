@@ -19,6 +19,7 @@ from posthog.schema import (
     SuggestedTable,
 )
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import OauthIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
@@ -343,15 +344,19 @@ If automatic creation failed due to a permissions error and you're using a restr
         # 401 → mark every endpoint with the auth error so caller can surface it once.
         try:
             api_key = self._get_api_key(config, team_id)
+        except ValueError as e:
+            # Known credential-config issues from _get_api_key — message is curated and safe to surface.
+            return dict.fromkeys(endpoints, str(e))
         except Exception as e:
-            error_msg = str(e)
-            return dict.fromkeys(endpoints, error_msg)
+            # Unknown failure (OAuth refresh, integration lookup, etc.). Capture for triage but
+            # render a generic reason so we never leak an unintended message to the UI.
+            capture_exception(e)
+            return dict.fromkeys(endpoints, "Stripe credentials are not available")
 
         try:
             return check_stripe_endpoint_permissions(api_key, endpoints, auth_method=config.auth_method.selection)
         except StripeAuthenticationError as e:
-            error_msg = e.stripe_message
-            return dict.fromkeys(endpoints, error_msg)
+            return dict.fromkeys(endpoints, e.stripe_message)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[StripeResumeConfig]:
         return ResumableSourceManager[StripeResumeConfig](inputs, StripeResumeConfig)

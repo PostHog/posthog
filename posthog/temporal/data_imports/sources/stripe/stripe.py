@@ -457,7 +457,9 @@ def validate_credentials(
     resources_to_check: list[tuple[str, StripeResource]] = []
 
     for name in endpoints:
-        # OAuth tokens can't call accounts.list (needs Connect platform access).
+        # OAuth tokens can't call accounts.list (needs Connect platform access). Silent-skip here
+        # because this is a pass/fail validation; check_endpoint_permissions renders an explicit
+        # "not available for OAuth" reason instead since it feeds the UI.
         if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
             continue
         if name not in all_resources:
