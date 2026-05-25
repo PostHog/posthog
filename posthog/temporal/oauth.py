@@ -18,9 +18,15 @@ McpScopePreset = Literal["read_only", "full", "signals_scout"]
 INTERNAL_SCOPES: list[str] = [
     "task:write",
     "llm_gateway:read",
-    # Writes for the Signals scout harness — sandbox-only because the scope object
-    # is in `INTERNAL_API_SCOPE_OBJECTS` and so cannot be minted via the personal
-    # API key UI. Reads use the public `signal_scout:read` scope.
+]
+
+
+# Writes for the Signals scout harness — sandbox-only because the scope object is in
+# `INTERNAL_API_SCOPE_OBJECTS` and so cannot be minted via the personal API key UI or
+# granted through the OAuth consent flow. Reads use the public `signal_scout:read` scope.
+# Kept OUT of the global `INTERNAL_SCOPES` so it is added ONLY for the `signals_scout`
+# preset — unrelated `full`/`read_only` task tokens must never carry scout write access.
+SCOUT_INTERNAL_SCOPES: list[str] = [
     "signal_scout_internal:write",
 ]
 
@@ -56,12 +62,17 @@ def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_s
     if isinstance(scopes, str):
         if scopes == "full":
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
+        elif scopes == "signals_scout":
+            # The scout sandbox: reads + the scout's own internal write scope. The internal
+            # scout-write scope is added ONLY here (not via the global `INTERNAL_SCOPES`), so
+            # unrelated `full`/`read_only` task tokens never carry scout write access.
+            # `has_write_scopes("signals_scout")` also reports True so the MCP server doesn't
+            # enable read-only mode, which would otherwise strip the agent's own internal-write
+            # tools (`signal_scout_internal:write` is annotated as not-read-only).
+            scout_internal = list(SCOUT_INTERNAL_SCOPES) if include_internal_scopes else []
+            resolved = [*MCP_READ_SCOPES, *internal, *scout_internal]
         else:
-            # "read_only" and "signals_scout" share the same scope content (reads + internal).
-            # The difference is in `has_write_scopes`: "signals_scout" reports True so the MCP
-            # server doesn't enable read-only mode, which would otherwise filter out the
-            # agent's own internal-write tools (`signal_scout_internal:write` is annotated as
-            # not-read-only and would be stripped by the read-only filter regardless of scope).
+            # "read_only": reads + shared internal scopes only — no scout write scope.
             resolved = [*MCP_READ_SCOPES, *internal]
     else:
         resolved = [*scopes, *internal]

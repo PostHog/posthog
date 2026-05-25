@@ -142,21 +142,6 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 # clients (the consent screen, MCP, third-party apps) to discover it.
 OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"metrics", "wizard_session"})
 
-# Scope objects that PAK UI must never offer (prompt-injection vector or
-# server-to-server only) but that the OAuth metadata SHOULD advertise so the
-# authorization server can mint them for trusted server-side flows. Strict
-# subset of `INTERNAL_API_SCOPE_OBJECTS` — entries in this set bypass the
-# `INTERNAL_API_SCOPE_OBJECTS` filter inside `get_oauth_scopes_supported()`
-# only, leaving the user-facing `get_scope_descriptions()` strict-exclusion
-# (and therefore `validate_scopes()` on personal API keys) untouched.
-#
-# Today this is the Signals scout harness sandbox: the harness mints an OAuth
-# token containing `signal_scout_internal:write` so the in-sandbox scout can
-# call `signals-scout-emit-signal` / `-scratchpad-remember` / `-scratchpad-forget`,
-# but a user PAK with that scope would be a durable prompt-injection vector
-# (scratchpad rows are read verbatim into every subsequent run's prompt).
-PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"signal_scout_internal"})
-
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
 
@@ -220,43 +205,23 @@ def get_oauth_scopes_supported() -> list[str]:
     (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
     the protected resource cannot drift out of subset of the AS).
 
-    Excludes scopes in `OAUTH_HIDDEN_SCOPE_OBJECTS` so OAuth-based clients
-    (MCP, third-party apps) don't discover scopes intended only for manually
-    issued personal API keys. PAT validation uses `get_scope_descriptions()`
-    directly and is unaffected.
+    Strict-excludes both `INTERNAL_API_SCOPE_OBJECTS` (server-mint-only scopes
+    like `signal_scout_internal` — never advertised, never user-grantable) and
+    `OAUTH_HIDDEN_SCOPE_OBJECTS` (PAK-only alpha scopes). PAT validation uses
+    `get_scope_descriptions()` directly and is unaffected.
 
-    Includes scopes in `PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS` even though
-    they are also in `INTERNAL_API_SCOPE_OBJECTS` — those are server-to-server
-    scopes the OAuth authorization server needs to be able to mint (e.g. the
-    Signals agent sandbox token) but that PAK UI / `validate_scopes()` must
-    never offer. The PAK side is unaffected because `get_scope_descriptions()`
-    still strict-excludes `INTERNAL_API_SCOPE_OBJECTS`.
+    The Signals scout harness sandbox token carries `signal_scout_internal:write`,
+    but it is minted by directly inserting an `OAuthAccessToken` row (see
+    `posthog/temporal/oauth.py:create_oauth_access_token_for_user`) and never passes
+    through `/authorize`, so the scope needs neither advertising here nor a place in
+    `OAUTH2_PROVIDER["SCOPES"]`. Advertising it would let any OAuth client request it
+    via user consent — a durable prompt-injection vector (scratchpad rows are read
+    verbatim into every subsequent run's prompt).
     """
     visible = (
         f"{obj}:{action}"
         for obj in API_SCOPE_OBJECTS
-        if (obj not in INTERNAL_API_SCOPE_OBJECTS or obj in PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS)
-        and obj not in OAUTH_HIDDEN_SCOPE_OBJECTS
+        if obj not in INTERNAL_API_SCOPE_OBJECTS and obj not in OAUTH_HIDDEN_SCOPE_OBJECTS
         for action in API_SCOPE_ACTIONS
     )
     return list(OIDC_SCOPES) + list(visible)
-
-
-def get_oauth_grantable_scope_descriptions() -> dict[str, str]:
-    """Description map for every scope the OAuth authorization server can mint.
-
-    Mirrors `get_oauth_scopes_supported()` and is used by Django's
-    `OAUTH2_PROVIDER["SCOPES"]` to validate scope requests at `/authorize`.
-    Without this, scopes advertised in OAuth metadata but excluded from PAK UI
-    (`PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS` — e.g. `signal_scout_internal`)
-    would be rejected with `invalid_scope` despite being intentionally
-    OAuth-grantable for server-to-server flows like the Signals agent harness
-    sandbox token.
-    """
-    return {
-        f"{obj}:{action}": f"{action.capitalize()} access to {obj}"
-        for obj in API_SCOPE_OBJECTS
-        if (obj not in INTERNAL_API_SCOPE_OBJECTS or obj in PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS)
-        and obj not in OAUTH_HIDDEN_SCOPE_OBJECTS
-        for action in API_SCOPE_ACTIONS
-    }

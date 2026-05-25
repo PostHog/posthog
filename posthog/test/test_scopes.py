@@ -8,7 +8,6 @@ from posthog.scopes import (
     API_SCOPE_OBJECTS,
     INTERNAL_API_SCOPE_OBJECTS,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
-    PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS,
     downgrade_scopes_to_read_only,
     get_oauth_scopes_supported,
     get_scope_descriptions,
@@ -66,34 +65,22 @@ class TestDowngradeScopesToReadOnly(BaseTest):
 
 
 class TestScopeBucketInvariants(SimpleTestCase):
-    def test_pak_hidden_oauth_grantable_is_subset_of_internal(self) -> None:
-        # The carve-out only relaxes the OAuth filter for objects that are ALREADY
-        # in INTERNAL_API_SCOPE_OBJECTS. Anything outside that set is already
-        # OAuth-grantable by default and doesn't belong here.
-        assert PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS <= INTERNAL_API_SCOPE_OBJECTS, (
-            f"{PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS - INTERNAL_API_SCOPE_OBJECTS} "
-            "are in PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS but not in INTERNAL_API_SCOPE_OBJECTS. "
-            "The carve-out only makes sense for objects the OAuth filter would otherwise exclude."
-        )
-
-    def test_pak_hidden_oauth_grantable_disjoint_from_oauth_hidden(self) -> None:
-        # The two hidden buckets are conceptual opposites — `OAUTH_HIDDEN` is
-        # PAK-grantable / OAuth-not-discoverable, `PAK_HIDDEN_OAUTH_GRANTABLE`
-        # is the inverse. An object in both would be unreachable everywhere.
-        overlap = PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS & OAUTH_HIDDEN_SCOPE_OBJECTS
-        assert overlap == set(), (
-            f"{overlap} appear in both PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS and OAUTH_HIDDEN_SCOPE_OBJECTS — "
-            "an object in both buckets is reachable from neither PAK nor OAuth, which is almost certainly a bug."
-        )
+    def test_signal_scout_internal_is_internal(self) -> None:
+        # The scout internal scope must stay in INTERNAL_API_SCOPE_OBJECTS so it is
+        # strict-excluded from PAK descriptions, OAuth metadata, and the /authorize
+        # allowlist. It is minted server-side only (direct OAuthAccessToken insert).
+        assert "signal_scout_internal" in INTERNAL_API_SCOPE_OBJECTS
 
 
 class TestGetOAuthScopesSupported(SimpleTestCase):
-    def test_signal_scout_internal_write_is_advertised(self) -> None:
-        # Regression — without this entry the Signals scout sandbox token is
-        # minted with `signal_scout_internal:write` but the MCP server filters
-        # it out at session init, leaving the scout unable to call
-        # `signals-scout-emit-signal` / `-scratchpad-remember` / `-scratchpad-forget`.
-        assert "signal_scout_internal:write" in get_oauth_scopes_supported()
+    def test_signal_scout_internal_write_is_not_advertised(self) -> None:
+        # Security invariant — the scout sandbox token carries `signal_scout_internal:write`
+        # but is minted by direct DB insert (posthog/temporal/oauth.py), never via /authorize.
+        # Advertising it in OAuth metadata would let any OAuth client request it via user
+        # consent, a durable prompt-injection vector (scratchpad rows are read verbatim into
+        # every subsequent run's prompt). It must NOT appear in the advertised scope set.
+        assert "signal_scout_internal:write" not in get_oauth_scopes_supported()
+        assert "signal_scout_internal:read" not in get_oauth_scopes_supported()
 
     @parameterized.expand(
         [
@@ -104,14 +91,13 @@ class TestGetOAuthScopesSupported(SimpleTestCase):
     def test_oauth_hidden_scopes_are_not_advertised(self, scope: str) -> None:
         assert scope not in get_oauth_scopes_supported()
 
-    def test_internal_scopes_outside_pak_hidden_carveout_are_not_advertised(self) -> None:
-        excluded_objects = INTERNAL_API_SCOPE_OBJECTS - PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS
+    def test_internal_scopes_are_not_advertised(self) -> None:
         advertised = set(get_oauth_scopes_supported())
-        for obj in excluded_objects:
+        for obj in INTERNAL_API_SCOPE_OBJECTS:
             for action in ("read", "write"):
                 assert f"{obj}:{action}" not in advertised, (
-                    f"{obj}:{action} is in INTERNAL_API_SCOPE_OBJECTS and NOT in PAK_HIDDEN_OAUTH_GRANTABLE_SCOPE_OBJECTS, "
-                    "but is being advertised in OAuth metadata — internals should stay hidden by default."
+                    f"{obj}:{action} is in INTERNAL_API_SCOPE_OBJECTS but is being advertised in "
+                    "OAuth metadata — internal scopes must never be advertised or user-grantable."
                 )
 
     def test_oidc_scopes_are_advertised(self) -> None:
@@ -127,12 +113,11 @@ class TestGetScopeDescriptions(SimpleTestCase):
             ("signal_scout_internal:write",),
         ]
     )
-    def test_pak_hidden_oauth_grantable_scopes_are_not_pak_descriptions(self, scope: str) -> None:
-        # Critical security invariant — the carve-out relaxes ONLY the OAuth
-        # filter. PAK validation reads from `get_scope_descriptions()` and must
-        # continue to reject `signal_scout_internal` (it's a prompt-injection
-        # vector if user-grantable: scratchpad rows are read verbatim into every
-        # subsequent scout run's prompt).
+    def test_signal_scout_internal_scopes_are_not_pak_descriptions(self, scope: str) -> None:
+        # Critical security invariant — PAK validation reads from `get_scope_descriptions()`
+        # and must reject `signal_scout_internal` (it's a prompt-injection vector if
+        # user-grantable: scratchpad rows are read verbatim into every subsequent scout
+        # run's prompt).
         assert scope not in get_scope_descriptions()
 
     def test_all_non_internal_objects_get_pak_descriptions(self) -> None:

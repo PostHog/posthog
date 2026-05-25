@@ -5,7 +5,7 @@ from datetime import timedelta
 import structlog
 from corsheaders.defaults import default_headers
 
-from posthog.scopes import get_oauth_grantable_scope_descriptions
+from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
@@ -764,7 +764,11 @@ OAUTH2_PROVIDER = {
         "email": "Access to user's email address",
         "introspection": "Access to introspect tokens",
         "*": "Full access to all scopes",
-        **get_oauth_grantable_scope_descriptions(),
+        # Strict-excludes INTERNAL_API_SCOPE_OBJECTS (e.g. `signal_scout_internal`) so they
+        # can never be granted via the OAuth consent flow. The Signals scout harness token
+        # is minted by direct DB insert (posthog/temporal/oauth.py) and never hits /authorize,
+        # so it does not need to appear here.
+        **get_scope_descriptions(),
     },
     # Block dangerous URI schemes that could be used for attacks
     # Since we use DCR with pre-registration, clients can use any scheme not in this blocklist

@@ -2,7 +2,14 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.temporal.oauth import INTERNAL_SCOPES, MCP_READ_SCOPES, MCP_WRITE_SCOPES, has_write_scopes, resolve_scopes
+from posthog.temporal.oauth import (
+    INTERNAL_SCOPES,
+    MCP_READ_SCOPES,
+    MCP_WRITE_SCOPES,
+    SCOUT_INTERNAL_SCOPES,
+    has_write_scopes,
+    resolve_scopes,
+)
 
 
 class TestResolveScopes(SimpleTestCase):
@@ -18,12 +25,22 @@ class TestResolveScopes(SimpleTestCase):
         result = resolve_scopes("full")
         assert set(result) == set(MCP_READ_SCOPES + MCP_WRITE_SCOPES + INTERNAL_SCOPES)
 
-    def test_signals_scout_preset_matches_read_only_content(self) -> None:
-        # `signals_scout` and `read_only` share the same scope content. The only
-        # behavioral difference is `has_write_scopes` (covered separately) — that
-        # preset toggles the MCP server's read-only-mode tool filter.
-        assert resolve_scopes("signals_scout") == resolve_scopes("read_only")
-        assert "action:write" not in resolve_scopes("signals_scout")
+    def test_signals_scout_preset_adds_scout_internal_write(self) -> None:
+        # `signals_scout` = `read_only` content PLUS the scout's own internal write scope.
+        # No user-facing write scopes (`action:write`) leak in.
+        result = resolve_scopes("signals_scout")
+        assert set(result) == set(MCP_READ_SCOPES + INTERNAL_SCOPES + SCOUT_INTERNAL_SCOPES)
+        assert "signal_scout_internal:write" in result
+        assert "action:write" not in result
+
+    def test_scout_internal_write_only_on_signals_scout_preset(self) -> None:
+        # Isolation invariant — the scout write scope must NOT leak onto unrelated
+        # task tokens. Regular tasks default to `full`; neither `full` nor `read_only`
+        # may carry `signal_scout_internal:write` (only the `signals_scout` preset does).
+        assert "signal_scout_internal:write" not in resolve_scopes("full")
+        assert "signal_scout_internal:write" not in resolve_scopes("read_only")
+        assert "signal_scout_internal:write" not in resolve_scopes(["feature_flag:read"])
+        assert "signal_scout_internal:write" in resolve_scopes("signals_scout")
 
     def test_custom_scopes(self) -> None:
         custom = ["feature_flag:read", "feature_flag:write"]
