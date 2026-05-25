@@ -213,10 +213,13 @@ class SignalsScoutCoordinatorWorkflow:
 async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
     """Fire-and-forget child dispatch. Returns True if started, False if dedupe-skipped.
 
-    `WorkflowAlreadyStartedError` covers the case where a previous tick's child for the
-    same `(team, skill, tick)` is still alive — we never overwrite, we let it finish.
-    Any other exception bubbles up: the coordinator's `RetryPolicy` will replay the
-    activity and re-dispatch idempotently because workflow IDs are deterministic.
+    `REJECT_DUPLICATE` makes a re-dispatch of an already-started child for the same
+    deterministic `(team, skill, tick, idx)` id raise `WorkflowAlreadyStartedError`
+    whether that prior child is still running OR already closed — so a coordinator
+    retry/replay within the same tick skips it instead of re-running it (`ALLOW_DUPLICATE`
+    would re-launch a child that finished before the retry, double-running that team for
+    the tick). Any other exception bubbles up: the coordinator's `RetryPolicy` re-dispatches
+    idempotently because workflow IDs are deterministic.
     """
     child_id = _child_workflow_id(planned, tick_id, idx)
     try:
@@ -227,7 +230,7 @@ async def _start_child(*, planned: PlannedRun, tick_id: str, idx: int) -> bool:
                 skill_name=planned.skill_name,
             ),
             id=child_id,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
             parent_close_policy=workflow.ParentClosePolicy.ABANDON,
         )
         return True
