@@ -96,7 +96,7 @@ export function MCPSessionDetail(): JSX.Element {
             </header>
 
             <section className="px-3 py-3" style={{ overflowY: 'scroll', maxHeight: 'calc(100vh - 32rem)' }}>
-                {toolCallsLoading && toolCalls.length === 0 ? (
+                {toolCallsLoading ? (
                     <div className="flex flex-col gap-2">
                         {[0, 1, 2].map((i) => (
                             <LemonSkeleton key={i} className="h-16 w-full" />
