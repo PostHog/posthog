@@ -1956,6 +1956,10 @@ snapshots:
         hash: v1.k794b7964.d669cc7bd939e7cd9bae4003a228e194a6c383d827feb04baf491a89dfc0b698.eD11DZ4cr8p1GMBdBaTW1doXInEVj9CIhnyMP8RNpFo
     insights-insightstable--is-legend--light:
         hash: v1.k794b7964.d9eec920b0b2f3c9ea87c9e0d2b298bc37339217e4211d0cf1a147630f09b75d.xGcJlQO8pvoNnHyoMNZ4F58uqKh5PDg_UiGlO5bAMn8
+    insights-stickinesslinechart--default--dark:
+        hash: v1.k794b7964.41390e8fbafc9d75682179e198664c729a05ed3439fb99ad516fe1b1032cf6c0.dmsgYkZeOieitZlRh1HAveS5ej1pzamiMVQQdBstzIg
+    insights-stickinesslinechart--default--light:
+        hash: v1.k794b7964.e5281ee27e4687b2f9240f18fd0a61d70bf5b579e96e9c1200ba505eb36db3a4.0WBlzrCtDDl3Zk7GQDHpLr0MatZnxAwMwWPfUSmjc1o
     insights-trendsbarchart--aggregated-compare-breakdown--dark:
         hash: v1.k794b7964.665af86c19c56e64090968d389ad70f6c31723e48a5c33dd09471fd7f7803ee1.t7lftFAyNVc_TMUt4thz6VWm9dbx1fVSXYwzEhbKYBw
     insights-trendsbarchart--aggregated-compare-breakdown--light:

@@ -28,6 +28,10 @@ interface TrendsTooltipProps {
     formatCompareLabel?: (label: string, dateLabel?: string) => string
     onRowClick?: (datum: SeriesDatum) => void
     showHeader?: boolean
+    /** Override the auto-derived date header. Stickiness needs this since its `date`
+     *  is an interval-count integer, not a date — letting InsightTooltip format it as
+     *  a calendar date produces a wrong "Thursday, 1 Jan 1970" header. */
+    altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
     /** Overrides the default value formatter — needed for the pie chart, which renders the
      *  raw aggregation plus the slice's share of the total. */
     renderCount?: (value: number) => string
@@ -56,6 +60,7 @@ export function TrendsTooltip({
     formatCompareLabel,
     onRowClick,
     showHeader,
+    altTitle,
     renderCount: renderCountOverride,
     renderSeriesOverride,
 }: TrendsTooltipProps): React.ReactElement {
@@ -147,6 +152,7 @@ export function TrendsTooltip({
             onRowClick={onRowClick}
             hideInspectActorsSection={!onRowClick}
             showHeader={showHeader}
+            altTitle={altTitle}
         />
     )
 }
