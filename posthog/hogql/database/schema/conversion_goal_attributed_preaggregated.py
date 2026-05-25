@@ -2,6 +2,7 @@ from pydantic import Field
 
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.database.models import (
+    DateDatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
     FloatDatabaseField,
@@ -30,6 +31,7 @@ def _build_fields() -> dict[str, FieldOrTable]:
         col = f"{tracked_name}_name"
         fields[col] = StringDatabaseField(name=col)
     fields["computed_at"] = DateTimeDatabaseField(name="computed_at")
+    fields["expires_at"] = DateDatabaseField(name="expires_at")
     return fields
 
 

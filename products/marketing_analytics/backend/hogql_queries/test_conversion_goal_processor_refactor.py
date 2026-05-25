@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -207,6 +208,25 @@ class TestConversionGoalProcessorRefactor(BaseTest):
         )
         with pytest.raises(NotImplementedError):
             processor.get_attributed_query_for_precomputation()
+
+    def test_precompute_skipped_when_tracked_property_restricted(self):
+        # Precompute materializes tracked attribution properties into scalar columns, bypassing the
+        # per-user masking HogQL applies to events.properties. When such a property is restricted for
+        # the user, eligibility must fail so the direct (masked) events query is used instead.
+        processor = self._processor()
+        processor.config.conversion_goal_precomputation_enabled = True
+        date_from = datetime(2025, 1, 1, tzinfo=UTC)
+        date_to = datetime(2025, 1, 31, tzinfo=UTC)
+        target = (
+            "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.get_restricted_property_names"
+        )
+
+        with patch(target, return_value=set()):
+            assert processor._should_use_precompute(date_from, date_to) is True
+
+        # utm_source is one of the tracked attribution properties resolved from the goal's schema_map.
+        with patch(target, return_value={"utm_source"}):
+            assert processor._should_use_precompute(date_from, date_to) is False
 
     def test_precompute_template_supports_multi_touch(self):
         processor = self._processor()

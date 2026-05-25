@@ -24,8 +24,9 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr, property_to_expr
 
-from posthog.models import Team
+from posthog.models import PropertyDefinition, Team, User
 
+from products.access_control.backend.property_access_control import get_restricted_property_names
 from products.actions.backend.models.action import Action
 
 from .adapters.factory import MarketingSourceFactory
@@ -105,6 +106,8 @@ class ConversionGoalProcessor:
     index: int
     team: Team
     config: MarketingAnalyticsConfig
+    # Requesting user, threaded through to enforce per-user property access on the precompute path.
+    user: Optional[User] = None
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
         MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
@@ -327,7 +330,32 @@ class ConversionGoalProcessor:
         for prop in self.goal.properties or []:
             if prop.type in ("person", "cohort"):
                 return False
+        if self._precompute_properties_restricted_for_user():
+            return False
         return True
+
+    def _precompute_materialized_event_properties(self) -> set[str]:
+        """Event property names the precompute path resolves into scalar columns of the preagg table."""
+        props = {self._resolve_field_name(field) for field in TRACKED_FIELDS}
+        math_property = getattr(self.goal, "math_property", None)
+        if math_property:
+            props.add(math_property)
+        return props
+
+    def _precompute_properties_restricted_for_user(self) -> bool:
+        """True if any property the precompute would materialize is restricted for the requesting user.
+
+        The precompute path resolves these ``events.properties`` reads server-side and stores them as
+        plain scalar columns, which bypasses the per-user property masking HogQL applies to
+        ``events.properties`` at print time. When any such property is restricted, skip precompute so
+        the direct events query — which enforces masking via ``JSONDropKeys`` — is used instead.
+        """
+        restricted = get_restricted_property_names(
+            team_id=self.team.pk,
+            user=self.user,
+            property_type=PropertyDefinition.Type.EVENT,
+        )
+        return bool(restricted) and not restricted.isdisjoint(self._precompute_materialized_event_properties())
 
     def _build_attributed_source_from_precompute(
         self, date_from: datetime, date_to: datetime
@@ -445,7 +473,7 @@ class ConversionGoalProcessor:
 
         return ast.SelectQuery(
             select=select_columns,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["conversion_goal_attributed_preaggregated"])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "conversion_goal_attributed_preaggregated"])),
             where=ast.And(
                 exprs=[
                     ast.Call(
