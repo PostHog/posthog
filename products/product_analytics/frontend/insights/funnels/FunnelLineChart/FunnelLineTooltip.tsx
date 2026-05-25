@@ -1,13 +1,13 @@
 import { useCallback, useMemo } from 'react'
 
 import type { TooltipContext } from 'lib/hog-charts'
+import { hasBreakdown } from 'scenes/funnels/funnelUtils'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { getDatumTitle, type SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import type { BreakdownFilter, DateRange } from '~/queries/schema/schema-general'
 import type { IntervalType } from '~/types'
 
-import { hasBreakdown } from '../../funnelUtils'
 import { FUNNEL_CONVERSION_SERIES_LABEL, type FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 
 const NOOP = (): void => {}

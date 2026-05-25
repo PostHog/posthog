@@ -5,15 +5,15 @@ import { useCallback, useMemo, type ErrorInfo } from 'react'
 import { buildTheme } from 'lib/charts/utils/theme'
 import { BarChart } from 'lib/hog-charts'
 import type { BarChartConfig, PointClickData, TooltipContext } from 'lib/hog-charts'
+import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
 
-import { StepLegend } from '../../FunnelBarVertical/StepLegend'
-import { funnelDataLogic } from '../../funnelDataLogic'
-import { funnelPersonsModalLogic } from '../../funnelPersonsModalLogic'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import { buildFunnelStepsBarData, type FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
