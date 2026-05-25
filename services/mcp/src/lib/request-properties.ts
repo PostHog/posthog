@@ -12,7 +12,6 @@ export type RequestProperties = {
     features?: string[] | undefined
     tools?: string[] | undefined
     region?: string | undefined
-    version?: number | undefined
     organizationId?: string | undefined
     projectId?: string | undefined
     clientUserAgent?: string | undefined
@@ -67,7 +66,6 @@ export function parseRequestProperties(
         features: splitCsv(params.get('features')),
         tools: splitCsv(params.get('tools')),
         region: params.get('region') || undefined,
-        version: Number(header(request, 'x-posthog-mcp-version') || params.get('v')) || 1,
         readOnly: readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined,
         clientUserAgent: sanitizeHeaderValue(header(request, 'User-Agent')),
         mcpConsumer: sanitizeHeaderValue(

@@ -65,7 +65,6 @@ export type RequestProperties = {
     features?: string[]
     tools?: string[]
     region?: string
-    version?: number
     organizationId?: string
     projectId?: string
     clientUserAgent?: string
@@ -550,15 +549,7 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const {
-            features,
-            tools,
-            version: clientVersion,
-            organizationId,
-            projectId,
-            readOnly,
-            mode,
-        } = this.requestProperties
+        const { features, tools, organizationId, projectId, readOnly, mode } = this.requestProperties
 
         // Resolve MCP client info before any code reads it — most importantly
         // the `useSingleExec` decision below. During init() this resolves from
@@ -569,7 +560,6 @@ export class MCP extends McpAgent<Env> {
 
         // User-level flags resolve in parallel with cache seeding. Tool flags are
         // deferred until orgId is known so org-group rollouts evaluate correctly.
-        const flagPromise = this.resolveVersionFlag()
         const singleExecPromise = this.resolveSingleExecFlag()
 
         // Seed cache with header-provided IDs before any fetches
@@ -603,10 +593,9 @@ export class MCP extends McpAgent<Env> {
         // rollouts evaluate against the same entities — see `buildMCPAnalyticsGroups`.
         const flagAnalyticsContext = await this.getAnalyticsContextSafe(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
-        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion, flagGroups)
+        const toolFlagsPromise = this.resolveToolFeatureFlags(2, flagGroups)
 
-        const [flagVersion, toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
-            flagPromise,
+        const [toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
             toolFlagsPromise,
             singleExecPromise,
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
@@ -626,8 +615,6 @@ export class MCP extends McpAgent<Env> {
             mode,
             singleExecFlagOn,
             clientProfile,
-            flagVersion,
-            clientVersion,
         })
 
         // Fetch group types and metadata in parallel (cache is now seeded)
@@ -790,8 +777,6 @@ export class MCP extends McpAgent<Env> {
             getRegion: async () => (await this.cache.get('region')) ?? this.requestProperties.region,
             getAnalyticsContext: async () => this.getAnalyticsContextSafe(await this.getContext()),
             getClientUserAgent: async () => this.requestProperties.clientUserAgent,
-            // Server-resolved version (may differ from the client-reported one because of
-            // the `mcp-version-2` feature flag), so observability events line up with ours.
             getMcpVersion: async () => version,
             getOAuthClientName: async () => (await this.cache.get('clientName')) || undefined,
             getReadOnly: async () => readOnly,
@@ -865,10 +850,10 @@ export class MCP extends McpAgent<Env> {
     }
 
     /**
-     * Decide single-exec mode and the protocol version for this connection,
-     * stashing both on the instance so `trackEvent` and observability identity
-     * provider can emit `mcp_mode` / `mcp_version` on every downstream event
-     * without re-deriving them.
+     * Decide single-exec mode for this connection, stashing the mode and the
+     * protocol version on the instance so `trackEvent` and the observability
+     * identity provider can emit `mcp_mode` / `mcp_version` on every downstream
+     * event without re-deriving them.
      *
      * Single-exec is restricted to coding agents — Cursor and other clients
      * that render `structuredContent` in their UI need the full per-tool roster,
@@ -884,10 +869,8 @@ export class MCP extends McpAgent<Env> {
         mode: McpMode | undefined
         singleExecFlagOn: boolean
         clientProfile: MCPClientProfile
-        flagVersion: number | undefined
-        clientVersion: number | undefined
     }): { useSingleExec: boolean; version: number } {
-        const { mode, singleExecFlagOn, clientProfile, flagVersion, clientVersion } = args
+        const { mode, singleExecFlagOn, clientProfile } = args
         const useSingleExec =
             mode === 'cli' ||
             (mode !== 'tools' &&
@@ -895,21 +878,12 @@ export class MCP extends McpAgent<Env> {
                 (clientProfile.isCodingAgent() ||
                     clientProfile.isPostHogCodeConsumer() ||
                     clientProfile.isVibeCodingClient()))
-        const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
+        const version = 2
 
         this.mcpMode = useSingleExec ? 'cli' : 'tools'
         this.mcpVersion = version
 
         return { useSingleExec, version }
-    }
-
-    private async resolveVersionFlag(): Promise<number | undefined> {
-        try {
-            const distinctId = await this.getDistinctId()
-            return (await isFeatureFlagEnabled('mcp-version-2', distinctId)) ? 2 : undefined
-        } catch {
-            return undefined
-        }
     }
 
     private async resolveSingleExecFlag(): Promise<boolean> {

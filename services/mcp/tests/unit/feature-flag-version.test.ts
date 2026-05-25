@@ -20,29 +20,29 @@ describe('isFeatureFlagEnabled', () => {
     it('should return true when the flag is enabled', async () => {
         mockIsFeatureEnabled.mockResolvedValue(true)
 
-        const result = await isFeatureFlagEnabled('mcp-version-2', 'user-123')
+        const result = await isFeatureFlagEnabled('mcp-single-exec-tool', 'user-123')
         expect(result).toBe(true)
-        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('mcp-version-2', 'user-123', undefined)
+        expect(mockIsFeatureEnabled).toHaveBeenCalledWith('mcp-single-exec-tool', 'user-123', undefined)
     })
 
     it('should return false when the flag is disabled', async () => {
         mockIsFeatureEnabled.mockResolvedValue(false)
 
-        const result = await isFeatureFlagEnabled('mcp-version-2', 'user-123')
+        const result = await isFeatureFlagEnabled('mcp-single-exec-tool', 'user-123')
         expect(result).toBe(false)
     })
 
     it('should return false when the flag returns undefined', async () => {
         mockIsFeatureEnabled.mockResolvedValue(undefined)
 
-        const result = await isFeatureFlagEnabled('mcp-version-2', 'user-123')
+        const result = await isFeatureFlagEnabled('mcp-single-exec-tool', 'user-123')
         expect(result).toBe(false)
     })
 
     it('should return false when the client throws', async () => {
         mockIsFeatureEnabled.mockRejectedValue(new Error('network error'))
 
-        const result = await isFeatureFlagEnabled('mcp-version-2', 'user-123')
+        const result = await isFeatureFlagEnabled('mcp-single-exec-tool', 'user-123')
         expect(result).toBe(false)
     })
 

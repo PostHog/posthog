@@ -2012,7 +2012,7 @@
             "label": "MCP transport"
         },
         "$mcp_version": {
-            "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
+            "description": "Server-resolved MCP version. Always 2 \u2014 kept on past events that pre-date the v1 \u2192 v2 rollout.",
             "examples": [
                 1,
                 2
@@ -5921,7 +5921,7 @@
             "label": "MCP transport"
         },
         "$mcp_version": {
-            "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
+            "description": "Server-resolved MCP version. Always 2 \u2014 kept on past events that pre-date the v1 \u2192 v2 rollout.",
             "examples": [
                 1,
                 2

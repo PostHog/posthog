@@ -2655,7 +2655,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_version": {
             "label": "MCP server version (internal)",
-            "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
+            "description": "Server-resolved MCP version. Always 2 — kept on past events that pre-date the v1 → v2 rollout.",
             "type": "Numeric",
             "examples": [1, 2],
         },

@@ -50,7 +50,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getDistinctId: vi.fn(),
             trackEvent: vi.fn(),
         } as any,
-        version: 1,
+        version: 2,
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],

@@ -12,12 +12,10 @@ describe('resolveModeAndVersion', () => {
         mode: undefined as undefined,
         singleExecFlagOn: false,
         clientProfile: profile(),
-        flagVersion: undefined as number | undefined,
-        clientVersion: undefined as number | undefined,
     }
 
-    it('defaults to version 1, no single exec', () => {
-        expect(resolveModeAndVersion(base)).toEqual({ useSingleExec: false, version: 1 })
+    it('defaults to version 2, no single exec', () => {
+        expect(resolveModeAndVersion(base)).toEqual({ useSingleExec: false, version: 2 })
     })
 
     it('explicit mode=cli forces single exec and version 2', () => {
@@ -62,25 +60,5 @@ describe('resolveModeAndVersion', () => {
             clientProfile: profile({ consumer: 'posthog-code' }),
         })
         expect(result.useSingleExec).toBe(true)
-    })
-
-    it('uses flagVersion when not in single exec mode', () => {
-        const result = resolveModeAndVersion({ ...base, flagVersion: 2 })
-        expect(result).toEqual({ useSingleExec: false, version: 2 })
-    })
-
-    it('clientVersion overrides default when no flagVersion', () => {
-        const result = resolveModeAndVersion({ ...base, clientVersion: 2 })
-        expect(result).toEqual({ useSingleExec: false, version: 2 })
-    })
-
-    it('flagVersion takes precedence over clientVersion', () => {
-        const result = resolveModeAndVersion({ ...base, flagVersion: 2, clientVersion: 1 })
-        expect(result.version).toBe(2)
-    })
-
-    it('single exec always forces version 2 regardless of flagVersion', () => {
-        const result = resolveModeAndVersion({ ...base, mode: 'cli', flagVersion: 1 })
-        expect(result).toEqual({ useSingleExec: true, version: 2 })
     })
 })

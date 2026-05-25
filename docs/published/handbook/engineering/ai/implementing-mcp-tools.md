@@ -51,24 +51,10 @@ Agents compose these primitives into higher-level workflows.
 The reasoning: agents are better at composing simple tools than navigating complex ones,
 and simple tools are reusable across many workflows.
 
-## Two MCP server versions
+## SQL-first MCP server (v2)
 
-Clients must support two main capabilities: MCPs and skills.
-MCP support is widespread; however, skills support is still very early
-and mostly coding agents support them.
-To mitigate this, the MCP server ships two versions controlled via the
-`x-posthog-mcp-version: <version_number>` header.
-
-### Legacy MCP (v1)
-
-For clients that don't support skills.
-Exposes the full set of CRUD tools with simple instructions (list, read, create, update, delete).
-
-Primarily oriented toward vibe-coding web tools.
-
-### SQL-first MCP for clients supporting skills (v2)
-
-v2 instructs the agent to read data through a unified HogQL interface
+The MCP server serves a single SQL-first surface to every client.
+It instructs the agent to read data through a unified HogQL interface
 (list and get tools are generally excluded),
 which unlocks flexibility in data retrieval, search, and manipulation.
 Additionally, the consumer has access to a skill that provides schema references and example patterns,

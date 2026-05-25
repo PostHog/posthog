@@ -185,7 +185,6 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             headers={
                 "x-posthog-mcp-consumer": "posthog-code",
                 "x-posthog-mcp-mode": "cli",
-                "x-posthog-mcp-version": "2",
                 "x-posthog-project-id": "42",
                 "x-posthog-read-only": "true",
                 "x-posthog-custom-future-header": "anything",
@@ -199,7 +198,6 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         forwarded = {k.lower(): v for k, v in kwargs["headers"].items()}
         assert forwarded["x-posthog-mcp-consumer"] == "posthog-code"
         assert forwarded["x-posthog-mcp-mode"] == "cli"
-        assert forwarded["x-posthog-mcp-version"] == "2"
         assert forwarded["x-posthog-project-id"] == "42"
         assert forwarded["x-posthog-read-only"] == "true"
         assert forwarded["x-posthog-custom-future-header"] == "anything"

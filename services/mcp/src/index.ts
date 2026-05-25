@@ -134,7 +134,6 @@ const onCatchErrorHandler = async (
             team: 'posthog_ai',
             source: 'mcp_request_handler',
             mcp_transport: ctx.props?.transport,
-            mcp_version: ctx.props?.version,
             has_organization_id: !!ctx.props?.organizationId,
             has_project_id: !!ctx.props?.projectId,
         })
@@ -374,8 +373,6 @@ const handleRequest = async (
     // This is set by the wizard based on user's cloud region selection during MCP setup.
     const regionParam = url.searchParams.get('region') || undefined
 
-    const version = Number(request.headers.get('x-posthog-mcp-version') || url.searchParams.get('v')) || 1
-
     const readOnlyRaw = request.headers.get('x-posthog-read-only') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
@@ -383,7 +380,7 @@ const handleRequest = async (
     // flag + client-detection logic in `MCP.init()` when unset. See `parseMcpMode`.
     const mode = parseMcpMode(request.headers.get('x-posthog-mcp-mode') || url.searchParams.get('mode'))
 
-    const extraContextProps = { features, tools, region: regionParam, version, readOnly, mode }
+    const extraContextProps = { features, tools, region: regionParam, readOnly, mode }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
     if (mcpConsumer) {
