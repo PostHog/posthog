@@ -226,20 +226,20 @@ pub async fn process_events<'a>(
     let mut events: Vec<ProcessedEvent> = Vec::with_capacity(raw_events.len());
     for raw in raw_events {
         if raw.event == "$$heatmap" || !has_heatmap_data(raw) {
-            events.push(process_single_event(raw, historical_cfg.clone(), context)?);
+            events.push(process_single_event(raw, historical_cfg, context)?);
             continue;
         }
-        let redirect = match create_heatmap_redirect(raw, historical_cfg.clone(), context) {
+        let redirect = match create_heatmap_redirect(raw, historical_cfg, context) {
             Ok(redirect) => redirect,
             Err(err) => {
                 error!("failed to create heatmap redirect: {err:#}");
-                events.push(process_single_event(raw, historical_cfg.clone(), context)?);
+                events.push(process_single_event(raw, historical_cfg, context)?);
                 continue;
             }
         };
         let mut stripped = raw.clone();
         stripped.properties.remove("$heatmap_data");
-        let mut processed = process_single_event(&stripped, historical_cfg.clone(), context)?;
+        let mut processed = process_single_event(&stripped, historical_cfg, context)?;
         processed.metadata.skip_heatmap_processing = true;
         events.push(processed);
         counter!("capture_heatmap_redirects_created").increment(1);
