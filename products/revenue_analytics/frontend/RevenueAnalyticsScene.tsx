@@ -71,15 +71,14 @@ export function RevenueAnalyticsScene(): JSX.Element {
                     insights, SQL, and persons/groups profiles.
                     <br />
                     <br />
-                    Removing the dashboard lets us move faster and ship this in a shape that works across the whole
-                    app, rather than maintaining many bespoke dashboards. Each use-case (ecommerce, SaaS, recurring
-                    revenue, one-off, services, multi-tenant) can then build the dashboard it actually needs — or have
-                    PostHog AI and agents via our MCP build it for you.
+                    Removing the dashboard lets us move faster and ship this in a shape that works across the whole app,
+                    rather than maintaining many bespoke dashboards. Each use-case (ecommerce, SaaS, recurring revenue,
+                    one-off, services, multi-tenant) can then build the dashboard it actually needs — or have PostHog AI
+                    and agents via our MCP build it for you.
                     {enabledFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && (
                         <>
                             {' '}
-                            In the meantime, check out{' '}
-                            <Link to={urls.customerAnalytics()}>Customer analytics</Link>.
+                            In the meantime, check out <Link to={urls.customerAnalytics()}>Customer analytics</Link>.
                         </>
                     )}
                 </LemonBanner>
