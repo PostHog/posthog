@@ -29,14 +29,19 @@ class TestFuzzyBestIntegration:
         assert target is None
         assert ratio == 0.0
 
-    def test_close_match_returns_target_with_high_ratio(self):
-        target, ratio = _fuzzy_best_integration("fcebook", candidates=["meta_ads", "google_ads"])
-        assert target == "meta_ads"
-        assert ratio >= FUZZY_LIKELY_THRESHOLD
-
-    def test_unrelated_value_returns_low_ratio(self):
-        _, ratio = _fuzzy_best_integration("zzzzzz", candidates=["meta_ads", "google_ads"])
-        assert ratio < FUZZY_LIKELY_THRESHOLD
+    @parameterized.expand(
+        [
+            (
+                "close_match_returns_target_with_high_ratio",
+                "fcebook",
+                lambda t, r: t == "meta_ads" and r >= FUZZY_LIKELY_THRESHOLD,
+            ),
+            ("unrelated_value_returns_low_ratio", "zzzzzz", lambda t, r: r < FUZZY_LIKELY_THRESHOLD),
+        ]
+    )
+    def test_ratio_against_threshold(self, _name, raw, predicate):
+        target, ratio = _fuzzy_best_integration(raw, candidates=["meta_ads", "google_ads"])
+        assert predicate(target, ratio)
 
 
 class TestGetAttributionHealth(APIBaseTest):

@@ -126,7 +126,7 @@ class TestListConversionGoals(_InspectorMixin):
         response = await list_conversion_goals(self.team)
         assert response.has_misconfigured is True
         assert response.goals[0].is_misconfigured is True
-        assert "999" in response.goals[0].misconfig_reason
+        assert "999" in (response.goals[0].misconfig_reason or "")
 
     @pytest.mark.asyncio
     async def test_actions_node_with_resolved_action_uses_action_name(self):
@@ -173,7 +173,7 @@ class TestListConversionGoals(_InspectorMixin):
 
         response = await list_conversion_goals(self.team)
         assert response.goals[0].is_misconfigured is True
-        assert "not queryable" in response.goals[0].misconfig_reason
+        assert "not queryable" in (response.goals[0].misconfig_reason or "")
 
     @pytest.mark.asyncio
     async def test_unknown_kind_marks_misconfigured(self):
@@ -185,7 +185,7 @@ class TestListConversionGoals(_InspectorMixin):
 
         response = await list_conversion_goals(self.team)
         assert response.goals[0].is_misconfigured is True
-        assert "UnknownKind" in response.goals[0].misconfig_reason
+        assert "UnknownKind" in (response.goals[0].misconfig_reason or "")
 
 
 class TestExplainConversionGoal(_InspectorMixin):

@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
+
 from products.marketing_analytics.backend.services.attribution_health import (
     AttributionHealthEntry,
     AttributionHealthResponse,
@@ -12,10 +14,12 @@ from products.marketing_analytics.backend.services.mapping_suggester import (
     _closest_alias,
     suggest_utm_mappings,
 )
-from products.marketing_analytics.backend.services.native_integrations import aliases_for
+from products.marketing_analytics.backend.services.native_integrations import NativeIntegration, aliases_for
 
 
-def _entry_with_samples(integration_key: str, samples: list[UnmatchedUtmSample]) -> AttributionHealthEntry:
+def _entry_with_samples(
+    integration_key: NativeIntegration, samples: list[UnmatchedUtmSample]
+) -> AttributionHealthEntry:
     return AttributionHealthEntry(
         integration_key=integration_key,
         display_name=integration_key,
@@ -29,15 +33,26 @@ def _entry_with_samples(integration_key: str, samples: list[UnmatchedUtmSample])
 
 
 class TestClosestAlias:
-    def test_fb_typo_resolves_close_to_facebook(self):
-        alias = _closest_alias("fcebook", "meta_ads")
-        assert alias in ("facebook", "facebookads", "fb", "fbads")
-
-    def test_closest_alias_is_always_an_alias_of_the_target(self):
-        # Even for a raw value that resembles nothing, the returned alias must
-        # belong to the target integration (or be "" when it has no aliases).
-        alias = _closest_alias("abc", "google_ads")
-        assert alias == "" or alias in aliases_for("google_ads")
+    # Each case asserts a different invariant, so the predicate travels with its inputs.
+    @parameterized.expand(
+        [
+            (
+                "fb_typo_resolves_close_to_facebook",
+                "fcebook",
+                "meta_ads",
+                lambda alias: alias in ("facebook", "facebookads", "fb", "fbads"),
+            ),
+            (
+                "returns_empty_or_alias_of_target",
+                "abc",
+                "google_ads",
+                lambda alias: alias == "" or alias in aliases_for("google_ads"),
+            ),
+        ]
+    )
+    def test_closest_alias(self, _name, raw_value, target, predicate):
+        alias = _closest_alias(raw_value, target)
+        assert predicate(alias)
 
 
 class TestSuggestUtmMappings(APIBaseTest):

@@ -30,6 +30,7 @@ from products.marketing_analytics.backend.max_tools import (
     _format_utm_mapping_suggestions_for_llm,
     _lookback_days_from_date_range,
     _resolve_lookback_days,
+    _sanitize_for_prompt,
 )
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     ConversionGoalsListResponse,
@@ -143,6 +144,61 @@ def _make_goal_summary(
         is_misconfigured=is_misconfigured,
         misconfig_reason=misconfig_reason,
     )
+
+
+class TestSanitizeForPrompt(BaseTest):
+    @parameterized.expand(
+        [
+            ("newline_to_space", "google\nads", "google ads"),
+            ("carriage_return_to_space", "google\rads", "google ads"),
+            ("tab_to_space", "google\tads", "google ads"),
+            ("null_byte_removed", "google\x00ads", "googleads"),
+            ("del_char_removed", "google\x7fads", "googleads"),
+            ("mixed_whitespace_collapsed", "a\nb\tc\rd", "a b c d"),
+            ("clean_value_passthrough", "GoogleAds", "GoogleAds"),
+            ("system_marker_stripped", "<system>foo</system>", "foo"),
+            ("nested_marker_stripped", "<<system>system>foo", "foo"),
+            ("html_tag_stripped", "<script>alert(1)</script>", "alert(1)"),
+            ("whitespace_run_collapsed", "spaces    here", "spaces here"),
+        ]
+    )
+    def test_sanitizes(self, _name, value, expected):
+        assert _sanitize_for_prompt(value) == expected
+
+    def test_truncates_long_value_with_ellipsis_marker(self):
+        result = _sanitize_for_prompt("a" * 1000)
+        assert result == "a" * 200 + "…"
+
+    def test_short_value_not_truncated(self):
+        result = _sanitize_for_prompt("short", max_len=100)
+        assert result == "short"
+        assert "…" not in result
+
+    def test_custom_max_len_honoured(self):
+        result = _sanitize_for_prompt("a" * 20, max_len=10)
+        assert result == "a" * 10 + "…"
+
+    def test_none_returns_placeholder(self):
+        assert _sanitize_for_prompt(None) == "<none>"
+
+    def test_empty_string_returns_placeholder(self):
+        assert _sanitize_for_prompt("") == "<none>"
+        assert _sanitize_for_prompt("   ") == "<none>"
+
+    def test_value_that_becomes_empty_after_stripping_returns_placeholder(self):
+        assert _sanitize_for_prompt("<system></system>") == "<none>"
+
+    def test_non_string_value_coerced(self):
+        assert _sanitize_for_prompt(42) == "42"
+        assert _sanitize_for_prompt(3.14) == "3.14"
+
+    def test_unicode_visible_chars_preserved(self):
+        assert _sanitize_for_prompt("café 🚀") == "café 🚀"
+
+    def test_invisible_unicode_stripped(self):
+        # Zero-width joiner + variation selector — common smuggling vectors.
+        result = _sanitize_for_prompt("a​b️c")
+        assert result == "abc"
 
 
 class TestFormatTimestampForLlm(BaseTest):

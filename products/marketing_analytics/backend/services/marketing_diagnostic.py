@@ -290,6 +290,9 @@ def _diagnose_one(
             recommended_actions=actions,
         )
 
+    # `ds` is non-None past the not_connected early-returns; narrow for mypy.
+    assert ds is not None
+
     if sync_broken or tables_broken:
         actions.append(
             RecommendedAction(
@@ -331,6 +334,8 @@ def _diagnose_one(
         )
 
     if sync_ok and not has_matched_events and has_likely_yours:
+        # `has_likely_yours` is only true when `attr is not None`; narrow for mypy.
+        assert attr is not None
         actions.append(
             RecommendedAction(
                 title=f"Map UTM source variants to {display}",

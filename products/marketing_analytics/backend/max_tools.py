@@ -20,6 +20,7 @@ from posthog.schema import DateRange
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
+from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, sanitize_user_text
 from posthog.sync import database_sync_to_async
 from posthog.utils import relative_date_parse
 
@@ -390,6 +391,17 @@ class MarketingSuggestUtmMappingsTool(MaxTool):
 # hints. The corresponding `artifact` (dict) is for the frontend, not the LLM.
 
 
+def _sanitize_for_prompt(value: Any, max_len: int = GENERIC_VALUE_MAX_LEN) -> str:
+    """Sanitize a user-controlled event property before it lands in an LLM prompt.
+
+    Marketing-analytics convention: show `<none>` for empty fields and `…` on
+    truncation so the model treats the value as partial. Event properties can be
+    numbers or other non-string types, so coerce before sanitizing.
+    """
+    text = str(value) if value is not None else None
+    return sanitize_user_text(text, max_len, none_placeholder="<none>", truncate_marker="…")
+
+
 def _format_timestamp_for_llm(dt: datetime | None) -> str:
     """Render a timestamp as an absolute date plus a pre-computed relative age.
 
@@ -430,7 +442,7 @@ def _format_diagnostic_for_llm(response) -> str:
         lines.append("## Integrations (report each one individually)")
         for entry in integrations:
             lines.append(f"### {entry.display_name} (`{entry.source_type}`) — status: `{entry.overall_status}`")
-            lines.append(f"- diagnosis: {entry.diagnosis}")
+            lines.append(f"- diagnosis: {_sanitize_for_prompt(entry.diagnosis, max_len=500)}")
             ds = entry.data_source
             if ds is not None:
                 lines.append(f"- settings_url: {ds.settings_url}")
@@ -439,7 +451,7 @@ def _format_diagnostic_for_llm(response) -> str:
                         f"- schemas_url: {ds.schemas_url} (per-source Schemas tab — for table enable/disable, retry failed syncs, reconnect)"
                     )
                 if ds.fix_suggestion:
-                    lines.append(f"- fix_suggestion: {ds.fix_suggestion}")
+                    lines.append(f"- fix_suggestion: {_sanitize_for_prompt(ds.fix_suggestion, max_len=500)}")
             if ds is not None and ds.connected:
                 last_sync = _format_timestamp_for_llm(ds.last_sync_at)
                 lines.append(
@@ -450,7 +462,8 @@ def _format_diagnostic_for_llm(response) -> str:
                     f"not the row count of the source table)"
                 )
                 if ds.last_error:
-                    lines.append(f"- last_error: {ds.last_error[:200]}")
+                    # Third-party connector error body — highest-risk injection surface here.
+                    lines.append(f"- last_error: {_sanitize_for_prompt(ds.last_error)}")
                 if ds.schema_columns_required_missing:
                     lines.append(f"- schema_columns_required_missing: {', '.join(ds.schema_columns_required_missing)}")
                 if ds.required_tables:
@@ -474,7 +487,8 @@ def _format_diagnostic_for_llm(response) -> str:
                 )
                 if attr.sample_unmatched_utm_sources:
                     samples = ", ".join(
-                        f"{s.raw_value}({s.event_count})" for s in attr.sample_unmatched_utm_sources[:5]
+                        f"{_sanitize_for_prompt(s.raw_value)}({s.event_count})"
+                        for s in attr.sample_unmatched_utm_sources[:5]
                     )
                     lines.append(f"- likely-yours unmatched samples: {samples}")
             for action in entry.recommended_actions or []:
@@ -585,7 +599,7 @@ def _format_data_sources_for_llm(response) -> str:
         )
         lines.append(f"- settings_url: {entry.settings_url}")
         if entry.last_error:
-            lines.append(f"- last_error: {entry.last_error[:200]}")
+            lines.append(f"- last_error: {_sanitize_for_prompt(entry.last_error)}")
         if entry.schema_columns_required_missing:
             lines.append(f"- missing_required_columns: {', '.join(entry.schema_columns_required_missing)}")
         if entry.required_tables:
@@ -601,9 +615,9 @@ def _format_data_sources_for_llm(response) -> str:
                     table_lines.append(f"`{t.table_name}` ({t.status or 'unknown'})")
             lines.append(f"- required_tables: {', '.join(table_lines)}")
         if entry.diagnosis:
-            lines.append(f"- diagnosis: {entry.diagnosis}")
+            lines.append(f"- diagnosis: {_sanitize_for_prompt(entry.diagnosis, max_len=500)}")
         if entry.fix_suggestion:
-            lines.append(f"- fix: {entry.fix_suggestion}")
+            lines.append(f"- fix: {_sanitize_for_prompt(entry.fix_suggestion, max_len=500)}")
         lines.append("")
     if response.issues_summary:
         lines.append("## Issues summary")
@@ -631,21 +645,23 @@ def _format_explain_goal_for_llm(response) -> str:
     if response.by_event:
         lines.append("\n## Events")
         for name, count in response.by_event:
-            lines.append(f"- {name}: {count}")
+            lines.append(f"- {_sanitize_for_prompt(name)}: {count}")
     if response.by_utm_source:
         lines.append("\n## utm_source breakdown")
         for src, count in response.by_utm_source:
-            lines.append(f"- {src}: {count}")
+            lines.append(f"- {_sanitize_for_prompt(src)}: {count}")
     if response.by_matched_integration:
         lines.append("\n## Matched to integration")
         for integration, count in response.by_matched_integration:
-            lines.append(f"- {integration}: {count}")
+            lines.append(f"- {_sanitize_for_prompt(integration)}: {count}")
     if response.samples:
         lines.append("\n## Sample events (up to 10)")
         for s in response.samples:
             lines.append(
-                f"- {s.timestamp} distinct_id={s.distinct_id} utm_source={s.utm_source!r} "
-                f"utm_campaign={s.utm_campaign!r} matched={s.matched_integration!r}"
+                f"- {s.timestamp} distinct_id={_sanitize_for_prompt(s.distinct_id)} "
+                f"utm_source={_sanitize_for_prompt(s.utm_source)!r} "
+                f"utm_campaign={_sanitize_for_prompt(s.utm_campaign)!r} "
+                f"matched={_sanitize_for_prompt(s.matched_integration)!r}"
             )
     if response.notes:
         lines.append("\n## Notes")
@@ -665,8 +681,8 @@ def _format_audit_utm_for_llm(response) -> str:
         for r in issue_campaigns[:20]:
             issue_summary = "; ".join(f"{i.severity}: {i.message}" for i in r.issues)
             lines.append(
-                f"- **{r.campaign_name}** ({r.source_name}) — spend={r.spend}, "
-                f"clicks={r.clicks}, events={r.event_count}: {issue_summary}"
+                f"- **{_sanitize_for_prompt(r.campaign_name)}** ({_sanitize_for_prompt(r.source_name)}) — "
+                f"spend={r.spend}, clicks={r.clicks}, events={r.event_count}: {issue_summary}"
             )
     if response.all_utm_events:
         unmatched = [e for e in response.all_utm_events if e.campaign_match == "none" or e.source_match == "none"]
@@ -674,7 +690,8 @@ def _format_audit_utm_for_llm(response) -> str:
             lines.append(f"\n## Unmatched UTM events (top 10 of {len(unmatched)})")
             for e in unmatched[:10]:
                 lines.append(
-                    f"- utm_source={e.utm_source!r} utm_campaign={e.utm_campaign!r} "
+                    f"- utm_source={_sanitize_for_prompt(e.utm_source)!r} "
+                    f"utm_campaign={_sanitize_for_prompt(e.utm_campaign)!r} "
                     f"events={e.event_count} src_match={e.source_match} camp_match={e.campaign_match}"
                 )
     return "\n".join(lines)
@@ -692,18 +709,19 @@ def _format_event_suggestions_for_llm(response) -> str:
     ]
     for c in response.candidates:
         top_utm = (
-            ", ".join(f"{src}({n})" for src, n in c.top_utm_sources[:3])
+            ", ".join(f"{_sanitize_for_prompt(src)}({n})" for src, n in c.top_utm_sources[:3])
             if c.top_utm_sources
             else "(no utm_source samples)"
         )
         flag = " (already a goal)" if c.is_already_a_goal else ""
         lines.append(
-            f"- **{c.event_name}**{flag} — score={c.suggestion_score}, "
+            f"- **{_sanitize_for_prompt(c.event_name)}**{flag} — score={c.suggestion_score}, "
             f"30d_count={c.last_30d_count}, users={c.distinct_users_30d}, "
             f"utm_source_pct={c.pct_with_utm_source}%, utm_campaign_pct={c.pct_with_utm_campaign}%, "
             f"top_utm=[{top_utm}]"
         )
-        lines.append(f"    reason: {c.suggestion_reason}")
+        # Built from numeric stats today, but sanitize to stay safe if that changes.
+        lines.append(f"    reason: {_sanitize_for_prompt(c.suggestion_reason, max_len=400)}")
     return "\n".join(lines)
 
 
@@ -737,7 +755,7 @@ def _format_utm_mapping_suggestions_for_llm(response) -> str:
                 match_col = f"≈ likely {entry.fuzzy_best_target} (fuzzy={entry.fuzzy_best_ratio:.2f})"
             else:
                 match_col = "❌ unmatched"
-            lines.append(f"| `{entry.raw_utm_source}` | {entry.event_count} | {match_col} |")
+            lines.append(f"| `{_sanitize_for_prompt(entry.raw_utm_source)}` | {entry.event_count} | {match_col} |")
         lines.append("")
 
     # Suggestions: high-confidence, ready to apply
@@ -745,10 +763,11 @@ def _format_utm_mapping_suggestions_for_llm(response) -> str:
         lines.append(f"## High-confidence suggestions ({len(response.source_suggestions)})")
         for s in response.source_suggestions:
             lines.append(
-                f"- raw `{s.raw_utm_source}` → **{s.suggested_target_display_name}** "
+                f"- raw `{_sanitize_for_prompt(s.raw_utm_source)}` → **{s.suggested_target_display_name}** "
                 f"(confidence={s.confidence:.2f}, method={s.method}, events_in_window={s.event_count_30d})"
             )
-            lines.append(f"    {s.reason}")
+            # `reason` embeds the raw utm_source value in some code paths — sanitize.
+            lines.append(f"    {_sanitize_for_prompt(s.reason, max_len=400)}")
         lines.append("")
     else:
         lines.append("## High-confidence suggestions: none")
@@ -770,7 +789,7 @@ def _format_utm_mapping_suggestions_for_llm(response) -> str:
                 if s.fuzzy_best_target
                 else " — no fuzzy match found (likely organic/direct/test)"
             )
-            lines.append(f"- `{s.raw_utm_source}` ({s.event_count} events){hint}")
+            lines.append(f"- `{_sanitize_for_prompt(s.raw_utm_source)}` ({s.event_count} events){hint}")
         lines.append("")
 
     # Current mappings: canonical + team-custom

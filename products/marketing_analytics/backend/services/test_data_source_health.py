@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -37,8 +38,8 @@ class TestResolveSyncStatus:
         )
 
 
-def _entry(**kwargs) -> DataSourceHealthEntry:
-    defaults = {
+def _entry(**kwargs: Any) -> DataSourceHealthEntry:
+    defaults: dict[str, Any] = {
         "source_type": "GoogleAds",
         "is_native": True,
         "display_name": "Google Ads",
@@ -61,7 +62,7 @@ def _entry(**kwargs) -> DataSourceHealthEntry:
     return DataSourceHealthEntry(**defaults)
 
 
-def _entries_for_status_test(case_name):
+def _entries_for_status_test(case_name: str) -> list[DataSourceHealthEntry]:
     if case_name == "no_connected":
         return [_entry(connected=False, last_sync_status="not_connected")]
     if case_name == "all_ok":
@@ -91,30 +92,49 @@ class TestComputeOverallStatus:
 
 
 class TestBuildIssuesSummary:
-    def test_only_lists_problematic_entries(self):
-        ok = _entry(last_sync_status="ok", schema_columns_required_missing=[])
-        broken = _entry(
-            source_type="MetaAds",
-            display_name="Meta Ads",
-            last_sync_status="error",
-            last_error="rate limit",
-            diagnosis="Meta Ads last sync failed.",
-        )
-        summary = _build_issues_summary([ok, broken])
-        assert len(summary) == 1
-        assert "Meta Ads" in summary[0]
-
-    def test_schema_missing_surfaces_in_summary_even_if_sync_ok(self):
-        broken = _entry(
-            source_type="MetaAds",
-            display_name="Meta Ads",
-            last_sync_status="ok",
-            schema_columns_required_missing=["cost"],
-            diagnosis="Meta Ads is syncing but required schema columns are not mapped.",
-        )
-        summary = _build_issues_summary([broken])
-        assert len(summary) == 1
-        assert "Meta Ads" in summary[0]
+    @parameterized.expand(
+        [
+            (
+                "only_lists_problematic_entries",
+                [
+                    _entry(last_sync_status="ok", schema_columns_required_missing=[]),
+                    _entry(
+                        source_type="MetaAds",
+                        display_name="Meta Ads",
+                        last_sync_status="error",
+                        last_error="rate limit",
+                        diagnosis="Meta Ads last sync failed.",
+                    ),
+                ],
+                1,
+                "Meta Ads",
+            ),
+            (
+                "schema_missing_surfaces_in_summary_even_if_sync_ok",
+                [
+                    _entry(
+                        source_type="MetaAds",
+                        display_name="Meta Ads",
+                        last_sync_status="ok",
+                        schema_columns_required_missing=["cost"],
+                        diagnosis="Meta Ads is syncing but required schema columns are not mapped.",
+                    ),
+                ],
+                1,
+                "Meta Ads",
+            ),
+        ]
+    )
+    def test_build_issues_summary(
+        self,
+        _name: str,
+        entries: list[DataSourceHealthEntry],
+        expected_count: int,
+        expected_substring: str,
+    ) -> None:
+        summary = _build_issues_summary(entries)
+        assert len(summary) == expected_count
+        assert expected_substring in summary[0]
 
 
 class _FakeSource:

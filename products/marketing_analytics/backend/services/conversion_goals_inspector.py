@@ -294,7 +294,10 @@ async def _summarize_goal(
 ) -> ConversionGoalSummary:
     goal_id = str(goal.get("conversion_goal_id") or goal.get("id") or "")
     name = goal.get("conversion_goal_name") or goal.get("name") or goal_id
-    kind = cast(GoalKind, goal.get("kind", "EventsNode"))
+    # `kind_raw: str` keeps the "unknown kind" fallback reachable — a GoalKind
+    # would let mypy treat the branches below as exhaustive.
+    kind_raw: str = goal.get("kind") or "EventsNode"
+    kind = cast(GoalKind, kind_raw)
 
     # Always-on caveat: this is a 30d non-attribution-windowed count, used for
     # quick "what is this number?" answers. Mark approximate when the team's
@@ -309,7 +312,7 @@ async def _summarize_goal(
         else None
     )
 
-    if kind == "EventsNode":
+    if kind_raw == "EventsNode":
         target_label = goal.get("event") or "(all events)"
         total, integrated, without_utm, unmatched_with_utm = await _count_event_goal(team, goal, alias_map)
         return _summary_with_split(
@@ -325,7 +328,7 @@ async def _summarize_goal(
             approximation_reason=base_reason,
         )
 
-    if kind == "ActionsNode":
+    if kind_raw == "ActionsNode":
         action, action_error = await _resolve_action(team, goal_id)
         if action is None:
             return ConversionGoalSummary(
@@ -347,6 +350,7 @@ async def _summarize_goal(
             team, action, alias_map
         )
         action_is_approximate = base_approximate or has_step_filters
+        action_reason: str | None
         if has_step_filters:
             action_reason = (
                 "matches the action's step events only — property/URL filters from the action are not applied"
@@ -366,7 +370,7 @@ async def _summarize_goal(
             approximation_reason=action_reason,
         )
 
-    if kind == "DataWarehouseNode":
+    if kind_raw == "DataWarehouseNode":
         table_name = goal.get("table_name") or "(unknown table)"
         target_label = f"{table_name}"
         last_30d_count, dw_misconfig = await _count_dw_goal(team, goal)
@@ -390,7 +394,7 @@ async def _summarize_goal(
     return ConversionGoalSummary(
         id=goal_id,
         name=name,
-        kind=cast(GoalKind, kind),
+        kind=kind,
         target_label="(unknown kind)",
         last_30d_count=0,
         integrated_count=None,
@@ -399,7 +403,7 @@ async def _summarize_goal(
         non_integrated_count=None,
         integrated_pct=None,
         is_misconfigured=True,
-        misconfig_reason=f"Unknown goal kind: {kind}",
+        misconfig_reason=f"Unknown goal kind: {kind_raw}",
     )
 
 
@@ -456,6 +460,7 @@ def _count_event_goal(
     `goal["event"]` may be None, meaning "match any event" (rare but valid)."""
     since = timezone.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
     event_name = goal.get("event")
+    placeholders: dict[str, ast.Expr]
 
     if event_name:
         hogql = """
@@ -504,7 +509,7 @@ def _count_action_goal(
         WHERE event IN {events} AND timestamp >= {since}
         GROUP BY utm_source
     """
-    placeholders = {
+    placeholders: dict[str, ast.Expr] = {
         "events": ast.Tuple(exprs=[ast.Constant(value=e) for e in step_events]),
         "since": ast.Constant(value=since),
     }
@@ -570,11 +575,13 @@ def _count_dw_goal(team: Team, goal: dict[str, Any]) -> tuple[int, str | None]:
         return 0, f"DataWarehouseNode goal has invalid timestamp_field: {timestamp_field!r}"
 
     since = timezone.now() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
+    table_chain: list[str | int] = list(str(table_name).split("."))
+    timestamp_chain: list[str | int] = [str(timestamp_field)]
     query = ast.SelectQuery(
         select=[ast.Call(name="count", args=[])],
-        select_from=ast.JoinExpr(table=ast.Field(chain=str(table_name).split("."))),
+        select_from=ast.JoinExpr(table=ast.Field(chain=table_chain)),
         where=ast.CompareOperation(
-            left=ast.Field(chain=[str(timestamp_field)]),
+            left=ast.Field(chain=timestamp_chain),
             op=ast.CompareOperationOp.GtEq,
             right=ast.Constant(value=since),
         ),
@@ -602,7 +609,8 @@ async def _query_goal_events(team: Team, goal: dict[str, Any], period: DateRange
     by the caller.
     """
     kind = goal.get("kind")
-    since, until = await _resolve_period(period)
+    since, until = _resolve_period(period)
+    placeholders: dict[str, ast.Expr]
 
     if kind == "EventsNode":
         event_name = goal.get("event")
@@ -676,7 +684,7 @@ def _run_hogql(team: Team, hogql: str, placeholders: dict[str, ast.Expr]) -> lis
     return list(result.results or [])
 
 
-async def _resolve_period(period: DateRange) -> tuple[datetime, datetime]:
+def _resolve_period(period: DateRange) -> tuple[datetime, datetime]:
     now = timezone.now()
     until = _parse_date_or(period.date_to, default=now)
     since = _parse_date_or(period.date_from, default=now - timedelta(days=DEFAULT_LOOKBACK_DAYS))
@@ -686,8 +694,6 @@ async def _resolve_period(period: DateRange) -> tuple[datetime, datetime]:
 def _parse_date_or(raw: str | None, *, default: datetime) -> datetime:
     if not raw:
         return default
-    if isinstance(raw, datetime):
-        return raw
     try:
         return datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except (TypeError, ValueError):

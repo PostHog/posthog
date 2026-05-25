@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
@@ -23,8 +25,8 @@ from products.marketing_analytics.backend.services.marketing_diagnostic import (
 )
 
 
-def _ds_entry(**kwargs) -> DataSourceHealthEntry:
-    defaults = {
+def _ds_entry(**kwargs: Any) -> DataSourceHealthEntry:
+    defaults: dict[str, Any] = {
         "source_type": "GoogleAds",
         "is_native": True,
         "display_name": "Google Ads",
@@ -47,8 +49,8 @@ def _ds_entry(**kwargs) -> DataSourceHealthEntry:
     return DataSourceHealthEntry(**defaults)
 
 
-def _attr_entry(**kwargs) -> AttributionHealthEntry:
-    defaults = {
+def _attr_entry(**kwargs: Any) -> AttributionHealthEntry:
+    defaults: dict[str, Any] = {
         "integration_key": "google_ads",
         "display_name": "Google Ads",
         "events_with_utm_last_7d": 1000,
@@ -107,13 +109,16 @@ class TestDiagnoseOne:
 
 
 def _make_diag(status: str):
-    from products.marketing_analytics.backend.services.marketing_diagnostic import IntegrationDiagnostic
+    from products.marketing_analytics.backend.services.marketing_diagnostic import (
+        IntegrationDiagnostic,
+        IntegrationStatus,
+    )
 
     return IntegrationDiagnostic(
         integration_key="google_ads",
         source_type="GoogleAds",
         display_name="Google Ads",
-        overall_status=status,
+        overall_status=cast(IntegrationStatus, status),
         diagnosis="",
         data_source=None,
         attribution=None,

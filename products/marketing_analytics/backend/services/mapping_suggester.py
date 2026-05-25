@@ -212,17 +212,17 @@ async def suggest_utm_mappings(
         "this v1 only proposes custom_source_mappings entries.",
     ]
     catalogue: list[CatalogueEntry] = []
-    for s in attribution.all_utm_source_samples:
+    for entry in attribution.all_utm_source_samples:
         catalogue.append(
             CatalogueEntry(
-                raw_utm_source=s.raw_value,
-                event_count=s.event_count,
-                matched_integration=s.matched_integration,
+                raw_utm_source=entry.raw_value,
+                event_count=entry.event_count,
+                matched_integration=entry.matched_integration,
                 matched_integration_display_name=(
-                    display_name_for_key(s.matched_integration) if s.matched_integration else None
+                    display_name_for_key(entry.matched_integration) if entry.matched_integration else None
                 ),
-                fuzzy_best_target=s.fuzzy_best_target,
-                fuzzy_best_ratio=s.fuzzy_best_ratio,
+                fuzzy_best_target=entry.fuzzy_best_target,
+                fuzzy_best_ratio=entry.fuzzy_best_ratio,
             )
         )
 
@@ -269,15 +269,15 @@ async def _read_current_mappings(team: Team) -> list[CurrentMapping]:
                 native = NativeMarketingSource(integration_type)
             except ValueError:
                 continue
-            target = NATIVE_TO_KEY.get(native)
-            if target is None:
+            custom_target = NATIVE_TO_KEY.get(native)
+            if custom_target is None:
                 continue
             for raw in raw_values or []:
                 out.append(
                     CurrentMapping(
                         raw_utm_source=str(raw),
-                        target=target,
-                        target_display_name=display_name_for_key(target),
+                        target=custom_target,
+                        target_display_name=display_name_for_key(custom_target),
                         source="team_custom",
                     )
                 )

@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+import structlog
+
 from posthog.schema import DateRange, NativeMarketingSource
 
 from posthog.hogql import ast
@@ -30,6 +32,8 @@ from products.marketing_analytics.backend.services.types import (
     UtmIssueSeverity,
 )
 
+logger = structlog.get_logger(__name__)
+
 
 def _load_team_mappings(team: Team) -> TeamMappings:
     """Load custom source mappings and campaign name mappings from team config."""
@@ -45,8 +49,17 @@ def _load_team_mappings(team: Team) -> TeamMappings:
     # `native_integrations.build_combined_alias_map`.
     source_to_integration: dict[str, str] = {}
     for target_key, raw_value in iter_custom_source_mappings(config.custom_source_mappings):
-        primary = INTEGRATION_PRIMARY_SOURCE.get(KEY_TO_NATIVE[target_key])
+        native = KEY_TO_NATIVE[target_key]
+        primary = INTEGRATION_PRIMARY_SOURCE.get(native)
         if not primary:
+            # Integration without a registered primary source (e.g. shipped before
+            # INTEGRATION_PRIMARY_SOURCE was updated). Drop it, but log the gap.
+            logger.warning(
+                "utm_audit_dropping_custom_mapping_no_primary_source",
+                team_id=team.id,
+                integration=native.value,
+                raw_value=raw_value,
+            )
             continue
         source_to_integration[raw_value.lower().strip()] = str(primary).lower().strip()
 
