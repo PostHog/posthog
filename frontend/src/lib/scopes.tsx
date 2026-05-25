@@ -63,7 +63,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
-    { key: 'llm_analytics', objectName: 'LLM analytics', objectPlural: 'LLM analytics' },
+    { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
     { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
     { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
@@ -108,7 +108,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
-    { key: 'replay_lens', objectName: 'Replay lens', objectPlural: 'replay lenses' },
+    { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
     { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
     {
@@ -152,7 +152,9 @@ export const API_SCOPES: APIScope[] = [
 ]
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
-export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read']
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read'] as const
+
+export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string

@@ -1,6 +1,6 @@
 import { type MiddlewareHandler } from 'hono'
 
-import { httpRequestDurationSeconds, httpRequestsTotal, routeLabel } from './metrics'
+import { httpRequestDurationSeconds, httpRequestsTotal, inflightRequests, routeLabel } from './metrics'
 
 export const securityHeaders: MiddlewareHandler = async (c, next) => {
     await next()
@@ -16,9 +16,14 @@ export const httpMetrics: MiddlewareHandler = async (c, next) => {
     }
     const route = routeLabel(url.pathname)
     const method = c.req.method
+    inflightRequests.inc({ route })
     const stop = httpRequestDurationSeconds.startTimer({ method, route })
-    await next()
-    const status = String(c.res.status)
-    httpRequestsTotal.inc({ method, route, status })
-    stop({ method, route, status })
+    try {
+        await next()
+    } finally {
+        const status = String(c.res.status)
+        httpRequestsTotal.inc({ method, route, status })
+        stop({ method, route, status })
+        inflightRequests.dec({ route })
+    }
 }

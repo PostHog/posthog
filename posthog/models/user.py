@@ -200,6 +200,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
+    credentials_reviewed_at = models.DateTimeField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
     requested_2fa_reset_at = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for = models.JSONField(null=True, blank=True)
@@ -228,6 +229,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         null=True,
         blank=True,
         help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
+    )
+    hide_mcp_hints = models.BooleanField(
+        default=False,
+        db_default=False,
+        null=False,
+        blank=False,
+        help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).

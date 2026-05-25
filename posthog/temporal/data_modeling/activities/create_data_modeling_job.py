@@ -7,10 +7,7 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.models import Node
-
-# TODO(andrew): migrate/recreate this model to data_modeling app
-from products.data_warehouse.backend.models import DataModelingJob
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobEngine
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobEngine
 
 LOGGER = get_logger(__name__)
 

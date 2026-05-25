@@ -266,6 +266,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                     if (!isTrialLimitReached) {
                         return true
                     }
+                    // Hog evals don't call an LLM and never consume trial quota
+                    if (evaluation.evaluation_type === 'hog') {
+                        return true
+                    }
                     return !!evaluation.model_configuration?.provider_key_id
                 }
             },
@@ -308,7 +312,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             }
 
             if (searchParams.tab === 'settings') {
-                router.actions.replace(urls.settings('environment-llm-analytics', 'llm-analytics-byok'))
+                router.actions.replace(urls.settings('project-ai-observability', 'ai-observability-byok'))
                 return
             }
 

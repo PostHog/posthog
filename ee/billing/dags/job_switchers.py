@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 import dagster
@@ -112,7 +112,7 @@ def get_prior_hashes_from_metadata(
     domain_hashes_meta = metadata.get("domain_hashes")
 
     if domain_hashes_meta and isinstance(domain_hashes_meta, JsonMetadataValue):
-        return domain_hashes_meta.value or {}
+        return cast(dict[str, str], domain_hashes_meta.value) or {}
 
     return {}
 

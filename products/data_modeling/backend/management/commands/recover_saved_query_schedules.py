@@ -36,8 +36,8 @@ from django.db.models import Count, OuterRef, Q, Subquery
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule, schedule_exists, unpause_schedule
 
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = logging.getLogger(__name__)
 
