@@ -20209,6 +20209,15 @@ export namespace Schemas {
       Never: 'never',
     } as const;
 
+    export interface LatestTestInterview {
+      /** When the test interview was completed. */
+      completed_at: string;
+      /** Full transcript of the test call, if Vapi delivered one. May be empty. */
+      transcript: string;
+      /** AI-generated summary of the test call, if Vapi delivered one. May be empty. */
+      summary: string;
+    }
+
     export interface LegalDocumentCreator {
       first_name: string;
       email: string;
@@ -36839,6 +36848,13 @@ export namespace Schemas {
       results: TestHogTaggerResultItem[];
       /** Optional message, for example when no recent AI events were found. */
       message?: string;
+    }
+
+    export interface TestInterviewLink {
+      /** Public, unauthenticated URL the topic author opens to dogfood the voice interview themselves — does not count against the targeted interviewees. */
+      interview_url: string;
+      /** Most recent test interview completed by the topic author, or null if none yet. */
+      latest_test_interview: LatestTestInterview | null;
     }
 
     export interface TextReprMetadata {
