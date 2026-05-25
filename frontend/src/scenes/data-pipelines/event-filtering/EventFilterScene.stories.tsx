@@ -229,7 +229,7 @@ Expected to show:
 - "Disabled" selected in the mode segmented button
 - Status copy "No events are being filtered or counted."
 - Filter tree and test cases still rendered (same as DryRunWithTests)
-- No metrics chart
+- Metrics chart renders empty (no series) — disabled mode produces no metrics
                 `,
             },
         },
