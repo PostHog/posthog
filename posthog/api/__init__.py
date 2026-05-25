@@ -337,7 +337,7 @@ project_features_router = projects_router.register(
     ["project_id"],
 )
 projects_router.register(
-    r"wizard_sessions",
+    r"wizard/sessions",
     wizard_sessions.WizardSessionViewSet,
     "project_wizard_sessions",
     ["project_id"],
