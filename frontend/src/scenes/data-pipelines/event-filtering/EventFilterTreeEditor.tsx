@@ -9,7 +9,13 @@ import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 
-import { EVENT_FILTER_MAX_CONDITIONS, eventFilterLogic, FilterNode, TreePath } from './eventFilterLogic'
+import {
+    EVENT_FILTER_MAX_CONDITIONS,
+    EVENT_FILTER_MAX_DEPTH,
+    eventFilterLogic,
+    FilterNode,
+    TreePath,
+} from './eventFilterLogic'
 import { NodeIdMap } from './NodeIdMap'
 
 const FIELD_OPTIONS = [
@@ -107,10 +113,17 @@ function GroupEditor({
     const { updateTreeNode, removeChild, wrapInNot, addChild } = useActions(eventFilterLogic)
     const { conditionCount } = useValues(eventFilterLogic)
 
-    const atMaxConditions = conditionCount >= EVENT_FILTER_MAX_CONDITIONS
-    const maxConditionsReason = atMaxConditions
-        ? `Maximum of ${EVENT_FILTER_MAX_CONDITIONS} conditions reached`
-        : undefined
+    // A new condition adds a leaf at depth+1; a new group adds itself at depth+1
+    // with a leaf at depth+2. Both must satisfy the backend's max_depth ≤ N rule.
+    const maxConditionsReason =
+        conditionCount >= EVENT_FILTER_MAX_CONDITIONS
+            ? `Maximum of ${EVENT_FILTER_MAX_CONDITIONS} conditions reached`
+            : undefined
+    const maxDepthReason = `Maximum nesting depth of ${EVENT_FILTER_MAX_DEPTH} reached`
+    const addConditionDisabledReason =
+        maxConditionsReason ?? (depth >= EVENT_FILTER_MAX_DEPTH ? maxDepthReason : undefined)
+    const addGroupDisabledReason =
+        maxConditionsReason ?? (depth >= EVENT_FILTER_MAX_DEPTH - 1 ? maxDepthReason : undefined)
 
     const pathAttr = path.length === 0 ? 'root' : path.join('-')
     const droppableId = `drop:${nodeIds.nidOf(node)}`
@@ -203,7 +216,7 @@ function GroupEditor({
                         icon={<IconPlusSmall />}
                         data-attr={`add-condition-${pathAttr}`}
                         onClick={() => addChild(path)}
-                        disabledReason={maxConditionsReason}
+                        disabledReason={addConditionDisabledReason}
                     >
                         Add condition
                     </LemonButton>
@@ -219,7 +232,7 @@ function GroupEditor({
                             }
                             updateTreeNode(path, { ...node, children: [...node.children, newGroup] })
                         }}
-                        disabledReason={maxConditionsReason}
+                        disabledReason={addGroupDisabledReason}
                     >
                         Add group
                     </LemonButton>

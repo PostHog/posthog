@@ -432,15 +432,17 @@ export const AtMaxDepth: Story = {
                                     type: 'and',
                                     children: [
                                         {
-                                            // depth 4
-                                            type: 'not',
-                                            child: {
-                                                // depth 5 — the limit
-                                                type: 'condition',
-                                                field: 'event_name',
-                                                operator: 'exact',
-                                                value: '$deepest',
-                                            },
+                                            // depth 4 — deepest group; "Add group" disabled here
+                                            type: 'and',
+                                            children: [
+                                                {
+                                                    // depth 5 — the limit
+                                                    type: 'condition',
+                                                    field: 'event_name',
+                                                    operator: 'exact',
+                                                    value: '$deepest',
+                                                },
+                                            ],
                                         },
                                     ],
                                 },
@@ -461,12 +463,13 @@ export const AtMaxDepth: Story = {
             description: {
                 story: `
 Filter at the EVENT_FILTER_MAX_DEPTH limit (5 nesting levels). Confirms indentation, connector
-lines, and the "Add group" button being disabled inside the deepest groups.
+lines, and the "Add group" button being rendered in its disabled state inside the deepest group.
 
 Expected to show:
-- Visible nesting OR → AND → OR → AND → NOT → condition (\`$deepest\`)
+- Visible nesting OR → AND → OR → AND → AND → condition (\`$deepest\`)
 - Sibling \`event_name = "$shallow"\` rendered at the AND-depth-1 level
-- "Add group" disabled inside the depth-5 chain
+- "Add group" rendered disabled inside the depth-4 AND group (its tooltip is
+  "Maximum nesting depth of 5 reached"); "Add condition" still enabled there
 - Two test cases, both with green "Pass" tags
                 `,
             },
