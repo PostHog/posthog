@@ -1160,3 +1160,35 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             for backend in ("cpp-json", "rust-json"):
                 with self.assertRaises(BaseHogQLError):
                     parse_select(query, backend=backend)
+
+    @no_memory_leak_check
+    def test_invalid_filter_clause_splits_at_statement_boundary(self):
+        # The aggregate FILTER clause requires `(WHERE <expr>)`. An invalid FILTER
+        # (`filter ()`, no WHERE) is, at a statement boundary, cpp's completed
+        # `<call>()` statement followed by a `filter(...)` call as the NEXT
+        # statement: `l() filter ()` -> `l()` ; `filter()` (also for parametric
+        # `quantile(0.5)(x) filter ()`). rust used to commit to the clause and
+        # reject. A valid `filter (where …)` stays one expression (the clause is
+        # consumed and dropped).
+        for query in (
+            "l() filter ()",
+            "count() filter ()",
+            "x := l() filter ()",
+            "l() filter filter ()",
+            "quantile(0.5)(x) filter ()",
+        ):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )
+        for query in ("count() filter (where 1)", "sum(x) filter (where y > 1) over ()", "count() over ()"):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+        # Outside a statement boundary (a SELECT column) the invalid FILTER rejects.
+        for backend in ("cpp-json", "rust-json"):
+            with self.assertRaises(BaseHogQLError):
+                parse_expr("count() filter ()", backend=backend)

@@ -2800,8 +2800,24 @@ impl<'a> Parser<'a> {
             // `name(args) [FILTER (WHERE …)] OVER (windowExpr | name)` —
             // window function form. Distinguishable from the plain-call
             // case by the trailing `OVER` keyword.
-            // Optional `FILTER (WHERE …)` between the args and OVER.
-            let filter_expr_for_window = self.parse_optional_filter()?;
+            // Optional `FILTER (WHERE …)` between the args and OVER. An invalid
+            // FILTER (e.g. `filter ()`, no `(WHERE …)`) is, at a statement
+            // boundary, cpp's completed `name(args)` statement followed by a
+            // `filter(...)` call as the NEXT statement (`l() filter ()` -> `l()`
+            // ; `filter()`); outside a statement boundary there is no split.
+            let cp_before_filter = self.checkpoint();
+            let filter_expr_for_window = match self.parse_optional_filter() {
+                Ok(f) => f,
+                Err(e) if e.fatal => return Err(e),
+                Err(e) => {
+                    if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                        self.restore(cp_before_filter)?;
+                        None
+                    } else {
+                        return Err(e);
+                    }
+                }
+            };
             if matches!(self.peek(), TokenKind::Keyword(Kw::Over)) {
                 // `ColumnExprWinFunction` (grammar line 235) takes a
                 // plain `columnExprList` — NO DISTINCT, NO in-arg
@@ -3098,7 +3114,24 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::LParen, "(")?;
         let (distinct, args, order_by) = self.parse_function_args_inner()?;
         self.expect(TokenKind::RParen, ")")?;
-        let filter_expr = self.parse_optional_filter()?;
+        // `<call>() FILTER (...)` is the aggregate FILTER clause, which requires
+        // `(WHERE <expr>)`. An invalid FILTER (e.g. `filter ()`, no WHERE) is, at
+        // a statement boundary, cpp's completed `<call>()` statement followed by a
+        // `filter(...)` call as the NEXT statement (`l() filter ()` -> `l()` ;
+        // `filter()`). Outside a statement boundary there is no split, so reject.
+        let cp_before_filter = self.checkpoint();
+        let filter_expr = match self.parse_optional_filter() {
+            Ok(f) => f,
+            Err(e) if e.fatal => return Err(e),
+            Err(e) => {
+                if self.stmt_rhs_recover_on_pratt_rhs_failure {
+                    self.restore(cp_before_filter)?;
+                    None
+                } else {
+                    return Err(e);
+                }
+            }
+        };
         if matches!(self.peek(), TokenKind::Keyword(Kw::Over)) {
             self.bump()?;
             let mut obj = serde_json::Map::new();
