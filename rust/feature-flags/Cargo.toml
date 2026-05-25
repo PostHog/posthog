@@ -7,6 +7,7 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+aho-corasick = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 aws-config = { workspace = true, optional = true }

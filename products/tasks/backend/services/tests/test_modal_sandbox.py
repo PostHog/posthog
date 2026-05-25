@@ -271,6 +271,22 @@ class TestModalSandboxAgentServer:
         with pytest.raises(RuntimeError, match="Sandbox not in running state"):
             mock_sandbox.get_connect_credentials()
 
+    @pytest.mark.parametrize("method_name", ["execute", "execute_stream"])
+    def test_execution_redacts_event_ingest_token_from_error_context(self, mock_sandbox: Any, method_name: str):
+        mock_sandbox._sandbox.exec.side_effect = RuntimeError("failed POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=secret-token")
+
+        with (
+            patch("products.tasks.backend.services.modal_sandbox.capture_exception") as capture_exception,
+            pytest.raises(SandboxExecutionError) as exc,
+        ):
+            getattr(mock_sandbox, method_name)("env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=secret-token agent-server")
+
+        assert exc.value.context["command"] == "env POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted> agent-server"
+        assert exc.value.context["error"] == "failed POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=<redacted>"
+        assert "secret-token" not in exc.value.context["command"]
+        assert "secret-token" not in exc.value.context["error"]
+        capture_exception.assert_not_called()
+
     def test_start_agent_server_success_without_domains_skips_agentsh(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             side_effect=[
@@ -396,6 +412,7 @@ class TestModalSandboxAgentServer:
             provider="openai",
             model="gpt-5.3-codex",
             reasoning_effort="high",
+            event_ingest_token="ingest-token",
         )
 
         command = mock_sandbox.execute.call_args_list[0][0][0]
@@ -403,6 +420,7 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=high" in command
+        assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
 
     def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0

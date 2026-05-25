@@ -16,7 +16,8 @@ use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHo
 use personhog_router::backend::{
     LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
 };
-use personhog_router::config::{Config, RouterMode};
+use personhog_router::config::{Config, ProxyMode, RouterMode};
+use personhog_router::proxy::RawProxyService;
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
 use personhog_router::stash_handler::RouterStashHandler;
@@ -55,6 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting personhog-router service");
     tracing::info!("Router mode: {}", config.router_mode);
+    tracing::info!("Proxy mode: {}", config.proxy_mode);
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Replica URL: {}", config.replica_url);
     tracing::info!("Replica channels: {}", config.replica_channels);
@@ -108,9 +110,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         const BUCKETS: &[f64] = &[
             1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
         ];
+        const RESPONSE_SIZE_BUCKETS: &[f64] = &[
+            64.0, 256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0,
+        ];
         let recorder_handle = PrometheusBuilder::new()
             .add_global_label("service", "personhog-router")
             .set_buckets(BUCKETS)
+            .unwrap()
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Prefix(
+                    "personhog_router_response_size".into(),
+                ),
+                RESPONSE_SIZE_BUCKETS,
+            )
             .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
@@ -141,7 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Create backend connection(s) to personhog-replica
-    let replica_backend = ReplicaBackend::new(ReplicaBackendConfig {
+    let replica_backend = Arc::new(ReplicaBackend::new(ReplicaBackendConfig {
         url: config.replica_url.clone(),
         timeout: config.backend_timeout(),
         retry_config: config.retry_config(),
@@ -150,11 +162,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_send_message_size: config.grpc_max_send_message_size,
         max_recv_message_size: config.grpc_max_recv_message_size,
         num_channels: config.replica_channels,
-    });
+    }));
 
-    // Build the router — in leader mode, also wire up etcd coordination
-    // and the leader backend for person writes / strong reads.
-    let router = if config.router_mode == RouterMode::Leader {
+    // In leader mode, wire up etcd coordination and the leader backend
+    // for person writes / strong reads.
+    let leader_backend: Option<Arc<LeaderBackend>> = if config.router_mode == RouterMode::Leader {
         tracing::info!("Leader mode: connecting to etcd");
         tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
         tracing::info!("etcd prefix: {}", config.etcd_prefix);
@@ -269,13 +281,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             k8s_cancel.cancel();
         });
 
-        PersonHogRouter::new(Arc::new(replica_backend)).with_leader(leader_backend)
+        Some(leader_backend)
     } else {
         tracing::info!("Replica mode: leader routing disabled");
-        PersonHogRouter::new(Arc::new(replica_backend))
+        None
     };
-
-    let service = PersonHogRouterService::new(Arc::new(router));
 
     // gRPC server
     let grpc_addr = config.grpc_address;
@@ -283,6 +293,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let keepalive_timeout = config.grpc_keepalive_timeout();
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
+    let proxy_mode = config.proxy_mode;
+    let retry_config = config.retry_config();
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
     tokio::spawn(async move {
@@ -295,18 +307,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let incoming = tracked_tcp_incoming(listener);
-        if let Err(e) = Server::builder()
-            .http2_keepalive_interval(keepalive_interval)
-            .http2_keepalive_timeout(keepalive_timeout)
-            .layer(GrpcMetricsLayer)
-            .add_service(
-                PersonHogServiceServer::new(service)
-                    .max_encoding_message_size(max_send)
-                    .max_decoding_message_size(max_recv),
-            )
-            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
-            .await
-        {
+
+        let result = if proxy_mode == ProxyMode::Raw {
+            let proxy =
+                RawProxyService::new(replica_backend, leader_backend, retry_config, max_recv);
+            Server::builder()
+                .http2_keepalive_interval(keepalive_interval)
+                .http2_keepalive_timeout(keepalive_timeout)
+                .layer(GrpcMetricsLayer::default())
+                .add_service(proxy)
+                .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+                .await
+        } else {
+            let replica_dyn: Arc<dyn personhog_router::backend::PersonHogBackend> = replica_backend;
+            let mut router = PersonHogRouter::new(replica_dyn);
+            if let Some(leader) = leader_backend {
+                router = router.with_leader(leader);
+            }
+            let service = PersonHogRouterService::new(Arc::new(router));
+            Server::builder()
+                .http2_keepalive_interval(keepalive_interval)
+                .http2_keepalive_timeout(keepalive_timeout)
+                .layer(GrpcMetricsLayer::default())
+                .add_service(
+                    PersonHogServiceServer::new(service)
+                        .max_encoding_message_size(max_send)
+                        .max_decoding_message_size(max_recv),
+                )
+                .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+                .await
+        };
+
+        if let Err(e) = result {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));
         }
     });
