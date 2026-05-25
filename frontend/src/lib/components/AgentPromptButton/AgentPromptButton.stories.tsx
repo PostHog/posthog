@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { screen, within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { IconBug, IconInfo, IconSearch } from '@posthog/icons'
 
@@ -14,6 +16,13 @@ const meta = {
 
 export default meta
 type Story = StoryObj<typeof meta>
+
+async function openAgentMenu(canvasElement: HTMLElement): Promise<void> {
+    const canvas = within(canvasElement)
+    const trigger = await canvas.findByRole('button', { name: 'Fix with AI' })
+    await userEvent.click(trigger)
+    await screen.findByText('PostHog Code')
+}
 
 const ERROR_ACTIONS = [
     {
@@ -43,6 +52,16 @@ export const Default: Story = {
     args: {
         actions: ERROR_ACTIONS,
         storageKey: 'story-agent-prompt-button',
+    },
+}
+
+export const OpenDropdown: Story = {
+    args: {
+        actions: ERROR_ACTIONS,
+        storageKey: 'story-agent-open-dropdown',
+    },
+    play: async ({ canvasElement }) => {
+        await openAgentMenu(canvasElement)
     },
 }
 
