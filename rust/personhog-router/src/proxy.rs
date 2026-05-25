@@ -22,6 +22,7 @@ use crate::config::RetryConfig;
 
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
+const PROCESSING_TIME_HEADER: &str = "x-processing-time-ms";
 
 const KNOWN_METHODS: &[&str] = &[
     "CheckCohortMembership",
@@ -144,7 +145,7 @@ impl RawProxyInner {
         let client = current_client_name();
         let start = Instant::now();
 
-        let (response, backend) = match method_name {
+        let (mut response, backend) = match method_name {
             "UpdatePersonProperties" => (self.handle_update_person_properties(req).await, "leader"),
             "GetPerson" => {
                 let is_strong = req
@@ -180,17 +181,35 @@ impl RawProxyInner {
         )
         .record(duration_ms);
 
+        if let Some(processing_ms) = response
+            .headers()
+            .get(PROCESSING_TIME_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<f64>().ok())
+        {
+            histogram!(
+                "personhog_router_transport_overhead_ms",
+                "method" => method.clone(),
+                "backend" => backend,
+                "client" => client.clone(),
+            )
+            .record((duration_ms - processing_ms).max(0.0));
+            response.headers_mut().remove(PROCESSING_TIME_HEADER);
+        }
+
         if is_grpc_error_response(&response) {
             counter!(
                 "personhog_router_backend_errors_total",
-                "method" => method,
+                "method" => method.clone(),
                 "backend" => backend,
-                "client" => client,
+                "client" => client.clone(),
             )
             .increment(1);
         }
 
-        response
+        let (parts, body) = response.into_parts();
+        let counted = ByteCountedBody::new(body, method, backend, client);
+        http::Response::from_parts(parts, BoxBody::new(counted))
     }
 
     async fn raw_proxy_to_replica(
@@ -445,6 +464,59 @@ fn percent_encode_grpc(s: &str) -> String {
         }
     }
     out
+}
+
+/// Response body wrapper that counts bytes from DATA frames and records
+/// the total to a histogram on drop.
+struct ByteCountedBody {
+    inner: BoxBody,
+    bytes_counted: usize,
+    method: String,
+    backend: &'static str,
+    client: Arc<str>,
+}
+
+impl ByteCountedBody {
+    fn new(inner: BoxBody, method: String, backend: &'static str, client: Arc<str>) -> Self {
+        Self {
+            inner,
+            bytes_counted: 0,
+            method,
+            backend,
+            client,
+        }
+    }
+}
+
+impl http_body::Body for ByteCountedBody {
+    type Data = Bytes;
+    type Error = tonic::Status;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        let this = self.get_mut();
+        let result = Pin::new(&mut this.inner).poll_frame(cx);
+        if let Poll::Ready(Some(Ok(ref frame))) = result {
+            if let Some(data) = frame.data_ref() {
+                this.bytes_counted += data.len();
+            }
+        }
+        result
+    }
+}
+
+impl Drop for ByteCountedBody {
+    fn drop(&mut self) {
+        histogram!(
+            "personhog_router_response_size_bytes",
+            "method" => self.method.clone(),
+            "backend" => self.backend,
+            "client" => self.client.clone(),
+        )
+        .record(self.bytes_counted as f64);
+    }
 }
 
 /// HTTP body that yields one data frame followed by one trailers frame.

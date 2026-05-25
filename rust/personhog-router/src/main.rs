@@ -304,7 +304,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
                 .http2_keepalive_timeout(keepalive_timeout)
-                .layer(GrpcMetricsLayer)
+                .layer(GrpcMetricsLayer::default())
                 .add_service(proxy)
                 .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
                 .await
@@ -318,7 +318,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
                 .http2_keepalive_timeout(keepalive_timeout)
-                .layer(GrpcMetricsLayer)
+                .layer(GrpcMetricsLayer::default())
                 .add_service(
                     PersonHogServiceServer::new(service)
                         .max_encoding_message_size(max_send)
