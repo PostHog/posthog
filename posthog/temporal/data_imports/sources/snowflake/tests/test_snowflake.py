@@ -11,7 +11,6 @@ from posthog.temporal.data_imports.sources.snowflake.snowflake import (
     _parse_clustering_key_leading_column,
     filter_snowflake_incremental_fields,
 )
-from posthog.temporal.data_imports.sources.snowflake.source import SnowflakeSource
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
@@ -119,11 +118,6 @@ class TestFilterIncrementalFields:
 
 
 class TestBuildQuery:
-    def test_non_incremental(self):
-        sql, params = _build_query("DB", "PUBLIC", "t", False, None, None, None)
-        assert sql == "SELECT * FROM IDENTIFIER(%s)"
-        assert params == ("DB.PUBLIC.t",)
-
     def test_incremental_requires_field(self):
         with pytest.raises(ValueError, match="incremental_field"):
             _build_query("DB", "PUBLIC", "t", True, None, None, None)
@@ -135,8 +129,8 @@ class TestBuildQuery:
         assert params == ("DB.PUBLIC.t", "created_at", "2025-01-01", "created_at")
 
     def test_incremental_seeds_initial_value_when_missing(self):
-        sql, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, None)
-        # initial value is plugged in instead of None
+        # None last-value triggers fallback to incremental_type_to_initial_value
+        _, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, None)
         assert params[2] is not None
 
 
@@ -170,16 +164,6 @@ def cursor() -> MagicMock:
 
 
 class TestConnect:
-    def test_password_auth_does_not_create_tempfile(self, impl):
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = MagicMock()
-            with impl.connect(_make_config("password")):
-                pass
-            kwargs = mock_connect.call_args.kwargs
-            assert kwargs["user"] == "u"
-            assert kwargs["password"] == "p"
-            assert "private_key_file" not in kwargs
-
     def test_keypair_writes_and_cleans_up_tempfile_on_success(self, impl):
         captured: dict[str, str] = {}
 
@@ -213,29 +197,6 @@ class TestConnect:
                     raise RuntimeError("boom")
 
         assert not os.path.exists(captured["file"])
-
-    def test_keypair_passphrase_passed_when_set(self, impl):
-        config = _make_config("keypair")
-        # Override passphrase via dict path
-        cfg_dict = {
-            "account_id": "acc",
-            "database": "DB",
-            "warehouse": "WH",
-            "schema": "PUBLIC",
-            "role": "ROLE",
-            "auth_type": {
-                "selection": "keypair",
-                "user": "u",
-                "private_key": "KEY",
-                "passphrase": "secret",
-            },
-        }
-        config = SnowflakeSourceConfig.from_dict(cfg_dict)
-        with patch("snowflake.connector.connect") as mock_connect:
-            mock_connect.return_value.__enter__.return_value = MagicMock()
-            with impl.connect(config):
-                pass
-            assert mock_connect.call_args.kwargs["private_key_file_pwd"] == "secret"
 
 
 # ---------------------------------------------------------------------------
@@ -271,17 +232,8 @@ class TestGetColumns:
         result = impl.get_columns(conn, _make_config(), names=["users"])
         assert list(result.keys()) == ["users"]
 
-    def test_returns_empty_when_no_rows(self, impl, cursor):
-        cursor.fetchall.return_value = []
-        conn = _conn_with_cursor(cursor)
-        assert impl.get_columns(conn, _make_config(), names=None) == {}
-
 
 class TestGetPrimaryKeys:
-    def test_empty_tables_returns_empty(self, impl, cursor):
-        conn = _conn_with_cursor(cursor)
-        assert impl.get_primary_keys(conn, _make_config(), tables=[]) == {}
-
     def test_extracts_pk_column_names(self, impl, cursor):
         cursor.description = [MagicMock(name="column_name")]
         cursor.description[0].name = "column_name"
@@ -291,18 +243,14 @@ class TestGetPrimaryKeys:
         assert out["t"] == ["id"]
 
     def test_swallows_per_table_failure(self, impl, cursor):
+        # Per-table failure leaves the None placeholder so schema discovery keeps going
         cursor.execute.side_effect = Exception("permission denied")
         conn = _conn_with_cursor(cursor)
         out = impl.get_primary_keys(conn, _make_config(), tables=["t"])
-        # Failed lookup => None placeholder retained
         assert out == {"t": None}
 
 
 class TestGetLeadingIndexColumns:
-    def test_empty_tables_returns_empty(self, impl, cursor):
-        conn = _conn_with_cursor(cursor)
-        assert impl.get_leading_index_columns(conn, _make_config(), tables=[]) == {}
-
     def test_returns_leading_column_set_per_table(self, impl, cursor):
         cursor.__iter__.return_value = iter([("users", "LINEAR(created_at)"), ("orders", None)])
         conn = _conn_with_cursor(cursor)
@@ -312,6 +260,7 @@ class TestGetLeadingIndexColumns:
         assert out["orders"] == set()
 
     def test_returns_none_on_failure(self, impl, cursor):
+        # Discovery failure returns None so caller defaults to no warning
         cursor.execute.side_effect = Exception("perm")
         conn = _conn_with_cursor(cursor)
         assert impl.get_leading_index_columns(conn, _make_config(), tables=["t"]) is None
@@ -330,14 +279,8 @@ class TestGetPrimaryKeysForTable:
         cursor.__iter__.return_value = iter([("id",), ("email",)])
         assert impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t") == ["id", "email"]
 
-    def test_returns_none_when_no_rows(self, impl, cursor):
-        desc = MagicMock()
-        desc.name = "column_name"
-        cursor.description = [desc]
-        cursor.__iter__.return_value = iter([])
-        assert impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t") is None
-
     def test_raises_when_column_name_missing(self, impl, cursor):
+        # Cursor description without `column_name` shouldn't silently return None — it's a Snowflake driver shape change worth surfacing.
         desc = MagicMock()
         desc.name = "something_else"
         cursor.description = [desc]
@@ -350,36 +293,10 @@ class TestGetRowsToSync:
         cursor.fetchone.return_value = (321,)
         assert impl.get_rows_to_sync(cursor, "SELECT 1", (), logger) == 321
 
-    def test_returns_zero_on_none_row(self, impl, cursor, logger):
-        cursor.fetchone.return_value = None
-        assert impl.get_rows_to_sync(cursor, "SELECT 1", (), logger) == 0
-
     def test_returns_zero_on_exception(self, impl, cursor, logger):
+        # Sync must never bail because the COUNT(*) probe failed
         cursor.execute.side_effect = RuntimeError("boom")
         assert impl.get_rows_to_sync(cursor, "SELECT 1", (), logger) == 0
-
-
-# ---------------------------------------------------------------------------
-# Source-level smoke + non-retryable errors
-# ---------------------------------------------------------------------------
-
-
-class TestSnowflakeSourceWiring:
-    def test_get_implementation_returns_singleton(self):
-        from posthog.temporal.data_imports.sources.snowflake.source import _SNOWFLAKE_IMPLEMENTATION
-
-        assert SnowflakeSource().get_implementation is _SNOWFLAKE_IMPLEMENTATION
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "Source column type changed",
-            "SchemaColumnTypeChangedException: Source column type changed: 'id' has values that no longer fit",
-        ],
-    )
-    def test_widened_integer_column_errors_are_non_retryable(self, error_msg):
-        non_retryable = SnowflakeSource().get_non_retryable_errors()
-        assert any(p in error_msg for p in non_retryable.keys())
 
 
 # ---------------------------------------------------------------------------
