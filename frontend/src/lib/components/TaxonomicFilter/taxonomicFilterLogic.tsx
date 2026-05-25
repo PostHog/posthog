@@ -13,7 +13,6 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
@@ -38,7 +37,7 @@ import {
     TaxonomicFilterValue,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
-import { isString, objectsEqual, pluralize } from 'lib/utils'
+import { isString, objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { getProductEventPropertyFilterOptions } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
@@ -49,15 +48,7 @@ import { actionsModel } from '~/models/actionsModel'
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
-import {
-    ActionType,
-    CoreFilterDefinition,
-    EventDefinition,
-    PersonProperty,
-    PersonType,
-    PropertyDefinition,
-    TeamType,
-} from '~/types'
+import { ActionType, CoreFilterDefinition, EventDefinition, PersonType, PropertyDefinition, TeamType } from '~/types'
 
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
@@ -74,6 +65,7 @@ import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGro
 import { hogQLExpressionTaxonomicGroupsLogic } from './hogQLExpressionTaxonomicGroupsLogic'
 import { maxAIContextTaxonomicGroupsLogic } from './maxAIContextTaxonomicGroupsLogic'
 import { posthogResourcesTaxonomicGroupsLogic } from './posthogResourcesTaxonomicGroupsLogic'
+import { propertyTabsTaxonomicGroupsLogic } from './propertyTabsTaxonomicGroupsLogic'
 import { recentPinnedTaxonomicGroupsLogic } from './recentPinnedTaxonomicGroupsLogic'
 import { replayTaxonomicGroupsLogic } from './replayTaxonomicGroupsLogic'
 import { revenueAnalyticsTaxonomicGroupsLogic } from './revenueAnalyticsTaxonomicGroupsLogic'
@@ -282,6 +274,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['customEventsTaxonomicGroups'],
             eventPropertiesTaxonomicGroupsLogic,
             ['eventPropertiesTaxonomicGroups'],
+            propertyTabsTaxonomicGroupsLogic,
+            ['featureFlagPropertyTaxonomicGroups', 'numericalAndPersonPropertyTaxonomicGroups'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -484,6 +478,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.cohortTaxonomicGroups,
                 s.apmTaxonomicGroups,
                 s.eventPropertiesTaxonomicGroups,
+                s.featureFlagPropertyTaxonomicGroups,
+                s.numericalAndPersonPropertyTaxonomicGroups,
                 s.replayTaxonomicGroups,
                 s.posthogResourcesTaxonomicGroups,
                 s.errorTrackingTaxonomicGroups,
@@ -506,6 +502,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 cohortTaxonomicGroups: TaxonomicFilterGroup[],
                 apmTaxonomicGroups: TaxonomicFilterGroup[],
                 eventPropertiesTaxonomicGroups: TaxonomicFilterGroup[],
+                featureFlagPropertyTaxonomicGroups: TaxonomicFilterGroup[],
+                numericalAndPersonPropertyTaxonomicGroups: TaxonomicFilterGroup[],
                 replayTaxonomicGroups: TaxonomicFilterGroup[],
                 posthogResourcesTaxonomicGroups: TaxonomicFilterGroup[],
                 errorTrackingTaxonomicGroups: TaxonomicFilterGroup[],
@@ -515,7 +513,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 customEventsTaxonomicGroups: TaxonomicFilterGroup[]
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
-                const { excludedProperties, propertyAllowList } = propertyFilters
+                const { propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
                     ...eventsTaxonomicGroups,
                     {
@@ -578,68 +576,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     },
                     ...eventPropertiesTaxonomicGroups,
                     ...eventMetadataTaxonomicGroups,
-                    {
-                        name: 'Feature flags',
-                        searchPlaceholder: 'feature flags',
-                        type: TaxonomicFilterGroupType.EventFeatureFlags,
-                        endpoint: combineUrl(`api/projects/${projectId}/property_definitions`, {
-                            is_feature_flag: true,
-                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
-                        }).url,
-                        scopedEndpoint:
-                            eventNames.length > 0
-                                ? combineUrl(`api/projects/${projectId}/property_definitions`, {
-                                      event_names: eventNames,
-                                      is_feature_flag: true,
-                                      filter_by_event_names: true,
-                                  }).url
-                                : undefined,
-                        expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
-                            `Show ${pluralize(expandedCount - count, 'property', 'properties')} that ${pluralize(
-                                expandedCount - count,
-                                'has',
-                                'have',
-                                false
-                            )}n't been seen with ${pluralize(eventNames.length, 'this event', 'these events', false)}`,
-                        getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        excludedProperties:
-                            excludedProperties?.[TaxonomicFilterGroupType.EventFeatureFlags]?.filter(isString),
-                        ...propertyTaxonomicGroupProps(),
-                    },
+                    ...featureFlagPropertyTaxonomicGroups,
                     ...errorTrackingTaxonomicGroups,
                     ...revenueAnalyticsTaxonomicGroups,
                     ...apmTaxonomicGroups,
-                    {
-                        name: 'Numerical event properties',
-                        searchPlaceholder: 'numerical event properties',
-                        type: TaxonomicFilterGroupType.NumericalEventProperties,
-                        endpoint: combineUrl(`api/projects/${projectId}/property_definitions`, {
-                            is_numerical: true,
-                            event_names: eventNames,
-                        }).url,
-                        getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
-                        ...propertyTaxonomicGroupProps(),
-                    },
-                    {
-                        name: 'Person properties',
-                        searchPlaceholder: 'person properties',
-                        type: TaxonomicFilterGroupType.PersonProperties,
-                        endpoint: combineUrl(`api/projects/${projectId}/property_definitions`, {
-                            type: 'person',
-                            properties: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]
-                                ? propertyAllowList[TaxonomicFilterGroupType.PersonProperties].join(',')
-                                : undefined,
-                            exclude_hidden: true,
-                            exclude_restricted: true,
-                        }).url,
-                        getName: (personProperty: PersonProperty) => personProperty.name,
-                        getValue: (personProperty: PersonProperty) => personProperty.name,
-                        propertyAllowList:
-                            propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
-                        ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
-                    },
+                    ...numericalAndPersonPropertyTaxonomicGroups,
                     ...cohortTaxonomicGroups,
                     ...shortcutValueTaxonomicGroups,
                     ...customEventsTaxonomicGroups,
