@@ -6,8 +6,8 @@ from posthog.test.base import BaseTest, _create_event, flush_persons_and_events
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.web_analytics.bot_definitions import BOT_DEFINITIONS
-from posthog.hogql_queries.web_analytics.bot_ua_fixtures import (
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+from products.web_analytics.backend.hogql_queries.bot_ua_fixtures import (
     BOT_USER_AGENTS,
     CATEGORY_TO_TRAFFIC_CATEGORY,
     CATEGORY_TO_TRAFFIC_TYPE,

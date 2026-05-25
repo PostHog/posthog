@@ -3,18 +3,21 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { CyclotronJobInvocationResult } from '../types'
 import { CapturedEventsService } from './captured-events/captured-events.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
+import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
 import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service'
 
 /**
- * Fans `CyclotronJobInvocationResult` batches out to the three sinks every
+ * Fans `CyclotronJobInvocationResult` batches out to the sinks every
  * CDP consumer/API caller needs:
  *
- * - `HogFunctionMonitoringService` — app metrics + log entries
+ * - `HogFunctionMonitoringService` — aggregated app metrics + log entries
+ * - `HogInvocationResultsService`  — per-invocation lifecycle row in ClickHouse
+ *                                    (powers the new runs UI + rerun path)
  * - `WarehouseWebhooksService`    — warehouse source webhook payloads
  * - `CapturedEventsService`       — PostHog events emitted via posthog.capture()
  *
  * Callers interact with this one service instead of coordinating queue/flush
- * calls across the three individually. `queueInvocationResultsAndFlush` is the
+ * calls across the four individually. `queueInvocationResultsAndFlush` is the
  * common path — `queueInvocationResults` + `flush` are exposed for the rare
  * cases that split the two (e.g. source webhooks, which queue inline and flush
  * asynchronously after the HTTP response).
@@ -22,6 +25,7 @@ import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service
 export class InvocationResultsService {
     constructor(
         public readonly monitoringService: HogFunctionMonitoringService,
+        public readonly invocationResultsRowsService: HogInvocationResultsService,
         public readonly warehouseWebhooksService: WarehouseWebhooksService,
         public readonly capturedEventsService: CapturedEventsService
     ) {}
@@ -29,6 +33,7 @@ export class InvocationResultsService {
     queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
         return instrumentFn(`cdpConsumer.handleEachBatch.produceResults`, async () => {
             this.monitoringService.queueInvocationResults(results)
+            this.invocationResultsRowsService.queueInvocationResults(results)
             this.warehouseWebhooksService.queueInvocationResults(results)
             await this.capturedEventsService.queueInvocationResults(results)
         })
@@ -37,6 +42,7 @@ export class InvocationResultsService {
     async flush(): Promise<void> {
         await Promise.all([
             this.monitoringService.flush(),
+            this.invocationResultsRowsService.flush(),
             this.warehouseWebhooksService.flush(),
             this.capturedEventsService.flush(),
         ])

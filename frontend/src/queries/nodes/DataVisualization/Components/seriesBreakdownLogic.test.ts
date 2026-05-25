@@ -299,6 +299,7 @@ describe('seriesBreakdownLogic', () => {
                 seriesData: [
                     {
                         name: 'Safari',
+                        breakdownValue: 'Safari',
                         data: [11, 32, 282],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -307,6 +308,7 @@ describe('seriesBreakdownLogic', () => {
                     },
                     {
                         name: 'Firefox',
+                        breakdownValue: 'Firefox',
                         data: [22, 60, 820],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -315,6 +317,7 @@ describe('seriesBreakdownLogic', () => {
                     },
                     {
                         name: 'Chrome',
+                        breakdownValue: 'Chrome',
                         data: [59, 173, 2218],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -370,6 +373,7 @@ describe('seriesBreakdownLogic', () => {
                 seriesData: [
                     {
                         name: 'Safari',
+                        breakdownValue: 'Safari',
                         data: [11, 32, null],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -378,6 +382,7 @@ describe('seriesBreakdownLogic', () => {
                     },
                     {
                         name: 'Firefox',
+                        breakdownValue: 'Firefox',
                         data: [null, null, 820],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -434,6 +439,7 @@ describe('seriesBreakdownLogic', () => {
                 seriesData: [
                     {
                         name: 'Safari',
+                        breakdownValue: 'Safari',
                         data: [0, 32, 0],
                         settings: {
                             formatting: { prefix: '', suffix: '' },
@@ -442,6 +448,7 @@ describe('seriesBreakdownLogic', () => {
                     },
                     {
                         name: 'Firefox',
+                        breakdownValue: 'Firefox',
                         data: [0, 0, 820],
                         settings: {
                             formatting: { prefix: '', suffix: '' },

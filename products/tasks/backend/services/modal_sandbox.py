@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 import shlex
 import shutil
@@ -52,6 +53,7 @@ from products.tasks.backend.services.sandbox import (
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
+    redact_sandbox_command,
     wait_for_health_check,
 )
 from products.tasks.backend.temporal.exceptions import (
@@ -91,50 +93,98 @@ LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
+LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 
 
 _image_ref_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
 _image_ref_lock = threading.Lock()
 
 
-@cached(cache=_image_ref_cache, lock=_image_ref_lock)
-def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
-    """Modal caches sandbox images indefinitely. This function resolves the digest of the master tag
-    so Modal fetches the correct version. Re-resolves from GHCR every ~5 minutes.
+# Modal caches images by reference indefinitely. Falling back to the mutable
+# `:master` tag therefore lets Modal keep serving a stale or broken image
+# (e.g. one missing /scripts/node_modules/.bin/agent-server) forever, so we
+# retry transient GHCR failures and otherwise fail closed.
+_GHCR_RESOLVE_MAX_ATTEMPTS = 4
+_GHCR_RESOLVE_BACKOFF_BASE_SECONDS = 1.0
+
+
+class _ImageDigestResolutionError(Exception):
+    """A single attempt to resolve the GHCR digest failed."""
+
+
+def _resolve_image_digest_once(image: str) -> str:
+    """Resolve ``image:master`` to an immutable ``image@sha256:...`` reference.
+
+    Raises ``_ImageDigestResolutionError`` for non-200 responses or missing
+    fields; network-level exceptions (``ConnectionError``, ``Timeout``, etc.)
+    propagate as-is. The caller catches ``Exception`` in all cases, so we never
+    fall back to the mutable ``:master`` tag.
     """
     image_repo = image.replace("ghcr.io/", "")
-    try:
-        token_resp = requests.get(
-            f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
-            timeout=10,
-        )
-        if token_resp.status_code != 200:
-            logger.warning(f"Failed to get GHCR token: status={token_resp.status_code}")
-            return f"{image}:master"
 
-        token = token_resp.json().get("token")
-        if not token:
-            logger.warning("GHCR token response missing token field")
-            return f"{image}:master"
+    token_resp = requests.get(
+        f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
+        timeout=10,
+    )
+    if token_resp.status_code != 200:
+        raise _ImageDigestResolutionError(f"GHCR token request failed: status={token_resp.status_code}")
 
-        manifest_resp = requests.get(
-            f"https://ghcr.io/v2/{image_repo}/manifests/master",
-            headers={
-                "Accept": "application/vnd.oci.image.index.v1+json",
-                "Authorization": f"Bearer {token}",
-            },
-            timeout=10,
-        )
-        if manifest_resp.status_code == 200:
-            digest = manifest_resp.headers.get("Docker-Content-Digest")
-            if digest:
-                logger.info(f"Resolved sandbox image digest for {image_repo}: {digest}")
-                return f"{image}@{digest}"
-        logger.warning(f"Failed to get sandbox image digest: status={manifest_resp.status_code}")
-    except Exception as e:
-        logger.warning(f"Failed to fetch sandbox image digest: {e}")
+    token = token_resp.json().get("token")
+    if not token:
+        raise _ImageDigestResolutionError("GHCR token response missing token field")
 
-    return f"{image}:master"
+    manifest_resp = requests.get(
+        f"https://ghcr.io/v2/{image_repo}/manifests/master",
+        headers={
+            "Accept": "application/vnd.oci.image.index.v1+json",
+            "Authorization": f"Bearer {token}",
+        },
+        timeout=10,
+    )
+    if manifest_resp.status_code != 200:
+        raise _ImageDigestResolutionError(f"GHCR manifest request failed: status={manifest_resp.status_code}")
+
+    digest = manifest_resp.headers.get("Docker-Content-Digest")
+    if not digest:
+        raise _ImageDigestResolutionError("GHCR manifest response missing Docker-Content-Digest header")
+
+    return f"{image}@{digest}"
+
+
+@cached(cache=_image_ref_cache, lock=_image_ref_lock)
+def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
+    """Resolve the sandbox image to an immutable digest pin.
+
+    Modal caches sandbox images by reference indefinitely, so a mutable
+    ``:master`` tag would let Modal keep serving a stale or broken image. We
+    therefore retry transient GHCR failures with exponential backoff and, if
+    resolution still fails, fail closed by raising ``SandboxProvisionError``
+    (transient — the provisioning activity retries) rather than ever returning
+    the floating tag. Successful resolutions are cached for ~5 minutes;
+    failures are not cached and re-resolve on the next call.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, _GHCR_RESOLVE_MAX_ATTEMPTS + 1):
+        try:
+            reference = _resolve_image_digest_once(image)
+            logger.info(f"Resolved sandbox image digest for {image} on attempt {attempt}: {reference}")
+            return reference
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                f"Failed to resolve sandbox image digest for {image} "
+                f"(attempt {attempt}/{_GHCR_RESOLVE_MAX_ATTEMPTS}): {e}"
+            )
+            if attempt < _GHCR_RESOLVE_MAX_ATTEMPTS:
+                time.sleep(_GHCR_RESOLVE_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
+
+    raise SandboxProvisionError(
+        f"Could not resolve an immutable digest for {image}:master after "
+        f"{_GHCR_RESOLVE_MAX_ATTEMPTS} attempts; refusing to fall back to the mutable "
+        f":master tag because Modal caches images by reference indefinitely",
+        {"image": image},
+        cause=last_error if last_error is not None else RuntimeError("digest resolution failed"),
+    )
 
 
 def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
@@ -196,6 +246,12 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_dockerfile_path = context_dir / dockerfile_relative_path
     destination_dockerfile_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_dockerfile_path, destination_dockerfile_path)
+
+    # Both base and notebook Dockerfiles COPY the git guard, so include it in
+    # every local build context.
+    destination_git_guard_path = context_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT
+    destination_git_guard_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(base_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT, destination_git_guard_path)
 
     if template == SandboxTemplate.DEFAULT_BASE:
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
@@ -364,6 +420,7 @@ class ModalSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
 
             process.wait()
@@ -388,12 +445,15 @@ class ModalSandbox(SandboxBase):
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
     def execute_stream(
@@ -412,6 +472,7 @@ class ModalSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
         except TimeoutError as e:
             capture_exception(e)
@@ -421,12 +482,15 @@ class ModalSandbox(SandboxBase):
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
         class _ModalExecutionStream:
@@ -541,6 +605,7 @@ class ModalSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -548,6 +613,7 @@ class ModalSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            event_ingest_token=event_ingest_token,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
@@ -591,6 +657,7 @@ class ModalSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -628,6 +695,7 @@ class ModalSandbox(SandboxBase):
             reasoning_effort,
             mcp_servers_arg,
             allowed_domains=allowed_domains,
+            event_ingest_token=event_ingest_token,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")

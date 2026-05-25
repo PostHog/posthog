@@ -111,6 +111,19 @@ function execute<T>(hash: string, fn: ResourceQueryFn<T>): Promise<T> {
             if (entry.abort !== abort) {
                 throw err
             }
+            // An abort is not a real failure. Storing it as `entry.error`
+            // would poison this cache key — the error-halts-autofetch guard
+            // in the effect then refuses to ever re-fetch it, so revisiting
+            // the same query key (e.g. backspacing to a search term whose
+            // in-flight request was cancelled by the next keystroke) shows a
+            // permanently empty list. Leave the entry clean (no data, no
+            // error, ts untouched) so a later visit re-fetches.
+            if (abort.signal.aborted) {
+                entry.inflight = undefined
+                entry.abort = undefined
+                notify(entry)
+                throw err
+            }
             entry.error = err
             entry.inflight = undefined
             entry.abort = undefined

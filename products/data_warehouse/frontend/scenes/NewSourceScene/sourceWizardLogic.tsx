@@ -322,6 +322,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             schemas,
         }),
         toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
+        setSchemaSyncedColumns: (schema: ExternalDataSourceSyncSchema, enabledColumns: string[] | null) => ({
+            schema,
+            enabledColumns,
+        }),
         updateSchemaSyncType: (
             schema: ExternalDataSourceSyncSchema,
             syncType: ExternalDataSourceSyncSchema['sync_type'],
@@ -456,6 +460,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     return state.map((s) => ({
                         ...s,
                         should_sync: s.table === schema.table ? shouldSync : s.should_sync,
+                    }))
+                },
+                setSchemaSyncedColumns: (state, { schema, enabledColumns }) => {
+                    return state.map((s) => ({
+                        ...s,
+                        enabled_columns: s.table === schema.table ? enabledColumns : s.enabled_columns,
                     }))
                 },
                 updateSchemaSyncType: (
@@ -1176,6 +1186,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         incremental_field_type: schema.incremental_field_type,
                                         sync_time_of_day: schema.sync_time_of_day,
                                         primary_key_columns: schema.primary_key_columns,
+                                        enabled_columns: schema.enabled_columns ?? null,
                                         ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                             ? { cdc_table_mode: schema.cdc_table_mode }
                                             : {}),

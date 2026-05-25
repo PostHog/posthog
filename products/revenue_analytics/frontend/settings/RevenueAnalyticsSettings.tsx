@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonTabs, Link } from '@posthog/lemon-ui'
@@ -15,16 +16,19 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { RevenueAnalyticsEventItem } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 import { DataWarehouseManagedViewsetConfiguration } from './DataWarehouseManagedViewsetConfiguration'
 import { EventConfiguration } from './EventConfiguration'
+import { EventConfigurationModal } from './EventConfigurationModal'
 import { ExternalDataSourceConfiguration } from './ExternalDataSourceConfiguration'
 import { FilterTestAccountsConfiguration } from './FilterTestAccountsConfiguration'
 import { GoalsConfiguration } from './GoalsConfiguration'
@@ -36,14 +40,15 @@ type Tab = 'events' | 'data-warehouse'
 
 export function RevenueAnalyticsSettings(): JSX.Element {
     const [activeTab, setActiveTab] = useState<Tab>('events')
+    const [eventModalState, setEventModalState] = useState<{
+        isOpen: boolean
+        event?: RevenueAnalyticsEventItem
+    }>({ isOpen: false })
 
     const { events } = useValues(revenueAnalyticsSettingsLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(sourceManagementLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
-
-    const eventsButtonRef = useRef<HTMLButtonElement>(null)
-    const dataWarehouseTablesButtonRef = useRef<HTMLButtonElement>(null)
 
     const managedViewsetsEnabled = featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
     const isViewsetEnabled = currentTeam?.managed_viewsets?.['revenue_analytics'] ?? false
@@ -57,6 +62,13 @@ export function RevenueAnalyticsSettings(): JSX.Element {
 
     const { reportRevenueAnalyticsSettingsViewed } = useActions(eventUsageLogic)
     useOnMountEffect(() => reportRevenueAnalyticsSettingsViewed())
+
+    const openEventModal = (event?: RevenueAnalyticsEventItem): void => {
+        setEventModalState({ isOpen: true, event })
+    }
+    const closeEventModal = (): void => {
+        setEventModalState({ isOpen: false, event: undefined })
+    }
 
     return (
         <SceneContent>
@@ -106,10 +118,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                                         <LemonButton
                                             type="primary"
                                             icon={<IconPlus />}
-                                            onClick={() => {
-                                                eventsButtonRef.current?.scrollIntoView({ behavior: 'smooth' })
-                                                eventsButtonRef.current?.click()
-                                            }}
+                                            onClick={() => openEventModal()}
                                             data-attr="create-revenue-event"
                                         >
                                             Add revenue event
@@ -124,10 +133,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                                             type="primary"
                                             icon={<IconPlus />}
                                             onClick={() => {
-                                                dataWarehouseTablesButtonRef.current?.scrollIntoView({
-                                                    behavior: 'smooth',
-                                                })
-                                                dataWarehouseTablesButtonRef.current?.click()
+                                                router.actions.push(urls.dataWarehouseSourceNew('stripe'))
                                             }}
                                             data-attr="import-revenue-data-warehouse-tables"
                                         >
@@ -146,10 +152,10 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                         }
                     />
 
-                    <ExternalDataSourceConfiguration buttonRef={dataWarehouseTablesButtonRef} />
+                    <ExternalDataSourceConfiguration />
                     <SceneDivider />
 
-                    <EventConfiguration buttonRef={eventsButtonRef} />
+                    <EventConfiguration onOpenEventModal={openEventModal} />
                     <SceneDivider />
 
                     <LemonTabs
@@ -169,6 +175,10 @@ export function RevenueAnalyticsSettings(): JSX.Element {
                         ]}
                     />
                 </>
+            )}
+
+            {eventModalState.isOpen && (
+                <EventConfigurationModal event={eventModalState.event} onClose={closeEventModal} />
             )}
         </SceneContent>
     )

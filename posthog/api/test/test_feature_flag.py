@@ -1,4 +1,3 @@
-import os
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -17,6 +16,7 @@ from posthog.test.base import (
 from unittest.mock import ANY, patch
 
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -28,7 +28,7 @@ from posthog.api.cohort import get_cohort_actors_for_feature_flag
 from posthog.api.feature_flag import FeatureFlagSerializer, extract_etag_from_header
 from posthog.constants import AvailableFeature
 from posthog.helpers.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, get_decrypted_flag_payload
-from posthog.models import FeatureFlag, GroupTypeMapping, TaggedItem, User
+from posthog.models import FeatureFlag, GroupTypeMapping, Insight, TaggedItem, User
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.feature_flag import FeatureFlagDashboards, get_feature_flags_for_team_in_cache
@@ -7519,6 +7519,84 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert "keys" in data
         assert data["keys"] == {str(flag1.id): "test-flag-1"}
 
+    def test_bulk_keys_works_with_personal_api_key(self):
+        """Once enabled as MCP tool with feature_flag:read scope, PAT requests must succeed."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="pat-scope-test",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["feature_flag:read"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"keys": {str(flag.id): "pat-scope-test"}}
+
+    def test_bulk_update_tags_works_with_personal_api_key(self):
+        """Same scope-config bug on bulk_update_tags; same fix in tagged_item.py."""
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="pat-tag-test",
+            filters={"groups": [{"rollout_percentage": 100, "properties": []}]},
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["feature_flag:write"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_tags/",
+            {"ids": [flag.id], "action": "add", "tags": ["foo"]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # Pin the body so a regression that grants the PAT scope but loses the
+        # mutation (broken preload_object_access_controls, wrong scope_object,
+        # etc.) can't stay green: the endpoint returns 200 with the flag in
+        # `skipped` rather than a non-2xx status when ACLs drop it.
+        body = response.json()
+        assert body["updated"] == [{"id": flag.id, "tags": ["foo"]}]
+        assert body["skipped"] == []
+
+    # Lives in the feature-flag test file (instead of test_insight.py) so the
+    # full bulk-ops PAT regression story — positive feature-flag cases and the
+    # negative cross-resource block — stays adjacent for reviewers of #57885.
+    def test_feature_flag_write_pat_cannot_mutate_insight_tags(self):
+        """A feature_flag:write PAT must not reach Insight.bulk_update_tags via the shared mixin."""
+        insight = Insight.objects.create(team=self.team, name="x", created_by=self.user)
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            scopes=["feature_flag:write"],
+            secure_value=hash_key_value(personal_api_key),
+        )
+        self.client.logout()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/bulk_update_tags/",
+            {"ids": [insight.id], "action": "add", "tags": ["foo"]},
+            format="json",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
     def test_local_evaluation_caching_basic(self):
         """Test basic caching functionality for local_evaluation endpoint."""
         # Clear any existing flags for this team to avoid interference
@@ -8564,7 +8642,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def test_feature_flag_detail_actions_respect_access_control(self) -> None:
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
@@ -8596,7 +8674,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # from the org (their AccessControl row cascade-deletes). Org admins should
         # still be able to find such orphaned flags in the list endpoint.
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
@@ -8639,7 +8717,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Counterpart to the test above: non-admin members without an explicit
         # grant must still be filtered out by the per-object "none" default.
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
@@ -8659,6 +8737,182 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         keys = [f["key"] for f in list_response.json()["results"]]
         self.assertNotIn("blocked-flag", keys)
+
+    def test_member_still_blocked_from_bulk_keys_default_none_flag(self) -> None:
+        # bulk_keys must not leak keys for flags the user has been explicitly
+        # denied, even when the caller submits the ID directly.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        other = self._create_user("other-bulk-keys@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        visible_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="visible flag",
+            key="visible-flag",
+        )
+        blocked_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="blocked flag",
+            key="blocked-flag",
+        )
+        AccessControl.objects.create(
+            resource="feature_flag", resource_id=blocked_flag.id, team=self.team, access_level="none"
+        )
+
+        self.client.force_login(other)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [visible_flag.id, blocked_flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = response.json()["keys"]
+        self.assertEqual(keys.get(str(visible_flag.id)), "visible-flag")
+        self.assertNotIn(str(blocked_flag.id), keys)
+
+    def test_member_with_explicit_viewer_grant_can_bulk_keys_default_none_flag(self) -> None:
+        # Inverse of the test above — exercises the allowed_resource_ids branch
+        # of filter_queryset_by_access_level: a flag with a team-wide "none"
+        # default plus an explicit viewer grant for this member must round-trip.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        grantee = self._create_user("grantee-bulk-keys@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        grantee_membership = grantee.organization_memberships.get(organization=self.organization)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="granted flag",
+            key="granted-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+        AccessControl.objects.create(
+            resource="feature_flag",
+            resource_id=flag.id,
+            team=self.team,
+            organization_member=grantee_membership,
+            access_level="viewer",
+        )
+
+        self.client.force_login(grantee)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["keys"].get(str(flag.id)), "granted-flag")
+
+    def test_org_admin_can_bulk_keys_default_none_flag(self) -> None:
+        # Exercises the include_all_if_admin=True short-circuit: org admins must
+        # be able to resolve keys for flags with a team-wide "none" default,
+        # matching the list endpoint's behavior for feature_flag.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator-bulk-keys@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=creator,
+            name="default-none flag",
+            key="default-none-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["keys"].get(str(flag.id)), "default-none-flag")
+
+    def test_member_blocked_from_bulk_keys_via_explicit_deny_on_individual_flag(self) -> None:
+        # Exercises the exclude() branch of filter_queryset_by_access_level
+        # (user_access_control.py line 937): the team-wide default is permissive
+        # (no resource-level "none" row), but this flag carries an explicit
+        # "none" ACL for the caller's membership. bulk_keys must still drop it.
+        # The existing IDOR tests all hit the filter() branch (line 931) via a
+        # team-wide deny; without this case, a regression that only handled
+        # team-wide denies would ship clean.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        other = self._create_user("other-explicit-deny@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        other_membership = other.organization_memberships.get(organization=self.organization)
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="explicit deny flag",
+            key="explicit-deny-flag",
+        )
+        AccessControl.objects.create(
+            resource="feature_flag",
+            resource_id=flag.id,
+            team=self.team,
+            organization_member=other_membership,
+            access_level="none",
+        )
+
+        self.client.force_login(other)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn(str(flag.id), response.json()["keys"])
+
+    def test_creator_still_sees_denied_flag_in_bulk_keys(self) -> None:
+        # filter_queryset_by_access_level deliberately preserves
+        # Q(created_by=self._user) in both branches (user_access_control.py
+        # lines 931 and 937), so creators retain visibility of their own flags
+        # even with a deny ACL. This mirrors the list endpoint's contract.
+        # Pinning it so a future "harden the IDOR fix" patch can't silently
+        # strip the creator clause and diverge bulk_keys from list.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        creator = self._create_user("creator-self@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=creator,
+            name="self-created flag",
+            key="self-created-flag",
+        )
+        AccessControl.objects.create(resource="feature_flag", resource_id=flag.id, team=self.team, access_level="none")
+
+        self.client.force_login(creator)
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_keys/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["keys"].get(str(flag.id)), "self-created-flag")
 
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
@@ -12935,7 +13189,7 @@ class TestFeatureFlagVersions(APIBaseTest):
 class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
     @patch("posthog.api.feature_flag.get_flags_from_service")
     @patch("posthog.api.feature_flag.get_person_and_distinct_ids_for_identifier")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_happy_path(self, mock_get_person, mock_get_flags):
         """Test successful evaluation of a feature flag."""
         flag = FeatureFlag.objects.create(
@@ -12992,7 +13246,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
     @patch("posthog.api.feature_flag.get_person_and_distinct_ids_for_identifier")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_with_person_id_uses_smallest_distinct_id(self, mock_get_person, mock_get_flags):
         """When the caller passes person_id (no distinct_id), bucketing must
         pick the lexicographically smallest distinct_id so two calls with the
@@ -13032,7 +13286,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertIsNone(response.json()["evaluation_distinct_id"])
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_with_timestamp(self, mock_get_flags):
         """Historical evaluation must drive the Rust call with reconstructed
         person properties + override definitions, not the live flag's data."""
@@ -13132,23 +13386,23 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["detail"], "Person not found for distinct_id: nonexistent-user")
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="")
     def test_test_evaluation_missing_internal_token_error(self, mock_get_flags):
         """Test 500 when INTERNAL_REQUEST_TOKEN is not set."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
         Person.objects.create(team=self.team, distinct_ids=["test-user"])
 
-        with patch("posthog.api.feature_flag.os.getenv", return_value=None):
-            response = self.client.post(
-                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
-                {"distinct_id": "test-user"},
-                format="json",
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.json()["error"], "Internal request token not configured")
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_historical_missing_conditions_502(self, mock_get_flags):
         """Test 502 when historical evaluation returns no conditions (misconfigured token)."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
@@ -13183,7 +13437,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["error"], "Historical evaluation unavailable. Check service configuration.")
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_current_missing_conditions_200(self, mock_get_flags):
         """Test 200 when current evaluation returns no conditions (no 502 for current evaluation)."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
@@ -13233,7 +13487,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.json()["error"], "Failed to build person properties at specified timestamp.")
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_filters_person_properties(self, mock_get_flags):
         """Test that person_properties are filtered to only flag-referenced keys."""
         flag = FeatureFlag.objects.create(
@@ -13281,7 +13535,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(data["person_properties"], {"email": "test@example.com"})
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_unexpected_response_type(self, mock_get_flags):
         """Test 502 when flag service returns unexpected response format."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")
@@ -13334,7 +13588,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, 400)
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_build_properties_value_error_no_leak(self, mock_get_flags):
         """Test that ValueError from build_person_properties_at_time doesn't leak sensitive information."""
         mock_get_flags.return_value = {
@@ -13388,7 +13642,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         mock_build_props.assert_called_once()
 
     @patch("posthog.api.feature_flag.get_flags_from_service")
-    @patch.dict(os.environ, {"INTERNAL_REQUEST_TOKEN": "test-token"})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_reconstruct_flag_value_error_no_leak(self, mock_get_flags):
         """Test that ValueError from reconstruct_flag_at_timestamp doesn't leak sensitive information."""
         flag = FeatureFlag.objects.create(
@@ -13437,3 +13691,76 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
 
         # Verify the mock was called
         mock_reconstruct.assert_called_once()
+
+
+class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_passes_runtime_all(self, mock_get_flags):
+        """The Person → Feature flags tab must bypass Rust's header-based
+        runtime detection — otherwise flags whose evaluation_runtime is
+        "client" or "server" disappear from the tab."""
+        mock_get_flags.return_value = {"flags": {}}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["evaluation_runtime"], "all")
+
+    @parameterized.expand(
+        [
+            ("evaluation_reasons", "evaluation_reasons/", {"distinct_id": "user-1"}, False),
+            ("my_flags", "my_flags/", {}, True),
+        ]
+    )
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_internal_handler_forwards_internal_request_token(
+        self, _name, endpoint, params, needs_flag, mock_get_flags
+    ):
+        """The in-app Django handlers (my_flags, evaluation_reasons) are not
+        customer SDK traffic — they must forward INTERNAL_REQUEST_TOKEN so the
+        Rust service skips the per-team billing limiter."""
+        if needs_flag:
+            FeatureFlag.objects.create(team=self.team, key="my-flag", created_by=self.user)
+        mock_get_flags.return_value = {"flags": {}}
+
+        with self.settings(INTERNAL_REQUEST_TOKEN="test-internal-token"):
+            response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags/{endpoint}", params)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["internal_request_token"], "test-internal-token")
+
+    @parameterized.expand(
+        [
+            ("all",),
+            ("client",),
+            ("server",),
+        ]
+    )
+    @patch("posthog.api.feature_flag.get_flags_from_service")
+    def test_evaluation_reasons_surfaces_flag_for_runtime(self, runtime, mock_get_flags):
+        """Each stored runtime must round-trip through evaluation_reasons with
+        its evaluation.reason intact — this is the shape
+        relatedFeatureFlagsLogic.ts depends on."""
+        flag = FeatureFlag.objects.create(team=self.team, key=f"flag-{runtime}", evaluation_runtime=runtime)
+        mock_get_flags.return_value = {
+            "flags": {
+                flag.key: {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                },
+            }
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/evaluation_reasons/",
+            {"distinct_id": "user-1"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn(flag.key, data)
+        self.assertEqual(data[flag.key]["evaluation"]["reason"], "condition_match")

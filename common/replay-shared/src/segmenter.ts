@@ -1,4 +1,4 @@
-import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
 import { RecordingSegment, RecordingSnapshot } from './types'
 

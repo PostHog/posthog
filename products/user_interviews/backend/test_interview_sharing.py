@@ -1,3 +1,5 @@
+import io
+import csv
 import hmac
 import json
 import hashlib
@@ -18,9 +20,15 @@ from rest_framework import status
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 
-from products.user_interviews.backend.api import UserInterviewTopicSerializer
 from products.user_interviews.backend.models import IntervieweeContext, UserInterview, UserInterviewTopic
-from products.user_interviews.backend.webhooks import EMBEDDING_CONTENT_MAX_BYTES, _build_first_message
+from products.user_interviews.backend.presentation.views import UserInterviewTopicSerializer
+from products.user_interviews.backend.presentation.webhooks import (
+    DEFAULT_FIRST_MESSAGE_TEMPLATE,
+    EMBEDDING_CONTENT_MAX_BYTES,
+    FIRST_MESSAGE_PROMPT_NAME,
+    _build_first_message,
+    _resolve_first_message_template,
+)
 
 
 class _FeatureFlagEnabledMixin(APIBaseTest):
@@ -100,6 +108,63 @@ class TestGenerateInterviewLinks(_FeatureFlagEnabledMixin):
         topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
         response = self.client.post(self._generate_links_url(str(topic.id)))
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def _generate_links_csv_url(self, topic_id: str) -> str:
+        return f"/api/environments/{self.team.id}/user_interview_topics/{topic_id}/links_csv/"
+
+    def test_generate_links_csv_returns_csv_with_expected_columns_and_rows(self):
+        topic = self._create_topic()
+
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(response["Content-Type"].startswith("text/csv"))
+        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertIn(".csv", response["Content-Disposition"])
+
+        reader = csv.DictReader(io.StringIO(response.content.decode("utf-8")))
+        self.assertEqual(
+            reader.fieldnames,
+            ["interviewee_identifier", "interviewee_email", "user_name", "interview_url"],
+        )
+        rows = list(reader)
+        # One row per targeted interviewee (3 in the default _create_topic).
+        self.assertEqual(len(rows), 3)
+        # Email column is empty for distinct-id-only rows; URL column always populated.
+        for row in rows:
+            self.assertIn("/interview/", row["interview_url"])
+
+    def test_generate_links_csv_rejects_topic_with_no_identifiers(self):
+        topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_generate_links_csv_sanitizes_formula_injection_without_breaking_emails(self):
+        topic = self._create_topic(
+            interviewee_emails=["alex@example.com"],
+            # Deliberately craft a malicious distinct ID starting with `=` — must be quoted.
+            interviewee_distinct_ids=["=cmd|/c calc!A1"],
+        )
+        response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        body = response.content.decode("utf-8")
+        # Plain email is untouched (first char is a letter, not a formula trigger).
+        self.assertIn("alex@example.com", body)
+        self.assertNotIn("'alex@example.com", body)
+        # Formula-injection identifier is prefixed with a single quote.
+        self.assertIn("'=cmd|/c calc!A1", body)
+
+    def test_generate_links_csv_is_idempotent_with_existing_links(self):
+        topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
+        # Materialize via the JSON endpoint first; the CSV endpoint must return the same access token.
+        json_body = self.client.post(self._generate_links_url(str(topic.id))).json()
+        expected_url = json_body[0]["interview_url"]
+
+        csv_response = self.client.post(self._generate_links_csv_url(str(topic.id)))
+        self.assertEqual(csv_response.status_code, status.HTTP_200_OK)
+        self.assertIn(expected_url, csv_response.content.decode("utf-8"))
+        self.assertEqual(SharingConfiguration.objects.filter(interviewee_context__topic=topic).count(), 1)
 
 
 class TestUserInterviewTopicCreate(_FeatureFlagEnabledMixin):
@@ -328,43 +393,111 @@ class TestInterviewPublicViewer(APIBaseTest):
 class TestBuildFirstMessage(unittest.TestCase):
     @parameterized.expand(
         [
-            ("simple_name_and_topic", "Paul", "taxonomic filter search", ["Hi Paul!", "taxonomic filter search"]),
-            ("dotted_local_part", "Cory S", "session replay adoption", ["Hi Cory S!", "session replay adoption"]),
+            ("simple_name_and_topic", "Paul", "taxonomic filter search", ["Hey Paul!", "taxonomic filter search"]),
+            ("dotted_local_part", "Cory S", "session replay adoption", ["Hey Cory S!", "session replay adoption"]),
             (
                 "name_with_trailing_topic_whitespace",
                 "Kim",
                 "  feature flag rollout  ",
-                ["Hi Kim!", "feature flag rollout"],
+                ["Hey Kim!", "feature flag rollout"],
             ),
         ]
     )
     def test_includes_name_and_topic(self, _label: str, user_name: str, topic_text: str, expected_fragments: list[str]):
-        message = _build_first_message(user_name=user_name, topic_text=topic_text)
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name=user_name, topic_text=topic_text)
         for fragment in expected_fragments:
             assert fragment in message
 
     @parameterized.expand([("empty", ""), ("whitespace_only", "   ")])
-    def test_drops_topic_sentence_when_topic_empty(self, _label: str, topic_text: str):
-        message = _build_first_message(user_name="Sam", topic_text=topic_text)
-        assert "Hi Sam!" in message
-        assert "Today we're talking about" not in message
+    def test_falls_back_to_generic_topic_when_topic_empty(self, _label: str, topic_text: str):
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text=topic_text)
+        assert "Hey Sam!" in message
+        assert "your experience" in message
 
     @parameterized.expand([("empty", ""), ("whitespace_only", "   ")])
     def test_falls_back_to_generic_greeting_when_user_name_empty(self, _label: str, user_name: str):
-        message = _build_first_message(user_name=user_name, topic_text="checkout funnel")
-        assert "Hi there!" in message
-        assert "Hi !" not in message
+        message = _build_first_message(
+            DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name=user_name, topic_text="checkout funnel"
+        )
+        assert "Hey there!" in message
+        assert "Hey !" not in message
 
     def test_collapses_internal_whitespace_in_topic(self):
-        message = _build_first_message(user_name="Sam", topic_text="multi\nline\n\ttopic")
+        message = _build_first_message(
+            DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text="multi\nline\n\ttopic"
+        )
         assert "multi line topic" in message
         assert "\n" not in message
 
     def test_truncates_very_long_topic(self):
         long_topic = "x" * 500
-        message = _build_first_message(user_name="Sam", topic_text=long_topic)
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="Sam", topic_text=long_topic)
         assert "x" * 200 in message
         assert "x" * 201 not in message
+
+    def test_uses_custom_template_when_provided(self):
+        custom = "Hi $user_name, today's topic: $topic_text."
+        message = _build_first_message(custom, user_name="Paul", topic_text="onboarding")
+        assert message == "Hi Paul, today's topic: onboarding."
+
+    def test_falls_back_to_default_when_custom_template_missing_placeholder(self):
+        broken = "Hi $nonsense, today is $missing_field."
+        message = _build_first_message(broken, user_name="Paul", topic_text="onboarding")
+        assert "Hey Paul!" in message
+        assert "onboarding" in message
+
+    def test_format_spec_in_template_is_treated_as_literal_text(self):
+        # string.Template has no format-spec syntax, so an attacker cannot use
+        # `{user_name:>10000000000}` to allocate gigabytes — `:` is just a character.
+        attempted = "Hi $user_name, padded: {user_name:>10000000000}"
+        message = _build_first_message(attempted, user_name="Paul", topic_text="onboarding")
+        assert "Hi Paul" in message
+        assert len(message) <= 1000
+
+    def test_falls_back_to_default_when_rendered_message_exceeds_cap(self):
+        huge = "Hi $user_name! " + ("x" * 2000)
+        message = _build_first_message(huge, user_name="Paul", topic_text="onboarding")
+        assert "Hey Paul!" in message
+        assert "onboarding" in message
+        assert len(message) <= 1000
+
+    def test_return_value_is_always_bounded_even_with_long_user_name(self):
+        message = _build_first_message(DEFAULT_FIRST_MESSAGE_TEMPLATE, user_name="x" * 5000, topic_text="onboarding")
+        assert len(message) <= 1000
+
+
+class TestResolveFirstMessageTemplate(APIBaseTest):
+    def test_returns_default_when_no_prompt_configured(self):
+        template = _resolve_first_message_template(self.team)
+        assert template == DEFAULT_FIRST_MESSAGE_TEMPLATE
+
+    def test_returns_team_override_when_prompt_published(self):
+        from posthog.models.llm_prompt import LLMPrompt
+
+        LLMPrompt.objects.create(
+            team=self.team,
+            name=FIRST_MESSAGE_PROMPT_NAME,
+            prompt="Hey $user_name! Quick chat about $topic_text?",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        template = _resolve_first_message_template(self.team)
+        assert template == "Hey $user_name! Quick chat about $topic_text?"
+
+    def test_returns_default_when_published_prompt_is_empty(self):
+        from posthog.models.llm_prompt import LLMPrompt
+
+        LLMPrompt.objects.create(
+            team=self.team,
+            name=FIRST_MESSAGE_PROMPT_NAME,
+            prompt="   ",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        template = _resolve_first_message_template(self.team)
+        assert template == DEFAULT_FIRST_MESSAGE_TEMPLATE
 
 
 class TestInterviewStartCall(APIBaseTest):
@@ -403,13 +536,24 @@ class TestInterviewStartCall(APIBaseTest):
         self.assertEqual(overrides["metadata"]["interviewee_identifier"], "alex@example.com")
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
+    def test_returns_scoped_server_messages(self):
+        share = self._create_share()
+        self.client.logout()
+        response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        overrides = response.json()["assistant_overrides"]
+        # Scoped to the two lifecycle events we act on — keeps Vapi from sending
+        # speech-update / conversation-update / etc that we'd just ignore.
+        self.assertEqual(overrides["serverMessages"], ["status-update", "end-of-call-report"])
+
+    @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
     def test_returns_personalised_first_message(self):
         share = self._create_share()
         self.client.logout()
         response = self.client.post(f"/api/user_interviews/share/{share.access_token}/start_call/")
         assert response.status_code == status.HTTP_200_OK, response.content
         first_message = response.json()["assistant_overrides"]["firstMessage"]
-        assert "Hi Alex!" in first_message
+        assert "Hey Alex!" in first_message
         assert "Replay adoption" in first_message
 
     @override_settings(VAPI_PUBLIC_KEY="pk_test", VAPI_ASSISTANT_ID="asst_test")
@@ -483,15 +627,28 @@ class TestVapiWebhook(APIBaseTest):
         )
         return SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
 
-    def _end_of_call_payload(self, access_token: str | None, call_id: str = "call_abc") -> dict:
+    def _end_of_call_payload(
+        self, access_token: str | None, call_id: str = "call_abc", metadata_path: str = "top"
+    ) -> dict:
+        # Vapi can surface our `assistant_overrides.metadata` either at `call.metadata`
+        # (top-level) or `call.assistantOverrides.metadata` (nested). The handler must
+        # find it in either path; parameterised tests cover both.
+        if metadata_path == "nested":
+            call: dict[str, Any] = {
+                "id": call_id,
+                "assistantOverrides": {"metadata": {"sharing_access_token": access_token}},
+                "duration": 120,
+            }
+        else:
+            call = {
+                "id": call_id,
+                "metadata": {"sharing_access_token": access_token},
+                "duration": 120,
+            }
         return {
             "message": {
                 "type": "end-of-call-report",
-                "call": {
-                    "id": call_id,
-                    "metadata": {"sharing_access_token": access_token},
-                    "duration": 120,
-                },
+                "call": call,
                 "transcript": "Hi! ...",
                 "summary": "User talked about replay.",
                 "recording": {"url": "https://vapi.example/recording.mp3"},
@@ -508,11 +665,15 @@ class TestVapiWebhook(APIBaseTest):
             HTTP_X_VAPI_SIGNATURE=signature,
         )
 
+    @parameterized.expand([("top",), ("nested",)])
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_creates_user_interview(self):
+    def test_webhook_creates_user_interview(self, metadata_path: str):
         share = self._create_share()
         self.client.logout()
-        response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
+        response = self._signed_post(
+            "topsecret",
+            self._end_of_call_payload(share.access_token, metadata_path=metadata_path),
+        )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         interview = UserInterview.objects.get(team=self.team)
         assert share.interviewee_context is not None
@@ -547,16 +708,122 @@ class TestVapiWebhook(APIBaseTest):
             "/api/user_interviews/vapi_webhook/",
             data=self._end_of_call_payload(share.access_token),
             content_type="application/json",
-            HTTP_X_VAPI_SIGNATURE="wrong",
+            HTTP_X_VAPI_SIGNATURE="a" * 64,  # right shape, wrong value
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    @parameterized.expand(
+        [
+            ("missing", None),
+            ("empty", ""),
+            ("too_short", "abc"),
+            ("non_hex", "z" * 64),
+            ("uppercase", "A" * 64),
+        ]
+    )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_ignores_non_end_of_call_events(self):
+    def test_webhook_rejects_malformed_signature_pre_hmac(self, _name: str, value: Any):
+        share = self._create_share()
         self.client.logout()
-        response = self._signed_post("topsecret", {"message": {"type": "status-update"}})
+        kwargs: dict[str, Any] = {
+            "data": self._end_of_call_payload(share.access_token),
+            "content_type": "application/json",
+        }
+        if value is not None:
+            kwargs["HTTP_X_VAPI_SIGNATURE"] = value
+        response = self.client.post("/api/user_interviews/vapi_webhook/", **kwargs)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    def test_webhook_ignores_unknown_message_types(self):
+        self.client.logout()
+        response = self._signed_post("topsecret", {"message": {"type": "speech-update"}})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "ignored")
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
+    def test_webhook_status_update_in_progress_captures_started_event(self, mock_capture):
+        share = self._create_share()
+        self.client.logout()
+        response = self._signed_post(
+            "topsecret",
+            {
+                "message": {
+                    "type": "status-update",
+                    "status": "in-progress",
+                    "call": {"id": "call_xyz", "metadata": {"sharing_access_token": share.access_token}},
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_capture.assert_called_once()
+        kwargs = mock_capture.call_args.kwargs
+        self.assertEqual(kwargs["event"], "user_interview_conversation_started")
+        # distinct_id is intentionally an opaque interviewee_context UUID — not the
+        # email — so these feature-usage events don't create person profiles for the
+        # third-party interviewees.
+        assert share.interviewee_context is not None
+        self.assertEqual(kwargs["distinct_id"], f"user_interview:{share.interviewee_context.id}")
+        self.assertNotIn("alex@example.com", kwargs["distinct_id"])
+        self.assertEqual(kwargs["properties"]["call_id"], "call_xyz")
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
+    def test_webhook_status_update_duplicate_in_progress_emits_same_insert_id(self, mock_capture):
+        # Vapi re-fires `status-update / in-progress` on transient drops + warm-transfer flows.
+        # We tag every started event with `$insert_id` = "user_interview_conversation_started:<call_id>"
+        # so PostHog dedupes the second delivery at ingest. Both captures fire here (we don't
+        # de-dup client-side); the contract is that they share an insert_id.
+        share = self._create_share()
+        self.client.logout()
+        payload = {
+            "message": {
+                "type": "status-update",
+                "status": "in-progress",
+                "call": {"id": "call_xyz", "metadata": {"sharing_access_token": share.access_token}},
+            }
+        }
+        self._signed_post("topsecret", payload)
+        self._signed_post("topsecret", payload)
+        self.assertEqual(mock_capture.call_count, 2)
+        for call in mock_capture.call_args_list:
+            self.assertEqual(call.kwargs["properties"]["$insert_id"], "user_interview_conversation_started:call_xyz")
+
+    @parameterized.expand([("ringing",), ("ended",), ("queued",), ("forwarding",), ("scheduled",)])
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
+    def test_webhook_status_update_other_statuses_do_not_capture(self, call_status: str, mock_capture):
+        share = self._create_share()
+        self.client.logout()
+        response = self._signed_post(
+            "topsecret",
+            {
+                "message": {
+                    "type": "status-update",
+                    "status": call_status,
+                    "call": {"id": "call_xyz", "metadata": {"sharing_access_token": share.access_token}},
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_capture.assert_not_called()
+
+    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
+    @patch("products.user_interviews.backend.presentation.webhooks.posthoganalytics.capture")
+    def test_webhook_end_of_call_report_captures_ended_event(self, mock_capture):
+        share = self._create_share()
+        self.client.logout()
+        response = self._signed_post("topsecret", self._end_of_call_payload(share.access_token))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        mock_capture.assert_called_once()
+        kwargs = mock_capture.call_args.kwargs
+        self.assertEqual(kwargs["event"], "user_interview_conversation_ended")
+        assert share.interviewee_context is not None
+        self.assertEqual(kwargs["distinct_id"], f"user_interview:{share.interviewee_context.id}")
+        self.assertNotIn("alex@example.com", kwargs["distinct_id"])
+        self.assertTrue(kwargs["properties"]["had_transcript"])
+        self.assertTrue(kwargs["properties"]["had_summary"])
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
     def test_webhook_is_idempotent_on_call_id(self):
@@ -572,7 +839,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(UserInterview.objects.filter(team=self.team).count(), 1)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
     def test_webhook_emits_transcript_and_summary_embeddings(self, mock_emit):
         share = self._create_share()
         self.client.logout()
@@ -608,7 +875,7 @@ class TestVapiWebhook(APIBaseTest):
         ]
     )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
     def test_webhook_skips_empty_content(self, _name, transcript, summary, expected_types, mock_emit):
         share = self._create_share()
         self.client.logout()
@@ -624,7 +891,7 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(emitted_types, expected_types)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
     def test_webhook_does_not_re_emit_on_duplicate(self, mock_emit):
         share = self._create_share()
         self.client.logout()
@@ -642,7 +909,10 @@ class TestVapiWebhook(APIBaseTest):
         self.assertEqual(mock_emit.call_count, first_call_count)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.emit_embedding_request", side_effect=RuntimeError("kafka down"))
+    @patch(
+        "products.user_interviews.backend.presentation.webhooks.emit_embedding_request",
+        side_effect=RuntimeError("kafka down"),
+    )
     def test_webhook_succeeds_when_embedding_emit_fails(self, _mock_emit):
         share = self._create_share()
         self.client.logout()
@@ -659,7 +929,7 @@ class TestVapiWebhook(APIBaseTest):
         ]
     )
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    @patch("products.user_interviews.backend.webhooks.emit_embedding_request")
+    @patch("products.user_interviews.backend.presentation.webhooks.emit_embedding_request")
     def test_webhook_truncates_oversized_content_before_emit(
         self, _name, oversize_transcript, oversize_summary, mock_emit
     ):
@@ -711,8 +981,8 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
         topic = self._create_topic()
 
         with (
-            patch("products.user_interviews.backend.api.EmailMessage") as mock_message_cls,
-            patch("products.user_interviews.backend.api.is_email_available", return_value=True),
+            patch("products.user_interviews.backend.presentation.views.EmailMessage") as mock_message_cls,
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
         ):
             mock_message = mock_message_cls.return_value
             response = self.client.post(self._url(str(topic.id)), data={"send_async": False}, format="json")
@@ -735,8 +1005,8 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
         topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
 
         with (
-            patch("products.user_interviews.backend.api.EmailMessage") as mock_message_cls,
-            patch("products.user_interviews.backend.api.is_email_available", return_value=True),
+            patch("products.user_interviews.backend.presentation.views.EmailMessage") as mock_message_cls,
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
         ):
             self.client.post(self._url(str(topic.id)), data={}, format="json")
 
@@ -751,8 +1021,8 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
         topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
 
         with (
-            patch("products.user_interviews.backend.api.EmailMessage") as mock_message_cls,
-            patch("products.user_interviews.backend.api.is_email_available", return_value=True),
+            patch("products.user_interviews.backend.presentation.views.EmailMessage") as mock_message_cls,
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
         ):
             self.client.post(
                 self._url(str(topic.id)),
@@ -766,13 +1036,13 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
 
     def test_send_invites_503_when_email_disabled(self):
         topic = self._create_topic()
-        with patch("products.user_interviews.backend.api.is_email_available", return_value=False):
+        with patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=False):
             response = self.client.post(self._url(str(topic.id)), data={}, format="json")
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
     def test_send_invites_400_when_topic_has_no_identifiers(self):
         topic = self._create_topic(interviewee_emails=[], interviewee_distinct_ids=[])
-        with patch("products.user_interviews.backend.api.is_email_available", return_value=True):
+        with patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True):
             response = self.client.post(self._url(str(topic.id)), data={}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -795,8 +1065,8 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
                     raise RuntimeError("smtp down")
 
         with (
-            patch("products.user_interviews.backend.api.EmailMessage", FlakyEmail),
-            patch("products.user_interviews.backend.api.is_email_available", return_value=True),
+            patch("products.user_interviews.backend.presentation.views.EmailMessage", FlakyEmail),
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
         ):
             response = self.client.post(self._url(str(topic.id)), data={"send_async": False}, format="json")
 

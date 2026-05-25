@@ -24,6 +24,8 @@ export interface KeyedRateLimiterConfig {
     bucketSize?: number
     refillRate?: number
     ttlSeconds?: number
+    /** When false, throw if the Redis pipeline returns null instead of fail-open allowing all. Default: true (fail open). */
+    failOpen?: boolean
 }
 
 export interface KeyedRateLimitRequest {
@@ -32,9 +34,14 @@ export interface KeyedRateLimitRequest {
     bucketSize?: number
     refillRate?: number
     ttlSeconds?: number
+    /** Override the request timestamp (seconds). Default: `Math.round(Date.now() / 1000)`. Used for lag-aware rate limiting where the timestamp comes from message headers. */
+    now?: number
 }
 
 export type KeyedRateLimit = {
+    /** Pre-deduction token count — uncapped accrued credit (PR 57920 contract). */
+    tokensBefore: number
+    /** Post-deduction token count. -1 when the cost exceeded the available budget. */
     tokens: number
     isRateLimited: boolean
 }
@@ -59,7 +66,7 @@ export class KeyedRateLimiterService {
     }
 
     private rateLimitArgs(req: KeyedRateLimitRequest): [string, number, number, number, number, number] {
-        const nowSeconds = Math.round(Date.now() / 1000)
+        const nowSeconds = req.now ?? Math.round(Date.now() / 1000)
         const bucketSize = req.bucketSize ?? this.config.bucketSize
         const refillRate = req.refillRate ?? this.config.refillRate
         const ttlSeconds = req.ttlSeconds ?? this.config.ttlSeconds
@@ -96,23 +103,29 @@ export class KeyedRateLimiterService {
         redisCallsTotal.inc({ name: this.config.name, method: 'rateLimitMany' }, requests.length)
 
         if (!res) {
-            // failOpen — Redis blipped; allow everything rather than dropping ingestion.
+            if (this.config.failOpen === false) {
+                throw new Error(`KeyedRateLimiterService(${this.config.name}): rate-limit pipeline failed`)
+            }
             requestsTotal.inc({ name: this.config.name, method: 'rateLimitMany', outcome: 'allowed' }, requests.length)
-            return requests.map((req, i) => [req.id, { tokens: bucketSizes[i], isRateLimited: false }])
+            return requests.map((req, i) => [
+                req.id,
+                { tokensBefore: bucketSizes[i], tokens: bucketSizes[i], isRateLimited: false },
+            ])
         }
 
         let allowed = 0
         let limited = 0
         const out: [string, KeyedRateLimit][] = requests.map((req, index) => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            const tokensAfter = tokenRes[1]?.[1] ?? bucketSizes[index]
-            const isRateLimited = Number(tokensAfter) <= 0
+            const tokensBefore = Number(tokenRes[1]?.[0] ?? bucketSizes[index])
+            const tokensAfter = Number(tokenRes[1]?.[1] ?? bucketSizes[index])
+            const isRateLimited = tokensAfter <= 0
             if (isRateLimited) {
                 limited++
             } else {
                 allowed++
             }
-            return [req.id, { tokens: Number(tokensAfter), isRateLimited }]
+            return [req.id, { tokensBefore, tokens: tokensAfter, isRateLimited }]
         })
         if (allowed > 0) {
             requestsTotal.inc({ name: this.config.name, method: 'rateLimitMany', outcome: 'allowed' }, allowed)
@@ -124,13 +137,12 @@ export class KeyedRateLimiterService {
     }
 
     /**
-     * Coalesced variant of rateLimitMany. Same input/output shape, but N inputs
-     * across M unique ids dispatch only M Redis calls — per-input decisions are
-     * fanned out client-side from each id's `tokensBefore`. For uniform-cost
-     * batches the per-input decisions match rateLimitMany exactly.
+     * Coalesced variant of rateLimitMany — N inputs across M unique ids → M Redis calls.
+     * Per-input decisions fan out client-side from each id's `tokensBefore`.
      *
-     * Uses the V3 lua script (HMGET + multi-field HSET + conditional EXPIRE).
-     * Per-id bucket params come from the first request seen for that id.
+     * Boundary differs from rateLimitMany: an input whose cost lands exactly on
+     * the local budget (`next === 0`) is allowed here, rate-limited there. Per-id
+     * bucket params come from the first request seen for that id.
      */
     public async rateLimitGrouped(requests: KeyedRateLimitRequest[]): Promise<[string, KeyedRateLimit][]> {
         if (requests.length === 0) {
@@ -167,34 +179,45 @@ export class KeyedRateLimiterService {
 
         redisCallsTotal.inc({ name: this.config.name, method: 'rateLimitGrouped' }, items.length)
 
+        if (!res) {
+            if (this.config.failOpen === false) {
+                throw new Error(`KeyedRateLimiterService(${this.config.name}): rate-limit pipeline failed`)
+            }
+            // Fail-open: allow every request, no fan-out deduction. The earlier shape
+            // here seeded `budgetById` with bucketSize and then ran the fan-out, which
+            // wrongly rate-limited any id whose total cost exceeded bucketSize.
+            const bucketSizeById = new Map(items.map((req, i) => [req.id, bucketSizes[i]]))
+            requestsTotal.inc(
+                { name: this.config.name, method: 'rateLimitGrouped', outcome: 'allowed' },
+                requests.length
+            )
+            return requests.map((req) => {
+                const bucketSize = bucketSizeById.get(req.id) ?? 0
+                return [req.id, { tokensBefore: bucketSize, tokens: bucketSize, isRateLimited: false }]
+            })
+        }
+
         const budgetById = new Map<string, number>()
         items.forEach((req, index) => {
-            if (res) {
-                const [tokenRes] = getRedisPipelineResults(res, index, 1)
-                const tokensBefore = tokenRes[1]?.[0]
-                budgetById.set(req.id, tokensBefore != null ? Number(tokensBefore) : bucketSizes[index])
-            } else {
-                budgetById.set(req.id, bucketSizes[index])
-            }
+            const [tokenRes] = getRedisPipelineResults(res, index, 1)
+            const tokensBefore = tokenRes[1]?.[0]
+            budgetById.set(req.id, tokensBefore != null ? Number(tokensBefore) : bucketSizes[index])
         })
 
         let allowed = 0
         let limited = 0
         const out: [string, KeyedRateLimit][] = requests.map((req) => {
-            const remaining = budgetById.get(req.id) ?? 0
-            if (remaining >= req.cost) {
-                const next = remaining - req.cost
+            const tokensBefore = budgetById.get(req.id) ?? 0
+            // Boundary is `next < 0`, not `<= 0` — needed so the lua's floor-drain of
+            // one token under sustained overload actually lets that input through.
+            if (tokensBefore >= req.cost) {
+                const next = tokensBefore - req.cost
                 budgetById.set(req.id, next)
-                const isRateLimited = next <= 0
-                if (isRateLimited) {
-                    limited++
-                } else {
-                    allowed++
-                }
-                return [req.id, { tokens: next, isRateLimited }]
+                allowed++
+                return [req.id, { tokensBefore, tokens: next, isRateLimited: false }]
             }
             limited++
-            return [req.id, { tokens: -1, isRateLimited: true }]
+            return [req.id, { tokensBefore, tokens: -1, isRateLimited: true }]
         })
         if (allowed > 0) {
             requestsTotal.inc({ name: this.config.name, method: 'rateLimitGrouped', outcome: 'allowed' }, allowed)

@@ -6,7 +6,6 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -24,35 +23,6 @@ function getHref(conversationId: string): string {
 
 function getShareLink(conversationId: string): string {
     return urls.absolute(urls.currentProject(urls.ai(conversationId)))
-}
-
-function ContextMenuAction({ conversationId }: { conversationId: string }): JSX.Element {
-    const { openSidePanelMax } = useActions(maxGlobalLogic)
-
-    return (
-        <>
-            <ContextMenuItem asChild>
-                <ButtonPrimitive
-                    menuItem
-                    onClick={() => copyToClipboard(getShareLink(conversationId), 'conversation sharing link')}
-                >
-                    <IconShare className="size-4 text-tertiary" />
-                    Copy link to chat
-                </ButtonPrimitive>
-            </ContextMenuItem>
-            <ContextMenuItem asChild>
-                <ButtonPrimitive
-                    menuItem
-                    onClick={() => {
-                        openSidePanelMax(conversationId ?? undefined)
-                    }}
-                >
-                    <IconOpenSidebar className="size-4 text-tertiary" />
-                    Open in context panel
-                </ButtonPrimitive>
-            </ContextMenuItem>
-        </>
-    )
 }
 
 function Content({
@@ -168,7 +138,6 @@ function AiChatListItemRoot({
                     }}
                     tooltip={displayTitle}
                     tooltipPlacement="right"
-                    extraContextMenuItems={<ContextMenuAction conversationId={conversationId} />}
                 >
                     <Content title={title} status={status} updatedAt={updatedAt} showIcon />
                 </Link>
@@ -185,7 +154,6 @@ export const AiChatListItem = Object.assign(AiChatListItemRoot, {
     Content,
     Trigger: LinkListItem.Trigger,
     Actions,
-    ContextMenuAction,
     getHref,
     getShareLink,
 })

@@ -1,1 +1,1 @@
-0002_rename_replaylensobservation_replayobservation_and_more
+0006_rename_lens_to_scanner

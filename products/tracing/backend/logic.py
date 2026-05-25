@@ -686,6 +686,7 @@ def run_tree_query(
     team: "Team",
     date_range: DateRange,
     span_name: str,
+    service_name: str,
     compare_filter: CompareFilter | None = None,
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
@@ -694,6 +695,7 @@ def run_tree_query(
     query = TraceSpansTreeQuery(
         dateRange=date_range,
         spanName=span_name,
+        serviceName=service_name,
         compareFilter=compare_filter,
         filterGroup=filter_group,
         serviceNames=service_names,

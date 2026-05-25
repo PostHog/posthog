@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import copy
 import json
@@ -15,6 +14,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
+import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
@@ -106,6 +106,11 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 logger = logging.getLogger(__name__)
+# Dedicated logger name (not `__name__`) so the underlying stdlib logger is created
+# *after* Django applies `disable_existing_loggers: True`. Using `__name__` here
+# results in a disabled logger because `posthog.api.feature_flag` is loaded during
+# Django startup. Remove this logger together with the helper once the scope is enforced.
+scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -124,6 +129,51 @@ RUST_FLAG_FIELDS = (
     "ensure_experience_continuity",
     "evaluation_tags",
 )
+
+
+def warn_if_missing_feature_flag_write_scope(
+    request,
+    *,
+    action: str,
+    team_id: int | None = None,
+    feature_flag_id: int | None = None,
+) -> None:
+    # Temporary observability for a cross-resource scope bypass: SurveyViewSet and
+    # EarlyAccessFeatureViewSet mutate FeatureFlag rows under their own scope
+    # (`survey:write` / `early_access_feature:write`). Before enforcing
+    # `feature_flag:write` on these paths we want to know which customers rely on
+    # the transitive access so we can notify them. Remove this helper and its
+    # call sites once the scope is enforced.
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        scopes = list(authenticator.personal_api_key.scopes or [])
+        auth_kind = "personal_api_key"
+        auth_id: str | None = authenticator.personal_api_key.id
+        auth_label: str | None = authenticator.personal_api_key.label
+    elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+        scope_string = authenticator.access_token.scope or ""
+        scopes = scope_string.split()
+        auth_kind = "oauth_access_token"
+        raw_id = getattr(authenticator.access_token, "id", None)
+        auth_id = str(raw_id) if raw_id is not None else None
+        auth_label = None
+    else:
+        return
+
+    if "*" in scopes or "feature_flag:write" in scopes:
+        return
+
+    scope_audit_logger.warning(
+        "feature_flag_write_via_other_scope",
+        action=action,
+        team_id=team_id,
+        feature_flag_id=feature_flag_id,
+        scopes=scopes,
+        auth_kind=auth_kind,
+        auth_id=auth_id,
+        auth_label=auth_label,
+        user_id=getattr(getattr(request, "user", None), "id", None),
+    )
 
 
 def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
@@ -2311,6 +2361,124 @@ class LocalEvaluationResponseSerializer(serializers.Serializer):
     )
 
 
+class BulkKeysRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        allow_empty=True,
+        help_text=(
+            "Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value "
+            "is reported in the response `warning` field and otherwise ignored."
+        ),
+    )
+
+
+class BulkKeysResponseSerializer(serializers.Serializer):
+    keys = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.",
+    )
+    warning = serializers.CharField(
+        required=False,
+        help_text="Present when some submitted IDs were not numeric and were ignored.",
+    )
+
+
+class BulkDeleteFiltersSerializer(serializers.Serializer):
+    """Allowed filter keys for bulk_delete — same shape as the list endpoint's query params."""
+
+    active = serializers.ChoiceField(
+        choices=["true", "false", "STALE"],
+        required=False,
+        help_text="Filter by active state.",
+    )
+    created_by_id = serializers.IntegerField(
+        required=False,
+        help_text="Filter to flags created by a specific user ID.",
+    )
+    search = serializers.CharField(
+        required=False,
+        help_text="Search by feature flag key or name (case-insensitive).",
+    )
+    type = serializers.ChoiceField(
+        choices=["boolean", "multivariant", "experiment", "remote_config"],
+        required=False,
+        help_text="Filter by flag type.",
+    )
+    evaluation_runtime = serializers.ChoiceField(
+        choices=FeatureFlag.EVALUATION_RUNTIME_CHOICES,
+        required=False,
+        help_text="Filter by evaluation runtime.",
+    )
+    excluded_properties = serializers.CharField(
+        required=False,
+        help_text="JSON-encoded property filter to exclude. Same shape as the list endpoint.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Tag names to filter by. Flags carrying at least one of these tags match.",
+    )
+    has_evaluation_contexts = serializers.BooleanField(
+        required=False,
+        help_text="When true, only matches flags with at least one evaluation context.",
+    )
+
+
+class BulkDeleteRequestSerializer(serializers.Serializer):
+    filters = BulkDeleteFiltersSerializer(
+        required=False,
+        help_text=(
+            "Filter criteria — same shape as the list endpoint's query params. Mutually exclusive with `ids`. "
+            "Use this to bulk-delete by search/active/tags/etc. instead of supplying explicit IDs."
+        ),
+    )
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        required=False,
+        help_text="Explicit feature flag IDs to soft-delete. Mutually exclusive with `filters`.",
+    )
+
+
+class BulkDeleteDeletedItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the soft-deleted flag.")
+    key = serializers.CharField(help_text="The flag key at the time of deletion.")
+    rollout_state = serializers.ChoiceField(
+        choices=["fully_rolled_out", "not_rolled_out", "partial"],
+        help_text="Rollout state captured before deletion.",
+    )
+    active_variant = serializers.CharField(
+        allow_null=True,
+        help_text="Variant key when a multivariate flag was fully rolled out to a single variant; otherwise null.",
+    )
+
+
+class BulkDeleteErrorItemSerializer(serializers.Serializer):
+    id = serializers.JSONField(
+        help_text="Feature flag ID — integer for valid inputs; the original raw value for invalid inputs."
+    )
+    key = serializers.CharField(required=False, help_text="The flag key, when known.")
+    reason = serializers.CharField(help_text="Human-readable reason the flag could not be deleted.")
+
+
+class BulkDeleteResponseSerializer(serializers.Serializer):
+    """
+    Schema-only — referenced from ``@extend_schema(responses=...)`` to describe the wire format.
+    Never instantiate this for validation or call ``.is_valid()`` / ``.errors`` on it: the
+    declared ``errors`` field shadows DRF's inherited ``Serializer.errors`` ReturnDict property,
+    so accessing ``serializer.errors`` would return this field descriptor instead of validation
+    errors. The handler builds the response dict directly; this class exists only so drf-spectacular
+    can render the response in the OpenAPI spec and downstream generated clients.
+    """
+
+    deleted = BulkDeleteDeletedItemSerializer(many=True, help_text="Flags successfully soft-deleted.")
+    # Explicit ListSerializer avoids the many=True descriptor magic that confuses type checkers.
+    errors: serializers.ListSerializer = serializers.ListSerializer(  # type: ignore[assignment]
+        child=BulkDeleteErrorItemSerializer(),
+        help_text="Flags that could not be deleted, with reasons.",
+    )
+
+
 # ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
 # all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
 # that already tag their queries. If you add a new ClickHouse query reachable from an
@@ -2333,6 +2501,10 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
+    # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
+    # Other inheritors of the mixin don't extend write actions and so still
+    # reject PAT calls — keeps the scope local to this viewset.
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "bulk_update_tags"]
     # Use the unfiltered manager so non-list actions (retrieve, update, etc.)
     # can access soft-deleted flags. The list action applies its own
     # deleted=False filter in safely_get_queryset.
@@ -2709,10 +2881,13 @@ class FeatureFlagViewSet(
         if not distinct_id:
             raise exceptions.ValidationError("User distinct_id is required")
 
+        # Authenticated Django UI handler (the flags list in the app), not customer SDK
+        # traffic. Pass the internal token so the call bypasses per-team billing.
         result = get_flags_from_service(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
 
         # Result from Rust service is always a dictionary. Parse it to get the flags data.
@@ -2735,7 +2910,14 @@ class FeatureFlagViewSet(
             for feature_flag in all_serialized_flags
         )
 
-    @action(methods=["POST"], detail=False)
+    @extend_schema(
+        request=BulkKeysRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=BulkKeysResponseSerializer),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid flag IDs provided."),
+        },
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["feature_flag:read"])
     def bulk_keys(self, request: request.Request, **kwargs):
         """
         Get feature flag keys by IDs.
@@ -2776,8 +2958,13 @@ class FeatureFlagViewSet(
         if invalid_ids:
             response_data["warning"] = f"Invalid flag IDs ignored: {invalid_ids}"
 
-        # Fetch flags by IDs
-        flags = FeatureFlag.objects.filter(id__in=flag_ids, team__project_id=self.project_id).values_list("id", "key")
+        # Filter through per-object ACLs so a caller can't probe IDs to learn keys of flags they've been denied.
+        # The queryset is project-scoped (team__project_id) while the AC filter is team-scoped — equivalent today
+        # since team_id == project_id, asymmetric only under the deprecated multi-team-per-project ("environments")
+        # path being removed. Mirrors the list endpoint's ACL filtering.
+        queryset = FeatureFlag.objects.filter(id__in=flag_ids, team__project_id=self.project_id)
+        queryset = self.user_access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        flags = queryset.values_list("id", "key")
 
         # Create mapping of ID to key
         keys_mapping = {str(flag_id): key for flag_id, key in flags}
@@ -2833,6 +3020,16 @@ class FeatureFlagViewSet(
             }
         )
 
+    @extend_schema(
+        request=BulkDeleteRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=BulkDeleteResponseSerializer),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Invalid input — e.g., both filters and ids supplied, neither supplied, or unknown filter keys.",
+            ),
+        },
+    )
     @action(methods=["POST"], detail=False, required_scopes=["feature_flag:write"])
     def bulk_delete(self, request: request.Request, **kwargs):
         """
@@ -2872,16 +3069,7 @@ class FeatureFlagViewSet(
 
         # Validate filter keys against allowlist to prevent accidental mass deletion
         if filters:
-            valid_filter_keys = {
-                "active",
-                "created_by_id",
-                "search",
-                "type",
-                "evaluation_runtime",
-                "excluded_properties",
-                "tags",
-                "has_evaluation_contexts",
-            }
+            valid_filter_keys = set(BulkDeleteFiltersSerializer().fields.keys())
             unknown_keys = set(filters.keys()) - valid_filter_keys
             if unknown_keys:
                 return Response(
@@ -3453,10 +3641,14 @@ class FeatureFlagViewSet(
         if isinstance(groups, str):
             groups = json.loads(groups) if groups else {}
 
+        # PostHog UI debug endpoint, not customer SDK traffic. Pass the internal
+        # token so the call bypasses per-team billing.
         result = get_flags_from_service(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
+            evaluation_runtime="all",
+            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
 
         # Result from Rust service is always a dictionary with a "flags" key. Parse it to get the flags data.
@@ -3737,7 +3929,7 @@ class FeatureFlagViewSet(
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     )
 
-            internal_token = os.getenv("INTERNAL_REQUEST_TOKEN")
+            internal_token = settings.INTERNAL_REQUEST_TOKEN
             if not internal_token:
                 return Response(
                     {"error": "Internal request token not configured"},

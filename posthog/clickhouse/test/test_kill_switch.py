@@ -79,6 +79,30 @@ class TestGetTeamKillSwitchLevel:
         _get_kill_switch_level.cache_clear()
         _get_kill_switch_team_sets.cache_clear()
 
+    @parameterized.expand(
+        [
+            ("string_full_teams", "1,2,3", [], 1, KillSwitchLevel.OFF),
+            ("none_full_teams", None, [], 1, KillSwitchLevel.OFF),
+            ("string_light_teams", [], "1,2,3", 1, KillSwitchLevel.OFF),
+        ]
+    )
+    def test_non_list_setting_treated_as_empty(
+        self,
+        _name: str,
+        full: object,
+        light: object,
+        team_id: int,
+        expected: KillSwitchLevel,
+    ):
+        _get_kill_switch_team_sets.cache_clear()
+        settings = {
+            "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS": full,
+            "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS": light,
+        }
+        with patch("posthog.models.instance_setting.get_instance_setting", side_effect=lambda name: settings[name]):
+            assert get_team_kill_switch_level(team_id) == expected
+        _get_kill_switch_team_sets.cache_clear()
+
     def test_team_sets_are_cached(self):
         _get_kill_switch_team_sets.cache_clear()
         settings = {

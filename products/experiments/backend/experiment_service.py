@@ -24,15 +24,16 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
+from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.utils import str_to_bool
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -54,6 +55,7 @@ from products.notifications.backend.facade.api import (
 )
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from ee.hogai.context.experiment.format import ExperimentTimeseriesFormatter
 
 logger = structlog.get_logger(__name__)
 
@@ -65,6 +67,29 @@ DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
+
+
+def _strip_step_sessions(result: Any) -> Any:
+    """Remove the per-session funnel actors payload from a stored experiment metric result.
+
+    `step_sessions` powers the frontend's "view sessions per step" affordance off
+    a separate per-metric query, not this timeseries endpoint. Carrying it through
+    here multiplies the response by sessions × steps × variants and pushes MCP
+    consumers past their context window with no benefit.
+    """
+    if not isinstance(result, Mapping):
+        return result
+    cleaned = {k: v for k, v in result.items() if k != "step_sessions"}
+    baseline = cleaned.get("baseline")
+    if isinstance(baseline, dict):
+        cleaned["baseline"] = {k: v for k, v in baseline.items() if k != "step_sessions"}
+    variants = cleaned.get("variant_results")
+    if isinstance(variants, list):
+        cleaned["variant_results"] = [
+            {k: v for k, v in variant.items() if k != "step_sessions"} if isinstance(variant, dict) else variant
+            for variant in variants
+        ]
+    return cleaned
 
 
 class ExperimentQueryStatus(str, Enum):
@@ -799,6 +824,13 @@ class ExperimentService:
             **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
         }
 
+        # Per-variant payloads (variant_key -> JSON string). Callers pass this when they need to
+        # attach metadata that the SDK can read alongside the variant assignment, e.g. prompt
+        # experiments map each variant to {"prompt_name": ..., "prompt_version": ...}.
+        feature_flag_payloads = params.get("feature_flag_payloads")
+        if feature_flag_payloads:
+            feature_flag_filters["payloads"] = feature_flag_payloads
+
         feature_flag_data: dict[str, Any] = {
             "key": feature_flag_key,
             "name": f"Feature Flag for Experiment {experiment_name}",
@@ -1400,15 +1432,20 @@ class ExperimentService:
         experiment: Experiment,
         variant_key: str,
         *,
+        release_to_everyone: bool = False,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
         request: Any,
     ) -> Experiment:
-        """Ship a variant to 100% of users, optionally ending the experiment.
+        """Ship a variant and (optionally) end the experiment.
 
-        Rewrites the feature flag so the selected variant is served to everyone.
-        Existing release conditions (flag groups) are preserved so the change can
-        be rolled back by deleting the auto-added release condition in the flag UI.
+        Updates the feature flag so the selected variant gets 100% of the variant
+        distribution. By default (``release_to_everyone=False``) existing release
+        conditions on the flag are preserved untouched — the variant is served
+        only to users who already match them, and any per-user variant overrides
+        continue to apply. Pass ``release_to_everyone=True`` to also prepend a
+        catch-all release condition that rolls the variant out to 100% of users
+        (overrides any existing release conditions and per-user overrides).
 
         Can be called on both running and stopped experiments — supports the
         workflow where a user ends an experiment first, then ships the winner
@@ -1435,7 +1472,9 @@ class ExperimentService:
         if not any(v["key"] == variant_key for v in variants):
             raise ValidationError(f"Variant '{variant_key}' not found on feature flag.")
 
-        new_filters = self._transform_filters_for_winning_variant(flag.filters, variant_key)
+        new_filters = self._transform_filters_for_winning_variant(
+            flag.filters, variant_key, release_to_everyone=release_to_everyone
+        )
 
         # Update the flag through the serializer to preserve the approval
         # workflow. If change-request approval is required, this raises
@@ -1469,7 +1508,9 @@ class ExperimentService:
             experiment.conclusion_comment = conclusion_comment
         experiment.save()
 
-        self._report_experiment_variant_shipped(experiment, variant_key=variant_key, request=request)
+        self._report_experiment_variant_shipped(
+            experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
+        )
         if was_running:
             self._report_experiment_ended(experiment, request=request)
 
@@ -1479,13 +1520,31 @@ class ExperimentService:
     def _transform_filters_for_winning_variant(
         current_filters: dict,
         variant_key: str,
+        *,
+        release_to_everyone: bool = False,
     ) -> dict:
-        """Port of frontend transformFiltersForWinningVariant().
+        """Rewrite flag filters so the selected variant gets 100% of the variant distribution.
 
-        Rewrites flag filters so that the selected variant gets 100% rollout
-        and all others get 0%. Prepends a catch-all release condition and
-        preserves existing release conditions (flag groups) for rollback.
+        When ``release_to_everyone`` is False (default), existing release conditions on
+        the flag are preserved untouched: the variant is served only to users who
+        already match them, and any per-user variant overrides keep applying.
+
+        When ``release_to_everyone`` is True, a catch-all release condition is prepended
+        that rolls the variant out to 100% of users — note that under top-down
+        first-match evaluation this overrides any existing release conditions and
+        per-user variant overrides below it.
         """
+        groups = list(current_filters.get("groups", []))
+        if release_to_everyone:
+            groups = [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100,
+                    "description": "Added automatically when the experiment was ended to keep only one variant.",
+                },
+                *groups,
+            ]
+
         return {
             "aggregation_group_type_index": current_filters.get("aggregation_group_type_index"),
             "payloads": current_filters.get("payloads", {}),
@@ -1499,14 +1558,7 @@ class ExperimentService:
                     for v in current_filters.get("multivariate", {}).get("variants", [])
                 ],
             },
-            "groups": [
-                {
-                    "properties": [],
-                    "rollout_percentage": 100,
-                    "description": "Added automatically when the experiment was ended to keep only one variant.",
-                },
-                *(current_filters.get("groups", [])),
-            ],
+            "groups": groups,
         }
 
     def _report_experiment_variant_shipped(
@@ -1514,6 +1566,7 @@ class ExperimentService:
         experiment: Experiment,
         *,
         variant_key: str,
+        release_to_everyone: bool = False,
         request: Any | None = None,
     ) -> None:
         if request is None:
@@ -1521,6 +1574,7 @@ class ExperimentService:
 
         metadata = experiment.get_analytics_metadata()
         metadata["variant_key"] = variant_key
+        metadata["release_to_everyone"] = release_to_everyone
         metadata["parameters"] = experiment.parameters
 
         report_user_action(
@@ -1576,10 +1630,15 @@ class ExperimentService:
         saved_metrics_data: list[dict] = update_data.pop("saved_metrics_ids", []) or []
         update_data.pop("get_feature_flag_key", None)
 
-        # --- saved metrics replacement (delete-all / re-create) -----------
+        # --- saved metrics sync (update-in-place) -----------
         old_saved_metric_uuids: dict[str, set[str]] = {"primary": set(), "secondary": set()}
         if update_saved_metrics:
-            for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
+            existing_links = {
+                link.saved_metric_id: link
+                for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all()
+            }
+
+            for link in existing_links.values():
                 if link.saved_metric.query:
                     uuid = link.saved_metric.query.get("uuid")
                     if uuid:
@@ -1589,18 +1648,35 @@ class ExperimentService:
                         else:
                             old_saved_metric_uuids["secondary"].add(uuid)
 
-            experiment.experimenttosavedmetric_set.all().delete()
+            new_saved_metric_ids = {sm["id"] for sm in saved_metrics_data}
+            existing_saved_metric_ids = set(existing_links.keys())
+
+            # Delete links no longer in the list (one by one to trigger activity logging)
+            to_delete = existing_saved_metric_ids - new_saved_metric_ids
+            for saved_metric_id in to_delete:
+                existing_links[saved_metric_id].delete()
+
+            # Update or create links
             for saved_metric_data in saved_metrics_data:
-                saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                    data={
-                        "experiment": experiment.id,
-                        "saved_metric": saved_metric_data["id"],
-                        "metadata": saved_metric_data.get("metadata"),
-                    },
-                    context=context,
-                )
-                saved_metric_serializer.is_valid(raise_exception=True)
-                saved_metric_serializer.save()
+                saved_metric_id = saved_metric_data["id"]
+                new_metadata = saved_metric_data.get("metadata") or {}
+
+                if saved_metric_id in existing_links:
+                    existing_link = existing_links[saved_metric_id]
+                    if (existing_link.metadata or {}) != new_metadata:
+                        existing_link.metadata = new_metadata
+                        existing_link.save(update_fields=["metadata", "updated_at"])
+                else:
+                    saved_metric_serializer = ExperimentToSavedMetricSerializer(
+                        data={
+                            "experiment": experiment.id,
+                            "saved_metric": saved_metric_id,
+                            "metadata": new_metadata,
+                        },
+                        context=context,
+                    )
+                    saved_metric_serializer.is_valid(raise_exception=True)
+                    saved_metric_serializer.save()
 
         # --- feature flag sync ------------------------------------------------
         # Draft experiments always sync parameters to the linked feature flag.
@@ -2079,6 +2155,10 @@ class ExperimentService:
                 except ValueError:
                     raise ValidationError("feature_flag_id must be an integer")
 
+            prompt_name = query_params.get("prompt_name")
+            if prompt_name:
+                queryset = queryset.filter(parameters__prompt_metadata__name=prompt_name)
+
         search = query_params.get("search")
         if search:
             queryset = queryset.filter(Q(name__icontains=search))
@@ -2277,7 +2357,7 @@ class ExperimentService:
                 metric_result = results_by_date[experiment_date]
 
                 if metric_result.status == "completed":
-                    timeseries[date_key] = metric_result.result
+                    timeseries[date_key] = _strip_step_sessions(metric_result.result)
                     completed_count += 1
                 elif metric_result.status == "failed":
                     if metric_result.error_message:
@@ -2315,7 +2395,7 @@ class ExperimentService:
 
         first_result = metric_results.first()
         last_result = metric_results.last()
-        return {
+        response = {
             "experiment_id": experiment.id,
             "metric_uuid": metric_uuid,
             "status": overall_status,
@@ -2327,6 +2407,8 @@ class ExperimentService:
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
+        response["formatted_results"] = ExperimentTimeseriesFormatter(response).format()
+        return response
 
     def request_timeseries_recalculation(
         self,
@@ -2480,7 +2562,19 @@ class ExperimentService:
         old_saved_metric_uuids: dict[str, set[str]],
         saved_metrics_data: list[dict] | None,
     ) -> None:
-        """Sync ordering arrays with saved metric changes during update."""
+        """Sync ordering arrays with saved metric changes during update.
+
+        When a saved metric is added or removed, the ordering arrays are kept in
+        sync. The classification rule for the resulting write is:
+
+        - If the user did not supply the ordering field, or supplied a value that
+          equals what auto-sync would have produced, treat the write as bookkeeping
+          and persist it via a muted ``experiment.save(update_fields=...)`` so only
+          the add/remove appears in the activity log.
+        - Otherwise the user layered an explicit reorder on top of the add/remove.
+          Merge their order with the add/remove side effects and let the value flow
+          through the normal ``experiment.save()`` so the reorder is logged.
+        """
         if saved_metrics_data is None:
             return
 
@@ -2510,29 +2604,63 @@ class ExperimentService:
         added_secondary = new_secondary_uuids - old_saved_metric_uuids["secondary"]
         removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids
 
-        if added_primary or removed_primary:
-            if "primary_metrics_ordered_uuids" in update_data:
-                current_ordering = list(update_data["primary_metrics_ordered_uuids"] or [])
-            else:
-                current_ordering = list(experiment.primary_metrics_ordered_uuids or [])
+        # Fields whose new value is purely a side effect of add/remove — save these
+        # via a muted save to avoid logging a spurious "reordered metrics" entry
+        # alongside the add/remove entry.
+        auto_synced_fields: list[str] = []
 
-            current_ordering = [u for u in current_ordering if u not in removed_primary]
-            for uuid in added_primary:
-                if uuid not in current_ordering:
-                    current_ordering.append(uuid)
-            update_data["primary_metrics_ordered_uuids"] = current_ordering
+        def resolve_ordering(
+            field: str,
+            base_ordering: list[str],
+            added: set[str],
+            removed: set[str],
+        ) -> None:
+            auto_sync_result = [u for u in base_ordering if u not in removed]
+            for uuid in added:
+                if uuid not in auto_sync_result:
+                    auto_sync_result.append(uuid)
+
+            user_supplied = field in update_data
+            supplied_value = list(update_data.get(field) or []) if user_supplied else None
+
+            if user_supplied and supplied_value != auto_sync_result:
+                # Real user reorder layered on top of the add/remove. Fold in the
+                # add/remove side effects so we don't lose newly-added UUIDs or
+                # retain newly-removed ones, but keep the user's chosen order.
+                merged = [u for u in supplied_value or [] if u not in removed]
+                for uuid in added:
+                    if uuid not in merged:
+                        merged.append(uuid)
+                update_data[field] = merged
+                # leave it to flow through the normal save() — logged as reorder
+            else:
+                update_data[field] = auto_sync_result
+                auto_synced_fields.append(field)
+
+        if added_primary or removed_primary:
+            resolve_ordering(
+                "primary_metrics_ordered_uuids",
+                list(experiment.primary_metrics_ordered_uuids or []),
+                added_primary,
+                removed_primary,
+            )
 
         if added_secondary or removed_secondary:
-            if "secondary_metrics_ordered_uuids" in update_data:
-                current_ordering = list(update_data["secondary_metrics_ordered_uuids"] or [])
-            else:
-                current_ordering = list(experiment.secondary_metrics_ordered_uuids or [])
+            resolve_ordering(
+                "secondary_metrics_ordered_uuids",
+                list(experiment.secondary_metrics_ordered_uuids or []),
+                added_secondary,
+                removed_secondary,
+            )
 
-            current_ordering = [u for u in current_ordering if u not in removed_secondary]
-            for uuid in added_secondary:
-                if uuid not in current_ordering:
-                    current_ordering.append(uuid)
-            update_data["secondary_metrics_ordered_uuids"] = current_ordering
+        # Persist auto-synced ordering via a muted save so the add/remove of the
+        # saved metric is the only activity log entry. The user-initiated reorder
+        # path still flows through the normal save() at the end of update_experiment.
+        if auto_synced_fields:
+            for field in auto_synced_fields:
+                setattr(experiment, field, update_data.pop(field))
+            with mute_selected_signals():
+                experiment.save(update_fields=[*auto_synced_fields, "updated_at"])
 
     def _validate_metric_ordering_on_update(self, experiment: Experiment, update_data: dict) -> None:
         """Validate ordering arrays contain all metric UUIDs (update path)."""

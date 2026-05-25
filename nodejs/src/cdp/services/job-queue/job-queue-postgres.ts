@@ -22,11 +22,20 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { JobQueue } from './job-queue.interface'
+import { createInvocationSanitizer, observeConsumedBatch } from './shared'
 
-export class CyclotronJobQueuePostgres {
+/**
+ * Legacy postgres v1 queue via @posthog/cyclotron.
+ * Only kept for draining old jobs — no new jobs are produced to v1.
+ * Delete this file once the legacy worker is shut down.
+ */
+export class CyclotronJobQueuePostgres implements JobQueue {
     private cyclotronWorker?: CyclotronWorker
     private cyclotronManager?: CyclotronManager
+    private queue?: CyclotronJobQueueKind
     private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+    private sanitizer: ReturnType<typeof createInvocationSanitizer>
 
     constructor(
         private consumerBatchSize: number,
@@ -39,13 +48,19 @@ export class CyclotronJobQueuePostgres {
             | 'CDP_CYCLOTRON_BATCH_DELAY_MS'
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
+            | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
         >
-    ) {}
+    ) {
+        this.sanitizer = createInvocationSanitizer(config)
+    }
 
     /**
      * Helper to only start the producer related code (e.g. when not a consumer)
      */
     public async startAsProducer() {
+        if (this.cyclotronManager) {
+            return
+        }
         if (!this.config.CYCLOTRON_DATABASE_URL) {
             throw new Error('Cyclotron database URL not set! This is required for the CDP services to work.')
         }
@@ -68,6 +83,7 @@ export class CyclotronJobQueuePostgres {
         queue: CyclotronJobQueueKind,
         consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {
+        this.queue = queue
         this.consumeBatch = consumeBatch
 
         if (!this.config.CYCLOTRON_DATABASE_URL) {
@@ -120,6 +136,8 @@ export class CyclotronJobQueuePostgres {
             return
         }
 
+        invocations = this.sanitizer.sanitizeInvocations(invocations)
+
         const cyclotronManager = this.getCyclotronManager()
 
         // For the cyclotron ones we simply create the jobs
@@ -167,6 +185,7 @@ export class CyclotronJobQueuePostgres {
     }
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
+        invocationResults = this.sanitizer.sanitizeResults(invocationResults)
         const worker = this.getCyclotronWorker()
         await Promise.all(
             invocationResults.map((item) => {
@@ -224,6 +243,13 @@ export class CyclotronJobQueuePostgres {
             const invocation = cyclotronJobToInvocation(job)
             invocations.push(invocation)
         }
+
+        observeConsumedBatch({
+            queue: this.queue!,
+            source: 'postgres',
+            batchSize: invocations.length,
+            maxBatchSize: this.consumerBatchSize,
+        })
 
         await this.consumeBatch!(invocations)
         // TODO: Ensure that all jobs eventually get acked!!!

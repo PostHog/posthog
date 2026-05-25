@@ -147,7 +147,7 @@ class TraceReviewSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(OpenApiTypes.URI)
     def get_trace_url(self, obj: TraceReview) -> str:
-        return f"{settings.SITE_URL}/project/{obj.team_id}/llm-analytics/traces/{obj.trace_id}"
+        return f"{settings.SITE_URL}/project/{obj.team_id}/ai-observability/traces/{obj.trace_id}"
 
     class Meta:
         model = TraceReview

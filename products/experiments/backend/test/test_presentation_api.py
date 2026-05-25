@@ -12,7 +12,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
-from posthog.models.action.action import Action
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
@@ -20,6 +19,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -4351,9 +4351,10 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(end_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_ship_variant_endpoint(self):
+    def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
         experiment_id = data["id"]
+        original_groups = data["feature_flag"]["filters"].get("groups", [])
 
         ship_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
@@ -4366,7 +4367,7 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(ship_response.json()["conclusion"], "won")
         self.assertEqual(ship_response.json()["conclusion_comment"], "Test won")
 
-        # Verify flag filters were rewritten
+        # Variant distribution was flipped
         flag_filters = ship_response.json()["feature_flag"]["filters"]
         variants = flag_filters["multivariate"]["variants"]
         test_variant = next(v for v in variants if v["key"] == "test")
@@ -4374,9 +4375,29 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(test_variant["rollout_percentage"], 100)
         self.assertEqual(control_variant["rollout_percentage"], 0)
 
-        # Verify catch-all group prepended
+        # Default behavior: existing groups preserved, no catch-all prepended
+        self.assertEqual(flag_filters["groups"], original_groups)
+
+    def test_ship_variant_endpoint_release_to_everyone_prepends_catch_all(self):
+        data = self._create_running_experiment(name="Ship Everyone", flag_key="ship-everyone-flag")
+        experiment_id = data["id"]
+
+        ship_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/ship_variant/",
+            {"variant_key": "test", "release_to_everyone": True, "conclusion": "won"},
+            format="json",
+        )
+        self.assertEqual(ship_response.status_code, status.HTTP_200_OK)
+
+        flag_filters = ship_response.json()["feature_flag"]["filters"]
+        variants = flag_filters["multivariate"]["variants"]
+        test_variant = next(v for v in variants if v["key"] == "test")
+        self.assertEqual(test_variant["rollout_percentage"], 100)
+
+        # release_to_everyone: catch-all prepended
         self.assertEqual(flag_filters["groups"][0]["rollout_percentage"], 100)
         self.assertEqual(flag_filters["groups"][0]["properties"], [])
+        self.assertIn("Added automatically", flag_filters["groups"][0].get("description", ""))
 
     def test_ship_variant_on_stopped_experiment(self):
         data = self._create_running_experiment(name="Ship Stopped Endpoint", flag_key="ship-stopped-endpoint-flag")
@@ -5292,6 +5313,425 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
 
         # Verify the fix: the update activity log should NOT show the first user
         self.assertNotEqual(update_logs[0].user, self.user)
+
+    def test_experiment_to_saved_metric_metadata_change_activity_logging(self):
+        """Test that changes to ExperimentToSavedMetric metadata are logged under Experiment scope."""
+        # Create a saved metric
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Activity Test Metric",
+                "description": "Testing metadata activity logging",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = saved_metric_response.json()["id"]
+
+        # Create experiment with saved metric including metadata
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Metadata Activity Test",
+                "feature_flag_key": "metadata-activity-test",
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        # Verify activity log was created for the saved metric config link
+        created_logs = ActivityLog.objects.filter(
+            scope="Experiment",
+            item_id=str(experiment_id),
+            activity="created",
+            detail__type="saved_metric_config",
+        )
+        self.assertEqual(created_logs.count(), 1)
+        self.assertEqual(created_logs[0].user, self.user)
+        assert created_logs[0].detail is not None
+        self.assertEqual(created_logs[0].detail["name"], "Activity Test Metric")
+
+        # Update the metadata (add a breakdown)
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": "primary", "breakdowns": [{"property": "country"}]}}
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # Verify an "updated" activity log was created with the metadata change
+        updated_logs = ActivityLog.objects.filter(
+            scope="Experiment",
+            item_id=str(experiment_id),
+            activity="updated",
+            detail__type="saved_metric_config",
+        )
+        self.assertEqual(updated_logs.count(), 1)
+        self.assertEqual(updated_logs[0].user, self.user)
+        assert updated_logs[0].detail is not None
+        self.assertEqual(updated_logs[0].detail["name"], "Activity Test Metric")
+
+        # Verify the changes include the metadata field
+        changes = updated_logs[0].detail.get("changes", [])
+        metadata_change = next((c for c in changes if c.get("field") == "metadata"), None)
+        assert metadata_change is not None
+        self.assertEqual(metadata_change["before"], {"type": "primary"})
+        self.assertEqual(metadata_change["after"], {"type": "primary", "breakdowns": [{"property": "country"}]})
+
+    def test_saved_metric_add_remove_does_not_log_ordering_changes(self):
+        """Adding/removing saved metrics should not create redundant ordering activity logs.
+
+        When a saved metric is added or removed and the user did not supply an explicit
+        ordering, the auto-synced ordering write is persisted via a muted
+        ``experiment.save(update_fields=...)`` so the only log entry is the
+        ``saved_metric_config`` add/remove.
+        """
+        # Create a saved metric
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Ordering Test Metric",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "test-uuid-001",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = saved_metric_response.json()["id"]
+
+        # Create experiment without saved metrics
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Ordering Activity Test",
+                "feature_flag_key": "ordering-activity-test",
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        # Count logs before adding saved metric
+        logs_before_add = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+
+        # Add a saved metric to the experiment
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}]},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # Verify ordering was updated in the database
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertIn("test-uuid-001", experiment.secondary_metrics_ordered_uuids or [])
+
+        # Exactly 1 new log should be created (the saved_metric_config, not ordering changes)
+        logs_after_add = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+        self.assertEqual(logs_after_add - logs_before_add, 1)
+
+        # Verify the new log is for saved_metric_config, not ordering
+        config_logs = ActivityLog.objects.filter(
+            item_id=str(experiment_id),
+            scope="Experiment",
+            activity="created",
+            detail__type="saved_metric_config",
+        )
+        self.assertEqual(config_logs.count(), 1)
+
+        # Verify NO ordering change logs exist
+        all_logs = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment")
+        ordering_logs = [
+            log
+            for log in all_logs
+            if log.detail
+            and any(
+                change.get("field") in ("primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids")
+                for change in (log.detail.get("changes") or [])
+            )
+        ]
+        self.assertEqual(len(ordering_logs), 0, "Ordering changes should not be logged")
+
+        # Count logs before removing saved metric
+        logs_before_remove = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+
+        # Remove the saved metric
+        remove_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"saved_metrics_ids": []},
+            format="json",
+        )
+        self.assertEqual(remove_response.status_code, status.HTTP_200_OK)
+
+        # Verify ordering was updated
+        experiment.refresh_from_db()
+        self.assertNotIn("test-uuid-001", experiment.secondary_metrics_ordered_uuids or [])
+
+        # Exactly 1 new log should be created (the saved_metric_config deletion)
+        logs_after_remove = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+        self.assertEqual(logs_after_remove - logs_before_remove, 1)
+
+        # Verify the new log is for saved_metric_config deletion
+        delete_logs = ActivityLog.objects.filter(
+            item_id=str(experiment_id),
+            scope="Experiment",
+            activity="deleted",
+            detail__type="saved_metric_config",
+        )
+        self.assertEqual(delete_logs.count(), 1)
+
+    def test_user_initiated_metric_reorder_is_logged(self):
+        """A standalone reorder (no add/remove) must produce an activity log entry."""
+        # Seed the experiment with two inline metrics so there is something to reorder
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "allow_unknown_events": True,
+                "name": "Reorder Activity Test",
+                "feature_flag_key": "reorder-activity-test",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "reorder-uuid-a",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "reorder-uuid-b",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ],
+                "primary_metrics_ordered_uuids": ["reorder-uuid-a", "reorder-uuid-b"],
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        logs_before_reorder = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+
+        reorder_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"primary_metrics_ordered_uuids": ["reorder-uuid-b", "reorder-uuid-a"]},
+            format="json",
+        )
+        self.assertEqual(reorder_response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertEqual(experiment.primary_metrics_ordered_uuids, ["reorder-uuid-b", "reorder-uuid-a"])
+
+        logs_after_reorder = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+        self.assertEqual(logs_after_reorder - logs_before_reorder, 1)
+
+        reorder_log = (
+            ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment", activity="updated")
+            .order_by("-created_at")
+            .first()
+        )
+        assert reorder_log is not None and reorder_log.detail is not None
+        changes = reorder_log.detail.get("changes") or []
+        ordering_change = next((c for c in changes if c.get("field") == "primary_metrics_ordered_uuids"), None)
+        assert ordering_change is not None, "Explicit reorder must produce a primary_metrics_ordered_uuids change"
+        self.assertEqual(ordering_change["before"], ["reorder-uuid-a", "reorder-uuid-b"])
+        self.assertEqual(ordering_change["after"], ["reorder-uuid-b", "reorder-uuid-a"])
+
+    def test_explicit_reorder_in_same_patch_as_saved_metric_add_is_logged(self):
+        """If the user supplies ordering alongside an add/remove, the reorder must still be logged."""
+        # Create a saved metric the experiment can later adopt
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Combined PATCH Saved Metric",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": "combined-saved-uuid",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = saved_metric_response.json()["id"]
+
+        # Start with one inline primary metric so we have an existing ordering to permute
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "allow_unknown_events": True,
+                "name": "Combined PATCH Activity Test",
+                "feature_flag_key": "combined-patch-activity",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "combined-inline-uuid",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ],
+                "primary_metrics_ordered_uuids": ["combined-inline-uuid"],
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        logs_before = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+
+        # Same PATCH: adds the saved metric AND explicitly reorders so the saved metric goes first.
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
+                "primary_metrics_ordered_uuids": ["combined-saved-uuid", "combined-inline-uuid"],
+            },
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertEqual(
+            experiment.primary_metrics_ordered_uuids,
+            ["combined-saved-uuid", "combined-inline-uuid"],
+        )
+
+        # Two new logs: the saved_metric_config add AND the experiment-level reorder.
+        new_logs = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count() - logs_before
+        self.assertEqual(new_logs, 2)
+
+        # The saved metric add is captured
+        config_logs = ActivityLog.objects.filter(
+            item_id=str(experiment_id),
+            scope="Experiment",
+            activity="created",
+            detail__type="saved_metric_config",
+        )
+        self.assertEqual(config_logs.count(), 1)
+
+        # The user-supplied reorder is also captured in a separate Experiment update log
+        reorder_logs = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment", activity="updated")
+        ordering_changes = [
+            change
+            for log in reorder_logs
+            if log.detail
+            for change in (log.detail.get("changes") or [])
+            if change.get("field") == "primary_metrics_ordered_uuids"
+        ]
+        self.assertEqual(len(ordering_changes), 1, "User-supplied reorder must be logged once")
+        self.assertEqual(ordering_changes[0]["before"], ["combined-inline-uuid"])
+        self.assertEqual(ordering_changes[0]["after"], ["combined-saved-uuid", "combined-inline-uuid"])
+
+    @parameterized.expand(
+        [
+            ("primary", "primary_metrics_ordered_uuids", "secondary_metrics_ordered_uuids"),
+            ("secondary", "secondary_metrics_ordered_uuids", "primary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_bulk_remove_shared_metrics_does_not_log_ordering_change(
+        self, metric_type: str, ordering_field: str, other_ordering_field: str
+    ):
+        """Bulk-remove via the reorder dialog (saved_metrics_ids=[] + ordering=[]) must not log a reorder.
+
+        The frontend sends the now-empty ordering array alongside the empty
+        saved_metrics_ids on bulk remove. That mirrors auto-sync, so the ordering
+        write is bookkeeping and must be muted. Only the per-link `saved_metric_config`
+        deleted entries should appear.
+        """
+        saved_metric_uuids = ["bulk-remove-uuid-1", "bulk-remove-uuid-2"]
+        saved_metric_ids: list[int] = []
+        for index, uuid in enumerate(saved_metric_uuids):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+                {
+                    "name": f"Bulk Remove Metric {index + 1}",
+                    "query": {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": uuid,
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            saved_metric_ids.append(response.json()["id"])
+
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "allow_unknown_events": True,
+                "name": f"Bulk Remove Activity Test ({metric_type})",
+                "feature_flag_key": f"bulk-remove-activity-{metric_type}",
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": metric_type}} for saved_metric_id in saved_metric_ids
+                ],
+                ordering_field: saved_metric_uuids,
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        logs_before = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
+
+        # Mirrors the curl payload from the reorder dialog: clear inline metrics,
+        # clear the ordering array, and clear saved_metrics_ids in the same PATCH.
+        inline_metrics_field = "metrics" if metric_type == "primary" else "metrics_secondary"
+        remove_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                inline_metrics_field: [],
+                ordering_field: [],
+                "saved_metrics_ids": [],
+            },
+            format="json",
+        )
+        self.assertEqual(remove_response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertEqual(getattr(experiment, ordering_field) or [], [])
+
+        # Two new logs expected: one saved_metric_config deleted per removed link.
+        new_logs = list(
+            ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").order_by("created_at")
+        )
+        added = new_logs[logs_before:]
+        self.assertEqual(len(added), 2, "Two saved_metric_config deleted entries expected")
+        for log in added:
+            assert log.detail is not None
+            self.assertEqual(log.activity, "deleted")
+            self.assertEqual(log.detail["type"], "saved_metric_config")
+
+        # No ordering change should be logged on any entry (existing or new).
+        ordering_changes = [
+            change
+            for log in ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment")
+            if log.detail
+            for change in (log.detail.get("changes") or [])
+            if change.get("field") in (ordering_field, other_ordering_field)
+        ]
+        self.assertEqual(
+            ordering_changes,
+            [],
+            "Bulk-remove must not log a primary/secondary ordering change",
+        )
 
     def test_cannot_add_saved_metric_from_different_team(self):
         team_b = Team.objects.create(organization=self.organization, name="Team B")

@@ -20,6 +20,9 @@ const esmModules = [
     'lowlight',
     'devlop',
     'zwitch',
+    // posthog-js's rrweb subpath entries are shipped as ESM; the rest of posthog-js
+    // is CJS, so we scope the transform to just dist/rrweb* to avoid retranspiling main.js.
+    'posthog-js/dist/rrweb',
     // react-markdown and its ecosystem are all ESM-only
     'react-markdown',
     'remark-.*',
@@ -140,6 +143,10 @@ const config: Config = {
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^~/(.*)$': '<rootDir>/src/$1',
         '^@posthog/hogql-parser$': '<rootDir>/node_modules/@posthog/hogql-parser/dist/index.cjs',
+        // @posthog/hogvm ships as ESM-only; map to the TS source so Jest (Sucrase) can handle it.
+        // Required for sidePanelNotificationsLogic.test.ts and other tests with a transitive
+        // import chain through src/lib/hog.ts.
+        '^@posthog/hogvm$': '<rootDir>/node_modules/@posthog/hogvm/src/index.ts',
         '^@posthog/lemon-ui(|/.*)$': '<rootDir>/@posthog/lemon-ui/src/$1',
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
         '^react-markdown$': '<rootDir>/src/test/mocks/reactMarkdownMock.js',
@@ -162,7 +169,6 @@ const config: Config = {
         '^@posthog/replay-shared$': '<rootDir>/../common/replay-shared/src/index.ts',
         '^@posthog/replay-shared/(.*)$': '<rootDir>/../common/replay-shared/src/$1',
         '^@posthog/shared-onboarding/(.*)$': '<rootDir>/../docs/onboarding/$1',
-        '^@posthog/rrweb/es/rrweb': '@posthog/rrweb/dist/rrweb.min.js',
         d3: '<rootDir>/node_modules/d3/dist/d3.min.js',
         '^d3-(.*)$': `d3-$1/dist/d3-$1`,
         '^@mathjax/src/(.*)$': '<rootDir>/src/test/mocks/mathjaxMock.js',
