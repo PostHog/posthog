@@ -7205,7 +7205,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "groups[0].properties[0].value: invalid regex pattern")
 
-    def test_patch_flag_with_unchanged_python_incompatible_regex(self):
+    def test_patch_non_filter_field_skips_regex_validation(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
@@ -7232,33 +7232,33 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{flag.id}",
-            {
-                "filters": {
-                    "groups": [
-                        {
-                            "rollout_percentage": 50,
-                            "properties": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": "(?<!a{2,5})b",
-                                    "operator": "regex",
-                                }
-                            ],
-                        }
-                    ]
-                }
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_patch_flag_rejects_new_invalid_regex(self):
+    @parameterized.expand(
+        [
+            (
+                "unchanged_invalid_regex_accepted",
+                "(?<!a{2,5})b",
+                "(?<!a{2,5})b",
+                status.HTTP_200_OK,
+            ),
+            (
+                "valid_to_invalid_regex_rejected",
+                "^valid$",
+                "[unclosed",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "different_invalid_regex_rejected",
+                "[unclosed",
+                "(unbalanced",
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_patch_flag_regex_validation(self, _name, existing_pattern, new_pattern, expected_status):
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
-            key="flag-valid-regex",
+            key="flag-regex-test",
             filters={
                 "groups": [
                     {
@@ -7267,7 +7267,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                             {
                                 "key": "email",
                                 "type": "person",
-                                "value": "^valid$",
+                                "value": existing_pattern,
                                 "operator": "regex",
                             }
                         ],
@@ -7286,7 +7286,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 {
                                     "key": "email",
                                     "type": "person",
-                                    "value": "[unclosed",
+                                    "value": new_pattern,
                                     "operator": "regex",
                                 }
                             ],
@@ -7295,8 +7295,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 }
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "groups[0].properties[0].value: invalid regex pattern")
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            self.assertEqual(response.json()["detail"], "groups[0].properties[0].value: invalid regex pattern")
 
     def test_cant_create_flag_with_non_string_regex_value(self):
         response = self.client.post(

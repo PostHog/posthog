@@ -117,6 +117,7 @@ GROUP BY "context.columns.url"
             query_type="external_clicks_query",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
         )

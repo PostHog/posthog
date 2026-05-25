@@ -524,6 +524,7 @@ WHERE
                 query_type="event_count_query",
                 query=event_count,
                 team=self.team,
+                user=self.user,
                 timings=self.timings,
                 limit_context=self.limit_context,
             )
