@@ -710,7 +710,8 @@ async def discover_posthog_code_repository_via_agent_activity(
         return SlackRepoSelectionOutcome(
             status="failed",
             repository=None,
-            reason=f"Agent returned an invalid repository: {exc.returned_repository}",
+            # Don't echo `exc.returned_repository` — it's raw LLM output and reaches Slack mrkdwn.
+            reason="Agent returned an unrecognized repository.",
         )
     except RepoSelectionUnavailableError as exc:
         logger.warning(
