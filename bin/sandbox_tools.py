@@ -83,6 +83,17 @@ def load_catalog(catalog_file: Path) -> dict[str, Tool]:
     return sandbox_addons.load_catalog(catalog_file, "tools", _parse_entry)
 
 
+def resolved_tools(catalog_file: Path) -> list[tuple[str, str]]:
+    """Return (name, description) for the user's selected tools.
+
+    Descriptions come from the catalog, since the user tools.yaml doesn't store
+    them; tools added ad hoc (not in the catalog) get an empty description.
+    bin/sandbox uses this to list installed tools in the sandbox CLAUDE.md.
+    """
+    catalog = load_catalog(catalog_file)
+    return [(t.name, (catalog[t.name].description if t.name in catalog else None) or "") for t in load_user_tools()]
+
+
 def _format_copy(c: ToolCopy) -> str | dict[str, str]:
     return c.source if c.source == c.target else {"source": c.source, "target": c.target}
 

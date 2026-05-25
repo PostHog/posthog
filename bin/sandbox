@@ -18,6 +18,7 @@ import sys
 import json
 import time
 import fcntl
+import shlex
 import shutil
 import getpass
 import argparse
@@ -37,6 +38,7 @@ except ImportError:
     print("  Or activate the flox environment first.", file=sys.stderr)
     sys.exit(1)
 
+import sandbox_env
 import sandbox_mcp
 import sandbox_tools
 from sandbox_addons import AddonError
@@ -51,6 +53,8 @@ COMPOSE_FILE = REPO_ROOT / "docker-compose.sandbox.yml"
 PROFILES_FILE = REPO_ROOT / "docker-compose.profiles.yml"
 GIT_HELPER_IMAGE = "alpine/git:latest"
 SANDBOX_ORIGIN_URL = "git@github.com:PostHog/posthog.git"
+# In-container workspace path; must match WORKSPACE in bin/sandbox-entrypoint.py.
+SANDBOX_WORKSPACE = "/workspace"
 
 
 @functools.cache
@@ -349,15 +353,41 @@ def project_name(slug: str) -> str:
 # --- Host auth paths ---
 
 
+def _file_or_devnull(path: Path) -> str:
+    """Host path for an optional bind-mount or env_file, or /dev/null when absent."""
+    return str(path) if path.is_file() else "/dev/null"
+
+
 def _claude_auth_dir() -> str:
-    """Assemble only the Claude Code files needed to authenticate and configure."""
+    """Assemble the Claude Code files needed to authenticate and configure.
+
+    Ships a complete CLAUDE.md (your global one plus a generated section
+    describing this sandbox's env vars and tools), so the container only has to
+    bind-mount the finished file — no assembly in the entrypoint.
+    """
     auth_dir = REGISTRY_DIR / "claude-auth"
     auth_dir.mkdir(parents=True, exist_ok=True)
     claude_dir = Path.home() / ".claude"
-    for filename in ("settings.json", "settings.local.json", "CLAUDE.md"):
+    for filename in ("settings.json", "settings.local.json"):
         src = claude_dir / filename
         if src.exists():
             shutil.copy2(src, auth_dir / filename)
+
+    # Build the staged CLAUDE.md from your global one plus this sandbox's
+    # provisioned env vars and tools. Names + comments only; secret values
+    # never enter CLAUDE.md (parse_env_comments doesn't even read them).
+    host_md = claude_dir / "CLAUDE.md"
+    base = host_md.read_text() if host_md.is_file() else ""
+    context = sandbox_env.render_context_markdown(
+        sandbox_env.parse_env_comments(),
+        sandbox_tools.resolved_tools(CATALOG_FILE),
+    )
+    staged_md = auth_dir / "CLAUDE.md"
+    parts = [p for p in (base.rstrip(), context.rstrip()) if p]
+    if parts:
+        staged_md.write_text("\n\n".join(parts) + "\n")
+    elif staged_md.exists():
+        staged_md.unlink()
 
     # Claude Code credentials: check disk first, fall back to macOS keychain.
     creds_file = auth_dir / ".credentials.json"
@@ -374,6 +404,31 @@ def _claude_auth_dir() -> str:
             creds_file.write_text(result.stdout.strip())
 
     return str(auth_dir)
+
+
+def _claude_json_file() -> str:
+    """Build the sandbox's .claude.json on the host; return its path or /dev/null.
+
+    Starts from your ~/.claude.json, drops the host installMethod (Claude is
+    npm-installed in the sandbox, not the native binary the host config points
+    at), and merges the resolved MCP servers under the /workspace project so
+    they load without an approval prompt. Done here so the entrypoint just
+    copies a finished file instead of assembling it. Written 0600 since merged
+    MCP server configs may carry auth tokens.
+    """
+    host_json = Path.home() / ".claude.json"
+    config = json.loads(host_json.read_text()) if host_json.is_file() else {}
+    config.pop("installMethod", None)
+    servers = sandbox_mcp.resolve_servers()
+    if servers:
+        workspace = config.setdefault("projects", {}).setdefault(SANDBOX_WORKSPACE, {})
+        workspace.setdefault("mcpServers", {}).update(servers)
+    if not config:
+        return "/dev/null"
+    out = REGISTRY_DIR / "claude.json"
+    out.write_text(json.dumps(config, indent=2) + "\n")
+    out.chmod(0o600)
+    return str(out)
 
 
 def _ssh_authorized_keys_path() -> str:
@@ -668,17 +723,19 @@ def _host_compose_env() -> dict[str, str]:
     """Env vars from host state, cached to avoid re-probing per sandbox in cmd_list."""
     config = _load_config()
     ide = config.get("jetbrains")
-    claude_json = Path.home() / ".claude.json"
     host_gitconfig = Path.home() / ".gitconfig"
     env = {
         "SANDBOX_SSH_AUTHORIZED_KEYS": _ssh_authorized_keys_path(),
         "SANDBOX_CLAUDE_AUTH": _claude_auth_dir(),
         "SANDBOX_UID": str(os.getuid()),
         "SANDBOX_GID": str(os.getgid()),
-        "SANDBOX_CLAUDE_JSON": str(claude_json) if claude_json.is_file() else "/dev/null",
-        # Resolved remote MCP servers; entrypoint merges into ~/.claude.json.
-        "SANDBOX_MCP_SERVERS": str(sandbox_mcp.write_resolved_servers() or "/dev/null"),
-        "SANDBOX_HOST_GITCONFIG": str(host_gitconfig) if host_gitconfig.is_file() else "/dev/null",
+        # Finalized .claude.json (installMethod stripped, MCP servers merged
+        # under /workspace), built on the host so the entrypoint just copies it.
+        "SANDBOX_CLAUDE_JSON": _claude_json_file(),
+        # User secrets (KEY=value); compose env_file injects the values into the
+        # sandbox env. Names + comments are baked into CLAUDE.md by _claude_auth_dir.
+        "SANDBOX_ENV_FILE": _file_or_devnull(sandbox_env.ENV_FILE),
+        "SANDBOX_HOST_GITCONFIG": _file_or_devnull(host_gitconfig),
         # Signing paths — entrypoint rewrites the copied gitconfig to point here.
         "SANDBOX_HOST_GIT_SIGNINGKEY": _host_git_config_file("user.signingkey"),
         "SANDBOX_HOST_ALLOWED_SIGNERS": _host_git_config_file("gpg.ssh.allowedSignersFile"),
@@ -1990,30 +2047,44 @@ def _mcp_summary(mcp: sandbox_mcp.Mcp, *, indent: str = "  ") -> list[str]:
     return [f"{indent}{mcp.name}: {mcp.server.get('url')}{auth}"]
 
 
+def _ensure_env_var(name: str, comment: str) -> None:
+    """Ensure `name` is set in sandbox.env, prompting (hidden) for it if missing.
+
+    Lets `mcp add` store an MCP's token in the one secrets file in a single step
+    instead of making you edit sandbox.env separately.
+    """
+    if name in {n for n, _ in sandbox_env.parse_env_comments()}:
+        info(f"Using {name} from {sandbox_env.ENV_FILE.name}.")
+        return
+    value = getpass.getpass(f"  {name} (hidden): ").strip()
+    if not value:
+        fatal(f"'{name}' is required.")
+    sandbox_env.append_var(name, value, comment)
+    success(f"Saved {name} to {sandbox_env.ENV_FILE}.")
+
+
 def _mcp_add(name: str, url: str | None) -> None:
     mcps = sandbox_mcp.load_user_mcps()
     if any(m.name == name for m in mcps):
         fatal(f"MCP '{name}' already exists. Run 'sandbox mcp remove {name}' first.")
 
     if url:
-        # One-off: assume Bearer auth. Catalog entries express other schemes.
+        # One-off server not in the catalog. Reference an env var for auth so the
+        # token lives in sandbox.env, not mcps.yaml.
         server: dict = {"type": "http", "url": url}
-        token = getpass.getpass("Bearer token (blank for none): ").strip()
-        if token:
-            server["headers"] = {"Authorization": f"Bearer {token}"}
+        var = input("Auth env var name (blank for none): ").strip()
+        if var:
+            _ensure_env_var(var, f"Auth token for the {name} MCP.")
+            server["headers"] = {"Authorization": f"Bearer ${{{var}}}"}
     else:
         catalog = sandbox_mcp.load_catalog(MCP_CATALOG_FILE)
         entry = catalog.get(name)
         if not entry:
             available = ", ".join(sorted(catalog)) or "(none)"
             fatal(f"'{name}' is not in the catalog (available: {available}). For a one-off: sandbox mcp add {name} <url>")
-        secrets = {}
-        for key in entry.secrets:
-            value = getpass.getpass(f"  {key} (hidden): ").strip()
-            if not value:
-                fatal(f"'{key}' is required for '{name}'.")
-            secrets[key] = value
-        server = sandbox_mcp.fill_secrets(entry.server, secrets)
+        for var in entry.env:
+            _ensure_env_var(var, f"Used by the {entry.name} MCP.")
+        server = entry.server
 
     mcps.append(sandbox_mcp.Mcp(name=name, server=server))
     sandbox_mcp.save_user_mcps(mcps)
@@ -2046,6 +2117,44 @@ def cmd_mcp(args) -> None:
         )
     else:
         _mcp_list()
+
+
+# --- Env vars (secrets) ---
+
+
+def _open_in_editor(path: Path) -> None:
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    if not editor:
+        for candidate in ("sensible-editor", "nano", "vi"):
+            if shutil.which(candidate):
+                editor = candidate
+                break
+    if not editor:
+        info(f"No $VISUAL/$EDITOR set and no nano/vi found. Edit it directly: {path}")
+        return
+    subprocess.run([*shlex.split(editor), str(path)], check=False)
+
+
+def cmd_env(args) -> None:
+    if args.env_command == "list":
+        pairs = sandbox_env.parse_env_comments()
+        if not pairs:
+            print(f"No env vars configured ({sandbox_env.ENV_FILE}).")
+            return
+        print(f"Env vars provisioned to sandboxes ({sandbox_env.ENV_FILE}):")
+        for name, comment in pairs:
+            head = comment.splitlines()[0] if comment else ""
+            print(f"  {name}: {head}" if head else f"  {name}")
+        return
+
+    path = sandbox_env.ensure_file()
+    _open_in_editor(path)
+    path.chmod(0o600)
+    names = [name for name, _ in sandbox_env.parse_env_comments(path)]
+    success(f"Saved {path} (mode 600).")
+    if names:
+        print(f"  Vars: {', '.join(names)}")
+    print("  Applies on the next `sandbox create` / `sandbox start`.")
 
 
 def cmd_nuke() -> None:
@@ -2210,18 +2319,32 @@ examples:
         "mcp",
         help="Manage remote MCP servers available to Claude in the sandbox",
         description=(
-            "Manage ~/.posthog-sandboxes/mcps.json — remote MCP servers registered "
-            "with Claude in every sandbox at create time. Bearer tokens are prompted "
-            "for and stored locally (mode 0600), never in git."
+            "Manage ~/.posthog-sandboxes/mcps.yaml: remote MCP servers registered "
+            "with Claude in every sandbox at create time. Tokens are prompted for "
+            "and saved to sandbox.env; the server config references them via ${VAR}."
         ),
     )
     mcp_sub = mcp_parser.add_subparsers(dest="mcp_command")
     mcp_sub.add_parser("list", help="List configured MCP servers")
-    mcp_add_p = mcp_sub.add_parser("add", help="Add a remote MCP server (prompts for an optional bearer token)")
+    mcp_add_p = mcp_sub.add_parser("add", help="Add a remote MCP server (prompts for its key, saved to sandbox.env)")
     mcp_add_p.add_argument("name")
     mcp_add_p.add_argument("url", nargs="?", help="URL for a one-off server not in the catalog (assumes Bearer auth)")
     mcp_remove_p = mcp_sub.add_parser("remove", help="Remove an MCP server")
     mcp_remove_p.add_argument("name")
+
+    env_parser = sub.add_parser(
+        "env",
+        help="Edit the env vars (secrets) provisioned to your sandboxes",
+        description=(
+            "Manage ~/.posthog-sandboxes/sandbox.env. Each KEY=value is injected "
+            "into every sandbox's environment; the agent uses them by reference "
+            "($SLACK_TOKEN) and never sees the value. `# comment` lines above a KEY "
+            "describe it to the agent in CLAUDE.md."
+        ),
+    )
+    env_sub = env_parser.add_subparsers(dest="env_command")
+    env_sub.add_parser("edit", help="Open the env file in $EDITOR (default action)")
+    env_sub.add_parser("list", help="List configured env var names and descriptions")
 
     # Internal: detached infra-bringup/restore worker spawned by `create`.
     db_restore_p = sub.add_parser("_db-restore")
@@ -2260,6 +2383,7 @@ def main() -> None:
         "nuke": cmd_nuke,
         "tools": lambda: cmd_tools(args),
         "mcp": lambda: cmd_mcp(args),
+        "env": lambda: cmd_env(args),
         "_db-restore": lambda: cmd_db_restore(args.branch, args.use_cache == "1"),
     }
 

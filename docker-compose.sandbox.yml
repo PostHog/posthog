@@ -152,7 +152,6 @@ services:
             - workspace:/workspace
             - ${SANDBOX_CLAUDE_AUTH}:/tmp/claude-auth:ro
             - ${SANDBOX_CLAUDE_JSON:-/dev/null}:/tmp/claude-auth.json:ro
-            - ${SANDBOX_MCP_SERVERS:-/dev/null}:/tmp/sandbox-mcp.json:ro
             - ${SANDBOX_HOST_GITCONFIG:-/dev/null}:/tmp/host-gitconfig:ro
             - ${SANDBOX_HOST_GIT_SIGNINGKEY:-/dev/null}:/tmp/host-git-signingkey:ro
             - ${SANDBOX_HOST_ALLOWED_SIGNERS:-/dev/null}:/tmp/host-allowed-signers:ro
@@ -168,8 +167,12 @@ services:
             # JetBrains IDE backend for Gateway (populated by bin/sandbox)
             - jetbrains:/opt/idea
         # Shared service defaults (Postgres, ClickHouse, Redis, etc.) come from
-        # the same env file used by docker-compose.base.yml.
-        env_file: dev-services.env
+        # the same env file used by docker-compose.base.yml. The user's
+        # sandbox.env (resolved to a real path or /dev/null by bin/sandbox)
+        # injects their secrets straight into the sandbox environment.
+        env_file:
+            - dev-services.env
+            - ${SANDBOX_ENV_FILE:-/dev/null}
         environment:
             # --- Sandbox identity ---
             SANDBOX_UID: '${SANDBOX_UID:-1000}'

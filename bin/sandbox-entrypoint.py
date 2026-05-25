@@ -243,29 +243,6 @@ def _force_sandbox_claude_defaults(settings_path: Path) -> None:
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
 
 
-def _finalize_claude_json(claude_json: Path) -> None:
-    """Adapt the copied ~/.claude.json to the container in one pass:
-
-    - drop the host's installMethod (Claude is npm-installed here, not the
-      native binary the host config points at);
-    - register sandbox MCP servers at /workspace local scope, which load
-      without the approval prompt a checked-in .mcp.json triggers. bin/sandbox
-      bind-mounts the resolved servers (or /dev/null when none); host config
-      keys projects by host paths, so /workspace is always fresh here.
-    """
-    raw = Path("/tmp/sandbox-mcp.json").read_text()
-    servers = json.loads(raw)["mcpServers"] if raw.strip() else {}
-
-    config = json.loads(claude_json.read_text()) if claude_json.exists() else {}
-    changed = config.pop("installMethod", None) is not None
-    if servers:
-        workspace = config.setdefault("projects", {}).setdefault(str(WORKSPACE), {})
-        workspace.setdefault("mcpServers", {}).update(servers)
-        changed = True
-    if changed:
-        claude_json.write_text(json.dumps(config, indent=2) + "\n")
-
-
 def copy_claude_auth(uid: int, gid: int) -> None:
     """Copy Claude Code auth files into the sandbox home."""
     claude_dir = SANDBOX_HOME / ".claude"
@@ -280,10 +257,12 @@ def copy_claude_auth(uid: int, gid: int) -> None:
     _strip_host_permissions(claude_dir / "settings.local.json")
     _force_sandbox_claude_defaults(claude_dir / "settings.json")
 
+    # bin/sandbox ships a finalized .claude.json (installMethod stripped, MCP
+    # servers merged under the /workspace project); just place it. is_file()
+    # skips the /dev/null mount used when there's nothing to ship.
     src = Path("/tmp/claude-auth.json")
-    if src.exists():
+    if src.is_file():
         shutil.copy2(src, SANDBOX_HOME / ".claude.json")
-    _finalize_claude_json(SANDBOX_HOME / ".claude.json")
 
     run(["chown", "-R", f"{uid}:{gid}", str(SANDBOX_HOME)])
 
@@ -326,6 +305,8 @@ def root_phase() -> None:
     create_sandbox_user(uid, gid)
 
     # Must run before export_environment snapshots os.environ into /etc/profile.d.
+    # The user's sandbox.env secrets are already in os.environ (compose env_file),
+    # so export_environment propagates them to every shell and the Claude tree.
     _configure_ssh_agent_env()
     export_environment(uid, gid)
 
