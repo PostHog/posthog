@@ -358,7 +358,7 @@ export function Settings({
                     className={clsx(
                         'border rounded w-[var(--settings-nav-width)] flex flex-col',
                         isFullScene
-                            ? 'sticky top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
+                            ? 'fixed top-[calc(var(--scene-layout-header-height)+var(--scene-padding))] bottom-[var(--scene-padding)]'
                             : 'sticky top-[var(--scene-layout-header-height)] self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
                     )}
                 >
