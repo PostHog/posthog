@@ -3,12 +3,57 @@ from __future__ import annotations
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.conf import settings
+from django.test import override_settings
+
 from rest_framework import status
 
+from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.models import OAuthApplication
 from posthog.models.team.team import Team
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    ARRAY_APP_CLIENT_ID_EU,
+    ARRAY_APP_CLIENT_ID_US,
+    create_oauth_access_token_for_user,
+)
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
 from products.tasks.backend.models import Task, TaskRun
+
+# Fresh RSA key so RS256 OAuth apps validate in tests (OIDC_RSA_PRIVATE_KEY is unset by
+# default). Same pattern as `posthog/test/test_permissions.py` and the OAuth provider tests.
+_OIDC_RSA_KEY = generate_rsa_key()
+
+
+def _authenticate_as_scout(test: APIBaseTest) -> None:
+    """Auth the test client with a scout-internal token, mirroring how the harness sandbox
+    reaches these endpoints in production. The emit / scratchpad write actions require
+    `signal_scout_internal:write`, which is server-mint-only and rejects session auth, so the
+    default `APIBaseTest` force-login isn't enough for the write surface — only reads pass on
+    a session. `logout()` first so the token is the sole credential on every request.
+    """
+    # `create_oauth_access_token_for_user` resolves the Array app by `get_instance_region()`,
+    # which isn't deterministic across test contexts — create the app for every region client
+    # id so the lookup always resolves.
+    for client_id in (ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU):
+        OAuthApplication.objects.get_or_create(
+            client_id=client_id,
+            defaults={
+                "name": "Array Test App",
+                "client_type": OAuthApplication.CLIENT_PUBLIC,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "redirect_uris": "https://app.posthog.com/callback",
+                # RS256 is enforced by the `enforce_rs256_algorithm` DB constraint; the
+                # `_OIDC_RSA_KEY` override on the test class satisfies the signing-key requirement.
+                "algorithm": "RS256",
+            },
+        )
+    token = create_oauth_access_token_for_user(
+        test.user, test.team.id, scopes="signals_scout", include_internal_scopes=True
+    )
+    test.client.logout()
+    test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
 
 def _make_task_run(team: Team, *, status: str | None = None) -> TaskRun:
@@ -111,6 +156,7 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
             )
 
 
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -128,6 +174,8 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
             source_type="cross_source_issue",
             defaults={"enabled": True},
         )
+        # emit-signal requires `signal_scout_internal:write` — session auth is rejected.
+        _authenticate_as_scout(self)
 
     def _emit_signal_url(self, run_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/emit-signal/"
@@ -194,7 +242,14 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
             )
 
 
+@override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _OIDC_RSA_KEY})
 class TestScoutHarnessScratchpadAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # remember (create) and forget require `signal_scout_internal:write` — session auth
+        # is rejected, so authenticate with the scout-internal token like the harness does.
+        _authenticate_as_scout(self)
+
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/scratchpad/"
 
