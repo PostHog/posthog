@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "1156_cohort_team_filters_help_text"),
+        ("posthog", "1177_alter_organization_is_ai_data_processing_approved"),
     ]
 
     operations = [

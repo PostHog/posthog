@@ -32,7 +32,7 @@ export const getWizardSessionsListUrl = (projectId: string, params?: WizardSessi
 }
 
 /**
- * List wizard sessions for the project, ordered by started_at desc. This should only be called by the PostHog Wizard.Optional filters: ?workflow_id=<id> and ?skill_id=<id>.
+ * List wizard sessions for the project, ordered by started_at desc. This should only be called by the PostHog Wizard. Optional filters: ?workflow_id=<id> and ?skill_id=<id>.
  */
 export const wizardSessionsList = async (
     projectId: string,
@@ -50,7 +50,7 @@ export const getWizardSessionsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Upsert a wizard session. The session_id key determines whether this creates a new row or replaces an existing one. Always returns 201.
+ * Upsert a wizard session. The `session_id` key is the idempotency anchor — reposting the same `session_id` replaces the existing row. Returns 201 on create, 200 on update.
  */
 export const wizardSessionsCreate = async (
     projectId: string,

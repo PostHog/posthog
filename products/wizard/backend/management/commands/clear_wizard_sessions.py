@@ -8,16 +8,27 @@ Usage:
     python manage.py clear_wizard_sessions --user user@example.com --dry-run
 
 `--user` resolves to every team in every organization the user is a member of.
-The command refuses to run with no scoping flag — use `--all` to clear every
-WizardSession row in the database (intended for dev/test environments only).
+The command refuses to run with no scoping flag.
+
+`--all` clears every WizardSession row in the database and is intended for
+dev/test environments only. In production, `--all` requires the operator to
+also pass `--yes-i-really-mean-it-in-prod` so a fat-fingered command can't
+wipe the table by accident.
+
+`--session-id` requires a team scope (`--team` or `--user`) because session_id
+is only unique per team — without one, the same id can match rows in multiple
+tenants.
 """
 
+import sys
 from argparse import ArgumentParser
 from typing import Any
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import QuerySet
 
+from posthog.cloud_utils import is_cloud
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -40,7 +51,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--all",
             action="store_true",
-            help="Required if no other scoping flag is provided. Refuses to run without this in prod.",
+            help="Required to wipe every wizard session row. Refused in prod unless --yes-i-really-mean-it-in-prod is also passed.",
+        )
+        parser.add_argument(
+            "--yes-i-really-mean-it-in-prod",
+            action="store_true",
+            help="Required alongside --all when running against PostHog Cloud / DEBUG=False.",
         )
         parser.add_argument(
             "--dry-run",
@@ -55,6 +71,7 @@ class Command(BaseCommand):
         skill_id: str | None = opts.get("skill")
         session_id: str | None = opts.get("session_id")
         clear_all: bool = opts.get("all", False)
+        prod_confirm: bool = opts.get("yes_i_really_mean_it_in_prod", False)
         dry_run: bool = opts.get("dry_run", False)
 
         if not any([user_arg, team_id, session_id, clear_all]):
@@ -62,6 +79,34 @@ class Command(BaseCommand):
                 "Provide at least one of --user, --team, --session-id, or --all. "
                 "Refusing to clear the entire wizard_sessions table by accident."
             )
+
+        # session_id is only unique per team — without a team scope the same id
+        # can match rows in multiple tenants. Require an explicit tenant scope
+        # so an operator can't quietly cross tenant boundaries by typing the
+        # wrong flag.
+        if session_id and not (team_id or user_arg or clear_all):
+            raise CommandError(
+                "--session-id requires --team (or --user, or --all if you really "
+                "intend to delete that session id across every tenant). session_id "
+                "is unique per team, not globally."
+            )
+
+        # Prod guard for --all: PostHog Cloud and any non-DEBUG instance refuse
+        # to wipe the table without an explicit acknowledgement.
+        if clear_all and not dry_run:
+            if is_cloud() or not settings.DEBUG:
+                if not prod_confirm:
+                    raise CommandError(
+                        "--all on a non-DEBUG / cloud instance requires "
+                        "--yes-i-really-mean-it-in-prod. Re-run with that flag if "
+                        "you really intend to delete every wizard session row."
+                    )
+            # Interactive confirmation when stdin is a TTY (scripted runs already
+            # opted-in via the prod confirm flag).
+            if sys.stdin.isatty():
+                answer = input("Type 'delete all wizard sessions' to proceed: ")
+                if answer.strip() != "delete all wizard sessions":
+                    raise CommandError("Confirmation phrase didn't match — aborting.")
 
         qs: QuerySet[WizardSession] = WizardSession.objects.unscoped().all()
 

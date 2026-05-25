@@ -37028,11 +37028,13 @@ export namespace Schemas {
     }
 
     /**
+     * Optional structured plan of events the wizard intends to instrument. Schema is workflow-specific.
      * @nullable
      */
     export type UpsertWizardSessionRequestEventPlan = { [key: string]: unknown } | null;
 
     /**
+     * Populated when run_phase='error'. Shape: { type: string, message: string }.
      * @nullable
      */
     export type UpsertWizardSessionRequestError = { [key: string]: unknown } | null;
@@ -37041,15 +37043,40 @@ export namespace Schemas {
      * Input: validates the JSON the wizard CLI posts. team_id is derived from URL.
      */
     export interface UpsertWizardSessionRequest {
+      /**
+         * Stable identifier the wizard mints for this run (format: '{workflow_id}-{skill_id}-{started_at_iso}'). Reposting with the same session_id upserts the existing row.
+         * @maxLength 255
+         */
       session_id: string;
+      /**
+         * High-level workflow being run, e.g. 'onboarding', 'migration', 'audit'.
+         * @maxLength 255
+         */
       workflow_id: string;
+      /**
+         * Specific skill within the workflow, e.g. 'nextjs', 'django', 'laravel'.
+         * @maxLength 255
+         */
       skill_id: string;
+      /** UTC timestamp when the wizard started this run. Matches the timestamp encoded in session_id. */
       started_at: string;
+      /** Lifecycle stage of the wizard run.
+
+      * `idle` - IDLE
+      * `running` - RUNNING
+      * `completed` - COMPLETED
+      * `error` - ERROR */
       run_phase: RunPhaseEnum;
       tasks: WizardTaskDTO[];
-      /** @nullable */
+      /**
+         * Optional structured plan of events the wizard intends to instrument. Schema is workflow-specific.
+         * @nullable
+         */
       event_plan?: UpsertWizardSessionRequestEventPlan;
-      /** @nullable */
+      /**
+         * Populated when run_phase='error'. Shape: { type: string, message: string }.
+         * @nullable
+         */
       error?: UpsertWizardSessionRequestError;
     }
 
@@ -46485,6 +46512,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter to a single skill within the workflow (e.g. 'nextjs').
+     */
+    skill_id?: string;
+    /**
+     * Filter to a single workflow (e.g. 'onboarding').
+     */
+    workflow_id?: string;
     };
 
     export type PublicHogFunctionTemplatesListParams = {

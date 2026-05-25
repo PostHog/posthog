@@ -51,7 +51,8 @@ class TestWizardSessionViewSet(APIBaseTest):
         self.assertEqual(WizardSession.objects.unscoped().filter(team=self.team).count(), 1)
 
     def test_repost_same_session_id_upserts(self):
-        self.client.post(self._url(), self._payload(), format="json")
+        first = self.client.post(self._url(), self._payload(), format="json")
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
 
         response = self.client.post(
             self._url(),
@@ -59,7 +60,8 @@ class TestWizardSessionViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # Second POST against the same session_id is an update, not a create.
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
         self.assertEqual(data["run_phase"], "completed")

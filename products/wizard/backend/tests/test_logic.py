@@ -25,8 +25,9 @@ def _input(team_id: int, **overrides) -> UpsertWizardSessionInput:
 
 @pytest.mark.django_db
 def test_upsert_creates_new_session(team):
-    dto = wizard_facade.upsert(_input(team.id))
+    dto, created = wizard_facade.upsert(_input(team.id))
 
+    assert created is True
     assert dto.session_id == "onboarding-nextjs-2026-05-19T10:00:00Z"
     assert dto.team_id == team.id
     assert dto.run_phase == RunPhase.RUNNING
@@ -36,9 +37,10 @@ def test_upsert_creates_new_session(team):
 
 @pytest.mark.django_db
 def test_upsert_with_same_session_id_replaces_state(team):
-    wizard_facade.upsert(_input(team.id))
+    _, first_created = wizard_facade.upsert(_input(team.id))
+    assert first_created is True
 
-    updated = wizard_facade.upsert(
+    updated, second_created = wizard_facade.upsert(
         _input(
             team.id,
             run_phase=RunPhase.COMPLETED,
@@ -46,9 +48,10 @@ def test_upsert_with_same_session_id_replaces_state(team):
         )
     )
 
+    assert second_created is False
     assert updated.run_phase == RunPhase.COMPLETED
     assert updated.tasks[0].status == TaskStatus.COMPLETED
-    assert len(wizard_facade.list_for_team(team.id)) == 1
+    assert len(wizard_facade.list_for_team(team.id, limit=100)) == 1
 
 
 @pytest.mark.django_db
@@ -56,7 +59,7 @@ def test_upsert_with_different_session_id_creates_new_row(team):
     wizard_facade.upsert(_input(team.id, session_id="run-1"))
     wizard_facade.upsert(_input(team.id, session_id="run-2"))
 
-    assert len(wizard_facade.list_for_team(team.id)) == 2
+    assert len(wizard_facade.list_for_team(team.id, limit=100)) == 2
 
 
 @pytest.mark.django_db
@@ -129,5 +132,5 @@ def test_list_for_team_returns_sessions_ordered_by_started_at_desc(team):
         )
     )
 
-    sessions = wizard_facade.list_for_team(team.id)
+    sessions = wizard_facade.list_for_team(team.id, limit=100)
     assert [s.session_id for s in sessions] == ["run-late", "run-early"]

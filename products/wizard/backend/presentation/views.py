@@ -8,8 +8,9 @@ returns DTO-shaped responses. No model imports.
 from typing import Any
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -21,16 +22,21 @@ from products.wizard.backend.presentation.serializers import (
     UpsertWizardSessionRequestSerializer,
     WizardSessionSerializer,
 )
+from products.wizard.backend.presentation.utils import pagination_window
 
 logger = structlog.get_logger(__name__)
 
 
 def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> None:
-    """Info-level dump of how the incoming wizard_sessions request authenticated.
+    """Debug-only dump of how the incoming wizard_sessions request authenticated.
 
-    Helps diagnose 401/403 chains by surfacing auth type, identity, available scopes,
-    scoped_teams / scoped_organizations on the key, and the project the call targets.
+    Fires only at DEBUG level — kept around for diagnosing 401/403 chains during
+    rollout. Once the wizard CLI auth flow is stable, this can be removed
+    entirely.
     """
+    if not logger.isEnabledFor(10):  # logging.DEBUG
+        return
+
     authenticator = getattr(request, "successful_authenticator", None)
     auth_type = type(authenticator).__name__ if authenticator else "Anonymous"
     user = getattr(request, "user", None)
@@ -53,7 +59,7 @@ def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> 
         scoped_teams = list(getattr(token, "scoped_teams", None) or [])
         scoped_organizations = list(getattr(token, "scoped_organizations", None) or [])
 
-    logger.info(
+    logger.debug(
         "wizard_sessions request",
         action=action,
         method=request.method,
@@ -77,23 +83,50 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def check_permissions(self, request: Request) -> None:
         """Log the auth state before DRF decides allow/deny. Fires for both 200 and 403."""
-        team_id = getattr(self, "team_id", None)
+        # team_id is a cached_property that can raise on malformed URLs — don't
+        # let the diagnostic logger mask a clean 4xx with a 500.
+        try:
+            team_id = self.team_id
+        except (KeyError, ValidationError, NotFound, AttributeError):
+            team_id = None
         _log_request_auth(request, action=getattr(self, "action", "<unknown>"), team_id=team_id)
         super().check_permissions(request)
 
     @extend_schema(
         description=(
-            "List wizard sessions for the project, ordered by started_at desc. This should only be called by the PostHog Wizard."
+            "List wizard sessions for the project, ordered by started_at desc. "
+            "This should only be called by the PostHog Wizard. "
             "Optional filters: ?workflow_id=<id> and ?skill_id=<id>."
         ),
+        parameters=[
+            OpenApiParameter(
+                name="workflow_id",
+                required=False,
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Filter to a single workflow (e.g. 'onboarding').",
+            ),
+            OpenApiParameter(
+                name="skill_id",
+                required=False,
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Filter to a single skill within the workflow (e.g. 'nextjs').",
+            ),
+        ],
         responses={200: WizardSessionSerializer(many=True)},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        page_offset, page_limit = pagination_window(request)
         sessions = wizard_facade.list_for_team(
             self.team_id,
             workflow_id=request.query_params.get("workflow_id"),
             skill_id=request.query_params.get("skill_id"),
+            offset=page_offset,
+            limit=page_limit,
         )
+        # `sessions` is already a bounded slice; DRF's paginator can still wrap
+        # it so the response shape (count/next/previous) stays consistent.
         page = self.paginate_queryset(sessions)
         if page is not None:
             return self.get_paginated_response(WizardSessionSerializer(page, many=True).data)
@@ -117,18 +150,22 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         description=(
-            "Upsert a wizard session. The session_id key determines whether this "
-            "creates a new row or replaces an existing one. Always returns 201."
+            "Upsert a wizard session. The `session_id` key is the idempotency anchor — "
+            "reposting the same `session_id` replaces the existing row. Returns 201 on "
+            "create, 200 on update."
         ),
         request=UpsertWizardSessionRequestSerializer,
-        responses={201: WizardSessionSerializer},
+        responses={
+            200: WizardSessionSerializer,
+            201: WizardSessionSerializer,
+        },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = UpsertWizardSessionRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         req: UpsertWizardSessionRequest = serializer.save()
 
-        dto = wizard_facade.upsert(
+        dto, created = wizard_facade.upsert(
             UpsertWizardSessionInput(
                 team_id=self.team_id,
                 session_id=req.session_id,
@@ -136,9 +173,10 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 skill_id=req.skill_id,
                 started_at=req.started_at,
                 run_phase=req.run_phase,
-                tasks=req.tasks,
+                tasks=tuple(req.tasks),
                 event_plan=req.event_plan,
                 error=req.error,
             )
         )
-        return Response(WizardSessionSerializer(dto).data, status=status.HTTP_201_CREATED)
+        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        return Response(WizardSessionSerializer(dto).data, status=response_status)
