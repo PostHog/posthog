@@ -856,3 +856,45 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_program(query, backend="rust-json"),
                 msg=query,
             )
+
+    @no_memory_leak_check
+    def test_in_cohort_marker_only_before_a_complete_value(self):
+        # `IN COHORT? columnExpr`: cpp takes the COHORT marker only when a complete
+        # value follows it. When COHORT is followed by an operator it is the IN rhs
+        # Field (or part of the rhs expression): `a in cohort < b` ->
+        # `(a in cohort) < b`, `a in cohort like b` -> `(a in cohort) like b`,
+        # `a in cohort * b` -> `a in (cohort * b)`. rust used to greedily eat COHORT
+        # and choke on the empty / dangling value.
+        for query in (
+            "a in cohort < b",
+            "a in cohort + b",
+            "a in cohort * b",
+            "a in cohort like b",
+            "a in cohort is null",
+            "a not in cohort < b",
+            "a not in cohort * b",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+        # COHORT stays a marker before a complete value (a bare `*`, a negative
+        # number, a tag, a parenthesised/array value, or a plain primary), and a
+        # value followed by an outer infix (`cohort 1 < b`) still works.
+        for query in (
+            "a in cohort 1",
+            "a in cohort x",
+            "a in cohort *",
+            "a in cohort -1",
+            "a in cohort <foo/>",
+            "a in cohort (1)",
+            "a in cohort [1]",
+            "a in cohort 1 < b",
+            "a not in cohort 1",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )

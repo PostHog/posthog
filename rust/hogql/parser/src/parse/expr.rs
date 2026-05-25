@@ -4501,6 +4501,44 @@ impl<'a> Parser<'a> {
         Ok(true)
     }
 
+    /// Parse the RHS of `IN` / `NOT IN`, consuming an optional `COHORT` marker.
+    /// cpp only takes the grammar's `COHORT?` alternative when a `columnExpr`
+    /// actually follows. `try_consume_cohort_marker` rejects the obvious
+    /// terminators up front, but a value that *starts* to parse and then fails
+    /// (e.g. `a IN COHORT < b`, where `< b` is a comparison on the whole
+    /// `(a in COHORT)` and is not a cohort value) must also fall back to
+    /// `COHORT`-as-Field. Try the cohort value and, on failure, restore and
+    /// re-read `COHORT` as the IN rhs Field. Returns `(is_cohort, rhs)`.
+    fn parse_in_cohort_rhs(&mut self) -> Result<(bool, Value), ParseError> {
+        let cp = self.checkpoint();
+        if self.try_consume_cohort_marker()? {
+            if let Ok(rhs) = self.parse_expr_bp(BP_COMPARE + 1) {
+                // The marker holds only when the value is a *complete* columnExpr
+                // with nothing left dangling. If a fresh primary sits right after
+                // it, the "value" was really an infix operator that parsed as a
+                // bare Field / `*` (`cohort * b`, `cohort like b`, `cohort is
+                // null`): two primaries can't be adjacent, so `cohort` is part of
+                // the rhs expression instead. `cohort < b` / `cohort + b` already
+                // fail the value parse above (incomplete tag / unary `+`), so they
+                // restore here too. Then the non-marker parse below yields
+                // `a in (cohort * b)` or `(a in cohort) like b` per precedence.
+                if !matches!(
+                    self.peek(),
+                    TokenKind::Number
+                        | TokenKind::String
+                        | TokenKind::Ident
+                        | TokenKind::QuotedIdent
+                        | TokenKind::Keyword(Kw::Null | Kw::Inf | Kw::Nan | Kw::True | Kw::False)
+                ) {
+                    return Ok((true, rhs));
+                }
+            }
+            self.restore(cp)?;
+        }
+        let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
+        Ok((false, rhs))
+    }
+
     // ---- Multi-token / context-sensitive infix --------------------------
 
     /// Returns `Some(true)` if it consumed and produced an infix.
@@ -4622,8 +4660,7 @@ impl<'a> Parser<'a> {
                     }
                     self.bump()?;
                     self.bump()?;
-                    let cohort = self.try_consume_cohort_marker()?;
-                    let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
+                    let (cohort, rhs) = self.parse_in_cohort_rhs()?;
                     let op = if cohort { "not in cohort" } else { "not in" };
                     let prev = lhs.take();
                     *lhs = emit::compare(prev, op, rhs);
@@ -4689,8 +4726,7 @@ impl<'a> Parser<'a> {
                     return Ok(None);
                 }
                 self.bump()?;
-                let cohort = self.try_consume_cohort_marker()?;
-                let rhs = self.parse_expr_bp(BP_COMPARE + 1)?;
+                let (cohort, rhs) = self.parse_in_cohort_rhs()?;
                 let op = if cohort { "in cohort" } else { "in" };
                 let prev = lhs.take();
                 *lhs = emit::compare(prev, op, rhs);
