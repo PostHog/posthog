@@ -168,6 +168,7 @@ impl SinkEvent for WrappedEvent {
             ),
             force_disable_person_processing,
             historical_migration,
+            skip_heatmap_processing: None,
             dlq_reason,
             dlq_step,
             dlq_timestamp,

@@ -68,7 +68,7 @@ describe('RequestContext', () => {
 
         it('returns cached distinctId without calling API', async () => {
             const redis = fakeRedis()
-            await redis.set('mcp:user:test-user:distinctId', JSON.stringify('cached-id'))
+            await redis.set('mcp:token:test-user:distinctId', JSON.stringify('cached-id'))
             mockMe.mockClear()
 
             const ctx = new RequestContext(redis, env, makeProps())
@@ -84,7 +84,7 @@ describe('RequestContext', () => {
             const ctx = new RequestContext(redis, env, makeProps())
 
             await ctx.getDistinctId()
-            const cached = await redis.get('mcp:user:test-user:distinctId')
+            const cached = await redis.get('mcp:token:test-user:distinctId')
             expect(JSON.parse(cached!)).toBe('fresh-id')
         })
 
@@ -134,13 +134,18 @@ describe('RequestContext', () => {
                 })
             )
 
-            expect(ctx.buildClientProperties()).toEqual({
+            const result = ctx.buildClientProperties()
+            expect(result).toMatchObject({
+                $ai_product: 'mcp',
+                $mcp_source: 'posthog_mcp_analytics',
+                $mcp_server_name: 'PostHog',
+                $mcp_server_version: '1.0.0',
+                $mcp_client_name: 'claude-code',
+                $mcp_client_version: '2.0',
+                $mcp_protocol_version: '2025-03-26',
+                $mcp_consumer: 'posthog-code',
+                $mcp_transport: 'streamable-http',
                 mcp_runtime: 'hono',
-                mcp_client_name: 'claude-code',
-                mcp_client_version: '2.0',
-                mcp_protocol_version: '2025-03-26',
-                mcp_consumer: 'posthog-code',
-                mcp_transport: 'streamable-http',
             })
         })
 
@@ -157,7 +162,17 @@ describe('RequestContext', () => {
                 })
             )
 
-            expect(ctx.buildClientProperties()).toEqual({ mcp_runtime: 'hono' })
+            const result = ctx.buildClientProperties()
+            expect(result).toMatchObject({
+                $ai_product: 'mcp',
+                $mcp_source: 'posthog_mcp_analytics',
+                $mcp_server_name: 'PostHog',
+                $mcp_server_version: '1.0.0',
+                mcp_runtime: 'hono',
+            })
+            expect(result.$mcp_client_name).toBeUndefined()
+            expect(result.$mcp_consumer).toBeUndefined()
+            expect(result.$mcp_transport).toBeUndefined()
         })
     })
 

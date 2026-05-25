@@ -282,7 +282,12 @@ class PersonalSpendAnalysisResponseSerializer(serializers.Serializer):
     by_tool = _ToolBreakdownSerializer(help_text="Spend grouped by tool. Scoped to `product` when set.")
     by_model = _ModelBreakdownSerializer(help_text="Spend grouped by `$ai_model`. Scoped to `product` when set.")
     top_traces = _TopTracesSerializer(
-        help_text="Most expensive trace IDs (sessions) in the window. Scoped to `product` when set."
+        help_text=(
+            "Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings "
+            "that aren't actionable in the UI. Kept in the response shape so existing consumers don't "
+            "crash; remove your rendering of this field and we'll drop it from the response entirely "
+            "in a follow-up."
+        )
     )
 
 
@@ -524,54 +529,6 @@ def _fetch_by_model(
     return _truncate(rows, limit)
 
 
-def _fetch_top_traces(
-    team: Team,
-    email: str,
-    from_dt: datetime.datetime,
-    to_dt: datetime.datetime,
-    product: str | None,
-    limit: int,
-) -> dict[str, Any]:
-    query = parse_select(
-        """
-        SELECT
-            properties.$ai_trace_id AS trace_id,
-            count() AS generation_count,
-            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
-            min(timestamp) AS started_at
-        FROM events
-        WHERE equals(event, '$ai_generation')
-            AND {product_filter}
-            AND {email_filter}
-            AND {timestamp_filter}
-        GROUP BY trace_id
-        ORDER BY cost_usd DESC
-        LIMIT {limit}
-        """
-    )
-    result = execute_hogql_query(
-        query=query,
-        placeholders={
-            "product_filter": _product_filter(product),
-            "email_filter": _email_filter(email),
-            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
-            "limit": ast.Constant(value=limit + 1),
-        },
-        team=team,
-        query_type="PersonalSpendTopTraces",
-    )
-    rows = [
-        {
-            "trace_id": row[0] if row[0] is not None else None,
-            "generation_count": int(row[1] or 0),
-            "cost_usd": float(row[2] or 0.0),
-            "started_at": row[3],
-        }
-        for row in (result.results or [])
-    ]
-    return _truncate(rows, limit)
-
-
 class PersonalSpendViewSet(viewsets.ViewSet):
     """
     Returns the requesting user's personal LLM spend analysis across PostHog products.
@@ -690,7 +647,10 @@ class PersonalSpendViewSet(viewsets.ViewSet):
                 "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
                 "by_tool": by_tool,
                 "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
-                "top_traces": _fetch_top_traces(team, email, from_dt, to_dt, product, limit),
+                # Deprecated — trace IDs are opaque and unactionable in the UI. Returned empty so
+                # existing consumers don't crash while they remove the rendering. Drop the field
+                # entirely once no consumer reads it.
+                "top_traces": {"items": [], "truncated": False},
             }
 
         response_data = PersonalSpendAnalysisResponseSerializer(payload).data
