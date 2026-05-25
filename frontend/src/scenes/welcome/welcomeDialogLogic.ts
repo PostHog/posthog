@@ -47,6 +47,10 @@ export interface WelcomeSuggestedStep {
     product_key?: string
 }
 
+export interface WelcomePostHogContact {
+    name: string
+}
+
 export interface WelcomePayload {
     organization_name: string
     inviter: WelcomeInviter | null
@@ -56,6 +60,8 @@ export interface WelcomePayload {
     products_in_use: string[]
     suggested_next_steps: WelcomeSuggestedStep[]
     is_organization_first_user: boolean
+    posthog_contact: WelcomePostHogContact | null
+    shared_slack_channel_url: string | null
 }
 
 const EMPTY_PAYLOAD: WelcomePayload = {
@@ -67,9 +73,11 @@ const EMPTY_PAYLOAD: WelcomePayload = {
     products_in_use: [],
     suggested_next_steps: [],
     is_organization_first_user: false,
+    posthog_contact: null,
+    shared_slack_channel_url: null,
 }
 
-export type WelcomeCardKind = 'members' | 'activity' | 'dashboards' | 'products' | 'next_steps'
+export type WelcomeCardKind = 'members' | 'activity' | 'dashboards' | 'products' | 'next_steps' | 'contact'
 
 // LocalStorage key used to suppress the dialog on subsequent visits after the user has dismissed it.
 // Scoped per user AND organization so a contractor/agency who works across multiple orgs gets
@@ -234,6 +242,8 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         popularDashboards: [(s) => [s.welcomeData], (data): WelcomePopularDashboard[] => data.popular_dashboards],
         productsInUse: [(s) => [s.welcomeData], (data): string[] => data.products_in_use],
         suggestedNextSteps: [(s) => [s.welcomeData], (data): WelcomeSuggestedStep[] => data.suggested_next_steps],
+        posthogContact: [(s) => [s.welcomeData], (data): WelcomePostHogContact | null => data.posthog_contact],
+        sharedSlackChannelUrl: [(s) => [s.welcomeData], (data): string | null => data.shared_slack_channel_url],
         organizationName: [
             (s) => [s.welcomeData, s.user],
             (data, user): string => data.organization_name || user?.organization?.name || '',

@@ -187,3 +187,18 @@ class TestWelcomeEndpoint(APIBaseTest):
         self.client.logout()
         response = self.client.get("/api/organizations/@current/welcome/current/")
         self.assertIn(response.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+
+    def test_payload_exposes_posthog_contact_and_slack_channel_keys(self):
+        """Contract test: the response always carries the two contact-section keys, even when null.
+
+        Frontend renders the concierge card off these fields; the keys must be present so the
+        TypeScript types and the kea selectors don't go undefined when the data source is unhooked.
+        """
+        response = self.client.get("/api/organizations/@current/welcome/current/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("posthog_contact", data)
+        self.assertIn("shared_slack_channel_url", data)
+        # No internal source of truth wired up yet — both must be null until one is added.
+        self.assertIsNone(data["posthog_contact"])
+        self.assertIsNone(data["shared_slack_channel_url"])

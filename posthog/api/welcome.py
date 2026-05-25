@@ -68,6 +68,10 @@ class _WelcomeInviterSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
 
+class _WelcomePostHogContactSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Display name of the PostHog contact (TAM/CSM) assigned to this org.")
+
+
 class _WelcomeTeamMemberSerializer(serializers.Serializer):
     name = serializers.CharField()
     email = serializers.EmailField()
@@ -109,6 +113,14 @@ class WelcomeResponseSerializer(serializers.Serializer):
     products_in_use = serializers.ListField(child=serializers.CharField())
     suggested_next_steps = _WelcomeSuggestedStepSerializer(many=True)
     is_organization_first_user = serializers.BooleanField()
+    posthog_contact = _WelcomePostHogContactSerializer(
+        allow_null=True,
+        help_text="PostHog 'human' (TAM/CSM) assigned to this org, if known. May be null.",
+    )
+    shared_slack_channel_url = serializers.URLField(
+        allow_null=True,
+        help_text="URL of the shared Slack channel with PostHog for this org, if any.",
+    )
 
 
 # ------------- Viewset --------------------------------------------------------------------------------
@@ -176,6 +188,8 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
             "recent_activity": _get_recent_activity(accessible_team_ids, since),
             "popular_dashboards": _get_popular_dashboards(accessible_team_ids, access_control),
             "products_in_use": _get_products_in_use(organization),
+            "posthog_contact": _get_posthog_contact(organization),
+            "shared_slack_channel_url": _get_shared_slack_channel_url(organization),
         }
         cache.set(cache_key, cacheable, _CACHE_TTL_SECONDS)
 
@@ -323,6 +337,31 @@ def _get_inviter(user: User, organization: Organization) -> dict[str, str] | Non
         "name": inviter.first_name or (inviter.email.split("@", 1)[0] if inviter.email else "A teammate"),
         "email": inviter.email,
     }
+
+
+def _get_posthog_contact(organization: Organization) -> dict[str, str] | None:
+    """Return the PostHog "human" (TAM/CSM/account owner) for this org, or None.
+
+    No internal source of truth currently links a PostHog Organization to its assigned
+    PostHog employee: Salesforce ownership is one-way outbound (see
+    ee/billing/salesforce_enrichment), Vitally only lands in the customer-facing data
+    warehouse, and the customer_analytics Account model carries CSM/AE/owner fields for
+    *PostHog customers' own customers* — not for PostHog's own TAM mapping. When a real
+    source is wired up (Organization admin field, Salesforce ingestion, etc.), return
+    {"name": "..."} here; the cache key already rotates on member count and onboarding
+    signals only, so changes here will be visible at most _CACHE_TTL_SECONDS later.
+    """
+    return None
+
+
+def _get_shared_slack_channel_url(organization: Organization) -> str | None:
+    """Return the shared-with-PostHog Slack channel URL for this org, or None.
+
+    No internal source of truth currently exists. See _get_posthog_contact for the
+    broader context — when wired up (e.g. an Organization admin field synced from
+    Slack Connect metadata), return the channel URL here.
+    """
+    return None
 
 
 def _get_team_members(organization: Organization) -> list[dict[str, Any]]:

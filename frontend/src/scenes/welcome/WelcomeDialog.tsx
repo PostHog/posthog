@@ -10,6 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AskMaxCard } from './cards/AskMaxCard'
 import { PopularDashboardsCard } from './cards/PopularDashboardsCard'
+import { PostHogHumanCard } from './cards/PostHogHumanCard'
 import { ProductsInUseCard } from './cards/ProductsInUseCard'
 import { RecentActivityCard } from './cards/RecentActivityCard'
 import { SuggestedNextStepsCard } from './cards/SuggestedNextStepsCard'
@@ -123,6 +124,9 @@ export function WelcomeDialog(): JSX.Element | null {
                     <RecentActivityCard />
                     <PopularDashboardsCard />
                     <TeamMembersCard />
+                    {/* Small concierge note — only renders when there's a contact name and/or
+                     * a shared Slack channel URL on the payload; otherwise this is a no-op. */}
+                    <PostHogHumanCard />
                 </div>
             )}
         </LemonModal>

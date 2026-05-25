@@ -47,6 +47,8 @@ const mockPayload = {
         { label: 'See active feature flags', href: '/feature_flags', reason: 'Your team uses Feature flags' },
     ],
     is_organization_first_user: false,
+    posthog_contact: null,
+    shared_slack_channel_url: null,
 }
 
 describe('welcomeDialogLogic', () => {
