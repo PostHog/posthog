@@ -999,3 +999,32 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             for backend in ("cpp-json", "rust-json"):
                 with self.assertRaises(BaseHogQLError):
                     parse_expr(query, backend=backend)
+
+    @no_memory_leak_check
+    def test_empty_fstring_constant_spans_whole_token(self):
+        # An empty f-string `f''` has no interior text, so cpp spans its Constant
+        # over the whole `f''` token, not the zero-width gap between the quotes.
+        # rust positioned it at the interior; the comparison keeps positions.
+        for query in ("f''", "f'a'", "f'ab'", "f'  '", "[f'']", "f'' || f''"):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    @no_memory_leak_check
+    def test_interpolate_expr_carries_positions(self):
+        # The INTERPOLATE item node (InterpolateExpr) was built without a position
+        # wrap, so it came back position-less; cpp spans it from the expr start to
+        # the value end (or the expr end when there is no `AS value`).
+        for query in (
+            "select 1 order by a with fill interpolate (b)",
+            "select 1 order by a with fill interpolate (b as 5)",
+            "select 1 order by a with fill interpolate (b, c)",
+            "select 1 order by a with fill interpolate (b as c, d)",
+        ):
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )

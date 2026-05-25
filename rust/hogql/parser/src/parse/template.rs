@@ -187,13 +187,15 @@ pub(super) fn parse_template_body(
         ));
     }
     if chunks.is_empty() {
-        // Empty body — cpp emits an empty-string Constant spanning the
-        // body (between the quotes). Position it accordingly.
+        // Empty body — cpp spans the empty-string Constant over the WHOLE
+        // `f'…'` token (there is no interior text to span), not the zero-width
+        // gap between the quotes. The token runs from `body_offset - 2` (`f'`)
+        // through `body_end + 1` (past the closing `'`).
         return Ok(wrap_literal_chunk(
             full_src,
             String::new(),
-            body_offset,
-            body_end,
+            body_offset - 2,
+            body_end + 1,
         ));
     }
     // A single-chunk template IS that chunk — whether a literal

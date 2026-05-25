@@ -763,19 +763,23 @@ impl<'a> Parser<'a> {
                         // `(AS columnExpr)?` separator.
                         // `interpolate(a AS 5)` keeps AS for the
                         // outer because `5` isn't an alias target.
+                        let interp_start = self.peek0.start;
                         let expr = self.parse_expr_bp(0)?;
                         let value = if self.eat_kw(Kw::As)? {
                             Some(self.parse_expr_bp(0)?)
                         } else {
                             None
                         };
+                        // cpp spans the InterpolateExpr from the expr start to the
+                        // value end (or the expr end when there is no `AS value`).
+                        let interp_end = self.last_consumed_end;
                         let mut interp = serde_json::Map::new();
                         interp.insert("node".into(), Value::String("InterpolateExpr".into()));
                         interp.insert("expr".into(), expr);
                         if let Some(v) = value {
                             interp.insert("value".into(), v);
                         }
-                        items.push(Value::Object(interp));
+                        items.push(self.wrap_pos_to(Value::Object(interp), interp_start, interp_end));
                         if !self.eat(TokenKind::Comma)? {
                             break;
                         }
