@@ -726,6 +726,16 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_program(query, backend="rust-json"),
                 msg=query,
             )
+        # `.` is special: a leading-dot float (`return .5` -> value 0.5,
+        # `return .5.5` -> tuple-access on 0.5) is a return VALUE, while a
+        # `.`-chain-link (`return .x`) makes `return` an identifier (tuple /
+        # field). Both must match cpp (regression guard for the #16 dispatch).
+        for query in ("return .5", "return .5.5", "return . 5", "return .x"):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
+                msg=query,
+            )
 
     @no_memory_leak_check
     def test_not_before_statement_keyword_falls_back_to_field(self):

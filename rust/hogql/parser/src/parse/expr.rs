@@ -563,7 +563,7 @@ impl<'a> Parser<'a> {
     /// tuple access on the boolean Constant. Used to keep `true`/`false` a
     /// Constant base for numeric tuple access while still folding `.identifier`
     /// into a Field chain.
-    fn dot_next_is_chain_link(&self) -> bool {
+    pub(crate) fn dot_next_is_chain_link(&self) -> bool {
         if self.peek_next() != TokenKind::Dot {
             return false;
         }

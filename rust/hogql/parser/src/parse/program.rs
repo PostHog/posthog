@@ -179,7 +179,16 @@ impl<'a> Parser<'a> {
             // `return` keeps the returnStmt (`return 1`, `return + 1`) or the
             // bare-return split (`return like x`). Gate on `is_pure_infix_op`
             // and fall through to the exprStmt arm for the identifier case.
-            TokenKind::Keyword(Kw::Return) if !is_pure_infix_op(self.peek_next()) => {
+            //
+            // Exception: a `.` that begins a leading-dot float (`return .5` →
+            // value 0.5, `return .5.5` → tuple-access on 0.5) is a return VALUE,
+            // not tuple-access on `return`. Only a `.`-chain-link (`return.x`)
+            // makes `return` an identifier, so keep `return .<number>` in the
+            // returnStmt path.
+            TokenKind::Keyword(Kw::Return)
+                if !is_pure_infix_op(self.peek_next())
+                    || (self.peek_next() == TokenKind::Dot && !self.dot_next_is_chain_link()) =>
+            {
                 self.parse_return_stmt()
             }
             TokenKind::Keyword(Kw::Throw) => self.parse_throw_stmt(),
