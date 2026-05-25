@@ -104,6 +104,7 @@ import { eventMetadataTaxonomicGroupsLogic } from './eventMetadataTaxonomicGroup
 import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGroupsLogic'
 import { hogQLExpressionTaxonomicGroupsLogic } from './hogQLExpressionTaxonomicGroupsLogic'
 import { maxAIContextTaxonomicGroupsLogic } from './maxAIContextTaxonomicGroupsLogic'
+import { suggestedFiltersTaxonomicGroupsLogic } from './suggestedFiltersTaxonomicGroupsLogic'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 const PROPERTY_TAXONOMIC_GROUP_TYPES = new Set(Object.values(PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE))
@@ -335,6 +336,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['eventMetadataTaxonomicGroups'],
             maxAIContextTaxonomicGroupsLogic,
             ['maxAIContextTaxonomicGroups'],
+            suggestedFiltersTaxonomicGroupsLogic,
+            ['suggestedFiltersTaxonomicGroups'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -505,10 +508,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.dataWarehousePopoverFields],
             (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? [],
         ],
-        suggestedFiltersLabel: [
-            () => [(_, props) => props.suggestedFiltersLabel],
-            (suggestedFiltersLabel) => suggestedFiltersLabel,
-        ],
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => (excludedProperties ?? {}) as ExcludedProperties,
@@ -547,7 +546,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.schemaColumns,
                 (_, props) => props.schemaColumnsLoading,
                 s.hogQLExpressionTaxonomicGroups,
-                s.suggestedFiltersLabel,
+                s.suggestedFiltersTaxonomicGroups,
                 s.propertyFilters,
                 s.eventMetadataTaxonomicGroups,
                 s.maxAIContextTaxonomicGroups,
@@ -567,7 +566,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 schemaColumns: DatabaseSchemaField[],
                 schemaColumnsLoading: boolean | undefined,
                 hogQLExpressionTaxonomicGroups: TaxonomicFilterGroup[],
-                suggestedFiltersLabel: string | undefined,
+                suggestedFiltersTaxonomicGroups: TaxonomicFilterGroup[],
                 propertyFilters,
                 eventMetadataTaxonomicGroups: TaxonomicFilterGroup[],
                 maxAIContextTaxonomicGroups: TaxonomicFilterGroup[],
@@ -575,7 +574,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 endpointFilters: Record<string, any> | undefined,
                 featureFlags: Record<string, boolean | string | undefined>
             ): TaxonomicFilterGroup[] => {
-                const { eventNames, primaryPropertiesForContextEvents } = eventNamesWithPrimaryProperties
+                const { eventNames } = eventNamesWithPrimaryProperties
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
                 const groups: TaxonomicFilterGroup[] = [
@@ -1332,34 +1331,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Saved filter',
                     },
                     ...maxAIContextTaxonomicGroups,
-                    {
-                        name: suggestedFiltersLabel ?? 'Suggested filters',
-                        searchPlaceholder: (suggestedFiltersLabel ?? 'Suggested filters').toLowerCase(),
-                        categoryLabel: (count: number) =>
-                            (suggestedFiltersLabel ?? 'Suggested filters') + (count > 0 ? `: ${count}` : ''),
-                        type: TaxonomicFilterGroupType.SuggestedFilters,
-                        isLocalOnly: true,
-                        isMetaGroup: true,
-                        options: [
-                            // Promoted properties for any event in context come first — if a team
-                            // has marked a property as the one that summarises this event, it's
-                            // the property they almost certainly want to filter or break down by.
-                            ...primaryPropertiesForContextEvents.map((name) => ({
-                                name,
-                                group: TaxonomicFilterGroupType.EventProperties,
-                            })),
-                            ...(eventNames.includes('$autocapture')
-                                ? (['text', 'selector'] as const).map((name) => ({
-                                      name,
-                                      group: TaxonomicFilterGroupType.Elements,
-                                  }))
-                                : []),
-                        ],
-                        getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-                        getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                            'name' in item ? (item.name ?? null) : null,
-                        getPopoverHeader: () => suggestedFiltersLabel ?? 'Suggested filters',
-                    },
+                    ...suggestedFiltersTaxonomicGroups,
                     {
                         name: 'Recent',
                         searchPlaceholder: 'recent',
