@@ -348,6 +348,29 @@ class TestEvaluateAlert:
             await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
         assert exc_info.value.non_retryable is True
 
+    async def test_evaluate_non_retryable_when_alert_deleted_between_fetch_and_persist(self, alert) -> None:
+        # Simulate the race where the alert is deleted (directly or via team/insight cascade)
+        # after the activity's initial SELECT but before add_alert_check persists results.
+        # Without the guard, the post-evaluation alert.save(update_fields=...) raised
+        # DatabaseError("Save with update_fields did not affect any rows.") and left the
+        # Temporal activity errored. The guard converts this to a non-retryable terminal.
+        alert_id = str(alert.id)
+
+        def _delete_and_evaluate(alert_arg: AlertConfiguration) -> AlertEvaluationResult:
+            AlertConfiguration.objects.filter(pk=alert_arg.id).delete()
+            return AlertEvaluationResult(value=5.0, breaches=None)
+
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=_delete_and_evaluate,
+        ):
+            env = ActivityEnvironment()
+            with pytest.raises(ApplicationError) as exc_info:
+                await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=alert_id))
+
+        assert exc_info.value.non_retryable is True
+        assert "deleted mid-evaluation" in str(exc_info.value)
+
 
 @pytest.mark.asyncio
 @pytest.mark.django_db

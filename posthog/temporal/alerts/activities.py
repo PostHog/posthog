@@ -1,7 +1,7 @@
 import traceback
 from datetime import UTC, datetime
 
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.db.models import Case, F, IntegerField, Q, Value, When
 
 import structlog
@@ -238,27 +238,41 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
         should_start_investigation = False
         should_gate_notification = False
-        with transaction.atomic():
-            alert_check, should_notify = add_alert_check(
-                alert,
-                value,
-                breaches,
-                error,
-                anomaly_scores,
-                triggered_points,
-                triggered_dates,
-                interval,
-                triggered_metadata,
-            )
+        try:
+            with transaction.atomic():
+                alert_check, should_notify = add_alert_check(
+                    alert,
+                    value,
+                    breaches,
+                    error,
+                    anomaly_scores,
+                    triggered_points,
+                    triggered_dates,
+                    interval,
+                    triggered_metadata,
+                )
 
-            if should_trigger_investigation(
-                alert,
-                previous_state=previous_state,
-                new_state=alert_check.state,
-            ):
-                if claim_investigation_slot(alert, alert_check):
-                    should_start_investigation = True
-                    should_gate_notification = bool(alert.investigation_gates_notifications)
+                if should_trigger_investigation(
+                    alert,
+                    previous_state=previous_state,
+                    new_state=alert_check.state,
+                ):
+                    if claim_investigation_slot(alert, alert_check):
+                        should_start_investigation = True
+                        should_gate_notification = bool(alert.investigation_gates_notifications)
+        except DatabaseError:
+            # Race: alert was deleted (directly or via cascade from team/insight)
+            # between the SELECT at the top of this activity and the persistence
+            # block above. Surfaces as either DatabaseError ("Save with update_fields
+            # did not affect any rows.") from alert.save, or IntegrityError on the FK
+            # from AlertCheck.create — IntegrityError is a DatabaseError subclass.
+            # Retrying can't recover from a missing row, so end the workflow cleanly.
+            if not AlertConfiguration.objects.filter(id=inputs.alert_id).exists():
+                raise ApplicationError(
+                    f"Alert {inputs.alert_id} deleted mid-evaluation",
+                    non_retryable=True,
+                )
+            raise
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
