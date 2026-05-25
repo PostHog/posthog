@@ -651,7 +651,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                     if incremental_field:
                         query = f"{query} ORDER BY {_IDENTIFIER_QUOTER.quote(incremental_field)} ASC"
 
-                    logger.debug(f"MS SQL query: {query.format(args)}")
+                    logger.debug(f"MS SQL query: {query} with args: {args}")
 
                     cursor.execute(query, args)
 
