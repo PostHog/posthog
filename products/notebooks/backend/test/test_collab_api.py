@@ -328,6 +328,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
             "client-1",
             [{"stepType": "replace", "from": 0, "to": 0}],
             notebook["version"],
+            last_saved_version=notebook["version"],
         )
 
         # Last-Event-ID=0-0 means "from the beginning of the stream", so the pre-populated
@@ -355,6 +356,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
             "client-A",
             [{"stepType": "replace", "from": 0, "to": 0}],
             base_version,
+            last_saved_version=base_version,
         )
         submit_steps(
             self.team.pk,
@@ -362,6 +364,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
             "client-B",
             [{"stepType": "replace", "from": 1, "to": 1}],
             base_version + 1,
+            last_saved_version=base_version + 1,
         )
 
         first_step_id = f"{base_version + 1}-0"
