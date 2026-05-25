@@ -254,6 +254,32 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(newState.state.conversionMatched).toBeUndefined()
         })
 
+        it('does not wake when the wait step has events without bytecode (fail-closed)', async () => {
+            // HogFlowSerializer compiles bytecode at save time; a row that reaches the
+            // matcher without bytecode is malformed and must not fall back to event-name
+            // matching, which would silently bypass property filters.
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            const flow = makeHogFlow({ id: 'flow-1' })
+            ;(flow.actions as any[])[1].config.events[0].filters.bytecode = []
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            await matcher.runWake([makeGlobals({})])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeUndefined()
+        })
+
         it('skips waking a matched job whose state has no currentAction', async () => {
             matcher.findRows = [
                 {
@@ -300,7 +326,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                         window_minutes: null,
                         filters: {},
                         bytecode: [],
-                        events: [{ filters: { events: [{ id: 'wuc_subscribed' }] } }],
+                        events: [
+                            { filters: { events: [{ id: 'wuc_subscribed' }], bytecode: eventBytecode('wuc_subscribed') } },
+                        ],
                     },
                 } as any),
             })

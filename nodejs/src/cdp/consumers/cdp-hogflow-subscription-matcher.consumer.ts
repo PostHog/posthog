@@ -151,13 +151,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
                 if (!stepMatched && action?.type === 'wait_until_condition') {
-                    if (await this.evaluateWaitUntilCondition(action, filterGlobals, globals.event.event)) {
+                    if (await this.evaluateWaitUntilCondition(action, filterGlobals)) {
                         stepMatched = true
                         stepMatchedEventName = globals.event.event
                     }
                 }
                 if (!conversionMatched) {
-                    conversionMatched = await this.evaluateConversionEvents(hogflow, filterGlobals, globals.event.event)
+                    conversionMatched = await this.evaluateConversionEvents(hogflow, filterGlobals)
                 }
                 if (stepMatched && conversionMatched) {
                     break
@@ -189,29 +189,24 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     private async evaluateWaitUntilCondition(
         action: Extract<HogFlowAction, { type: 'wait_until_condition' }>,
-        filterGlobals: FilterGlobals,
-        incomingEventName: string
+        filterGlobals: FilterGlobals
     ): Promise<boolean> {
         // `events` and the property-based `condition` are OR'd: a step can wait on either,
         // and either matching wakes the job. The condition is evaluated on every incoming
         // event, which is what makes property-based waits event-driven rather than polled.
         for (const eventConfig of action.config.events ?? []) {
-            if (await this.evaluateEventConfig(eventConfig, filterGlobals, incomingEventName, action.id)) {
+            if (await this.evaluateEventConfig(eventConfig, filterGlobals, action.id)) {
                 return true
             }
         }
         return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, action.id)
     }
 
-    private async evaluateConversionEvents(
-        hogflow: HogFlow,
-        filterGlobals: FilterGlobals,
-        incomingEventName: string
-    ): Promise<boolean> {
+    private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {
         const conversionEvents = hogflow.conversion?.events ?? []
         const contextId = `${hogflow.id}/conversion`
         for (const eventConfig of conversionEvents) {
-            if (await this.evaluateEventConfig(eventConfig, filterGlobals, incomingEventName, contextId)) {
+            if (await this.evaluateEventConfig(eventConfig, filterGlobals, contextId)) {
                 return true
             }
         }
@@ -221,15 +216,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     private async evaluateEventConfig(
         eventConfig: { filters?: any },
         filterGlobals: FilterGlobals,
-        incomingEventName: string,
         contextId: string
     ): Promise<boolean> {
-        const bytecode = eventConfig.filters?.bytecode
-        if (Array.isArray(bytecode) && bytecode.length > 0) {
-            return runBytecode(bytecode, filterGlobals, contextId)
-        }
-        // Fallback when bytecode is absent: match the event name directly.
-        return extractEventNames(eventConfig.filters).includes(incomingEventName)
+        // HogFlowSerializer compiles bytecode for every events[].filters at save time,
+        // so missing bytecode means a malformed row - fail closed rather than falling
+        // back to event-name-only matching (which would silently bypass property filters).
+        return runBytecode(eventConfig.filters?.bytecode, filterGlobals, contextId)
     }
 
     private async findParkedJobs(
@@ -538,14 +530,4 @@ function applyWakeFlags(stateBuffer: Buffer, req: WakeRequest): Buffer | null {
         logger.warn('Failed to parse state during wake', { jobId: req.id, err })
         return null
     }
-}
-
-function extractEventNames(filters: any): string[] {
-    const events = filters && typeof filters === 'object' ? filters.events : undefined
-    if (!Array.isArray(events) || events.length === 0) {
-        return []
-    }
-    return events
-        .map((e: any) => (e && typeof e === 'object' ? (e.id ?? e.name ?? '') : ''))
-        .filter((name: string) => name !== '')
 }
