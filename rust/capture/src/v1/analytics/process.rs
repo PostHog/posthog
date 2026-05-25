@@ -804,6 +804,25 @@ mod tests {
     }
 
     #[test]
+    fn validate_events_uuid_with_whitespace_trimmed_successfully() {
+        let ctx = test_utils::test_context();
+        let inner_uuid = Uuid::new_v4();
+        let padded_uuid = format!("  {}  ", inner_uuid);
+        let batch = Batch {
+            created_at: "2026-03-19T14:30:00.000Z".to_string(),
+            historical_migration: false,
+            capture_internal: None,
+            batch: vec![Event {
+                uuid: padded_uuid,
+                ..valid_event()
+            }],
+        };
+        let events = validate_events(&ctx, batch).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].uuid, inner_uuid);
+    }
+
+    #[test]
     fn validate_events_malformed_properties() {
         let ctx = test_utils::test_context();
         let bad_event = Event {
@@ -2073,6 +2092,22 @@ mod tests {
 
         assert_eq!(events[0].result, EventResult::Drop);
         assert_eq!(events[0].details, Some("invalid_distinct_id"));
+    }
+
+    #[tokio::test]
+    async fn process_batch_returns_service_unavailable_when_no_sink_router() {
+        let test_state = crate::v1::test_utils::TestStateBuilder::new().build();
+        let mut state = test_state.state;
+        state.v1_sink_router = None;
+
+        let mut ctx = test_utils::test_context();
+        let batch = valid_batch(vec![valid_event()]);
+
+        let err = process_batch(&state, &mut ctx, batch).await.unwrap_err();
+        assert!(
+            matches!(err, Error::ServiceUnavailable(_)),
+            "expected ServiceUnavailable, got: {err:?}"
+        );
     }
 
     // =========================================================================

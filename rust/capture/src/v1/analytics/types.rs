@@ -1024,6 +1024,19 @@ mod tests {
     }
 
     #[test]
+    fn serialize_into_fails_without_adjusted_timestamp() {
+        let mut ev = pageview_event();
+        ev.adjusted_timestamp = None;
+        let ctx = serialize_ctx();
+        let mut buf = String::new();
+        let err = ev.serialize_into(&ctx, &mut buf).unwrap_err();
+        assert!(
+            err.to_string().contains("adjusted_timestamp"),
+            "error should mention adjusted_timestamp: {err}"
+        );
+    }
+
+    #[test]
     fn serialize_round_trip_basic() {
         let wrapped = pageview_event();
         let ctx = serialize_ctx();
