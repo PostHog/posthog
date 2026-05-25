@@ -13,6 +13,7 @@ import type {
     UpsertWizardSessionRequestApi,
     WizardSessionDTOApi,
     WizardSessionsListParams,
+    WizardSessionsStreamRetrieveParams,
 } from './api.schemas'
 
 export const getWizardSessionsListUrl = (projectId: string, params?: WizardSessionsListParams) => {
@@ -78,6 +79,36 @@ export const wizardSessionsRetrieve = async (
     options?: RequestInit
 ): Promise<WizardSessionDTOApi> => {
     return apiMutator<WizardSessionDTOApi>(getWizardSessionsRetrieveUrl(projectId, sessionId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardSessionsStreamRetrieveUrl = (projectId: string, params: WizardSessionsStreamRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/wizard/sessions/stream/?${stringifiedParams}`
+        : `/api/projects/${projectId}/wizard/sessions/stream/`
+}
+
+/**
+ * Server-Sent Events stream of wizard session updates for a (workflow_id, skill_id) pair. On connect, the current latest session (if any) is emitted as the first event; subsequent upserts are streamed in real time.
+ */
+export const wizardSessionsStreamRetrieve = async (
+    projectId: string,
+    params: WizardSessionsStreamRetrieveParams,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getWizardSessionsStreamRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
