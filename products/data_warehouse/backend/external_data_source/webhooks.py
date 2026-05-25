@@ -13,7 +13,7 @@ from posthog.temporal.data_imports.sources.common.base import (
 )
 from posthog.temporal.data_imports.sources.common.config import Config
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
 def get_webhook_url(hog_function_id: str) -> str:
@@ -30,6 +30,7 @@ class WebhookSetupResult:
     success: bool
     webhook_url: str = ""
     error: str | None = None
+    pending_inputs: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -154,6 +155,7 @@ def create_and_register_webhook(
         success=result.success,
         webhook_url=hog_fn_result.webhook_url,
         error=result.error,
+        pending_inputs=list(result.pending_inputs),
     )
 
 

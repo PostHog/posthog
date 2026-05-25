@@ -1,11 +1,99 @@
+import type { SourceConfig } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+
 import {
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
-    getInitialSourceConnectionDetailsValues,
+    mergeRestoredSourceFormValues,
+    shouldHydrateSourceFromUrl,
+    sourceWizardLogic,
 } from '../sourceWizardLogic'
 
 describe('sourceWizardLogic', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    it('keeps wizard state isolated by tab id', () => {
+        const postgresSource = {
+            name: 'Postgres',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+        const availableSources = { Postgres: postgresSource }
+        const firstTabLogic = sourceWizardLogic({ availableSources, tabId: 'first-tab' })
+        const secondTabLogic = sourceWizardLogic({ availableSources, tabId: 'second-tab' })
+        const unmountFirstTabLogic = firstTabLogic.mount()
+        const unmountSecondTabLogic = secondTabLogic.mount()
+
+        try {
+            firstTabLogic.actions.selectConnector(postgresSource)
+            firstTabLogic.actions.setStep(2)
+            firstTabLogic.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'first.example.com')
+            secondTabLogic.actions.setStep(3)
+            secondTabLogic.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'second.example.com')
+
+            expect(firstTabLogic.values.selectedConnector?.name).toEqual('Postgres')
+            expect(firstTabLogic.values.currentStep).toEqual(2)
+            expect(firstTabLogic.values.sourceConnectionDetails.payload.host).toEqual('first.example.com')
+            expect(secondTabLogic.values.selectedConnector).toBeNull()
+            expect(secondTabLogic.values.currentStep).toEqual(3)
+            expect(secondTabLogic.values.sourceConnectionDetails.payload.host).toEqual('second.example.com')
+        } finally {
+            unmountFirstTabLogic()
+            unmountSecondTabLogic()
+        }
+    })
+
+    it('preserves wizard state while attached to the mounted scene tab', () => {
+        const postgresSource = {
+            name: 'Postgres',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+        const availableSources = { Postgres: postgresSource }
+        const attachedLogic = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
+        const unmountAttached = attachedLogic.mount()
+        const firstMount = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
+        const unmountFirst = firstMount.mount()
+
+        try {
+            firstMount.actions.selectConnector(postgresSource)
+            firstMount.actions.setStep(2)
+            firstMount.actions.setSourceConnectionDetailsValue(['payload', 'host'], 'kept.example.com')
+            unmountFirst()
+
+            const secondMount = sourceWizardLogic({ availableSources, tabId: 'remounted-tab' })
+            const unmountSecond = secondMount.mount()
+
+            try {
+                expect(secondMount.values.selectedConnector?.name).toEqual('Postgres')
+                expect(secondMount.values.currentStep).toEqual(2)
+                expect(secondMount.values.sourceConnectionDetails.payload.host).toEqual('kept.example.com')
+            } finally {
+                unmountSecond()
+            }
+        } finally {
+            unmountAttached()
+        }
+    })
+
+    it('does not hydrate the same source URL again after the wizard has started', () => {
+        const postgresSource = {
+            name: 'Postgres',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+
+        expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
+        expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
+        expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
+    })
+
     describe('getDatabaseSchemaPayload', () => {
         it('includes the selected access method for schema discovery', () => {
             expect(
@@ -33,29 +121,6 @@ describe('sourceWizardLogic', () => {
             ).toEqual({
                 access_method: 'warehouse',
                 host: 'localhost',
-            })
-        })
-    })
-
-    describe('getInitialSourceConnectionDetailsValues', () => {
-        it('sets the access method when there are no saved values', () => {
-            expect(getInitialSourceConnectionDetailsValues(undefined, 'direct')).toEqual({
-                access_method: 'direct',
-            })
-        })
-
-        it('keeps a saved access method when one exists', () => {
-            expect(
-                getInitialSourceConnectionDetailsValues(
-                    {
-                        access_method: 'warehouse',
-                        payload: { host: 'localhost' },
-                    },
-                    'direct'
-                )
-            ).toEqual({
-                access_method: 'warehouse',
-                payload: { host: 'localhost' },
             })
         })
     })
@@ -558,6 +623,45 @@ describe('sourceWizardLogic', () => {
                 { allowBlankSensitiveFields: true }
             )
             expect(res.payload.host).toBe('Please enter a host')
+        })
+    })
+
+    describe('mergeRestoredSourceFormValues', () => {
+        const defaults = { prefix: '', description: '', payload: { using_ssl: 'true' } }
+
+        it('uses the URL access_method when there are no saved values', () => {
+            expect(mergeRestoredSourceFormValues(defaults, null, 'direct')).toEqual({
+                prefix: '',
+                description: '',
+                payload: { using_ssl: 'true' },
+                access_method: 'direct',
+            })
+        })
+
+        it('keeps the saved access_method when one exists', () => {
+            // OAuth callback URL doesn't carry access_method forward — saved value must win.
+            const saved = { access_method: 'warehouse', payload: { host: 'localhost' } }
+            expect(mergeRestoredSourceFormValues(defaults, saved, 'direct')).toEqual({
+                prefix: '',
+                description: '',
+                payload: { host: 'localhost' },
+                access_method: 'warehouse',
+            })
+        })
+
+        it('omits access_method when neither saved values nor current state provide one', () => {
+            expect(mergeRestoredSourceFormValues(defaults, null, undefined)).toEqual(defaults)
+        })
+
+        it('overlays saved values on top of connector schema defaults', () => {
+            const saved = { payload: { host: 'foo' } }
+            // saved.payload replaces defaults.payload wholesale (shallow merge)
+            expect(mergeRestoredSourceFormValues(defaults, saved, 'warehouse')).toEqual({
+                prefix: '',
+                description: '',
+                payload: { host: 'foo' },
+                access_method: 'warehouse',
+            })
         })
     })
 })

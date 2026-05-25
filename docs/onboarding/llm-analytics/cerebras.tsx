@@ -35,7 +35,7 @@ export const getCerebrasSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install openai opentelemetry-sdk posthog[otel] opentelemetry-instrumentation-openai-v2
+                                    pip install openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
                                 `,
                             },
                             {

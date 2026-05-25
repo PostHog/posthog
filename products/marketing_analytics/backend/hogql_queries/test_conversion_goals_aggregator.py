@@ -24,8 +24,8 @@ from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (
     TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Action
 
+from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 
 from .conversion_goal_processor import ConversionGoalProcessor

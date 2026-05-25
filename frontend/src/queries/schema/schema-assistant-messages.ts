@@ -15,6 +15,7 @@ import type {
     AssistantTrendsQuery,
 } from './schema-assistant-queries'
 import type {
+    DataVisualizationNode,
     FunnelsQuery,
     HogQLQuery,
     LifecycleQuery,
@@ -240,6 +241,7 @@ export interface ContextMessage extends BaseAssistantMessage {
  * The union type with all cleaned queries for the assistant. Only used for generating the schemas with an LLM.
  */
 export type AnyAssistantGeneratedQuery =
+    | DataVisualizationNode
     | AssistantTrendsQuery
     | AssistantFunnelsQuery
     | AssistantRetentionQuery
@@ -450,6 +452,7 @@ export type AssistantTool =
     | 'search_session_recordings'
     | 'fix_hogql_query'
     | 'analyze_user_interviews'
+    | 'create_user_interview_topic'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
@@ -494,6 +497,8 @@ export type AssistantTool =
     | 'call_mcp_server'
     | 'search_llm_traces'
     | 'run_hog_eval_test'
+    | 'diagnose_proxy'
+    | 'web_analytics_doctor'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -507,6 +512,7 @@ export enum AgentMode {
     Flags = 'flags',
     LLMAnalytics = 'llm_analytics',
     Sandbox = 'sandbox',
+    UserInterview = 'user_interview',
 }
 
 export enum SlashCommandName {

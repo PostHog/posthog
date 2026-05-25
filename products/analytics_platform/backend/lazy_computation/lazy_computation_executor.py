@@ -16,6 +16,7 @@ from django.utils import timezone as django_timezone
 import redis as redis_lib
 import structlog
 from clickhouse_driver.errors import ServerException
+from prometheus_client import Counter
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global_settings
@@ -84,6 +85,23 @@ def _get_preaggregation_insert_quorum() -> str | int:
     if override is not None:
         return "auto" if str_to_bool(override) else 0
     return 0 if (TEST or DEBUG) else "auto"
+
+
+# Mirrors the `lazy_computation.executed` structured log so the same outcomes
+# (`success` / `timeout` / `non_retryable_error` / `max_retries_exceeded`) are
+# countable in Prometheus without log-based aggregation.
+#
+# `cache_state` values:
+#   - `hit`         → the request did no new work (no jobs created, no waits).
+#   - `partial_hit` → the request had to do work but found pre-existing READY data.
+#   - `miss`        → the request had to do work and found no pre-existing data.
+#
+# See README.md § Observability for example PromQL queries.
+LAZY_COMPUTATION_EXECUTIONS_TOTAL = Counter(
+    "lazy_computation_executions_total",
+    "Lazy computation executor invocations, labeled by outcome / cache_state / table.",
+    ["outcome", "cache_state", "table"],
+)
 
 
 def _get_insert_settings(team_id: int) -> dict:
@@ -272,6 +290,7 @@ class LazyComputationTable(StrEnum):
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
     CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
+    WEB_OVERVIEW_PREAGGREGATED = "web_overview_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -685,12 +704,26 @@ class LazyComputationExecutor:
         jobs_created = 0
         waited_job_ids: set[uuid.UUID] = set()
 
+        had_ready_at_start: bool | None = None
+
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
+            if jobs_created == 0 and not waited_job_ids:
+                cache_state = "hit"
+            elif had_ready_at_start:
+                cache_state = "partial_hit"
+            else:
+                cache_state = "miss"
+            LAZY_COMPUTATION_EXECUTIONS_TOTAL.labels(
+                outcome=outcome,
+                cache_state=cache_state,
+                table=str(query_info.table),
+            ).inc()
             logger.info(
                 "lazy_computation.executed",
                 query_hash=query_hash,
                 table=str(query_info.table),
                 outcome=outcome,
+                cache_state=cache_state,
                 total_duration_ms=round((time.monotonic() - start_time) * 1000),
                 jobs_created=jobs_created,
                 jobs_waited_for=len(waited_job_ids),
@@ -715,6 +748,9 @@ class LazyComputationExecutor:
                 # Step 2: Find missing ranges, split at TTL boundaries
                 missing_ranges = find_missing_contiguous_windows(fresh_jobs, start, end)
                 ttl_ranges = split_ranges_by_ttl(missing_ranges, self.ttl_schedule)
+
+                if had_ready_at_start is None:
+                    had_ready_at_start = any(j.status == PreaggregationJob.Status.READY for j in fresh_jobs)
 
                 # Step 3: Insert missing ranges
                 did_work = False
@@ -911,6 +947,7 @@ def ensure_precomputed(
     table: LazyComputationTable = LazyComputationTable.PREAGGREGATION_RESULTS,
     placeholders: dict[str, ast.Expr] | None = None,
     sentinel_placeholders: set[str] | None = None,
+    query_type: str | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1018,7 +1055,10 @@ def ensure_precomputed(
             base_placeholders=base_placeholders,
         )
         set_ch_query_started(job.id)
-        with tags_context(client_query_id=str(job.id), team_id=t.id):
+        tag_kwargs: dict = {"client_query_id": str(job.id), "team_id": t.id}
+        if query_type:
+            tag_kwargs["query_type"] = query_type
+        with tags_context(**tag_kwargs):
             sync_execute(
                 insert_sql,
                 values,

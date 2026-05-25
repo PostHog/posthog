@@ -1,6 +1,9 @@
 use crate::{
     api::errors::FlagError,
-    flags::flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
+    flags::{
+        flag_definitions_cache::FlagDefinitionsCache,
+        flag_models::{FeatureFlagList, HypercacheFlagsWrapper, PreparedFlagDefinitions},
+    },
     handler::canonical_log::with_canonical_log,
     metrics::consts::{
         DB_TEAM_READS_COUNTER, PG_TEAM_FALLBACK_SKIPPED_COUNTER, TEAM_CACHE_HIT_COUNTER,
@@ -22,7 +25,8 @@ use std::sync::Arc;
 /// Result of fetching feature flags, including cache source information.
 #[derive(Debug, Clone)]
 pub struct FlagResult {
-    pub flag_list: FeatureFlagList,
+    /// Pre-compiled flag definitions (deserialized + regex-compiled), shared across requests.
+    pub prepared: Arc<PreparedFlagDefinitions>,
     /// The source of the flags data (Redis, S3, or Fallback/PostgreSQL).
     pub cache_source: common_hypercache::CacheSource,
 }
@@ -39,6 +43,8 @@ pub struct FlagService {
     /// HyperCache reader for fetching flags from Redis/S3
     /// Arc-wrapped to allow sharing across requests
     flags_hypercache_reader: Arc<HyperCacheReader>,
+    /// In-memory cache for deserialized + regex-compiled flag definitions
+    flag_definitions_cache: Arc<FlagDefinitionsCache>,
     /// In-memory negative cache for invalid API tokens
     team_negative_cache: NegativeCache,
     /// When true, skip PG fallback for team token lookups
@@ -51,6 +57,7 @@ impl FlagService {
         pg_client: PostgresReader,
         team_hypercache_reader: Arc<HyperCacheReader>,
         flags_hypercache_reader: Arc<HyperCacheReader>,
+        flag_definitions_cache: Arc<FlagDefinitionsCache>,
         team_negative_cache: NegativeCache,
         skip_pg_team_fallback: bool,
     ) -> Self {
@@ -59,6 +66,7 @@ impl FlagService {
             pg_client,
             team_hypercache_reader,
             flags_hypercache_reader,
+            flag_definitions_cache,
             team_negative_cache,
             skip_pg_team_fallback,
         }
@@ -173,21 +181,76 @@ impl FlagService {
     /// Fetches flags from the hypercache (Redis → S3), falling back to PostgreSQL
     /// on cache miss or infra errors. Parse errors (`Json`/`Pickle`) hard-fail with
     /// a tombstone rather than serving degraded single-stage PG data.
+    ///
+    /// On the hot path the in-memory `FlagDefinitionsCache` is keyed on the etag
+    /// Django writes alongside the payload (`enable_etag=True`), so an in-memory
+    /// hit short-circuits the payload fetch / pickle / JSON / validation work
+    /// entirely. The loader passed to `get_or_load` only runs on a true miss
+    /// or when no etag is available.
     pub async fn get_flags_from_cache_or_pg(
         &self,
         team_id: TeamId,
     ) -> Result<FlagResult, FlagError> {
         let key = KeyType::int(team_id);
 
-        let (data, source) = match self
+        // Cheap version probe: a single Redis GET on a 16-byte string. On a
+        // Redis error we bypass `get_or_load` entirely so the request
+        // increments only `etag_redis_error`, not also `etag_missing` /
+        // `sentinel` (each request must increment exactly one `reason`).
+        match self.flags_hypercache_reader.get_etag(&key).await {
+            Ok(etag) => {
+                let (prepared, cache_source) = self
+                    .flag_definitions_cache
+                    .get_or_load(team_id, etag, || async {
+                        self.fetch_wrapper_or_pg(team_id).await
+                    })
+                    .await?;
+                Ok(FlagResult {
+                    prepared,
+                    cache_source,
+                })
+            }
+            Err(e) => {
+                tracing::debug!(
+                    team_id,
+                    error = %e,
+                    "etag fetch failed; bypassing in-memory cache for this request"
+                );
+                inc(
+                    crate::metrics::consts::FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER,
+                    &[("reason".to_string(), "etag_redis_error".to_string())],
+                    1,
+                );
+                let (wrapper, cache_source) = self.fetch_wrapper_or_pg(team_id).await?;
+                let prepared =
+                    crate::flags::flag_definitions_cache::compile_from_wrapper(team_id, wrapper)?;
+                Ok(FlagResult {
+                    prepared,
+                    cache_source,
+                })
+            }
+        }
+    }
+
+    /// Hypercache-then-PG payload fetch, extracted so the in-memory cache can
+    /// invoke it lazily inside `get_or_load`. Returns `None` for the
+    /// `__missing__` sentinel (team has no flags), `Some(wrapper)` otherwise.
+    /// `Json`/`Pickle` parse errors hard-fail with a tombstone — we never want
+    /// to silently degrade to PG (which lacks dependency metadata) on data
+    /// corruption.
+    async fn fetch_wrapper_or_pg(
+        &self,
+        team_id: TeamId,
+    ) -> Result<(Option<HypercacheFlagsWrapper>, CacheSource), FlagError> {
+        let key = KeyType::int(team_id);
+
+        match self
             .flags_hypercache_reader
             .get_typed_with_source::<HypercacheFlagsWrapper>(&key)
             .await
         {
-            Ok(ok) => ok,
+            Ok((data, source)) => Ok((data, source)),
             Err(e @ (HyperCacheError::Json(_) | HyperCacheError::Pickle(_))) => {
-                // Parse errors mean data corruption, not a transient issue. Hard-fail
-                // rather than fall back to PG, which lacks dependency metadata.
                 counter!(
                     TOMBSTONE_COUNTER,
                     "namespace" => "feature_flags",
@@ -195,9 +258,9 @@ impl FlagService {
                     "component" => "flag_service",
                 )
                 .increment(1);
-                return Err(FlagError::DataParsingErrorWithContext(format!(
+                Err(FlagError::DataParsingErrorWithContext(format!(
                     "Failed to parse feature flags for team {team_id}: {e}"
-                )));
+                )))
             }
             Err(e) => {
                 // Mirror the hit_fallback counters that `get_typed_with_source_or_fallback`
@@ -227,21 +290,9 @@ impl FlagService {
                     cohorts: None,
                     evaluation_metadata,
                 };
-                (Some(wrapper), CacheSource::Fallback)
+                Ok((Some(wrapper), CacheSource::Fallback))
             }
-        };
-
-        let (flags, evaluation_metadata, cohorts) = FeatureFlagList::from_wrapper(data, team_id)?;
-
-        Ok(FlagResult {
-            flag_list: FeatureFlagList {
-                flags,
-                evaluation_metadata,
-                cohorts,
-                ..Default::default()
-            },
-            cache_source: source,
-        })
+        }
     }
 }
 
@@ -253,6 +304,8 @@ mod tests {
 
     use crate::{
         flags::{
+            feature_flag_list::PreparedFlags,
+            flag_definitions_cache::FlagDefinitionsCache,
             flag_models::{
                 EvaluationMetadata, FeatureFlag, FlagFilters, FlagPropertyGroup,
                 HypercacheFlagsWrapper,
@@ -285,6 +338,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -318,6 +372,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -348,6 +403,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -463,9 +519,9 @@ mod tests {
                 bucketing_identifier: None,
             },
         ];
-        let evaluation_metadata = EvaluationMetadata::single_stage(&flags_vec);
+        let evaluation_metadata = Arc::new(EvaluationMetadata::single_stage(&flags_vec));
         let mock_flags = FeatureFlagList {
-            flags: flags_vec,
+            flags: PreparedFlags::seal(flags_vec),
             evaluation_metadata,
             ..Default::default()
         };
@@ -482,6 +538,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -494,11 +551,11 @@ mod tests {
             flag_result.cache_source,
             common_hypercache::CacheSource::Fallback
         ));
-        assert_eq!(flag_result.flag_list.flags.len(), mock_flags.flags.len());
+        assert_eq!(flag_result.prepared.flags.len(), mock_flags.flags.len());
 
         // Verify the contents of the fetched flags
         let beta_feature = flag_result
-            .flag_list
+            .prepared
             .flags
             .iter()
             .find(|f| f.key == "beta_feature")
@@ -514,7 +571,7 @@ mod tests {
         );
 
         let new_ui = flag_result
-            .flag_list
+            .prepared
             .flags
             .iter()
             .find(|f| f.key == "new_ui")
@@ -523,7 +580,7 @@ mod tests {
         assert!(new_ui.filters.groups.is_empty());
 
         let premium_feature = flag_result
-            .flag_list
+            .prepared
             .flags
             .iter()
             .find(|f| f.key == "premium_feature")
@@ -554,51 +611,52 @@ mod tests {
             .expect("Failed to insert team in Redis");
 
         // Create a large payload with multiple flags (>512 bytes triggers compression in Django)
-        let large_flags = FeatureFlagList {
-            flags: (0..10)
-                .map(|i| FeatureFlag {
-                    id: i,
-                    team_id: team.id,
-                    name: Some(format!("Test Flag {i} with a longer name for size")),
-                    key: format!("test_flag_{i}_with_extra_chars_for_larger_payload"),
-                    deleted: false,
-                    active: i % 2 == 0,
-                    filters: FlagFilters {
-                        groups: vec![FlagPropertyGroup {
-                            properties: Some(vec![PropertyFilter {
-                                key: format!("property_key_{i}"),
-                                value: Some(serde_json::json!(format!("value_{i}"))),
-                                operator: Some(OperatorType::Exact),
-                                prop_type: PropertyType::Person,
-                                group_type_index: None,
-                                negation: None,
-                                compiled_regex: None,
-                            }]),
-                            rollout_percentage: Some(50.0 + i as f64),
-                            variant: None,
-                            ..Default::default()
-                        }],
-                        multivariate: None,
-                        aggregation_group_type_index: None,
-                        payloads: None,
-                        super_groups: None,
-                        feature_enrollment: None,
+        let large_flags_vec: Vec<FeatureFlag> = (0..10)
+            .map(|i| FeatureFlag {
+                id: i,
+                team_id: team.id,
+                name: Some(format!("Test Flag {i} with a longer name for size")),
+                key: format!("test_flag_{i}_with_extra_chars_for_larger_payload"),
+                deleted: false,
+                active: i % 2 == 0,
+                filters: FlagFilters {
+                    groups: vec![FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: format!("property_key_{i}"),
+                            value: Some(serde_json::json!(format!("value_{i}"))),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(50.0 + i as f64),
+                        variant: None,
+                        ..Default::default()
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    feature_enrollment: None,
 
-                        holdout: None,
-                    },
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                    bucketing_identifier: None,
-                })
-                .collect(),
+                    holdout: None,
+                },
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            })
+            .collect();
+        let large_flags = FeatureFlagList {
+            flags: PreparedFlags::seal(large_flags_vec),
             ..Default::default()
         };
 
         // Serialize exactly like Django does for large payloads: JSON -> Pickle -> Zstd
         let wrapper = HypercacheFlagsWrapper {
-            flags: large_flags.flags.clone(),
+            flags: large_flags.flags.to_vec(),
             evaluation_metadata: EvaluationMetadata::single_stage(&large_flags.flags),
             cohorts: None,
         };
@@ -630,6 +688,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -650,20 +709,20 @@ mod tests {
             "Expected cache hit for compressed data"
         );
         assert_eq!(
-            flag_result.flag_list.flags.len(),
+            flag_result.prepared.flags.len(),
             10,
             "Expected 10 flags from compressed payload"
         );
 
         // Verify flag contents were correctly decompressed and parsed
-        let first_flag = &flag_result.flag_list.flags[0];
+        let first_flag = &flag_result.prepared.flags[0];
         assert_eq!(
             first_flag.key,
             "test_flag_0_with_extra_chars_for_larger_payload"
         );
         assert!(first_flag.active);
 
-        let last_flag = &flag_result.flag_list.flags[9];
+        let last_flag = &flag_result.prepared.flags[9];
         assert_eq!(
             last_flag.key,
             "test_flag_9_with_extra_chars_for_larger_payload"
@@ -690,6 +749,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -733,6 +793,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -780,6 +841,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -830,6 +892,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -888,6 +951,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -927,6 +991,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             NegativeCache::new(100, 300),
             false,
         );
@@ -953,6 +1018,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache,
             false,
         );
@@ -978,6 +1044,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache.clone(),
             false,
         );
@@ -1007,6 +1074,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache.clone(),
             false,
         );
@@ -1039,6 +1107,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache.clone(),
             false,
         );
@@ -1080,6 +1149,7 @@ mod tests {
             pg_client.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache.clone(),
             true, // skip PG fallback
         );
@@ -1123,6 +1193,7 @@ mod tests {
             context.non_persons_reader.clone(),
             team_hypercache_reader,
             hypercache_reader,
+            Arc::new(FlagDefinitionsCache::disabled()),
             negative_cache.clone(),
             skip_pg,
         );
@@ -1145,5 +1216,234 @@ mod tests {
                 "Valid token should not be in negative cache"
             );
         }
+    }
+
+    // =========================================================================
+    // FlagDefinitionsCache integration: exercises the real (non-disabled) cache
+    // through FlagService so the Arc-share path and etag-based invalidation
+    // survive the full hypercache round-trip (serde_json → pickle → Redis →
+    // get_etag → moka). Unit tests in flag_definitions_cache cover the cache
+    // in isolation; these pin the service boundary.
+    // =========================================================================
+
+    /// Builds a single-flag wrapper with a Regex operator so the cache hit path
+    /// has to pre-compile an actual fancy_regex pattern.
+    fn single_regex_flag_wrapper(team_id: i32, pattern: &str) -> FeatureFlagList {
+        use crate::mock;
+        use crate::properties::property_models::PropertyFilter;
+        use crate::utils::mock::MockInto;
+
+        let flag = mock!(FeatureFlag,
+            team_id: team_id,
+            name: "Regex Flag".mock_into(),
+            key: "regex_flag".mock_into(),
+            filters: mock!(PropertyFilter,
+                key: "email".mock_into(),
+                value: Some(json!(pattern)),
+                operator: Some(OperatorType::Regex),
+            )
+            .mock_into(),
+        );
+        let evaluation_metadata = Arc::new(EvaluationMetadata::single_stage(std::slice::from_ref(
+            &flag,
+        )));
+        FeatureFlagList {
+            flags: PreparedFlags::seal(vec![flag]),
+            evaluation_metadata,
+            ..Default::default()
+        }
+    }
+
+    fn real_cache() -> Arc<FlagDefinitionsCache> {
+        // Default 128 MB / 90 s — same as production. Matters here only insofar
+        // as entries must not be evicted between the two fetches in each test.
+        Arc::new(FlagDefinitionsCache::new(None, None))
+    }
+
+    /// End-to-end Arc sharing: two `get_flags_from_cache_or_pg` calls for the
+    /// same team, against identical hypercache content, must return the same
+    /// `Arc<PreparedFlagDefinitions>`. Regressions here (e.g. a stray clone in
+    /// FlagService or an etag fetch that shifts between calls) would restore
+    /// per-request regex compilation without failing any existing test.
+    #[tokio::test]
+    async fn test_flag_service_cache_hit_reuses_arc() {
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("insert team");
+
+        let mock_flags = single_regex_flag_wrapper(team.id, r"^user@.*\.com$");
+        update_flags_in_hypercache(redis_client.clone(), team.id, &mock_flags, None)
+            .await
+            .expect("write hypercache");
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            pg_client.clone(),
+            setup_team_hypercache_reader(redis_client.clone()).await,
+            setup_hypercache_reader(redis_client.clone()).await,
+            real_cache(),
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let first = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("first fetch");
+        let second = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("second fetch");
+
+        assert!(
+            Arc::ptr_eq(&first.prepared, &second.prepared),
+            "second fetch must return the cached Arc, not recompile"
+        );
+        // The cached path must produce compiled regex — otherwise evaluation
+        // falls back to on-the-fly compilation and the caching is useless.
+        let re = &first.prepared.flags[0].filters.groups[0]
+            .properties
+            .as_ref()
+            .unwrap()[0]
+            .compiled_regex;
+        assert!(
+            matches!(
+                re,
+                Some(crate::properties::property_models::CompiledRegex::Compiled(
+                    _
+                ))
+            ),
+            "cached flag must carry a compiled regex, got {re:?}"
+        );
+    }
+
+    /// A hypercache rewrite with different content must produce a fresh Arc:
+    /// Django writes a new etag whenever the payload bytes change, so the
+    /// `(team_id, etag)` cache key shifts and the next fetch misses + recompiles.
+    /// Guards against an etag computed over something more abstract than the
+    /// actual flag content — e.g. only over flag IDs.
+    #[tokio::test]
+    async fn test_flag_service_content_change_invalidates_cache() {
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("insert team");
+
+        update_flags_in_hypercache(
+            redis_client.clone(),
+            team.id,
+            &single_regex_flag_wrapper(team.id, r"^v1@.*$"),
+            None,
+        )
+        .await
+        .expect("write v1");
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            pg_client.clone(),
+            setup_team_hypercache_reader(redis_client.clone()).await,
+            setup_hypercache_reader(redis_client.clone()).await,
+            real_cache(),
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let v1 = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("v1 fetch");
+
+        // Rewrite the same flag id with a different regex pattern.
+        update_flags_in_hypercache(
+            redis_client.clone(),
+            team.id,
+            &single_regex_flag_wrapper(team.id, r"^v2@.*$"),
+            None,
+        )
+        .await
+        .expect("write v2");
+
+        let v2 = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("v2 fetch");
+
+        assert!(
+            !Arc::ptr_eq(&v1.prepared, &v2.prepared),
+            "content change must produce a new Arc (etag must shift)"
+        );
+        let re_v2 = &v2.prepared.flags[0].filters.groups[0]
+            .properties
+            .as_ref()
+            .unwrap()[0]
+            .compiled_regex;
+        match re_v2 {
+            Some(crate::properties::property_models::CompiledRegex::Compiled(r)) => {
+                assert_eq!(
+                    r.as_str(),
+                    r"^v2@.*$",
+                    "v2 fetch must carry the v2 pattern, not a stale compile"
+                );
+            }
+            other => panic!("expected compiled v2 regex, got {other:?}"),
+        }
+    }
+
+    /// Etag stability across the Django-path round-trip: write, fetch, rewrite
+    /// byte-identical content, fetch again — must return the same Arc. The
+    /// guarantee we lean on for the version-key fast path is that identical
+    /// payloads produce identical etags (sha256 over `json.dumps(data,
+    /// sort_keys=True)` is deterministic on Django's side; the test helper
+    /// uses `compute_etag` over the same serialized bytes). Without this, the
+    /// etag would shift on every cache refresh and the in-memory cache would
+    /// effectively always miss.
+    #[tokio::test]
+    async fn test_identical_content_round_trip_keeps_etag_stable() {
+        let redis_client = setup_redis_client(None).await;
+        let pg_client = setup_pg_reader_client(None);
+        let team = insert_new_team_in_redis(redis_client.clone())
+            .await
+            .expect("insert team");
+
+        let flags = single_regex_flag_wrapper(team.id, r"^user@.*\.com$");
+
+        // First write + fetch.
+        update_flags_in_hypercache(redis_client.clone(), team.id, &flags, None)
+            .await
+            .expect("write #1");
+
+        let flag_service = FlagService::new(
+            redis_client.clone(),
+            pg_client.clone(),
+            setup_team_hypercache_reader(redis_client.clone()).await,
+            setup_hypercache_reader(redis_client.clone()).await,
+            real_cache(),
+            NegativeCache::new(100, 300),
+            false,
+        );
+
+        let first = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("first fetch");
+
+        // Rewrite identical content. This exercises a fresh pickle+etag path
+        // producing the same etag bytes — the in-memory cache must still hit.
+        update_flags_in_hypercache(redis_client.clone(), team.id, &flags, None)
+            .await
+            .expect("write #2");
+
+        let second = flag_service
+            .get_flags_from_cache_or_pg(team.id)
+            .await
+            .expect("second fetch after identical rewrite");
+
+        assert!(
+            Arc::ptr_eq(&first.prepared, &second.prepared),
+            "identical content re-written must produce the same etag and reuse the cached Arc"
+        );
     }
 }

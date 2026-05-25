@@ -22,11 +22,20 @@ import { urls } from 'scenes/urls'
 
 import { CategoryDropdown } from './CategoryDropdown'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
+import { TaxonomicFilterAdapter } from './TaxonomicFilterAdapter'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 let uniqueMemoizedIndex = 0
 
-export function TaxonomicFilter({
+export function TaxonomicFilter(props: TaxonomicFilterProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_HEADLESS]) {
+        return <TaxonomicFilterAdapter {...props} />
+    }
+    return <TaxonomicFilterLegacy {...props} />
+}
+
+function TaxonomicFilterLegacy({
     taxonomicFilterLogicKey: taxonomicFilterLogicKeyInput,
     groupType,
     value,
@@ -59,6 +68,8 @@ export function TaxonomicFilter({
     hideSearchInput,
     searchQuery: controlledSearchQuery,
     enableKeywordShortcuts,
+    excludedOperators,
+    selectingKeyOnly,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -104,6 +115,8 @@ export function TaxonomicFilter({
         minSearchQueryLength,
         suggestedFiltersLabel: resolvedSuggestedFiltersLabel,
         enableKeywordShortcuts,
+        excludedOperators,
+        selectingKeyOnly,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -204,6 +217,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
+        markUserInteraction,
         recordPaste,
         moveUp,
         moveDown,
@@ -213,6 +227,10 @@ export const TaxonomicFilterSearchInput = forwardRef<
     } = useActions(taxonomicFilterLogic)
 
     const _onChange = (query: string): void => {
+        // Only the input's onChange path counts as user interaction. The controlled-prop
+        // useEffect above also calls setSearchQuery directly, but that's programmatic and
+        // shouldn't unmute the `taxonomic filter closed` capture — keep this dispatch separate.
+        markUserInteraction()
         setTaxonomicSearchQuery(query)
         onChange?.(query)
     }
@@ -243,6 +261,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
                     {categoryDropdown}
                     {showNumericalPropsOnly && (
                         <Tooltip
+                            interactive
                             title={
                                 <span>
                                     This filter only shows numerical properties. If you're not seeing your property

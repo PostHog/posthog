@@ -4,6 +4,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { AskMaxCard } from './cards/AskMaxCard'
@@ -12,7 +14,30 @@ import { ProductsInUseCard } from './cards/ProductsInUseCard'
 import { RecentActivityCard } from './cards/RecentActivityCard'
 import { SuggestedNextStepsCard } from './cards/SuggestedNextStepsCard'
 import { TeamMembersCard } from './cards/TeamMembersCard'
-import { welcomeDialogLogic } from './welcomeDialogLogic'
+import { wasWelcomeDismissed, welcomeDialogLogic } from './welcomeDialogLogic'
+
+// The welcome dialog is allowed to auto-open only on these scenes. The welcome flow's purpose
+// is to orient an invitee on the home of the product — opening it as an overlay over a deep-link
+// to settings, billing, replays, or arbitrary scenes would block the user from the page they
+// were trying to reach. Dashboard is included because sceneLogic redirects `/` to the team's
+// primary dashboard when one is configured, so first-visit invitees land there instead of home.
+const WELCOME_DIALOG_ALLOWED_SCENES = new Set<Scene>([Scene.ProjectHomepage, Scene.Dashboard])
+
+/** Only mount the welcome dialog (and its kea logic) for users actually eligible to see it.
+ * Lives in GlobalModals so it can render regardless of which scene the user lands on after
+ * signup (project home, primary dashboard, etc.). Scene gating ensures the dialog only auto-opens
+ * on the home / primary-dashboard scenes, not over deep-linked settings/billing/replay pages. */
+export function MaybeWelcomeDialog(): JSX.Element | null {
+    const { user } = useValues(userLogic)
+    const { sceneId } = useValues(sceneLogic)
+    if (!user || user.is_organization_first_user !== false || wasWelcomeDismissed(user.uuid, user.organization?.id)) {
+        return null
+    }
+    if (!sceneId || !WELCOME_DIALOG_ALLOWED_SCENES.has(sceneId as Scene)) {
+        return null
+    }
+    return <WelcomeDialog />
+}
 
 export function WelcomeDialog(): JSX.Element | null {
     const {

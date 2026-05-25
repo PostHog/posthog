@@ -23,6 +23,10 @@ class EvaluationReport(UUIDTModel):
     COOLDOWN_MINUTES_MIN = 60
     COOLDOWN_MINUTES_MAX = 60 * 24
     COOLDOWN_MINUTES_DEFAULT = 60
+    # Upper bound mirrors the count of 60-minute windows in a day, so values above it are
+    # unreachable in practice (cooldown_minutes is bounded below at 60).
+    DAILY_RUN_CAP_MIN = 1
+    DAILY_RUN_CAP_MAX = (60 * 24) // COOLDOWN_MINUTES_MIN
     DAILY_RUN_CAP_DEFAULT = 10
 
     class Meta:

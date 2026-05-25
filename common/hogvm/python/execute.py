@@ -43,7 +43,7 @@ CALLSTACK_LENGTH = 1000
 @dataclass
 class BytecodeResult:
     result: Any
-    bytecodes: dict[str, list[Any]]
+    bytecodes: dict[str, Any]
     stdout: list[str]
 
 
@@ -55,7 +55,7 @@ def execute_bytecode(
     team: Optional["Team"] = None,
     debug=False,
 ) -> BytecodeResult:
-    bytecodes = input if isinstance(input, dict) else {"root": {"bytecode": input}}
+    bytecodes: dict[str, Any] = input if isinstance(input, dict) else {"root": {"bytecode": input}}
     root_bytecode = bytecodes.get("root", {}).get("bytecode", []) or []
 
     if (

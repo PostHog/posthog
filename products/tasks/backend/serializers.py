@@ -13,6 +13,7 @@ from rest_framework import serializers
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
+from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.signals.backend.models import SignalReportTask
@@ -33,6 +34,7 @@ from .temporal.process_task.utils import (
     RuntimeAdapter,
     get_reasoning_effort_error,
     parse_run_state,
+    resolve_user_github_integration_for_task,
 )
 
 PRESIGNED_URL_CACHE_TTL = 55 * 60  # 55 minutes (less than 1 hour URL expiry)
@@ -81,6 +83,13 @@ def build_task_run_artifact_size_error(
 
 class TaskSerializer(serializers.ModelSerializer):
     repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    # UserIntegration is scoped to request.user in validate_github_user_integration.
+    github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=UserIntegration.objects.filter(kind="github"),
+        required=False,
+        allow_null=True,
+        help_text="User-scoped GitHub integration to use for user-authored cloud runs.",
+    )
     latest_run = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
@@ -113,10 +122,13 @@ class TaskSerializer(serializers.ModelSerializer):
             "origin_product",
             "repository",
             "github_integration",
+            "github_user_integration",
             "signal_report",
             "signal_report_task_relationship",
             "json_schema",
             "internal",
+            "archived",
+            "archived_at",
             "latest_run",
             "created_at",
             "updated_at",
@@ -127,6 +139,7 @@ class TaskSerializer(serializers.ModelSerializer):
             "id",
             "task_number",
             "slug",
+            "archived_at",
             "created_at",
             "updated_at",
             "created_by",
@@ -144,6 +157,14 @@ class TaskSerializer(serializers.ModelSerializer):
         """Validate that the GitHub integration belongs to the same team"""
         if value and value.team_id != self.context["team"].id:
             raise serializers.ValidationError("Integration must belong to the same team")
+        return value
+
+    def validate_github_user_integration(self, value):
+        """Validate that the GitHub user integration belongs to the authenticated user."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if value and value.user_id != getattr(user, "id", None):
+            raise serializers.ValidationError("User integration must belong to the authenticated user")
         return value
 
     def validate_repository(self, value):
@@ -173,10 +194,18 @@ class TaskSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"signal_report_task_relationship": ("Requires origin_product signal_report when set.")}
                 )
+        if (
+            attrs.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
+            and attrs.get("github_user_integration") is not None
+        ):
+            raise serializers.ValidationError(
+                {"github_user_integration": "Signal report tasks use the team GitHub integration."}
+            )
         return attrs
 
     def create(self, validated_data):
         validated_data["team"] = self.context["team"]
+        validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
 
         if "request" in self.context and hasattr(self.context["request"], "user"):
             validated_data["created_by"] = self.context["request"].user
@@ -191,6 +220,22 @@ class TaskSerializer(serializers.ModelSerializer):
             default_integration = Integration.objects.filter(team=self.context["team"], kind="github").first()
             if default_integration:
                 validated_data["github_integration"] = default_integration
+
+        if (
+            validated_data.get("repository")
+            and validated_data.get("origin_product", Task.OriginProduct.USER_CREATED) == Task.OriginProduct.USER_CREATED
+            and not validated_data.get("github_user_integration")
+        ):
+            task_stub = Task(
+                team=self.context["team"],
+                created_by=validated_data.get("created_by"),
+                origin_product=Task.OriginProduct.USER_CREATED,
+                repository=validated_data["repository"],
+                github_integration=validated_data.get("github_integration"),
+            )
+            github_user_integration = resolve_user_github_integration_for_task(task_stub, allow_refresh=False)
+            if github_user_integration is not None:
+                validated_data["github_user_integration"] = github_user_integration.integration
 
         title = validated_data.get("title", "").strip()
         if not title and validated_data.get("description"):
@@ -215,8 +260,17 @@ class TaskSerializer(serializers.ModelSerializer):
             return task
 
     def update(self, instance, validated_data):
+        # These fields are immutable after creation. origin_product controls
+        # team-wide visibility (SIGNAL_REPORT tasks are visible to all members),
+        # so allowing updates would let a user escalate a private task's visibility.
+        # signal_report and its relationship are set-once associations.
+        validated_data.pop("signal_report", None)
+        validated_data.pop("signal_report_task_relationship", None)
+        validated_data.pop("origin_product", None)
         if "title" in validated_data and "title_manually_set" not in validated_data:
             validated_data["title_manually_set"] = True
+        if "archived" in validated_data and validated_data["archived"] != instance.archived:
+            validated_data["archived_at"] = timezone.now() if validated_data["archived"] else None
         return super().update(instance, validated_data)
 
 
@@ -417,10 +471,6 @@ class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     output = serializers.JSONField(
         help_text="Output data from the run. Validated against the task's json_schema if one is set."
     )
-
-
-class ErrorResponseSerializer(serializers.Serializer):
-    error = serializers.CharField(help_text="Error message")
 
 
 class TaskRunErrorResponseSerializer(serializers.Serializer):
@@ -748,6 +798,39 @@ class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
 
 
+TASK_SUMMARIES_MAX_IDS = 5000
+
+
+class TaskSummariesRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=TASK_SUMMARIES_MAX_IDS,
+        help_text=(
+            f"Task IDs to fetch summaries for (max {TASK_SUMMARIES_MAX_IDS}). Response is paginated; "
+            f"follow the `next` cursor to retrieve all results."
+        ),
+    )
+
+
+class TaskRunSummarySerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=TaskRun.Status.choices, allow_null=True)
+    environment = serializers.ChoiceField(choices=TaskRun.Environment.choices, allow_null=True)
+
+
+class TaskSummarySerializer(serializers.ModelSerializer):
+    latest_run = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Task
+        fields = ["id", "title", "repository", "created_at", "updated_at", "latest_run"]
+        read_only_fields = fields
+
+    @extend_schema_field(TaskRunSummarySerializer(allow_null=True))
+    def get_latest_run(self, obj):
+        return getattr(obj, "_latest_run", None)
+
+
 class TaskListQuerySerializer(serializers.Serializer):
     """Query parameters for listing tasks"""
 
@@ -769,7 +852,16 @@ class TaskListQuerySerializer(serializers.Serializer):
         help_text="Filter tasks by the status of their most recent run.",
     )
     internal = serializers.BooleanField(
-        required=False, help_text="Filter by internal flag. Defaults to excluding internal tasks when not specified."
+        required=False,
+        help_text="When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.",
+    )
+    archived = serializers.ChoiceField(
+        required=False,
+        choices=["true", "false", "all"],
+        help_text=(
+            "Filter by archived state. Defaults to excluding archived tasks. Use 'true' to list only "
+            "archived tasks, 'false' for the default, or 'all' to include both."
+        ),
     )
 
 
@@ -917,7 +1009,11 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         default=None,
         allow_blank=False,
         write_only=True,
-        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+        help_text=(
+            "Optional GitHub user token from PostHog Code for user-authored cloud pull requests. "
+            "Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; "
+            "this field remains supported for callers that still manage their own tokens."
+        ),
     )
     initial_permission_mode = serializers.ChoiceField(
         choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -1231,7 +1327,11 @@ class TaskRunResumeRequestSchemaSerializer(serializers.Serializer):
         default=None,
         allow_blank=False,
         write_only=True,
-        help_text="Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests.",
+        help_text=(
+            "Optional GitHub user token from PostHog Code for user-authored cloud pull requests. "
+            "Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; "
+            "this field remains supported for callers that still manage their own tokens."
+        ),
     )
 
 
@@ -1579,3 +1679,19 @@ class SandboxEnvironmentListSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+class TaskPresenceBeaconRequestSerializer(serializers.Serializer):
+    """Request body for the presence beacon and beacon-leave endpoints.
+
+    `device_id` is the UUID of the caller's `UserPushToken` row, which the
+    client received when it registered for push via `/api/users/@me/push_tokens/`.
+    The client is expected to use the same identifier on the beacon and leave
+    calls; if the user has unregistered the underlying push token, the value
+    won't resolve and the call returns 404 — at which point pushes were
+    already not going there anyway.
+    """
+
+    device_id = serializers.UUIDField(
+        help_text="UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register).",
+    )

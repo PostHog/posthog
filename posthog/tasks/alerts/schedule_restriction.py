@@ -8,7 +8,7 @@ from typing import Any
 import pytz
 import structlog
 
-from posthog.models import AlertConfiguration
+from products.alerts.backend.models.alert import AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 

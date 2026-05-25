@@ -144,6 +144,54 @@ run_step() {
   fi
 }
 
+# Compute sha256 of a file. Portable across Linux (sha256sum) and macOS
+# (shasum). Returns empty string when the file is missing or no hasher
+# is available; safe to call inside `[[ ... ]]` under set -euo pipefail.
+_sha256_file() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  local result=""
+  if command -v sha256sum >/dev/null 2>&1; then
+    result=$(sha256sum "$file" 2>/dev/null | awk '{print $1}' || true)
+  elif command -v shasum >/dev/null 2>&1; then
+    result=$(shasum -a 256 "$file" 2>/dev/null | awk '{print $1}' || true)
+  fi
+  printf '%s' "$result"
+}
+
+# Read an AMI-bake stamp file, stripping whitespace. Returns empty
+# string when the stamp is missing -- which is the expected case on
+# laptops and on workspaces booted from a non-baked image. Callers
+# treat empty as "no match" and fall back to running the full step.
+_read_ami_stamp() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  tr -d '[:space:]' < "$file" 2>/dev/null || true
+}
+
+# Waits for a step that was started earlier as a background subshell and
+# reports its outcome. Mirrors run_step's final status line without a
+# spinner -- the work has usually completed by the time wait is called.
+# Usage: wait_bg_step "Label" <pid> <start_epoch> <logfile>
+wait_bg_step() {
+  local label="$1"
+  local pid="$2"
+  local start_time="$3"
+  local tmpfile="$4"
+
+  local exit_code=0
+  wait "$pid" 2>/dev/null || exit_code=$?
+  local elapsed=$(( $(date +%s) - start_time ))
+
+  if [[ $exit_code -eq 0 ]]; then
+    printf "  ${C_GREEN}✓${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
+  else
+    printf "  ${C_RED}✗${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
+    _save_failure_log "$label" "$tmpfile"
+    return $exit_code
+  fi
+}
+
 # Inline step (instant, no spinner)
 done_step() {
   local label="$1"
@@ -161,6 +209,16 @@ _interactive=false
 if [[ -t 0 ]] && [[ -z "${POSTHOG_CODE:-}" ]]; then
   _interactive=true
 fi
+
+# ── Go toolchain isolation ─────────────────────────────────────────
+# User shells often export GOROOT/GOCACHE for Homebrew, asdf, or other local Go
+# installs. Keep flox builds on the pinned Go toolchain and cache compiled
+# packages inside the flox environment so host Go upgrades cannot poison builds.
+unset GOROOT
+export GOTOOLCHAIN=local
+export GOPATH="$FLOX_ENV_CACHE/go"
+export GOCACHE="$FLOX_ENV_CACHE/go-build"
+export GOMODCACHE="$GOPATH/pkg/mod"
 
 # ── Direnv first-time setup (interactive only) ─────────────────────
 if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
@@ -210,8 +268,62 @@ echo -e "\n${C_CYAN}PostHog dev${C_RESET} ${C_DIM}── ${_branch}${C_RESET}\n"
 
 _activation_start=$(date +%s)
 
+# ── Steps 1, 1b, 2 (kicked off in parallel, with AMI cache-skip) ───
+# uv sync, pnpm install, and `make phrocs build` are independent -- none
+# of them reads or writes the other's outputs. Kick the two non-spinner
+# ones off in the background BEFORE foregrounding uv sync, so the wall
+# clock is bounded by the slowest single step instead of the sum. uv sync
+# stays foregrounded because the completion + man-page steps that follow
+# depend on the venv it populates, and because its run_step spinner remains
+# the user-visible progress indicator for activate.
+#
+# Each step also checks an AMI-bake stamp file (sha256 of the source-of-
+# truth input recorded at bake time): when the on-disk hash matches the
+# baked hash, the workspace is in the same state as the bake and the
+# subprocess would be a no-op, so we skip it entirely. On laptops or
+# pre-stamp workspaces the stamps are missing and the checks fall back
+# to running normally -- no regression.
+_PNPM_LOCK="$FLOX_ENV_PROJECT/pnpm-lock.yaml"
+_UV_LOCK="$FLOX_ENV_PROJECT/uv.lock"
+_PHROCS_BIN="$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs"
+
+_PNPM_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-pnpm-stamp)
+_UV_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-uv-stamp)
+_PHROCS_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-phrocs-stamp)
+
+_PNPM_CURRENT=$(_sha256_file "$_PNPM_LOCK")
+_UV_CURRENT=$(_sha256_file "$_UV_LOCK")
+_PHROCS_CURRENT=$(_sha256_file "$_PHROCS_BIN")
+
+_PNPM_SKIP=0
+[[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && "$_PNPM_BAKED" == "$_PNPM_CURRENT" ]] && _PNPM_SKIP=1
+_UV_SKIP=0
+[[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" ]] && _UV_SKIP=1
+_PHROCS_SKIP=0
+[[ -n "$_PHROCS_BAKED" && -n "$_PHROCS_CURRENT" && "$_PHROCS_BAKED" == "$_PHROCS_CURRENT" ]] && _PHROCS_SKIP=1
+
+if [[ "$_PNPM_SKIP" -eq 0 ]]; then
+  _BG_PNPM_LOG=$(mktemp)
+  _ACTIVATION_TMPFILES+=("$_BG_PNPM_LOG")
+  ( pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
+  _BG_PNPM_PID=$!
+  _BG_PNPM_START=$(date +%s)
+fi
+
+if [[ "$_PHROCS_SKIP" -eq 0 ]]; then
+  _BG_PHROCS_LOG=$(mktemp)
+  _ACTIVATION_TMPFILES+=("$_BG_PHROCS_LOG")
+  ( make -C "$FLOX_ENV_PROJECT/tools/phrocs" build ) >"$_BG_PHROCS_LOG" 2>&1 &
+  _BG_PHROCS_PID=$!
+  _BG_PHROCS_START=$(date +%s)
+fi
+
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
-run_step "Python packages" uv sync
+if [[ "$_UV_SKIP" -eq 1 ]]; then
+  done_step "Python packages (cached)"
+else
+  run_step "Python packages" uv sync
+fi
 
 # Expose hogli on PATH via the uv-managed venv
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
@@ -222,10 +334,10 @@ fi
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
 mkdir -p "$HOGLI_COMPLETION_DIR"
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
-  PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
-    -m hogli.core.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
-  PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
-    -m hogli.core.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
+  "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    -m hogli.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
+  "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    -m hogli.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
 fi
 
 # Generate hogli man page into the active environment so `man hogli` works.
@@ -233,20 +345,28 @@ HOGLI_MANPAGE_DIR="$UV_PROJECT_ENVIRONMENT/share/man/man1"
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   (
     mkdir -p "$HOGLI_MANPAGE_DIR"
-    PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
-      "$FLOX_ENV_PROJECT/common/hogli/scripts/generate_man_page.py" \
+    "$UV_PROJECT_ENVIRONMENT/bin/python" \
+      "$FLOX_ENV_PROJECT/tools/hogli/scripts/generate_man_page.py" \
       --output "$HOGLI_MANPAGE_DIR/hogli.1" >/dev/null 2>&1
   ) || true
 fi
 
 # ── Step 1b: Build phrocs from source ─────────────────────────────
-run_step "Build phrocs" make -C "$FLOX_ENV_PROJECT/tools/phrocs" build
+if [[ "$_PHROCS_SKIP" -eq 1 ]]; then
+  done_step "Build phrocs (cached)"
+else
+  wait_bg_step "Build phrocs" "$_BG_PHROCS_PID" "$_BG_PHROCS_START" "$_BG_PHROCS_LOG"
+fi
 if [[ -f "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" && -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/tools/phrocs/dist/phrocs" "$UV_PROJECT_ENVIRONMENT/bin/phrocs"
 fi
 
 # ── Step 2: Node packages ──────────────────────────────────────────
-run_step "Node packages" pnpm install
+if [[ "$_PNPM_SKIP" -eq 1 ]]; then
+  done_step "Node packages (cached)"
+else
+  wait_bg_step "Node packages" "$_BG_PNPM_PID" "$_BG_PNPM_START" "$_BG_PNPM_LOG"
+fi
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
 POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal # posthog"
@@ -354,8 +474,8 @@ fi
 # Clean old flox log files (>7 days). Fire-and-forget after activation.
 (
   if [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" && -f "$FLOX_ENV_PROJECT/bin/hogli" ]]; then
-    POSTHOG_TELEMETRY_OPT_OUT=1 PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
-      -m hogli.core doctor:disk --area=flox-logs --yes >/dev/null 2>&1
+    POSTHOG_TELEMETRY_OPT_OUT=1 "$UV_PROJECT_ENVIRONMENT/bin/python" \
+      -m hogli doctor:disk --area=flox-logs --yes >/dev/null 2>&1
   else
     find "$FLOX_ENV_PROJECT/.flox/log" -name "*.log" -type f -mtime +7 -delete 2>/dev/null
   fi

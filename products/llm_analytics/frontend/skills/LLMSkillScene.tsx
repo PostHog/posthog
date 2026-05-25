@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { lazy, Suspense, useCallback, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
 import { IconChevronRight, IconColumns, IconDocument, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -12,23 +12,22 @@ import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ApiConfig } from '~/lib/api'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MarkdownOutline } from '../components/MarkdownOutline'
-import { llmSkillsNameFilesRetrieve } from '../generated/api'
-import type { LLMSkillFileApi, LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
+import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from '../generated/api.schemas'
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
+import { skillFileLogic } from './skillFileLogic'
 import { openArchiveSkillDialog } from './skillSceneComponents'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
@@ -147,7 +146,7 @@ export function LLMSkillScene(): JSX.Element {
                 }
             />
 
-            <div className="flex flex-col gap-6 xl:flex-row">
+            <div className="flex flex-col gap-6 2xl:flex-row">
                 <div className="min-w-0 flex-1">
                     <SkillViewDetails />
                 </div>
@@ -226,7 +225,7 @@ export function LLMSkillScene(): JSX.Element {
                     }
                 />
 
-                <div className="flex flex-col gap-6 xl:flex-row">
+                <div className="flex flex-col gap-6 2xl:flex-row">
                     <div className="min-w-0 flex-1">
                         <SkillEditForm
                             isHistoricalVersion={isHistoricalVersion}
@@ -255,8 +254,10 @@ export function LLMSkillScene(): JSX.Element {
 function SkillViewDetails(): JSX.Element {
     const { skill, isOutlineExpanded, isDiffVisible, canCompareVersions, compareVersionOptions } =
         useValues(llmSkillLogic)
+    const { searchParams } = useValues(router)
     const { toggleOutlineExpanded, setCompareVersion } = useActions(llmSkillLogic)
     const markdownContainerRef = useRef<HTMLDivElement | null>(null)
+    const selectedFilePath = typeof searchParams?.file === 'string' ? searchParams.file : null
 
     if (!skill || !isSkill(skill)) {
         return <></>
@@ -364,9 +365,12 @@ function SkillViewDetails(): JSX.Element {
                             onToggleExpanded={toggleOutlineExpanded}
                         />
                         <div ref={markdownContainerRef}>
-                            <LemonMarkdown className="mt-1 rounded border bg-bg-light p-3" generateHeadingIds>
+                            <LemonMarkdownWithMermaid
+                                className="mt-1 rounded border bg-bg-light p-3"
+                                generateHeadingIds
+                            >
                                 {skill.body}
-                            </LemonMarkdown>
+                            </LemonMarkdownWithMermaid>
                         </div>
                     </>
                 )}
@@ -384,6 +388,7 @@ function SkillViewDetails(): JSX.Element {
                                 skillName={skill.name}
                                 file={file}
                                 version={skill.is_latest ? undefined : skill.version}
+                                autoOpen={selectedFilePath === file.path}
                             />
                         ))}
                     </div>
@@ -520,49 +525,39 @@ function SkillFileViewer({
     skillName,
     file,
     version,
+    autoOpen = false,
 }: {
     skillName: string
     file: LLMSkillFileManifestApi
     version?: number
+    autoOpen?: boolean
 }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
-    const [content, setContent] = useState<string | null>(null)
-    const [loading, setLoading] = useState(false)
+    const logicProps = { skillName, filePath: file.path, version }
+    const { expanded, content, contentLoading } = useValues(skillFileLogic(logicProps))
+    const { toggleExpand, autoOpen: triggerAutoOpen } = useActions(skillFileLogic(logicProps))
+    const containerRef = useRef<HTMLDivElement | null>(null)
 
-    const toggleExpand = useCallback(async () => {
-        if (expanded) {
-            setExpanded(false)
+    useEffect(() => {
+        if (!autoOpen) {
             return
         }
-        if (content === null) {
-            setLoading(true)
-            try {
-                const fileData: LLMSkillFileApi = await llmSkillsNameFilesRetrieve(
-                    String(ApiConfig.getCurrentTeamId()),
-                    skillName,
-                    file.path,
-                    { version }
-                )
-                setContent(fileData.content)
-            } catch (e) {
-                console.error('Failed to load file content', e)
-                setContent('Failed to load file content.')
-            } finally {
-                setLoading(false)
-            }
-        }
-        setExpanded(true)
-    }, [expanded, content, skillName, file.path, version])
+        triggerAutoOpen()
+        const id = requestAnimationFrame(() => {
+            containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+        return () => cancelAnimationFrame(id)
+    }, [autoOpen, triggerAutoOpen])
 
     const isMarkdown = file.content_type === 'text/markdown' || file.path.endsWith('.md')
     const codeLanguage = isMarkdown ? null : getFileLanguage(file.path, file.content_type)
 
     return (
-        <div className="rounded border">
+        <div ref={containerRef} className="rounded border">
             <button
                 type="button"
                 className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-3 py-2 text-left text-sm hover:bg-fill-secondary"
-                onClick={toggleExpand}
+                onClick={() => toggleExpand()}
+                data-attr={`llma-skill-file-toggle-${file.path}`}
             >
                 <IconChevronRight
                     className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -573,16 +568,16 @@ function SkillFileViewer({
             </button>
             {expanded && (
                 <div className="border-t bg-bg-light px-3 py-2">
-                    {loading ? (
+                    {contentLoading ? (
                         <div className="space-y-2">
                             <LemonSkeleton active className="h-3 w-full" />
                             <LemonSkeleton active className="h-3 w-3/4" />
                             <LemonSkeleton active className="h-3 w-1/2" />
                         </div>
                     ) : content === null ? null : isMarkdown ? (
-                        <LemonMarkdown className="text-sm" generateHeadingIds>
+                        <LemonMarkdownWithMermaid className="text-sm" generateHeadingIds>
                             {content}
-                        </LemonMarkdown>
+                        </LemonMarkdownWithMermaid>
                     ) : codeLanguage !== null ? (
                         <CodeSnippet language={codeLanguage} compact thing={file.path} maxLinesWithoutExpansion={20}>
                             {content}
@@ -653,6 +648,7 @@ function SkillEditForm({
                 }
             >
                 <LemonInput
+                    data-attr="llma-skill-name-input"
                     placeholder="my-skill-name"
                     maxLength={SKILL_NAME_MAX_LENGTH}
                     fullWidth
@@ -666,6 +662,7 @@ function SkillEditForm({
                 help="Explain what this skill does and when to use it. Agents use this to discover the right skill for a task."
             >
                 <LemonTextArea
+                    data-attr="llma-skill-description-input"
                     placeholder="Extract PDF text, fill forms, merge files. Use when handling PDFs."
                     maxLength={SKILL_DESCRIPTION_MAX_LENGTH}
                     minRows={2}
@@ -679,6 +676,7 @@ function SkillEditForm({
                 help="The main instruction content (SKILL.md body). Write markdown that tells agents how to perform the task."
             >
                 <LemonTextArea
+                    data-attr="llma-skill-body-input"
                     placeholder="# My Skill&#10;&#10;## When to use&#10;Use this skill when...&#10;&#10;## Steps&#10;1. First...&#10;2. Then..."
                     minRows={10}
                     className="font-mono"
@@ -686,7 +684,7 @@ function SkillEditForm({
             </LemonField>
 
             <LemonField name="license" label="License" help="Optional. License name or reference.">
-                <LemonInput placeholder="Apache-2.0" maxLength={255} fullWidth />
+                <LemonInput data-attr="llma-skill-license-input" placeholder="Apache-2.0" maxLength={255} fullWidth />
             </LemonField>
 
             <LemonField
@@ -694,7 +692,12 @@ function SkillEditForm({
                 label="Compatibility"
                 help="Optional. Environment requirements (intended product, system packages, network access)."
             >
-                <LemonInput placeholder="Requires git, docker, and internet access" maxLength={500} fullWidth />
+                <LemonInput
+                    data-attr="llma-skill-compatibility-input"
+                    placeholder="Requires git, docker, and internet access"
+                    maxLength={500}
+                    fullWidth
+                />
             </LemonField>
 
             <div>
@@ -787,6 +790,7 @@ function SkillFileEditor({
                         <div className="flex-1">
                             <label className="mb-1 block text-xs font-medium text-secondary">Path</label>
                             <LemonInput
+                                data-attr={`llma-skill-file-path-${index}`}
                                 value={file.path}
                                 onChange={(val) => onUpdate(index, 'path', val)}
                                 placeholder="scripts/setup.sh"
@@ -797,6 +801,7 @@ function SkillFileEditor({
                         <div className="w-48">
                             <label className="mb-1 block text-xs font-medium text-secondary">Content type</label>
                             <LemonSelect
+                                data-attr={`llma-skill-file-content-type-${index}`}
                                 value={file.content_type}
                                 onChange={(val) => onUpdate(index, 'content_type', val)}
                                 options={COMMON_CONTENT_TYPES}
@@ -808,6 +813,7 @@ function SkillFileEditor({
                     <div>
                         <label className="mb-1 block text-xs font-medium text-secondary">Content</label>
                         <LemonTextArea
+                            data-attr={`llma-skill-file-content-${index}`}
                             value={file.content}
                             onChange={(val) => onUpdate(index, 'content', val)}
                             placeholder="File content..."
@@ -842,7 +848,7 @@ function SkillVersionSidebar({
     const { setCompareVersion } = useActions(llmSkillLogic)
 
     return (
-        <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:mt-3 xl:w-80">
+        <aside className="w-full shrink-0 2xl:sticky 2xl:top-4 2xl:mt-3 2xl:w-80">
             <div className="rounded border bg-surface-primary p-4">
                 <div className="mb-3 flex items-center justify-between">
                     <div>

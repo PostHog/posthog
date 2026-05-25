@@ -12,15 +12,28 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { JoinExistingOrgLink } from '../JoinExistingOrgLink'
 import { signupLogic } from '../signupLogic'
+import { PendingInviteBanner } from './PendingInviteBanner'
 
 export function SignupPanelEmail(): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
-    const { isSignupPanelEmailSubmitting, loginUrl, emailCaseNotice, passkeyError, error } = useValues(signupLogic)
+    const {
+        isSignupPanelEmailSubmitting,
+        loginUrl,
+        emailCaseNotice,
+        passkeyError,
+        error,
+        pendingInvite,
+        signupPanelEmail,
+    } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
         emailInputRef?.current?.focus()
     }, [])
+
+    if (pendingInvite) {
+        return <PendingInviteBanner invite={pendingInvite} email={signupPanelEmail.email} />
+    }
 
     return (
         <div className="deprecated-space-y-4 Signup__panel__email">

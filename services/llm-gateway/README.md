@@ -153,6 +153,18 @@ All OpenAI, Anthropic, OpenRouter, and Fireworks AI chat models are supported.
 OpenRouter and Fireworks models use the OpenAI-compatible `/v1/chat/completions` endpoint with model prefixes (`openrouter/` and `fireworks_ai/`).
 The `/v1/models` endpoint returns provider-specific model IDs from LiteLLM's model map.
 
+## OpenAI organization
+
+Set `LLM_GATEWAY_OPENAI_ORGANIZATION` to attribute all outbound OpenAI traffic
+to a specific OpenAI organization (e.g. a HIPAA-covered organization with
+Zero Data Retention enabled). The gateway exports this as `OPENAI_ORG_ID` at
+startup so the OpenAI SDK (via litellm) forwards it on every request.
+
+When unset, no organization is sent and OpenAI infers the org from the API key.
+
+The `organization` field is also in `FORBIDDEN_REQUEST_PARAMS`, so caller-supplied
+values are stripped — only the gateway-configured organization reaches OpenAI.
+
 ## Bedrock provider
 
 AWS Bedrock is available as an alternative provider for the Anthropic endpoints.
@@ -206,9 +218,9 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 | `wizard`             | API key + OAuth | All                        | Max AI assistant                |
 | `django`             | API key only    | All                        | Server-side Django calls        |
 | `growth`             | API key only    | All                        | Growth team                     |
-| `llma_translation`   | API key only    | gpt-4.1-mini               | LLM analytics translation       |
-| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
-| `llma_eval_summary`  | API key only    | gpt-5-mini                 | LLM analytics eval summary      |
+| `llma_translation`   | API key only    | gpt-4.1-mini               | AI observability translation    |
+| `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini | AI observability summarization  |
+| `llma_eval_summary`  | API key only    | gpt-5-mini                 | AI observability eval summary   |
 
 Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
 

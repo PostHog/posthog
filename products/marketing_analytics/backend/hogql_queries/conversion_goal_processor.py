@@ -24,7 +24,9 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr, property_to_expr
 
-from posthog.models import Action, Team
+from posthog.models import Team
+
+from products.actions.backend.models.action import Action
 
 from .adapters.factory import MarketingSourceFactory
 from .marketing_analytics_config import MarketingAnalyticsConfig

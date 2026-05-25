@@ -25,6 +25,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.evaluation_clustering.constants import (
     LLMA_EVALUATION_DOCUMENT_TYPE,
@@ -345,8 +347,8 @@ def fetch_generation_contents(
     team: Team,
     generation_ids: list[str],
     *,
-    window_start: datetime | None = None,
-    window_end: datetime | None = None,
+    window_start: datetime,
+    window_end: datetime,
     max_input_chars: int = 1500,
     max_output_chars: int = 1500,
 ) -> dict[str, dict]:
@@ -360,61 +362,62 @@ def fetch_generation_contents(
     full transcripts and the clusters that matter are identified by *patterns*
     across many members, not by deep reading of any one.
 
-    ``window_start``/``window_end`` are optional but recommended — without them
-    ClickHouse can't prune date partitions from the ``(team_id, toDate(timestamp))``
-    index and the query does a full-team scan for a handful of UUIDs. The
-    labeling agent passes the same metadata lookup window the workflow uses.
+    Two-query pattern: resolves uuid → trace_id off `events` first (cheap
+    small-column lookup using the events sorting-key prefix), then runs the
+    heavy fetch on `ai_events` with `trace_id IN (...)` so it hits the
+    sorting-key prefix `(team_id, trace_id, timestamp)` + single-shard via
+    the cityHash64 sharding key. ``window_start`` / ``window_end`` are
+    required so the events lookup is bounded by the events sorting key
+    `(team_id, toDate(timestamp), event)` instead of full-team scanning.
     """
     if not generation_ids:
         return {}
 
+    trace_id_by_uuid = resolve_trace_ids_for_generation_uuids(
+        team=team,
+        generation_uuids=generation_ids,
+        ts_start=window_start,
+        ts_end=window_end,
+        query_type="ClusteringTraceIdResolve",
+    )
+    trace_ids = sorted({tid for tid in trace_id_by_uuid.values() if tid})
+    if not trace_ids:
+        return {}
+
     ids_tuple = ast.Tuple(exprs=[ast.Constant(value=gid) for gid in generation_ids])
-    has_window = window_start is not None and window_end is not None
-    if has_window:
-        query = parse_select(
-            """
-            SELECT
-                toString(uuid) as generation_id,
-                properties.$ai_model as model,
-                properties.$ai_input as input_raw,
-                properties.$ai_output_choices as output_raw
-            FROM events
-            WHERE event = '$ai_generation'
-                AND timestamp >= {start_dt}
-                AND timestamp < {end_dt}
-                AND toString(uuid) IN {ids}
-            LIMIT {limit}
-            """
-        )
-    else:
-        query = parse_select(
-            """
-            SELECT
-                toString(uuid) as generation_id,
-                properties.$ai_model as model,
-                properties.$ai_input as input_raw,
-                properties.$ai_output_choices as output_raw
-            FROM events
-            WHERE event = '$ai_generation'
-                AND toString(uuid) IN {ids}
-            LIMIT {limit}
-            """
-        )
+    trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
+    # Read from `posthog.ai_events` so the heavy `input` / `output_choices`
+    # columns survive the strip; the resolver re-runs against the shared
+    # `events` table when ai_events returns zero rows (rollout window /
+    # kill-switch off). `trace_id IN (...)` gets us the full sorting-key
+    # prefix + single-shard reads instead of an N-shard heavy fan-out.
+    query = parse_select(
+        """
+        SELECT
+            toString(uuid) as generation_id,
+            model,
+            input as input_raw,
+            output_choices as output_raw
+        FROM posthog.ai_events AS ai_events
+        WHERE event = '$ai_generation'
+            AND trace_id IN {trace_ids}
+            AND toString(uuid) IN {ids}
+        LIMIT {limit}
+        """
+    )
 
     placeholders: dict[str, ast.Expr] = {
         "ids": ids_tuple,
+        "trace_ids": trace_ids_tuple,
         "limit": ast.Constant(value=len(generation_ids)),
     }
-    if has_window:
-        placeholders["start_dt"] = ast.Constant(value=window_start)
-        placeholders["end_dt"] = ast.Constant(value=window_end)
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
-        result = execute_hogql_query(
-            query_type="GenerationContentsForLabeling",
+        result = execute_with_ai_events_fallback(
             query=query,
             placeholders=placeholders,
             team=team,
+            query_type="GenerationContentsForLabeling",
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 

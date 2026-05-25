@@ -124,6 +124,7 @@ export class TemporalService {
             taskQueue: EVALUATION_TASK_QUEUE,
             workflowId,
             workflowIdConflictPolicy: 'USE_EXISTING',
+            workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
             workflowTaskTimeout: '2 minutes',
         })
 
@@ -132,6 +133,37 @@ export class TemporalService {
         logger.debug('Started evaluation run workflow', {
             workflowId,
             evaluationId,
+            targetEventId: event.uuid,
+            timestamp: event.timestamp,
+        })
+
+        return handle
+    }
+
+    async startTaggerRunWorkflow(taggerId: string, event: RawKafkaEvent): Promise<WorkflowHandle> {
+        const client = await this.ensureConnected()
+
+        const workflowId = `llma-tagger-${taggerId}-${event.uuid}-ingestion`
+
+        const handle = await client.workflow.start('run-tagger', {
+            args: [
+                {
+                    tagger_id: taggerId,
+                    event_data: event,
+                },
+            ],
+            taskQueue: EVALUATION_TASK_QUEUE,
+            workflowId,
+            workflowIdConflictPolicy: 'USE_EXISTING',
+            workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
+            workflowTaskTimeout: '2 minutes',
+        })
+
+        temporalWorkflowsStarted.labels({ status: 'success' }).inc()
+
+        logger.debug('Started tagger run workflow', {
+            workflowId,
+            taggerId,
             targetEventId: event.uuid,
             timestamp: event.timestamp,
         })

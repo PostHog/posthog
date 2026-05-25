@@ -14,8 +14,9 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.models import Node, NodeType
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
 
 LOGGER = get_logger(__name__)
 
@@ -102,6 +103,9 @@ def _get_shadow_input_objects(
     saved_query = DataWarehouseSavedQuery.objects.exclude(deleted=True).get(
         id=node.saved_query.id, team_id=inputs.team_id
     )
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        prepare_executable_query(saved_query)
+
     return (team, node, saved_query)
 
 

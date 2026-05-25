@@ -106,6 +106,8 @@ export enum NodeKind {
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
     TraceSpansQuery = 'TraceSpansQuery',
+    TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
+    TraceSpansTreeQuery = 'TraceSpansTreeQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -230,6 +232,8 @@ export type AnyDataNode =
     | LogAttributesQuery
     | LogValuesQuery
     | TraceSpansQuery
+    | TraceSpansAggregationQuery
+    | TraceSpansTreeQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -329,6 +333,8 @@ export type QuerySchema =
 
     // Tracing
     | TraceSpansQuery
+    | TraceSpansAggregationQuery
+    | TraceSpansTreeQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -387,6 +393,8 @@ export type AnyResponseType =
     | LogAttributesQueryResponse
     | LogValuesQueryResponse
     | TraceSpansQueryResponse
+    | TraceSpansAggregationQueryResponse
+    | TraceSpansTreeQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -418,6 +426,8 @@ export interface HogQLQueryModifiers {
     optimizeJoinedFilters?: boolean
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean
+    /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
+    sessionPropertyPreAggregation?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean
@@ -441,6 +451,14 @@ export interface HogQLQueryModifiers {
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
+    /** HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    parserMode?:
+        | 'cpp_only'
+        | 'cpp_with_rust_shadow'
+        | 'rust_with_cpp_shadow'
+        | 'rust_only'
+        | 'rust_py_only'
+        | 'rust_py_with_cpp_shadow'
 }
 
 export interface DataWarehouseEventsModifier {
@@ -1120,6 +1138,7 @@ export interface HeatmapSettings {
 }
 
 export interface YAxisSettings {
+    label?: string
     scale?: 'linear' | 'logarithmic'
     /** Whether the Y axis should start at zero */
     startAtZero?: boolean
@@ -1129,6 +1148,7 @@ export interface YAxisSettings {
 
 export interface ChartSettings {
     xAxis?: ChartAxis
+    xAxisLabel?: string
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
     /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
@@ -1147,6 +1167,8 @@ export interface ChartSettings {
     showPieTotal?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
+    /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
+    resultCustomizations?: Record<string, ResultCustomizationByValue>
 }
 
 export interface ConditionalFormattingRule {
@@ -1235,6 +1257,10 @@ interface DataTableNodeViewProps {
     showSavedFilters?: boolean
     /** Show table views feature for this table (requires uniqueKey) */
     showTableViews?: boolean
+    /** Render date-time columns (timestamp, created_at, last_seen, last_seen_at, session_start,
+     *  session_end) as absolute date+time instead of relative ("X ago"). The toggle is exposed
+     *  in the column header menu only on EventsQuery / ActorsQuery sources. */
+    showAbsoluteTime?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */
@@ -1363,10 +1389,29 @@ export type TrendsFilter = {
     /** @default false */
     showAlertThresholdLines?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
-    /** @default numeric */
+    // The aggregation-axis description below is duplicated, intentionally and divergently, on
+    // `AssistantTrendsFilter` in schema-assistant-queries.ts. The assistant copy is deliberately
+    // more cautious ("do not use unless absolutely sure") because Max picks formats without explicit
+    // query context; this copy is more prescriptive because MCP callers know the units up front.
+    // Keep both in sync when the format set changes, but treat their wording as audience-specific.
+    /**
+     * Y-axis value formatter. Picks a human-friendly unit per value at render time without changing the underlying series values.
+     *
+     * - `numeric` (default): raw numbers, e.g. `1,234`.
+     * - `duration`: values are in seconds; rendered as friendly units per value (`45s`, `2m 12s`, `1h 4m`). Use this whenever the series is in seconds (latency, session length, time-to-event) instead of dividing in `formula` to force minutes or hours.
+     * - `duration_ms`: values are in milliseconds; rendered as friendly units (`850ms`, `1.5s`, `1m 4s`).
+     * - `percentage`: values are already in the 0-100 range; appends `%`.
+     * - `percentage_scaled`: values are a 0-1 ratio; multiplied and rendered as `%`.
+     * - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
+     * - `short`: compact notation for large counts (`1.2K`, `3.4M`).
+     * @default numeric
+     */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    /** Maximum number of decimal places shown. 1 or 2 is usually right for percentages and currency. */
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
     minDecimalPlaces?: TrendsFilterLegacy['min_decimal_places']
     /** @default false */
@@ -1639,9 +1684,9 @@ export type RetentionFilter = {
     aggregationType?: 'count' | 'sum' | 'avg'
     /** @description The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string
-    /** @description The type of property to aggregate on (event or person). Defaults to event.
+    /** @description The type of property to aggregate on (event, person or data_warehouse). Defaults to event.
      * @default event */
-    aggregationPropertyType?: 'event' | 'person'
+    aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
     /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean
 
@@ -1654,6 +1699,9 @@ export type RetentionFilter = {
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
     selectedInterval?: integer | null
     goalLines?: GoalLine[]
+    /** @description Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations.
+     * @default 0 */
+    cohortLabelStartIndex?: integer
 }
 
 export interface RetentionValue {
@@ -2250,6 +2298,8 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
+    /** Opt this specific query into the web_overview_query precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
+    useWebAnalyticsPrecompute?: boolean
 }
 
 export type WebAnalyticsItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
@@ -2276,6 +2326,7 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     dateFrom?: string
     dateTo?: string
     usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -2882,6 +2933,17 @@ export type LogsSparklineBreakdownBy = 'severity' | 'service'
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
 
+/**
+ * Filter criteria for a logs alert configuration. Subset of LogsViewerFilters
+ * (excludes dateRange). At least one of `severityLevels`, `serviceNames`, or
+ * `filterGroup` must be set on a live (enabled=true) alert.
+ */
+export interface LogsAlertFilters {
+    severityLevels?: LogSeverityLevel[]
+    serviceNames?: string[]
+    filterGroup?: PropertyGroupFilter
+}
+
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
     kind: NodeKind.LogsQuery
     dateRange: DateRange
@@ -2916,14 +2978,26 @@ export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse>
     limit?: integer
     offset?: integer
     search?: string
+    /** When true, the search query also matches attribute values (not just keys). */
+    searchValues?: boolean
     severityLevels?: LogSeverityLevel[]
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     attributeType: string
 }
 
+export interface LogAttributeResult {
+    name: string
+    /** Either 'log_attribute' or 'log_resource_attribute'. */
+    propertyFilterType: string
+    /** Whether this row matched the search by attribute key or by attribute value. */
+    matchedOn: 'key' | 'value'
+    /** Sample value that matched the search — only set when matchedOn is 'value'. */
+    matchedValue?: string
+}
+
 export interface LogAttributesQueryResponse extends AnalyticsQueryResponseBase {
-    results: Record<string, any>[]
+    results: LogAttributeResult[]
     count: number
 }
 
@@ -3019,6 +3093,88 @@ export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedTraceSpansQueryResponse = CachedQueryResponse<TraceSpansQueryResponse>
 
+/** One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view. */
+export interface AggregatedSpanRow {
+    service_name: string
+    name: string
+    count: integer
+    total_duration_nano: number
+    avg_duration_nano: number
+    p50_duration_nano: number
+    p95_duration_nano: number
+    error_count: integer
+}
+
+export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
+    kind: NodeKind.TraceSpansAggregationQuery
+    dateRange: DateRange
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
+    results: AggregatedSpanRow[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: AggregatedSpanRow[]
+}
+
+export type CachedTraceSpansAggregationQueryResponse = CachedQueryResponse<TraceSpansAggregationQueryResponse>
+
+/**
+ * One node in an aggregated span call tree. The `(service_name, name)` pair identifies
+ * the node; `(parent_service, parent_name)` links it to its parent. Spans without a
+ * matching parent in the window get `parent_name = '<ROOT>'` so orphans surface explicitly.
+ */
+export interface SpanTreeNode {
+    parent_service: string
+    parent_name: string
+    service_name: string
+    name: string
+    count: integer
+    total_duration_nano: number
+    avg_duration_nano: number
+    p50_duration_nano: number
+    p95_duration_nano: number
+    error_count: integer
+    /**
+     * Average nanoseconds from the parent span's start to this span's start. Zero for
+     * root spans. Used to order children left-to-right by typical start time in the
+     * flame graph.
+     */
+    avg_start_offset_nano: number
+}
+
+export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryResponse> {
+    kind: NodeKind.TraceSpansTreeQuery
+    dateRange: DateRange
+    /**
+     * Span name to scope the matched trace set. Required because the
+     * `(trace_id, parent_span_id)` self-join is prohibitive without bounding the
+     * matched traces — at high name cardinality the query becomes unsafe to run.
+     */
+    spanName: string
+    /**
+     * Service name that scopes the returned tree. Applied to the spans CTE so the
+     * call-tree only contains spans from this service, even when matched traces
+     * span multiple services.
+     */
+    serviceName: string
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansTreeQueryResponse extends AnalyticsQueryResponseBase {
+    results: SpanTreeNode[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: SpanTreeNode[]
+}
+
+export type CachedTraceSpansTreeQueryResponse = CachedQueryResponse<TraceSpansTreeQueryResponse>
+
 export interface FileSystemCount {
     count: number
     entries: FileSystemEntry[]
@@ -3068,6 +3224,7 @@ export type FileSystemIconType =
     | 'error_tracking'
     | 'heatmap'
     | 'session_replay'
+    | 'replay_vision'
     | 'session_profile'
     | 'survey'
     | 'product_tour'
@@ -3123,11 +3280,13 @@ export type FileSystemIconType =
     | 'sdk_doctor'
     | 'pipeline_status'
     | 'llm_evaluations'
+    | 'llm_tags'
     | 'llm_datasets'
     | 'llm_playground'
     | 'llm_prompts'
     | 'llm_clusters'
     | 'exports'
+    | 'deployments'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -3370,7 +3529,7 @@ export interface ExperimentApiMetric {
 }
 
 export interface ExperimentVariant {
-    /** Variant key, e.g. 'control', 'test', 'variant_a'. */
+    /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
     key: string
     /** Human-readable variant name. */
     name?: string
@@ -3381,7 +3540,7 @@ export interface ExperimentVariant {
 }
 
 export interface ExperimentParameters {
-    /** Experiment variants. If not specified, defaults to a 50/50 control/test split. */
+    /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
     feature_flag_variants?: ExperimentVariant[]
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number
@@ -3438,9 +3597,23 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
     data_warehouse_join_key: string
 }
 
-export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+// Named separately from `ExperimentMetricSource` so the JSDoc `@discriminator` tag
+// can attach without tripping ts-json-schema-generator's dedup (same workaround
+// pattern as `ExperimentMetricUnion = ExperimentMetric`). The alias is the public
+// type — callers continue to use `ExperimentMetricSource`.
+/**
+ * @discriminator kind
+ */
+export type ExperimentMetricSourceUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
-export type ExperimentFunnelMetricStep = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+export type ExperimentMetricSource = ExperimentMetricSourceUnion
+
+/**
+ * @discriminator kind
+ */
+export type ExperimentFunnelMetricStepUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+
+export type ExperimentFunnelMetricStep = ExperimentFunnelMetricStepUnion
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
@@ -3509,11 +3682,20 @@ export type ExperimentMetricTypeProps =
     | ExperimentRatioMetricTypeProps
     | ExperimentRetentionMetricTypeProps
 
-export type ExperimentMetric =
+// Named separately from `ExperimentMetric` so the JSDoc `@discriminator` tag below
+// can attach without colliding with the `NodeKind.ExperimentMetric` enum value
+// (which trips ts-json-schema-generator's deduplication). The alias is the public
+// type — callers continue to use `ExperimentMetric`.
+/**
+ * @discriminator metric_type
+ */
+export type ExperimentMetricUnion =
     | ExperimentMeanMetric
     | ExperimentFunnelMetric
     | ExperimentRatioMetric
     | ExperimentRetentionMetric
+
+export type ExperimentMetric = ExperimentMetricUnion
 
 export interface ExperimentQuery extends DataNode<ExperimentQueryResponse> {
     kind: NodeKind.ExperimentQuery
@@ -4168,6 +4350,7 @@ export enum AlertState {
 }
 
 export enum AlertCalculationInterval {
+    EVERY_15_MINUTES = 'every_15_minutes',
     HOURLY = 'hourly',
     DAILY = 'daily',
     WEEKLY = 'weekly',
@@ -4557,6 +4740,7 @@ export type AIEventType =
     | '$ai_metric'
     | '$ai_feedback'
     | '$ai_evaluation'
+    | '$ai_tag'
     | '$ai_trace_summary'
     | '$ai_generation_summary'
     | '$ai_trace_clusters'
@@ -5203,6 +5387,10 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Source = 'source',
     ReportedConversion = 'reported_conversion',
     ReportedConversionValue = 'reported_conversion_value',
+    AdGroupId = 'ad_group_id',
+    AdGroupName = 'ad_group_name',
+    AdId = 'ad_id',
+    AdName = 'ad_name',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -5236,6 +5424,10 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
         required: false,
         isCurrency: true,
     },
+    [MarketingAnalyticsColumnsSchemaNames.AdGroupId]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdGroupName]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdId]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdName]: { type: ['string'], required: false, isCurrency: false },
 }
 
 export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | undefined>
@@ -5279,6 +5471,8 @@ export enum MarketingAnalyticsDrillDownLevel {
     Channel = 'channel',
     Source = 'source',
     Campaign = 'campaign',
+    AdGroup = 'ad_group',
+    Ad = 'ad',
     Medium = 'medium',
     Content = 'content',
     Term = 'term',
@@ -5288,6 +5482,10 @@ export enum MarketingAnalyticsBaseColumns {
     Id = 'ID',
     Campaign = 'Campaign',
     Source = 'Source',
+    AdGroup = 'Ad group',
+    AdGroupId = 'Ad group ID',
+    Ad = 'Ad',
+    AdId = 'Ad ID',
     Cost = 'Cost',
     Clicks = 'Clicks',
     Impressions = 'Impressions',
@@ -5302,8 +5500,29 @@ export enum MarketingAnalyticsBaseColumns {
 export type MarketingAnalyticsDrillDownConfig = {
     columnAlias: string
     excludedBaseColumns: MarketingAnalyticsBaseColumns[]
+    // When true, this level can't be attributed to events — drop conversion goal columns.
+    // Used for ad-group / ad levels where events can't be mapped to a specific ad.
+    excludesConversionGoals?: boolean
 }
 
+// Hierarchy columns are emitted only at AD_GROUP / AD levels — at every other level
+// the runtime auto-excludes them via `getEffectiveExcludedColumns`. Keep this mirrored
+// with backend `HIERARCHY_BASE_COLUMNS` (products/marketing_analytics/backend/hogql_queries/constants.py).
+export const HIERARCHY_BASE_COLUMNS: ReadonlySet<MarketingAnalyticsBaseColumns> = new Set([
+    MarketingAnalyticsBaseColumns.AdGroup,
+    MarketingAnalyticsBaseColumns.AdGroupId,
+    MarketingAnalyticsBaseColumns.Ad,
+    MarketingAnalyticsBaseColumns.AdId,
+])
+
+export const HIERARCHY_DRILL_DOWN_LEVELS: ReadonlySet<MarketingAnalyticsDrillDownLevel> = new Set([
+    MarketingAnalyticsDrillDownLevel.AdGroup,
+    MarketingAnalyticsDrillDownLevel.Ad,
+])
+
+// Centralized drill-down level configuration. Hierarchy columns (ad_group / ad) are
+// auto-excluded by the runtime at non-hierarchy levels — see HIERARCHY_BASE_COLUMNS —
+// so they don't need to appear in `excludedBaseColumns` for CHANNEL/SOURCE/CAMPAIGN/UTM.
 export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsDrillDownConfig
@@ -5326,7 +5545,27 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
     },
     [MarketingAnalyticsDrillDownLevel.Campaign]: {
         columnAlias: MarketingAnalyticsBaseColumns.Campaign,
+        // Empty user-config preserves master's natural enum order at CAMPAIGN —
+        // hierarchy columns are auto-excluded by the runtime.
         excludedBaseColumns: [],
+    },
+    [MarketingAnalyticsDrillDownLevel.AdGroup]: {
+        // Show Campaign + Source as parent context, plus Ad group + ID. Hide Id (campaign id),
+        // Ad / AdId since they don't apply at this level.
+        columnAlias: MarketingAnalyticsBaseColumns.AdGroup,
+        excludedBaseColumns: [
+            MarketingAnalyticsBaseColumns.Id,
+            MarketingAnalyticsBaseColumns.Ad,
+            MarketingAnalyticsBaseColumns.AdId,
+        ],
+        excludesConversionGoals: true,
+    },
+    [MarketingAnalyticsDrillDownLevel.Ad]: {
+        // Full hierarchy: Campaign + Source + Ad group + Ad + Ad ID. Hide campaign Id and
+        // Ad group ID to keep the table readable.
+        columnAlias: MarketingAnalyticsBaseColumns.Ad,
+        excludedBaseColumns: [MarketingAnalyticsBaseColumns.Id, MarketingAnalyticsBaseColumns.AdGroupId],
+        excludesConversionGoals: true,
     },
     [MarketingAnalyticsDrillDownLevel.Medium]: {
         columnAlias: 'Medium',
@@ -5340,6 +5579,19 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
         columnAlias: 'Term',
         excludedBaseColumns: Object.values(MarketingAnalyticsBaseColumns),
     },
+}
+
+/** Combine the level's user-facing excluded set with the hierarchy auto-exclusion.
+ * Mirror of backend `get_effective_excluded_columns`. */
+export function getEffectiveExcludedColumns(
+    level: MarketingAnalyticsDrillDownLevel
+): Set<MarketingAnalyticsBaseColumns> {
+    const userExcluded = new Set(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[level].excludedBaseColumns)
+    if (HIERARCHY_DRILL_DOWN_LEVELS.has(level)) {
+        return userExcluded
+    }
+    HIERARCHY_BASE_COLUMNS.forEach((col) => userExcluded.add(col))
+    return userExcluded
 }
 
 export enum MarketingAnalyticsConstants {
@@ -5484,6 +5736,12 @@ export interface SourceConfig {
     iconClassName?: string
     webhookSetupCaption?: string
     webhookFields?: SourceFieldConfig[]
+    /**
+     * If true, the source does not support automatic webhook registration via API
+     * (e.g. Slack — the user must paste the URL into the source's app settings).
+     * Adjusts the setup UI copy to avoid promising automatic registration.
+     */
+    webhookManualOnly?: boolean
 
     /**
      * Tables to suggest enabling, with optional tooltip explaining why
@@ -5643,6 +5901,7 @@ export const externalDataSources = [
     'ClickHouse',
     'Plain',
     'Resend',
+    'PgAnalyze',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -5682,6 +5941,13 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'waze',
         ] as const,
         primarySource: 'google',
+        // Optional ad-group / ad warehouse schemas — present when the platform's API
+        // exposes per-level entity + stats tables. A source that omits them stays
+        // CAMPAIGN-only; the factory then reports `supports_level` False at AD_GROUP/AD.
+        adsetTableName: 'ad_group' as const,
+        adsetStatsTableName: 'ad_group_stats' as const,
+        adTableName: 'ad' as const,
+        adStatsTableName: 'ad_stats' as const,
     },
     LinkedinAds: {
         sourceType: 'LinkedinAds' as const,
@@ -5693,6 +5959,14 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['stats'] as const,
         defaultSources: ['linkedin', 'li'] as const,
         primarySource: 'linkedin',
+        // LinkedIn API hierarchy: Account → CampaignGroup → Campaign → Creative.
+        // We map CampaignGroups to "campaign" (matching the marketer's mental model),
+        // so LinkedIn's `campaigns` resource is what the rest of the platform calls
+        // "ad group", and `creatives` is what they call "ad".
+        adsetTableName: 'campaigns' as const,
+        adsetStatsTableName: 'campaign_stats' as const,
+        adTableName: 'creatives' as const,
+        adStatsTableName: 'creative_stats' as const,
     },
     MetaAds: {
         sourceType: 'MetaAds' as const,
@@ -5714,6 +5988,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'threads',
         ] as const,
         primarySource: 'meta',
+        adsetTableName: 'adsets' as const,
+        adsetStatsTableName: 'adset_stats' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_stats' as const,
         conversionActionTypes: {
             omni: [
                 'omni_purchase',
@@ -5746,6 +6024,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['report'] as const,
         defaultSources: ['tiktok'] as const,
         primarySource: 'tiktok',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_report' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_report' as const,
     },
     RedditAds: {
         sourceType: 'RedditAds' as const,
@@ -5757,6 +6039,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['report'] as const,
         defaultSources: ['reddit'] as const,
         primarySource: 'reddit',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_report' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_report' as const,
     },
     BingAds: {
         sourceType: 'BingAds' as const,
@@ -5768,6 +6054,16 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['performance'] as const,
         defaultSources: ['bing', 'microsoft'] as const,
         primarySource: 'bing',
+        // At ad-group / ad level Bing's data import only ships performance *reports* —
+        // no separate entity tables. The report embeds the entity columns, so it
+        // doubles as both entity and stats: `adset*`/`ad*` `Table` and `StatsTable`
+        // point at the same name, and the factory detects the duplication to wire the
+        // matched DataWarehouseTable into both adapter slots. (Campaign level still has
+        // a distinct `campaigns` entity table separate from `campaign_performance_report`.)
+        adsetTableName: 'ad_group_performance_report' as const,
+        adsetStatsTableName: 'ad_group_performance_report' as const,
+        adTableName: 'ad_performance_report' as const,
+        adStatsTableName: 'ad_performance_report' as const,
     },
     SnapchatAds: {
         sourceType: 'SnapchatAds' as const,
@@ -5779,6 +6075,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['stats_daily'] as const,
         defaultSources: ['snapchat'] as const,
         primarySource: 'snapchat',
+        adsetTableName: 'ad_squads' as const,
+        adsetStatsTableName: 'ad_squad_stats_daily' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_stats_daily' as const,
         conversionFields: ['conversion_purchases', 'conversion_sign_ups', 'conversion_subscribe'] as const,
         conversionValueFields: [
             'conversion_purchases_value',
@@ -5796,6 +6096,10 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         tableExclusions: ['analytics'] as const,
         defaultSources: ['pinterest'] as const,
         primarySource: 'pinterest',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_analytics' as const,
+        adTableName: 'ads' as const,
+        adStatsTableName: 'ad_analytics' as const,
     },
 } as const
 
@@ -5885,6 +6189,10 @@ export interface MarketingIntegrationConfigType {
 export enum InfinityValue {
     INFINITY_VALUE = 999999,
     NEGATIVE_INFINITY_VALUE = -999999,
+}
+
+export enum DashboardAutoRefreshInterval {
+    SECONDS = 1800,
 }
 
 export type UsageMetricFormat = 'numeric' | 'currency'
@@ -6023,6 +6331,7 @@ export interface CustomerAnalyticsConfig {
     signup_event: EventsNode | ActionsNode
     subscription_event: EventsNode | ActionsNode
     payment_event: EventsNode | ActionsNode
+    account_group_type_index?: integer | null
 }
 
 /**
@@ -6069,6 +6378,7 @@ export enum UserProductListReason {
     USED_ON_SEPARATE_TEAM = 'used_on_separate_team',
     NEW_PRODUCT = 'new_product',
     SALES_LED = 'sales_led',
+    ONBOARDING_DELEGATED = 'onboarding_delegated',
 }
 
 export interface UserProductListItem {
@@ -6092,6 +6402,7 @@ export enum ProductKey {
     CUSTOMER_ANALYTICS = 'customer_analytics',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
+    DEPLOYMENTS = 'deployments',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
     ERROR_TRACKING = 'error_tracking',
@@ -6123,6 +6434,7 @@ export enum ProductKey {
     PRODUCT_TOURS = 'product_tours',
     REVENUE_ANALYTICS = 'revenue_analytics',
     SESSION_REPLAY = 'session_replay',
+    REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',
     SUBSCRIPTIONS = 'subscriptions',
     STREAMLIT_APPS = 'streamlit_apps',
@@ -6167,6 +6479,7 @@ export enum ProductIntentContext {
 
     // LLM Analytics
     LLM_ANALYTICS_VIEWED = 'llm_analytics_viewed',
+    LLM_ANALYTICS_TRACE_VIEWED = 'llm_analytics_trace_viewed',
     LLM_ANALYTICS_DOCS_VIEWED = 'llm_analytics_docs_viewed',
     LLM_CLUSTER_EXPLORED = 'llm_cluster_explored',
     LLM_DATASET_CREATED = 'llm_dataset_created',

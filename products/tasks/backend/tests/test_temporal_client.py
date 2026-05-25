@@ -12,6 +12,7 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.client import (
     execute_task_processing_workflow,
     execute_task_processing_workflow_async,
+    resume_task_in_cloud_workflow,
 )
 
 
@@ -56,26 +57,6 @@ class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
         async_to_sync(execute_task_processing_workflow_async)(**kwargs)
 
     @parameterized.expand([("sync",), ("async",)])
-    def test_marks_run_failed_when_user_id_is_missing(self, executor: str) -> None:
-        run = self._create_run()
-
-        self._execute_workflow(executor, run, None)
-
-        self._assert_run_failed(run, "Failed to start task workflow: missing user id")
-
-    @parameterized.expand([("sync",), ("async",)])
-    def test_marks_run_failed_when_tasks_feature_is_disabled(self, executor: str) -> None:
-        run = self._create_run()
-
-        with patch(
-            "products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=False
-        ) as mock_feature_enabled:
-            self._execute_workflow(executor, run, self.user.id)
-
-        self._assert_run_failed(run, "Failed to start task workflow: tasks feature is disabled")
-        mock_feature_enabled.assert_called_once()
-
-    @parameterized.expand([("sync",), ("async",)])
     def test_marks_run_failed_when_temporal_start_fails(self, executor: str) -> None:
         run = self._create_run()
         client = Mock()
@@ -89,15 +70,12 @@ class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
         connect_mock = Mock(return_value=client) if executor == "sync" else AsyncMock(return_value=client)
 
         with (
-            patch(
-                "products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=True
-            ) as mock_feature_enabled,
             patch(connect_target, connect_mock),
+            patch("products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=False),
         ):
             self._execute_workflow(executor, run, self.user.id)
 
         self._assert_run_failed(run, "Failed to start task workflow: temporal unavailable")
-        mock_feature_enabled.assert_called_once()
 
     @parameterized.expand([("sync",), ("async",)])
     def test_does_not_overwrite_run_that_already_started(self, executor: str) -> None:
@@ -113,10 +91,8 @@ class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
         connect_mock = Mock(return_value=client) if executor == "sync" else AsyncMock(return_value=client)
 
         with (
-            patch(
-                "products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=True
-            ) as mock_feature_enabled,
             patch(connect_target, connect_mock),
+            patch("products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=False),
         ):
             self._execute_workflow(executor, run, self.user.id)
 
@@ -124,4 +100,76 @@ class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
         self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
         self.assertIsNone(run.error_message)
         self.assertIsNone(run.completed_at)
-        mock_feature_enabled.assert_called_once()
+
+    @parameterized.expand([("sync",), ("async",)])
+    def test_captures_sandbox_event_ingest_flag_before_starting_workflow(self, executor: str) -> None:
+        run = self._create_run()
+        client = Mock()
+        client.start_workflow = AsyncMock()
+
+        connect_target = (
+            "products.tasks.backend.temporal.client.sync_connect"
+            if executor == "sync"
+            else "products.tasks.backend.temporal.client.async_connect"
+        )
+        connect_mock = Mock(return_value=client) if executor == "sync" else AsyncMock(return_value=client)
+
+        with (
+            patch(connect_target, connect_mock),
+            patch("products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=True) as flag,
+        ):
+            self._execute_workflow(executor, run, self.user.id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+        flag.assert_called_once_with(
+            "tasks-cloud-runs-sandbox-event-ingest",
+            distinct_id="process_task_workflow",
+            groups={"organization": str(self.organization.id)},
+            group_properties={"organization": {"id": str(self.organization.id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    def test_captures_sandbox_event_ingest_flag_before_resuming_workflow(self) -> None:
+        run = self._create_run()
+        client = Mock()
+        client.start_workflow = AsyncMock()
+
+        with (
+            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
+            patch("products.tasks.backend.temporal.client.posthoganalytics.feature_enabled", return_value=True),
+        ):
+            resume_task_in_cloud_workflow(str(run.id), run.workflow_id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)
+
+    @parameterized.expand([("sync",), ("async",)])
+    def test_captures_sandbox_event_ingest_flag_without_clobbering_concurrent_state(self, executor: str) -> None:
+        run = self._create_run()
+        client = Mock()
+        client.start_workflow = AsyncMock()
+        connect_target = (
+            "products.tasks.backend.temporal.client.sync_connect"
+            if executor == "sync"
+            else "products.tasks.backend.temporal.client.async_connect"
+        )
+        connect_mock = Mock(return_value=client) if executor == "sync" else AsyncMock(return_value=client)
+
+        def _feature_enabled(*args: object, **kwargs: object) -> bool:
+            TaskRun.update_state_atomic(str(run.id), updates={"pending_user_message_ids": ["message-1"]})
+            return True
+
+        with (
+            patch(connect_target, connect_mock),
+            patch(
+                "products.tasks.backend.temporal.client.posthoganalytics.feature_enabled",
+                side_effect=_feature_enabled,
+            ),
+        ):
+            self._execute_workflow(executor, run, self.user.id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.state["pending_user_message_ids"], ["message-1"])
+        self.assertEqual(run.state["sandbox_event_ingest_enabled"], True)

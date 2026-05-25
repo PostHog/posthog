@@ -6,9 +6,15 @@ All events use the ticket's distinct_id so they're tied to the customer person.
 Events are sent to the customer's PostHog project via their team's API token.
 """
 
+import structlog
+
 from posthog.api.capture import capture_internal
+from posthog.event_usage import groups as build_groups
+from posthog.models.person.util import get_persons_by_distinct_ids
 
 from products.conversations.backend.models import Ticket
+
+logger = structlog.get_logger(__name__)
 
 EVENT_SOURCE = "conversations_events"
 
@@ -30,13 +36,26 @@ def capture_ticket_created(ticket: Ticket) -> None:
     properties["customer_name"] = traits.get("name", "")
     properties["customer_email"] = traits.get("email", "")
 
+    team = ticket.team
+    team_id = team.id
+    process_person = False
+    if ticket.distinct_id:
+        try:
+            persons = get_persons_by_distinct_ids(team_id, [ticket.distinct_id])
+            if any(p.is_identified for p in persons):
+                process_person = True
+                properties["$groups"] = build_groups(team.organization, team)
+        except Exception:
+            logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
+
     capture_internal(
-        token=ticket.team.api_token,
+        token=team.api_token,
         event_name="$conversation_ticket_created",
         event_source=EVENT_SOURCE,
         distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
+        process_person_profile=process_person,
     )
 
 

@@ -28,7 +28,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KE
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 DLT_TO_PA_TYPE_MAP: dict[
     Literal["text", "bigint", "bool", "timestamp", "json", "double", "date", "time", "decimal"], pa.DataType
@@ -66,6 +66,18 @@ class QueryTimeoutException(Exception):
 
 
 class TemporaryFileSizeExceedsLimitException(Exception):
+    pass
+
+
+class SchemaColumnTypeChangedException(Exception):
+    """Raised when an incoming column can't be cast into the existing (narrower) Delta column type.
+
+    The usual cause is the source column's type being widened upstream (e.g. Postgres
+    `integer` → `bigint`) after the Delta table was already created with the narrower type.
+    delta-rs cannot widen an existing column in place, so retrying is futile — the table must
+    be reset and fully re-synced to adopt the new type.
+    """
+
     pass
 
 
@@ -268,10 +280,26 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
                         incoming_table.schema.get_field_index(delta_field.name), delta_field.name, parsed_timestamps
                     )
             else:
+                try:
+                    casted_column = incoming_column.cast(delta_field.type).combine_chunks()
+                except pa.ArrowInvalid as e:
+                    # A narrowing cast overflowed. The usual cause is the source column's type
+                    # being widened upstream (e.g. Postgres `integer` → `bigint`) after the Delta
+                    # column was created with the narrower type. delta-rs cannot widen an existing
+                    # column in place, so retrying is futile — surface an actionable error telling
+                    # the user to reset and fully re-sync the table.
+                    if pa.types.is_integer(delta_field.type) and pa.types.is_integer(incoming_column.type):
+                        raise SchemaColumnTypeChangedException(
+                            f"Source column type changed: '{delta_field.name}' has values that no longer "
+                            f"fit its stored type {delta_field.type} (incoming data is now "
+                            f"{incoming_column.type}). Reset and fully re-sync this table to adopt the new type."
+                        ) from e
+                    raise
+
                 incoming_table = incoming_table.set_column(
                     incoming_table.schema.get_field_index(delta_field.name),
                     delta_field.name,
-                    incoming_column.cast(delta_field.type).combine_chunks(),
+                    casted_column,
                 )
 
             incoming_column = incoming_table.column(delta_field.name)
@@ -341,8 +369,14 @@ async def setup_partitioning(
         return pa_table
 
     if existing_delta_table:
-        delta_schema = existing_delta_table.schema().to_arrow()
-        if PARTITION_KEY not in delta_schema.names:
+        # Check the table's *partition columns* — not its schema columns. A delta
+        # table can contain `_ph_partition_key` in its schema without being
+        # partitioned by it (e.g. leftover from a prior write that included the
+        # column but was committed with `partition_by=None`). Writing with
+        # `partition_by=PARTITION_KEY` in that case raises
+        # `DeltaError: Specified table partitioning does not match table partitioning`.
+        partition_columns = getattr(existing_delta_table.metadata(), "partition_columns", None) or []
+        if PARTITION_KEY not in partition_columns:
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
 

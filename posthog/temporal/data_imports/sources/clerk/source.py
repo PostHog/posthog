@@ -58,7 +58,12 @@ The secret key starts with `sk_live_`.
         )
 
     def get_schemas(
-        self, config: ClerkSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ClerkSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         # Clerk only supports full refresh - the API doesn't support filtering by updated_at
         schemas = [
@@ -76,6 +81,12 @@ The secret key starts with `sk_live_`.
             schemas = [s for s in schemas if s.name in names_set]
 
         return schemas
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.clerk.com": "Your Clerk secret key is invalid or has been revoked. Please update the secret key in your Clerk dashboard and reconnect.",
+            "403 Client Error: Forbidden for url: https://api.clerk.com": "Your Clerk secret key does not have permission to access this endpoint. Please check the key's permissions in your Clerk dashboard.",
+        }
 
     def validate_credentials(
         self, config: ClerkSourceConfig, team_id: int, schema_name: Optional[str] = None

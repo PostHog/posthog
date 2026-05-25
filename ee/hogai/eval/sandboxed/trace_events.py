@@ -65,9 +65,10 @@ class TraceEventEmitter:
     def emit_parsed_events(self, parsed: ParsedLog) -> None:
         """Emit ``$ai_generation`` per model turn and ``$ai_span`` per log span."""
         error_spans = [s for s in parsed.spans if s.span_name == "error"]
+        model = parsed.model or DEFAULT_MODEL
 
         for gen in parsed.generations:
-            self._emit_generation(gen, error_spans)
+            self._emit_generation(gen, error_spans, model)
         for span in parsed.spans:
             self._emit_span(span)
 
@@ -82,7 +83,7 @@ class TraceEventEmitter:
             len(parsed.spans),
         )
 
-    def _emit_generation(self, gen: GenerationDescriptor, error_spans: list[SpanDescriptor]) -> None:
+    def _emit_generation(self, gen: GenerationDescriptor, error_spans: list[SpanDescriptor], model: str) -> None:
         # Prefer the real "model call invoked" time; fall back to first-output time.
         gen_start = _parse_iso_timestamp(gen.start_ts) or _parse_iso_timestamp(gen.timestamp)
         gen_end = _parse_iso_timestamp(gen.end_ts) or _parse_iso_timestamp(gen.timestamp)
@@ -91,7 +92,7 @@ class TraceEventEmitter:
             "$ai_trace_id": self._trace_id,
             "$ai_span_id": str(uuid.uuid4()),
             "$ai_parent_id": self._trace_id,
-            "$ai_model": DEFAULT_MODEL,
+            "$ai_model": model,
             "$ai_provider": DEFAULT_PROVIDER,
             "$ai_input": gen.input_messages,
             **self._eval_metadata,
@@ -319,8 +320,10 @@ def emit_evaluation_events(
             }
             if score_value is not None:
                 properties["$ai_score"] = score_value
+            properties["$ai_trace_id"] = trace_id or str(uuid.uuid4())
             if trace_id:
-                properties["$ai_trace_id"] = trace_id
+                properties["$ai_target_id"] = trace_id
+                properties["$ai_target_type"] = "trace_id"
             if isinstance(result.input, dict):
                 prompt = result.input.get("prompt", "")
                 if prompt:

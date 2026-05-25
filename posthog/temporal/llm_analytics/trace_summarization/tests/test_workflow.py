@@ -134,6 +134,86 @@ class TestSampleItemsInWindowActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
+    async def test_generation_filter_is_applied_inside_argmaxif(self, mock_team):
+        from posthog.hogql import ast
+        from posthog.hogql.visitor import TraversingVisitor
+
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=10,
+            analysis_level="generation",
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+            event_filters=[{"key": "is_background_task", "type": "event", "value": ["false"], "operator": "exact"}],
+        )
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = []
+            await sample_items_in_window_activity(inputs)
+
+            query: ast.SelectQuery = mock_execute.call_args.kwargs["query"]
+
+            class CallCollector(TraversingVisitor):
+                def __init__(self, name: str) -> None:
+                    self.name = name
+                    self.found: list[ast.Call] = []
+
+                def visit_call(self, node: ast.Call) -> None:
+                    if node.name == self.name:
+                        self.found.append(node)
+                    super().visit_call(node)
+
+            class KeyReferenced(TraversingVisitor):
+                def __init__(self, key: str) -> None:
+                    self.key = key
+                    self.found = False
+
+                def visit_field(self, node: ast.Field) -> None:
+                    if node.chain and node.chain[-1] == self.key:
+                        self.found = True
+
+            argmaxif = CallCollector("argMaxIf")
+            for item in query.select:
+                argmaxif.visit(item)
+            assert len(argmaxif.found) == 1
+
+            class PlaceholderFinder(TraversingVisitor):
+                def __init__(self, name: str) -> None:
+                    self.name = name
+                    self.found = False
+
+                def visit_placeholder(self, node: ast.Placeholder) -> None:
+                    if node.chain and node.chain[-1] == self.name:
+                        self.found = True
+
+            trace_filter_in_argmaxif = PlaceholderFinder("trace_filter")
+            trace_filter_in_argmaxif.visit(argmaxif.found[0].args[2])
+            assert trace_filter_in_argmaxif.found, (
+                "Filter placeholder must be inside argMaxIf so the picked generation itself satisfies it"
+            )
+
+            trace_filter_expr = mock_execute.call_args.kwargs["placeholders"]["trace_filter"]
+            key_ref = KeyReferenced("is_background_task")
+            key_ref.visit(trace_filter_expr)
+            assert key_ref.found, "trace_filter placeholder must reference the configured event property"
+
+            # The trace-level countIf gate is redundant once the filter is in argMaxIf —
+            # HAVING drops traces whose argMaxIf returned the zero UUID (no matching generation).
+            countif = CallCollector("countIf")
+            if query.having is not None:
+                countif.visit(query.having)
+            assert countif.found == []
+
+            # argMaxIf with no matching rows returns the zero UUID (not NULL), so
+            # HAVING must explicitly compare against it — IS NOT NULL doesn't catch it.
+            zero_uuid_guard = CallCollector("toUUIDOrZero")
+            assert query.having is not None
+            zero_uuid_guard.visit(query.having)
+            assert zero_uuid_guard.found, "HAVING must guard against zero-UUID phantom generations"
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
     async def test_sample_items_empty(self, mock_team):
         inputs = BatchSummarizationInputs(
             team_id=mock_team.id,
@@ -149,6 +229,74 @@ class TestSampleItemsInWindowActivity:
             result = await sample_items_in_window_activity(inputs)
 
             assert len(result) == 0
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_sample_skips_when_cohort_filter_references_missing_cohort(self, mock_team):
+        # Cohort referenced by a saved job was deleted between save and run.
+        # Activity should log + return [] rather than raise.
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=100,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+            event_filters=[{"key": "id", "value": 999_999, "type": "cohort"}],
+        )
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            result = await sample_items_in_window_activity(inputs)
+
+            assert result == []
+            mock_execute.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_sample_skips_when_cohort_filter_references_soft_deleted_cohort(self, mock_team):
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.cohort import Cohort
+
+        cohort = await sync_to_async(Cohort.objects.create)(team=mock_team, name="Stale", deleted=True)
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=100,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+            event_filters=[{"key": "id", "value": cohort.id, "type": "cohort"}],
+        )
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            result = await sample_items_in_window_activity(inputs)
+
+            assert result == []
+            mock_execute.assert_not_called()
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_sample_runs_when_cohort_filter_resolves(self, mock_team):
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.cohort import Cohort
+
+        cohort = await sync_to_async(Cohort.objects.create)(team=mock_team, name="VIPs")
+        inputs = BatchSummarizationInputs(
+            team_id=mock_team.id,
+            max_items=100,
+            window_minutes=60,
+            window_start="2025-01-15T11:00:00",
+            window_end="2025-01-15T12:00:00",
+            event_filters=[{"key": "id", "value": cohort.id, "type": "cohort"}],
+        )
+
+        with patch("posthog.temporal.llm_analytics.trace_summarization.sampling.execute_hogql_query") as mock_execute:
+            mock_execute.return_value.results = []
+
+            result = await sample_items_in_window_activity(inputs)
+
+            assert result == []
+            mock_execute.assert_called_once()
 
 
 class TestBatchTraceSummarizationWorkflow:

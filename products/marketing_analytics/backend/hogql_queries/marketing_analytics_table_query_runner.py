@@ -26,6 +26,7 @@ from .constants import (
     DRILL_DOWN_LEVEL_CONFIG,
     PAGINATION_EXTRA,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+    get_effective_excluded_columns,
     to_marketing_analytics_data,
 )
 from .conversion_goals_aggregator import ConversionGoalsAggregator
@@ -145,39 +146,55 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
     def _build_compare_join(
         self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
     ) -> ast.JoinExpr:
-        """Build the join expression for comparing current and previous periods"""
-        level = self.config.drill_down_level
+        """Build the join expression for comparing current and previous periods.
 
+        Join keys must uniquely identify a row at each drill-down level. Names alone
+        don't satisfy this for ad-group / ad levels — two campaigns can both have an
+        ad-group named "All Audiences", and renaming an entity between periods would
+        appear as "deleted + created". So at AD_GROUP / AD we join by the platform ID
+        + source. This assumes (AD_GROUP_ID, SOURCE) and (AD_ID, SOURCE) are unique
+        per source — true for Meta; future adapters must preserve it or add campaign_id
+        to the join.
+        """
+        level = self.config.drill_down_level
         campaign_alias = self.config.get_campaign_column_alias()
 
-        if level in (
+        def _eq(column: str) -> ast.CompareOperation:
+            return ast.CompareOperation(
+                left=ast.Field(chain=["current_period", column]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Field(chain=["previous_period", column]),
+            )
+
+        if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+            # Group-by key is (ad_group_id, source). Join on the same so renamed
+            # ad-groups still match across periods.
+            join_condition: ast.Expr = ast.And(
+                exprs=[
+                    _eq(MarketingAnalyticsBaseColumns.AD_GROUP_ID.value),
+                    _eq(MarketingAnalyticsBaseColumns.SOURCE.value),
+                ]
+            )
+        elif level == MarketingAnalyticsDrillDownLevel.AD:
+            join_condition = ast.And(
+                exprs=[
+                    _eq(MarketingAnalyticsBaseColumns.AD_ID.value),
+                    _eq(MarketingAnalyticsBaseColumns.SOURCE.value),
+                ]
+            )
+        elif level in (
             MarketingAnalyticsDrillDownLevel.CHANNEL,
             MarketingAnalyticsDrillDownLevel.SOURCE,
             MarketingAnalyticsDrillDownLevel.MEDIUM,
             MarketingAnalyticsDrillDownLevel.CONTENT,
             MarketingAnalyticsDrillDownLevel.TERM,
         ):
-            join_condition: ast.Expr = ast.CompareOperation(
-                left=ast.Field(chain=["current_period", campaign_alias]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Field(chain=["previous_period", campaign_alias]),
-            )
+            # Repurposed-alias levels: campaign_alias holds the unique grouping value
+            # (channel type / source / utm value). Names are stable identifiers here.
+            join_condition = _eq(campaign_alias)
         else:
             # Campaign level joins on both Campaign + Source
-            join_condition = ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["current_period", campaign_alias]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Field(chain=["previous_period", campaign_alias]),
-                    ),
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["current_period", MarketingAnalyticsBaseColumns.SOURCE.value]),
-                        op=ast.CompareOperationOp.Eq,
-                        right=ast.Field(chain=["previous_period", MarketingAnalyticsBaseColumns.SOURCE.value]),
-                    ),
-                ]
-            )
+            join_condition = ast.And(exprs=[_eq(campaign_alias), _eq(MarketingAnalyticsBaseColumns.SOURCE.value)])
 
         return ast.JoinExpr(
             table=current_period_query,
@@ -270,48 +287,73 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
     def _build_select_columns_mapping(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> dict[str, ast.Expr]:
+        """Build the column mapping for the drill-down level.
+
+        Routing decision (driven by the level's user-facing `excluded_base_columns`):
+        - Empty set → natural-order path: emit BASE_COLUMN_MAPPING in enum order. Used
+          by CAMPAIGN — preserves the historical [ID, Campaign, Source, …] order.
+        - Non-empty set → aggregated path via `_build_aggregated_level_columns`: places
+          the grouping alias first, then the surviving columns. Used by every other
+          level (synthetic aliases like CHANNEL/MEDIUM, hierarchy levels AD_GROUP/AD).
+
+        Hierarchy columns are stripped automatically at non-hierarchy levels via
+        `get_effective_excluded_columns`, so the level config doesn't have to repeat them.
+        """
         level = self.config.drill_down_level
-        excluded = DRILL_DOWN_LEVEL_CONFIG[level]["excluded_base_columns"]
+        level_config = DRILL_DOWN_LEVEL_CONFIG[level]
+        user_excluded = level_config["excluded_base_columns"]
+        effective_excluded = get_effective_excluded_columns(level)
 
         all_columns: dict[str, ast.Expr]
-        if excluded:
-            all_columns = self._build_aggregated_level_columns(excluded)
+        if not user_excluded:
+            all_columns = {str(k): v for k, v in BASE_COLUMN_MAPPING.items() if k not in effective_excluded}
         else:
-            all_columns = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
+            all_columns = self._build_aggregated_level_columns(effective_excluded)
 
         # Add conversion goal columns using the aggregator.
-        # "Cost per conversion" is only meaningful when the Cost metric exists at this
-        # drill-down level — at UTM levels (medium/content/term) Cost is excluded because
-        # we can't attribute platform cost to a specific UTM value, so cost-per-conversion
-        # must be hidden too.
-        if conversion_aggregator:
-            include_cost_per = MarketingAnalyticsBaseColumns.COST not in excluded
+        # At ad-group / ad levels, events can't be mapped to a specific ad, so
+        # conversion goals are dropped entirely. At UTM levels (medium/content/term)
+        # Cost is excluded — we can't attribute platform cost to a UTM value — so
+        # cost-per-conversion must be hidden too.
+        if conversion_aggregator and not level_config.get("excludes_conversion_goals"):
+            include_cost_per = MarketingAnalyticsBaseColumns.COST not in effective_excluded
             conversion_columns = conversion_aggregator.get_conversion_goal_columns(include_cost_per=include_cost_per)
             all_columns.update(conversion_columns)
 
         return all_columns
 
     def _build_aggregated_level_columns(self, excluded: frozenset) -> dict[str, ast.Expr]:
-        """Build column mapping for aggregated views (channel/source level).
-        The CTE repurposes campaign_name to hold the grouping value.
+        """Build column mapping for drill-down levels that have a custom primary column.
+
+        The "primary" column is the grouping dimension shown first (e.g. "Ad group" at
+        AD_GROUP level). For levels whose alias matches a base column (AD_GROUP/AD),
+        the primary expression comes from BASE_COLUMN_MAPPING. For repurposed levels
+        (CHANNEL/SOURCE), the alias has no matching base column, so we fall back to
+        CAMPAIGN whose expression the CTE has aliased to hold the grouping value.
         """
         columns: dict[str, ast.Expr] = {}
         alias = self.config.get_campaign_column_alias()
-        base_expr = BASE_COLUMN_MAPPING[MarketingAnalyticsBaseColumns.CAMPAIGN]
+        primary_key = next(
+            (k for k in BASE_COLUMN_MAPPING if str(k) == alias),
+            MarketingAnalyticsBaseColumns.CAMPAIGN,
+        )
+        base_expr = BASE_COLUMN_MAPPING[primary_key]
         columns[alias] = ast.Alias(alias=alias, expr=base_expr.expr) if isinstance(base_expr, ast.Alias) else base_expr
         for col_key, col_expr in BASE_COLUMN_MAPPING.items():
-            if col_key not in excluded and col_key != MarketingAnalyticsBaseColumns.CAMPAIGN:
+            if col_key not in excluded and col_key != primary_key:
                 columns[str(col_key)] = col_expr
         return columns
 
     def _build_select_query(self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None) -> ast.SelectQuery:
         """Build the complete SELECT query with base columns and conversion goal columns"""
         level = self.config.drill_down_level
+        level_config = DRILL_DOWN_LEVEL_CONFIG[level]
+        # At AD_GROUP / AD level events can't be mapped to a specific ad, so drop
+        # the conversion goals join entirely.
+        skip_conversion_goals_join = level_config.get("excludes_conversion_goals", False)
         # Same invariant as _build_select_columns_mapping: if Cost is excluded at this level,
         # joining campaign_costs buys us nothing but phantom rows from the FULL OUTER JOIN.
-        bypass_campaign_costs = (
-            MarketingAnalyticsBaseColumns.COST in DRILL_DOWN_LEVEL_CONFIG[level]["excluded_base_columns"]
-        )
+        bypass_campaign_costs = MarketingAnalyticsBaseColumns.COST in level_config["excluded_base_columns"]
 
         # Get conversion goal components
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
@@ -335,7 +377,8 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
 
         # Add single unified conversion goals join if we have conversion goals
-        if conversion_aggregator:
+        # (skip at ad-group / ad levels — no event attribution possible there).
+        if conversion_aggregator and not skip_conversion_goals_join:
             if level in (
                 MarketingAnalyticsDrillDownLevel.CHANNEL,
                 MarketingAnalyticsDrillDownLevel.SOURCE,

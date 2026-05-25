@@ -36,13 +36,14 @@ from posthog.hogql_queries.insights.funnels.utils import (
     entity_config_mismatch,
     get_breakdown_expr,
 )
+from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID, strip_user_aliases
 from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
 from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
-from posthog.queries.breakdown_props import NOT_IN_COHORT_ID
 from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
+
+from products.actions.backend.models.action import Action
 
 
 @dataclass
@@ -158,6 +159,15 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         if len(queries) == 1:
             return queries[0]
+
+        # Multiple source tables are combined with UNION ALL, which needs a common
+        # column type. Different sources resolve aggregation_target to different
+        # types (e.g. a person_id UUID and a warehouse string column), so coerce
+        # every branch's aggregation_target to a string.
+        for query in queries:
+            for select_expr in query.select:
+                if isinstance(select_expr, ast.Alias) and select_expr.alias == "aggregation_target":
+                    select_expr.expr = ast.Call(name="toString", args=[select_expr.expr])
 
         # Take the field and alias names from the first query. UNION enforces identical column sets
         # across all selects, which makes this reliable.
@@ -432,10 +442,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "hogql" or breakdownType == "event_metadata":
             assert isinstance(breakdown, list)
-            return ast.Alias(
-                alias="value",
-                expr=ast.Array(exprs=[parse_expr(str(value)) for value in breakdown]),
-            )
+            exprs = [strip_user_aliases(parse_expr(str(value))) for value in breakdown]
+            return ast.Alias(alias="value", expr=ast.Array(exprs=exprs))
         elif breakdownType == "data_warehouse_person_property":
             assert isinstance(breakdown, str)
             return ast.Field(chain=["person", *breakdown.split(".")])

@@ -1,4 +1,4 @@
-# LLM Analytics Trace Clustering
+# AI observability trace clustering
 
 Automated workflow for clustering LLM traces based on their semantic embeddings, discovering patterns and grouping similar traces to help users understand their LLM application behavior.
 
@@ -30,7 +30,7 @@ posthog/temporal/llm_analytics/trace_clustering/
 
 ## Overview
 
-This workflow implements trace clustering for LLM analytics:
+This workflow implements trace clustering for AI observability:
 
 1. **Fetch trace IDs and embeddings** - Query trace IDs and embeddings via HogQL from the document embeddings table
 2. **Dimensionality reduction** - Use UMAP to reduce embeddings to 100 dimensions for clustering

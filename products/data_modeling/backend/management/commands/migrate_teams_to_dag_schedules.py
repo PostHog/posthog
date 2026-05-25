@@ -23,8 +23,8 @@ from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY, POSTHO
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.data_modeling.backend.models import DAG, Node
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.schedule import build_schedule_spec
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
 
