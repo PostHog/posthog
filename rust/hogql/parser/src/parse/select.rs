@@ -1388,7 +1388,17 @@ impl<'a> Parser<'a> {
         if !saw_sample {
             return Ok(());
         }
-        drop(self.try_consume_sample()?);
+        // The select-level sampleClause is parsed but never visited by cpp
+        // (only a table-level sample lands on `JoinExpr.sample`), so an
+        // unsupported date literal in its ratioExpr is tolerated — suppress the
+        // fatal check for the discard. The table-level sample (parsed in
+        // `parse_table_atom`) is unaffected and stays strict. Restore on every
+        // exit before propagating.
+        let prev_date = self.suppress_date_literal_check;
+        self.suppress_date_literal_check = true;
+        let sample_result = self.try_consume_sample();
+        self.suppress_date_literal_check = prev_date;
+        drop(sample_result?);
         Ok(())
     }
 

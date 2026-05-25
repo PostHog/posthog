@@ -1125,6 +1125,32 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                     fn(query, backend=backend)
 
     @no_memory_leak_check
+    def test_date_literal_tolerated_in_select_level_sample(self):
+        # The `selectStmt` grammar allows a `(USING? sampleClause)?` at SELECT
+        # level (two slots), but cpp's `VISIT(SelectStmt)` never reads it — only
+        # a TABLE-level sample lands on `JoinExpr.sample`. So an unsupported date
+        # literal in a select-level sample's (placeholder) ratio is tolerated;
+        # rust used to fatally reject.
+        for query in (
+            "select 1 using sample { date '' }",
+            "select 1 sample { date '' }",
+            "select 1 from f using sample { date '' }",
+            "select 1 where 1 using sample { date '' }",
+            "select 1 group by 1 using sample { date '' }",
+        ):
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )
+        # A TABLE-level sample IS visited, so its date rejects on both; the
+        # suppression must not leak to it.
+        for query in ("select 1 from f sample { date '' }", "select 1 from f sample date ''"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError, msg=query):
+                    parse_select(query, backend=backend)
+
+    @no_memory_leak_check
     def test_stacked_table_alias_span_ends_at_first_alias(self):
         # `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs end
         # the JoinExpr span at the INNERMOST (first) alias, while each outer
