@@ -553,6 +553,11 @@ export interface _WelcomeSuggestedStepApi {
     product_key?: string
 }
 
+export interface _WelcomePostHogContactApi {
+    /** Display name of the PostHog contact (TAM/CSM) assigned to this org. */
+    name: string
+}
+
 export interface WelcomeResponseApi {
     organization_name: string
     inviter: _WelcomeInviterApi | null
@@ -562,6 +567,13 @@ export interface WelcomeResponseApi {
     products_in_use: string[]
     suggested_next_steps: _WelcomeSuggestedStepApi[]
     is_organization_first_user: boolean
+    /** PostHog 'human' (TAM/CSM) assigned to this org, if known. May be null. */
+    posthog_contact: _WelcomePostHogContactApi | null
+    /**
+     * URL of the shared Slack channel with PostHog for this org, if any.
+     * @nullable
+     */
+    shared_slack_channel_url: string | null
 }
 
 export interface ActivityLogApi {

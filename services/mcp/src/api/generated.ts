@@ -37245,6 +37245,11 @@ export namespace Schemas {
       product_key?: string;
     }
 
+    export interface _WelcomePostHogContact {
+      /** Display name of the PostHog contact (TAM/CSM) assigned to this org. */
+      name: string;
+    }
+
     export interface WelcomeResponse {
       organization_name: string;
       inviter: _WelcomeInviter | null;
@@ -37254,6 +37259,13 @@ export namespace Schemas {
       products_in_use: string[];
       suggested_next_steps: _WelcomeSuggestedStep[];
       is_organization_first_user: boolean;
+      /** PostHog 'human' (TAM/CSM) assigned to this org, if known. May be null. */
+      posthog_contact: _WelcomePostHogContact | null;
+      /**
+         * URL of the shared Slack channel with PostHog for this org, if any.
+         * @nullable
+         */
+      shared_slack_channel_url: string | null;
     }
 
     export interface _CompareFilter {
