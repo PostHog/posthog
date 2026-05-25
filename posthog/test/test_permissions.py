@@ -653,6 +653,21 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"deleted": False})
 
+    def test_session_auth_cannot_satisfy_internal_write_scope(self):
+        """Session auth must NOT bypass an internal-scope requirement. A logged-in team member
+        POSTing to a scout internal-write action (`signal_scout_internal:write`) via browser
+        session is denied — otherwise any member could write durable scout scratchpad, which is
+        read verbatim into the scout's prompt. No bearer token here, so SessionAuthentication is
+        the successful authenticator and must hit the internal-scope guard."""
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/scratchpad/delete/",
+            data={"key": "noop"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("internal scope", response.json()["detail"])
+
     def test_allows_derived_scope_for_read(self):
         """OAuth token with feature_flag:read can read feature flags"""
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
