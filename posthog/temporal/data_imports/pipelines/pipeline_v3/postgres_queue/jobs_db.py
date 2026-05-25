@@ -185,7 +185,9 @@ class BatchQueue:
 
         ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on
         the age of the latest status row: a batch is only eligible when
-        ``now() - s.created_at >= retry_backoff_base_seconds * s.attempt``.
+        ``now() - s.created_at >= retry_backoff_base_seconds * GREATEST(s.attempt, 1)``
+        (attempt is floored at 1 so that a zero-attempt row still waits at least one
+        base period).
         """
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
