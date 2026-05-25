@@ -65,7 +65,6 @@ import {
     getProductEventFilterOptions,
     getProductEventPropertyFilterOptions,
 } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
-import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
@@ -104,6 +103,7 @@ import { cohortTaxonomicGroupsLogic } from './cohortTaxonomicGroupsLogic'
 import { eventMetadataTaxonomicGroupsLogic } from './eventMetadataTaxonomicGroupsLogic'
 import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGroupsLogic'
 import { hogQLExpressionTaxonomicGroupsLogic } from './hogQLExpressionTaxonomicGroupsLogic'
+import { maxAIContextTaxonomicGroupsLogic } from './maxAIContextTaxonomicGroupsLogic'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 const PROPERTY_TAXONOMIC_GROUP_TYPES = new Set(Object.values(PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE))
@@ -333,6 +333,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['hogQLExpressionTaxonomicGroups'],
             eventMetadataTaxonomicGroupsLogic,
             ['eventMetadataTaxonomicGroups'],
+            maxAIContextTaxonomicGroupsLogic,
+            ['maxAIContextTaxonomicGroups'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -499,10 +501,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
         schemaColumns: [() => [(_, props) => props.schemaColumns], (schemaColumns) => schemaColumns ?? []],
-        maxContextOptions: [
-            () => [(_, props) => props.maxContextOptions],
-            (maxContextOptions) => maxContextOptions ?? [],
-        ],
         dataWarehousePopoverFields: [
             () => [(_, props) => props.dataWarehousePopoverFields],
             (dataWarehousePopoverFields) => dataWarehousePopoverFields ?? [],
@@ -552,7 +550,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.suggestedFiltersLabel,
                 s.propertyFilters,
                 s.eventMetadataTaxonomicGroups,
-                s.maxContextOptions,
+                s.maxAIContextTaxonomicGroups,
                 s.cohortTaxonomicGroups,
                 s.endpointFilters,
                 s.featureFlags,
@@ -572,7 +570,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 suggestedFiltersLabel: string | undefined,
                 propertyFilters,
                 eventMetadataTaxonomicGroups: TaxonomicFilterGroup[],
-                maxContextOptions: MaxContextTaxonomicFilterOption[],
+                maxAIContextTaxonomicGroups: TaxonomicFilterGroup[],
                 cohortTaxonomicGroups: TaxonomicFilterGroup[],
                 endpointFilters: Record<string, any> | undefined,
                 featureFlags: Record<string, boolean | string | undefined>
@@ -1333,19 +1331,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (filter: SessionRecordingPlaylistType) => filter.short_id,
                         getPopoverHeader: () => 'Saved filter',
                     },
-                    {
-                        name: 'On this page',
-                        searchPlaceholder: 'elements from this page',
-                        type: TaxonomicFilterGroupType.MaxAIContext,
-                        options: maxContextOptions,
-                        getName: (option: MaxContextTaxonomicFilterOption) => option.name,
-                        getValue: (option: MaxContextTaxonomicFilterOption) => option.value,
-                        getIcon: (option: MaxContextTaxonomicFilterOption) => {
-                            const IconComponent = option.icon
-                            return <IconComponent />
-                        },
-                        getPopoverHeader: () => 'On this page',
-                    },
+                    ...maxAIContextTaxonomicGroups,
                     {
                         name: suggestedFiltersLabel ?? 'Suggested filters',
                         searchPlaceholder: (suggestedFiltersLabel ?? 'Suggested filters').toLowerCase(),
