@@ -1,0 +1,2 @@
+litellm==1.83.7
+python-dotenv>=1.0.0
