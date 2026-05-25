@@ -25933,6 +25933,9 @@
                         "$ref": "#/definitions/MaxNotebookContext"
                     },
                     "type": "array"
+                },
+                "voice_mode": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
