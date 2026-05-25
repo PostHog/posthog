@@ -450,6 +450,7 @@ export interface CreateTextTileRequestApi {
     layouts?: TileLayoutsApi
     /**
      * Optional accent color name (e.g. 'blue', 'green', 'purple', 'black').
+     * @maxLength 400
      * @nullable
      */
     color?: string | null
@@ -7188,13 +7189,13 @@ export interface PatchedUpdateTextTileRequestApi {
     /**
      * New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.
      * @maxLength 4000
-     * @nullable
      */
-    body?: string | null
+    body?: string
     /** New grid layout per breakpoint. Omit to leave the layout unchanged. */
     layouts?: TileLayoutsApi
     /**
-     * New accent color name, or null to clear. Omit to leave unchanged.
+     * New accent color name, empty string or null to clear. Omit to leave unchanged.
+     * @maxLength 400
      * @nullable
      */
     color?: string | null

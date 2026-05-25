@@ -181,6 +181,8 @@ export const DashboardsCreateTextTileCreateQueryParams = /* @__PURE__ */ zod.obj
 
 export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
 
+export const dashboardsCreateTextTileCreateBodyColorMax = 400
+
 export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
     body: zod
         .string()
@@ -213,7 +215,11 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1).'
         ),
-    color: zod.string().nullish().describe("Optional accent color name (e.g. 'blue', 'green', 'purple', 'black')."),
+    color: zod
+        .string()
+        .max(dashboardsCreateTextTileCreateBodyColorMax)
+        .nullish()
+        .describe("Optional accent color name (e.g. 'blue', 'green', 'purple', 'black')."),
 })
 
 export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
@@ -294,6 +300,8 @@ export const DashboardsUpdateTextTilePartialUpdateQueryParams = /* @__PURE__ */ 
 
 export const dashboardsUpdateTextTilePartialUpdateBodyBodyMax = 4000
 
+export const dashboardsUpdateTextTilePartialUpdateBodyColorMax = 400
+
 export const DashboardsUpdateTextTilePartialUpdateBody = /* @__PURE__ */ zod.object({
     tile_id: zod
         .number()
@@ -302,7 +310,7 @@ export const DashboardsUpdateTextTilePartialUpdateBody = /* @__PURE__ */ zod.obj
     body: zod
         .string()
         .max(dashboardsUpdateTextTilePartialUpdateBodyBodyMax)
-        .nullish()
+        .optional()
         .describe('New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.'),
     layouts: zod
         .object({
@@ -327,5 +335,9 @@ export const DashboardsUpdateTextTilePartialUpdateBody = /* @__PURE__ */ zod.obj
         })
         .optional()
         .describe('New grid layout per breakpoint. Omit to leave the layout unchanged.'),
-    color: zod.string().nullish().describe('New accent color name, or null to clear. Omit to leave unchanged.'),
+    color: zod
+        .string()
+        .max(dashboardsUpdateTextTilePartialUpdateBodyColorMax)
+        .nullish()
+        .describe('New accent color name, empty string or null to clear. Omit to leave unchanged.'),
 })
