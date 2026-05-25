@@ -404,6 +404,245 @@ class ProjectContextSerializer(serializers.Serializer):
     )
 
 
+# The per-entity `recent_*` sections below mirror the Pydantic models in
+# `scout_harness/profile/schema.py` one-for-one (that schema is what the builder
+# validates against on write; these serializers are what types the MCP/HTTP response).
+# Keeping them as explicit nested serializers — rather than bare `JSONField` — is what
+# makes the generated TS/Zod clients carry real shapes instead of `unknown`. When a
+# section's shape changes in `schema.py`, update the matching serializer here too.
+
+
+class ScopeActivityEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_activity.by_scope`."""
+
+    scope = serializers.CharField(
+        help_text="Activity-log scope (entity type), e.g. `FeatureFlag`, `Dashboard`, `Survey`."
+    )
+    edits = serializers.IntegerField(
+        help_text="Total activity-log entries for this scope in the window (write velocity)."
+    )
+    users = serializers.IntegerField(help_text="Distinct users who edited this scope in the window.")
+    last_edit = serializers.CharField(
+        allow_null=True, help_text="ISO-8601 timestamp of the most recent edit in the window."
+    )
+
+
+class RecentActivitySerializer(serializers.Serializer):
+    """`inventory.recent_activity` — per-scope counts off the activity log."""
+
+    window_days = serializers.IntegerField(help_text="Lookback window in days the per-scope counts cover.")
+    by_scope = serializers.ListField(
+        child=ScopeActivityEntrySerializer(),
+        help_text="Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately.",
+    )
+
+
+class RecentSurveyEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_surveys.recent`."""
+
+    id = serializers.CharField(help_text="Survey UUID — pass to `survey-get` for full question shape.")
+    name = serializers.CharField(allow_blank=True, help_text="Survey name (may be blank if unnamed).")
+    type = serializers.CharField(help_text="Survey mode: `popover`, `widget`, `external_survey`, or `api`.")
+    status = serializers.CharField(help_text="Derived status: `draft`, `running`, `stopped`, or `archived`.")
+    updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-modified timestamp.")
+
+
+class RecentSurveysSerializer(serializers.Serializer):
+    """`inventory.recent_surveys` — total + active count, plus the 5 most recently modified."""
+
+    total_count = serializers.IntegerField(help_text="Total surveys on the team.")
+    active_count = serializers.IntegerField(
+        help_text="Surveys that are live (not archived, started, and not yet ended)."
+    )
+    recent = serializers.ListField(
+        child=RecentSurveyEntrySerializer(),
+        help_text="The 5 most recently updated surveys.",
+    )
+
+
+class RecentFeatureFlagEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_feature_flags.recent`."""
+
+    id = serializers.IntegerField(help_text="Feature flag ID.")
+    key = serializers.CharField(help_text="Flag key used in code (`posthog.isFeatureEnabled('<key>')`).")
+    name = serializers.CharField(allow_blank=True, help_text="Human-set description; falls back to the key when blank.")
+    active = serializers.BooleanField(
+        help_text="Whether the flag is currently evaluating (a user could be hitting it)."
+    )
+    updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-modified timestamp.")
+
+
+class RecentFeatureFlagsSerializer(serializers.Serializer):
+    """`inventory.recent_feature_flags` — total + active count, plus the 5 most recently modified."""
+
+    total_count = serializers.IntegerField(help_text="Total non-deleted feature flags on the team.")
+    active_count = serializers.IntegerField(help_text="Flags currently evaluating (`active=true`).")
+    recent = serializers.ListField(
+        child=RecentFeatureFlagEntrySerializer(),
+        help_text="The 5 most recently updated non-deleted flags.",
+    )
+
+
+class RecentExperimentEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_experiments.recent`."""
+
+    id = serializers.IntegerField(help_text="Experiment ID.")
+    name = serializers.CharField(allow_blank=True, help_text="Experiment name.")
+    status = serializers.CharField(help_text="Derived status: `draft`, `running`, `stopped`, or `archived`.")
+    feature_flag_key = serializers.CharField(
+        allow_null=True,
+        help_text="Key of the experiment's feature flag — cross-ref into `recent_feature_flags`. Null if unlinked.",
+    )
+    updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-modified timestamp.")
+
+
+class RecentExperimentsSerializer(serializers.Serializer):
+    """`inventory.recent_experiments` — total + currently-running count, plus the 5 most recently modified."""
+
+    total_count = serializers.IntegerField(help_text="Total experiments on the team.")
+    running_count = serializers.IntegerField(
+        help_text="Experiments currently running (started, not ended, not archived).",
+    )
+    recent = serializers.ListField(
+        child=RecentExperimentEntrySerializer(),
+        help_text="The 5 most recently updated experiments.",
+    )
+
+
+class RecentAlertEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_alerts.recent`."""
+
+    id = serializers.CharField(help_text="Alert configuration UUID.")
+    name = serializers.CharField(allow_blank=True, help_text="Alert name.")
+    enabled = serializers.BooleanField(help_text="Whether the alert is currently armed.")
+    state = serializers.CharField(help_text="Alert state (e.g. `not_firing`, `firing`).")
+    calculation_interval = serializers.CharField(
+        allow_null=True,
+        help_text="How often the alert is evaluated (e.g. `daily`, `hourly`); null if unset.",
+    )
+    insight_id = serializers.IntegerField(
+        allow_null=True, help_text="ID of the insight the alert watches; null if none."
+    )
+    created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
+
+
+class RecentAlertsSerializer(serializers.Serializer):
+    """`inventory.recent_alerts` — total + currently-enabled count, plus the 5 most recently created."""
+
+    total_count = serializers.IntegerField(help_text="Total insight alerts on the team.")
+    enabled_count = serializers.IntegerField(help_text="Alerts currently armed (`enabled=true`).")
+    recent = serializers.ListField(
+        child=RecentAlertEntrySerializer(),
+        help_text="The 5 most recently created alerts.",
+    )
+
+
+class RecentHogFunctionEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_hog_functions.recent`."""
+
+    id = serializers.CharField(help_text="Hog function UUID.")
+    name = serializers.CharField(allow_blank=True, help_text="Hog function name.")
+    type = serializers.CharField(
+        allow_null=True,
+        help_text="Function type: `destination`, `transformation`, `site_app`, etc. Null if unset.",
+    )
+    kind = serializers.CharField(allow_null=True, help_text="Function kind sub-classifier; null if unset.")
+    enabled = serializers.BooleanField(help_text="Whether the function is currently enabled.")
+    updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-modified timestamp.")
+
+
+class RecentHogFunctionsSerializer(serializers.Serializer):
+    """`inventory.recent_hog_functions` — total + enabled count, plus the 5 most recently modified."""
+
+    total_count = serializers.IntegerField(help_text="Total non-deleted hog functions on the team.")
+    enabled_count = serializers.IntegerField(help_text="Hog functions currently enabled (`enabled=true`).")
+    recent = serializers.ListField(
+        child=RecentHogFunctionEntrySerializer(),
+        help_text="The 5 most recently updated hog functions.",
+    )
+
+
+class RecentHogFlowEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_hog_flows.recent`."""
+
+    id = serializers.CharField(help_text="Hog flow UUID.")
+    name = serializers.CharField(allow_blank=True, help_text="Hog flow name.")
+    status = serializers.CharField(help_text="Flow lifecycle state (e.g. `draft`, `active`, `archived`).")
+    updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-modified timestamp.")
+
+
+class RecentHogFlowsSerializer(serializers.Serializer):
+    """`inventory.recent_hog_flows` — total + non-archived count, plus the 5 most recently modified."""
+
+    total_count = serializers.IntegerField(help_text="Total hog flows on the team.")
+    active_count = serializers.IntegerField(help_text="Hog flows that are not archived.")
+    recent = serializers.ListField(
+        child=RecentHogFlowEntrySerializer(),
+        help_text="The 5 most recently updated hog flows.",
+    )
+
+
+class RecentNotebookEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_notebooks.recent`."""
+
+    short_id = serializers.CharField(help_text="Notebook short ID — pass to the notebooks API to open it.")
+    title = serializers.CharField(allow_blank=True, help_text="Notebook title (may be blank if untitled).")
+    last_modified_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-modified timestamp.")
+
+
+class RecentNotebooksSerializer(serializers.Serializer):
+    """`inventory.recent_notebooks` — total + the 5 most recently modified."""
+
+    total_count = serializers.IntegerField(help_text="Total non-deleted notebooks on the team.")
+    recent = serializers.ListField(
+        child=RecentNotebookEntrySerializer(),
+        help_text="The 5 most recently modified notebooks.",
+    )
+
+
+class RecentCohortEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_cohorts.recent`."""
+
+    id = serializers.IntegerField(help_text="Cohort ID.")
+    name = serializers.CharField(allow_blank=True, help_text="Cohort name.")
+    is_static = serializers.BooleanField(
+        help_text="True for a one-shot snapshot cohort; false for a dynamic-filter cohort."
+    )
+    count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Membership size when last calculated; null if never calculated.",
+    )
+    created_at = serializers.CharField(allow_null=True, help_text="ISO-8601 creation timestamp.")
+
+
+class RecentCohortsSerializer(serializers.Serializer):
+    """`inventory.recent_cohorts` — total + the 5 most recently created."""
+
+    total_count = serializers.IntegerField(help_text="Total non-deleted cohorts on the team.")
+    recent = serializers.ListField(
+        child=RecentCohortEntrySerializer(),
+        help_text="The 5 most recently created cohorts.",
+    )
+
+
+class RecentActionEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_actions.recent`."""
+
+    id = serializers.IntegerField(help_text="Action ID.")
+    name = serializers.CharField(allow_blank=True, help_text="Action name.")
+    updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 last-modified timestamp.")
+
+
+class RecentActionsSerializer(serializers.Serializer):
+    """`inventory.recent_actions` — total + the 5 most recently modified."""
+
+    total_count = serializers.IntegerField(help_text="Total non-deleted actions on the team.")
+    recent = serializers.ListField(
+        child=RecentActionEntrySerializer(),
+        help_text="The 5 most recently updated actions.",
+    )
+
+
 class ProjectProfileInventorySerializer(serializers.Serializer):
     """The deterministic inventory layer of a project profile.
 
@@ -437,7 +676,7 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
     existing_inbox_reports = ExistingInboxReportsSerializer(
         help_text="Counts of reports already in the inbox, grouped by status.",
     )
-    recent_activity = serializers.JSONField(
+    recent_activity = RecentActivitySerializer(
         help_text=(
             "Per-scope counts off the activity log over the recent-activity window — "
             "cross-cutting orientation across every entity type (surveys, feature flags, "
@@ -456,61 +695,55 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "the most recent access."
         ),
     )
-    recent_surveys = serializers.JSONField(
+    recent_surveys = RecentSurveysSerializer(
         help_text=(
-            "Surveys orientation: `{total_count, active_count, recent: [...]}` where `recent` "
-            "is the 5 most recently updated surveys with `id`, `name`, `type`, `status` "
-            "(draft / running / stopped / archived), and `updated_at`."
+            "Surveys orientation: total + active count, plus the 5 most recently updated "
+            "surveys with id, name, type, status (draft / running / stopped / archived), and updated_at."
         ),
     )
-    recent_feature_flags = serializers.JSONField(
+    recent_feature_flags = RecentFeatureFlagsSerializer(
         help_text=(
-            "Feature flag orientation: `{total_count, active_count, recent: [...]}` where "
-            "`recent` is the 5 most recently updated non-deleted flags with `id`, `key`, "
-            "`name`, `active`, and `updated_at`."
+            "Feature flag orientation: total + active count, plus the 5 most recently "
+            "updated non-deleted flags with id, key, name, active, and updated_at."
         ),
     )
-    recent_experiments = serializers.JSONField(
+    recent_experiments = RecentExperimentsSerializer(
         help_text=(
-            "Experiment orientation: `{total_count, active_count, recent: [...]}`. The "
-            "feature_flag key on each row lets the scout correlate experiments with the "
-            "`recent_feature_flags` section."
+            "Experiment orientation: total + running count, plus the 5 most recently "
+            "updated experiments. The feature_flag_key on each row lets the scout correlate "
+            "experiments with the `recent_feature_flags` section."
         ),
     )
-    recent_alerts = serializers.JSONField(
+    recent_alerts = RecentAlertsSerializer(
         help_text=(
-            "Alert orientation: `{total_count, active_count, recent: [...]}` covering the "
-            "5 most recently updated alerts with their state and threshold metadata."
+            "Alert orientation: total + enabled count, plus the 5 most recently created "
+            "alerts with their state and threshold metadata."
         ),
     )
-    recent_hog_functions = serializers.JSONField(
+    recent_hog_functions = RecentHogFunctionsSerializer(
         help_text=(
-            "Hog function orientation: `{total_count, active_count, recent: [...]}` for "
-            "destinations / transformations the team has wired up via the CDP pipelines."
+            "Hog function orientation: total + enabled count, plus the 5 most recently "
+            "updated destinations / transformations the team has wired up via the CDP pipelines."
         ),
     )
-    recent_hog_flows = serializers.JSONField(
+    recent_hog_flows = RecentHogFlowsSerializer(
         help_text=(
-            "Hog flow orientation: `{total_count, active_count, recent: [...]}` for the "
-            "team's currently configured automation flows."
+            "Hog flow orientation: total + non-archived count, plus the 5 most recently updated automation flows."
         ),
     )
-    recent_notebooks = serializers.JSONField(
+    recent_notebooks = RecentNotebooksSerializer(
         help_text=(
-            "Notebook orientation: `{total_count, recent: [...]}` with the 5 most recently "
-            "updated notebooks — useful signal for what the team has been investigating."
+            "Notebook orientation: total + the 5 most recently modified notebooks — "
+            "useful signal for what the team has been investigating."
         ),
     )
-    recent_cohorts = serializers.JSONField(
-        help_text=(
-            "Cohort orientation: `{total_count, recent: [...]}` with the 5 most recently updated cohorts on the team."
-        ),
+    recent_cohorts = RecentCohortsSerializer(
+        help_text="Cohort orientation: total + the 5 most recently created cohorts on the team.",
     )
-    recent_actions = serializers.JSONField(
+    recent_actions = RecentActionsSerializer(
         help_text=(
-            "Action orientation: `{total_count, recent: [...]}` with the 5 most recently "
-            "updated actions — useful to anchor agent reasoning about what the team treats "
-            "as a meaningful interaction."
+            "Action orientation: total + the 5 most recently updated actions — useful to "
+            "anchor agent reasoning about what the team treats as a meaningful interaction."
         ),
     )
     top_events = serializers.ListField(
@@ -545,9 +778,10 @@ class ProjectProfileQuerySerializer(serializers.Serializer):
         help_text=(
             "When true, skip the cache and rebuild the profile from authoritative sources before "
             "responding. Use after seeding events, importing data, or any other change the caller "
-            "knows just landed but hasn't surfaced through natural cache expiry yet. Concurrent "
-            "forced rebuilds are still serialized by the team-keyed advisory lock — at most one "
-            "extra `build_inventory` per simultaneous request."
+            "knows just landed but hasn't surfaced through natural cache expiry yet. Honored only "
+            "for the internal scout token — public read callers get the cached profile regardless. "
+            "Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most "
+            "one extra `build_inventory` per simultaneous request."
         ),
     )
 

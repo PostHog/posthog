@@ -66,6 +66,29 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
 )
 
 
+def _caller_carries_scout_internal_scope(request: Request) -> bool:
+    """True only when the request authenticates with the sandbox-internal scout scope.
+
+    `force_refresh` punches through the profile cache and triggers a full rebuild
+    (per-section table scans + the ClickHouse top-events aggregation). Honoring it for
+    any `signal_scout:read` PAK would let an attacker spam expensive recomputes, and
+    honoring it on a session-authenticated GET makes the rebuild CSRF-triggerable. The
+    headless scout's sandbox OAuth token is the only caller that legitimately needs it,
+    and it's minted with `signal_scout_internal:write` via `SCOUT_INTERNAL_SCOPES` — so
+    gate the flag on that scope. Session and other non-token auth carry no API scopes and
+    never pass, which also closes the CSRF path. `*` (full-access consent) deliberately
+    does not match: internal scopes are not reachable via user-consented tokens.
+    """
+    authenticator = request.successful_authenticator
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        scopes = authenticator.personal_api_key.scopes or []
+    elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+        scopes = (authenticator.access_token.scope or "").split()
+    else:
+        return False
+    return "signal_scout_internal:write" in scopes
+
+
 def _parse_run_id_or_404(kwargs: dict) -> uuid.UUID:
     """Parse the `id` URL kwarg as a UUID; raise 404 on missing or malformed.
 
@@ -408,13 +431,12 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         },
         summary="Get the current project profile",
         description=(
-            "Return the team's deterministic project profile. By default the response reflects "
-            "either the newest non-expired cached row or a freshly-built one (lazy compute on "
-            "cache miss). Pass `force_refresh=true` to skip the cache and rebuild from "
-            "authoritative sources — useful right after seeding events or importing data so the "
-            "next agent run sees the change without waiting for natural TTL expiry. Read this at "
-            "the start of a run to orient on the team's product mix, integrations, warehouse "
-            "sources, signal coverage, and existing inbox surface."
+            "Return the team's deterministic project profile. The response reflects either the "
+            "newest non-expired cached row or a freshly-built one (lazy compute on cache miss). "
+            "`force_refresh=true` skips the cache and rebuilds from authoritative sources, but is "
+            "honored only for the internal scout token — public read callers always get the "
+            "cached/lazy-built profile. Read this at the start of a run to orient on the team's "
+            "product mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
         ),
     )
     @action(
@@ -434,6 +456,10 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     def current(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
-        force_refresh = bool(validated.get("force_refresh", False))
+        # `force_refresh` triggers a full inventory rebuild, so honor it only for the
+        # internal scout token — never for a `signal_scout:read` PAK (recompute spam) or
+        # a session-authenticated GET (CSRF-triggered rebuild). Public read callers always
+        # get the cached/lazy-built profile regardless of the flag.
+        force_refresh = bool(validated.get("force_refresh", False)) and _caller_carries_scout_internal_scope(request)
         profile = get_project_profile(team_id=self.team_id, force_refresh=force_refresh)
         return Response(ProjectProfileSerializer(profile.as_dict()).data)
