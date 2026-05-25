@@ -384,8 +384,8 @@ class TestObjectLevelAccessControl(BaseTest):
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_no_predicate_when_no_acl_rows_for_resource(self):
-        """Cheap short-circuit: if `has_access_levels_for_resource` is False,
-        no subquery is emitted at all."""
+        """Cheap short-circuit: if the team has no `ee_accesscontrol` rows for
+        this resource at all, no subquery is emitted."""
         self._enable_ac()
 
         database = Database.create_for(team=self.team, user=self.user)
@@ -396,6 +396,35 @@ class TestObjectLevelAccessControl(BaseTest):
 
         assert "notIn" not in sql
         assert "countIf" not in sql
+
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    def test_predicate_fires_when_only_object_level_rows_exist(self):
+        """Regression: the short-circuit must NOT use
+        `has_access_levels_for_resource` (which only counts resource-level
+        rows with `resource_id IS NULL`). A user with only object-level ACL
+        grants previously fell through with no predicate attached, silently
+        leaking the denied rows.
+        """
+        from ee.models import AccessControl
+
+        membership = self._enable_ac()
+        # Object-level row only — no resource-level (`resource_id IS NULL`) row.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="7",
+            access_level="none",
+            organization_member=membership,
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        ctx = HogQLContext(
+            team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True, database=database
+        )
+        sql = self._compile_select("SELECT id FROM system.dashboards", ctx)
+
+        assert "notIn" in sql, "predicate must fire when only object-level ACL rows exist"
+        assert "countIf" in sql
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     def test_internal_table_is_not_user_queryable(self):
