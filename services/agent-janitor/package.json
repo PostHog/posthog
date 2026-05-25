@@ -21,6 +21,7 @@
     },
     "dependencies": {
         "@posthog/agent-core": "workspace:*",
+        "@repo/ass-sandbox": "link:../../../agent-stack/packages/ass-sandbox",
         "luxon": "^3.4.4",
         "ultimate-express": "^2.0.9",
         "zod": "^4.3.6"

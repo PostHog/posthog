@@ -3712,6 +3712,9 @@ importers:
       '@posthog/agent-core':
         specifier: workspace:*
         version: link:../agent-core
+      '@repo/ass-sandbox':
+        specifier: link:../../../agent-stack/packages/ass-sandbox
+        version: link:../../../agent-stack/packages/ass-sandbox
       luxon:
         specifier: ^3.4.4
         version: 3.7.2
@@ -23438,8 +23441,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.408.0:
-    resolution: {integrity: sha512-A4Jo2klqraIhB9N8nwKknrhwHKCSHJLeyJwpaZub677FOq7axrun61Bdij+1oCWgdbkqKJ3LUym8mN0vWQae/Q==}
+  unlayer-types@1.414.0:
+    resolution: {integrity: sha512-fFQ1O06CPO5T0bnvI3ug+wT7xoQ4XX9ELcjgZV2/ySQKmCAi+IVj6LmMtIrrSMyX5Ad3GQTEPop86d0uuXSLPw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -48669,7 +48672,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.408.0
+      unlayer-types: 1.414.0
 
   react-error-overlay@6.0.9: {}
 
@@ -51242,7 +51245,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.408.0: {}
+  unlayer-types@1.414.0: {}
 
   unpipe@1.0.0: {}
 
