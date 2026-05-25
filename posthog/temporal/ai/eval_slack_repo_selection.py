@@ -6,6 +6,11 @@ row or any actual Slack traffic. Each case declares its expected terminal stage/
 the eval prints a pass/fail summary so you can re-run after touching repo selection
 and spot regressions immediately.
 
+Lives next to the Slack workflow it exercises (`posthog_code_slack_mention.py`) rather
+than in `posthog/management/commands/` because (a) it's co-located with the thing it
+tests and (b) `products/slack_app/` can't tach-depend on `products/tasks/`, which the
+eval needs to import from.
+
 # Prerequisites
 
 - `DEBUG=1` (refuses to run otherwise — burns sandbox + LLM credits)
@@ -15,23 +20,23 @@ and spot regressions immediately.
 # Usage
 
     # Full eval (~3-6 min — most cost is the agent runs)
-    ./manage.py eval_slack_repo_selection --team-id 1 --user-id 1
+    python posthog/temporal/ai/eval_slack_repo_selection.py --team-id 1 --user-id 1
 
     # Iterate fast on cascade-only changes (no LLM at all)
-    ./manage.py eval_slack_repo_selection --team-id 1 --user-id 1 --skip-llm
+    python posthog/temporal/ai/eval_slack_repo_selection.py --team-id 1 --user-id 1 --skip-llm
 
     # Iterate on Haiku changes without paying for agent runs
-    ./manage.py eval_slack_repo_selection --team-id 1 --user-id 1 --skip-agent
+    python posthog/temporal/ai/eval_slack_repo_selection.py --team-id 1 --user-id 1 --skip-agent
 
     # Single case
-    ./manage.py eval_slack_repo_selection --team-id 1 --user-id 1 --case vague_code_bug
+    python posthog/temporal/ai/eval_slack_repo_selection.py --team-id 1 --user-id 1 --case vague_code_bug
 
     # See what the Slack picker message renders on each failure mode
-    ./manage.py eval_slack_repo_selection --team-id 1 --user-id 1 --case vague_code_bug \\
+    python posthog/temporal/ai/eval_slack_repo_selection.py --team-id 1 --user-id 1 --case vague_code_bug \\
         --show-picker-guidance
 
     # See the case catalogue without running anything
-    ./manage.py eval_slack_repo_selection --list-cases
+    python posthog/temporal/ai/eval_slack_repo_selection.py --list-cases
 
 # Reading the output
 
@@ -46,15 +51,33 @@ To force the failure modes the picker fallback handles:
   to preview what the user would see if it did fire.
 """
 
+# ruff: noqa: T201, E402
+
 from __future__ import annotations
 
+import os
+import sys
 import asyncio
+import argparse
 import textwrap
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
+# Must run as `python posthog/temporal/ai/eval_slack_repo_selection.py` (not `python -m ...`):
+# `python -m` would import `posthog/temporal/ai/__init__.py` first, which loads workflows that
+# reference Django models before django.setup() has a chance to fire.
+_repo_root = Path(__file__).resolve().parents[3]
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+
+import django
+
+django.setup()
+
 from django.conf import settings
-from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import Team
 from posthog.temporal.ai.posthog_code_slack_mention import POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE
@@ -235,10 +258,46 @@ class TeamContext:
     results: list[CaseResult] = field(default_factory=list)
 
 
-class Command(BaseCommand):
-    help = "Eval the Slack repo selection flow (cascade → Haiku gate → agent) on a real team."
+class CommandError(Exception):
+    """Raised on user-visible misconfiguration — translated to exit 1 in main()."""
 
-    def add_arguments(self, parser):
+
+class _Style:
+    """Minimal stand-in for Django BaseCommand.style — just enough for our colored output."""
+
+    @staticmethod
+    def _wrap(code: int, s: str) -> str:
+        return f"\033[{code}m{s}\033[0m"
+
+    def SUCCESS(self, s: str) -> str:
+        return self._wrap(32, s)
+
+    def ERROR(self, s: str) -> str:
+        return self._wrap(31, s)
+
+    def WARNING(self, s: str) -> str:
+        return self._wrap(33, s)
+
+    def MIGRATE_HEADING(self, s: str) -> str:
+        return self._wrap(36, s)
+
+    def HTTP_INFO(self, s: str) -> str:
+        return self._wrap(35, s)
+
+
+class _Stdout:
+    def write(self, s: str = "") -> None:
+        print(s)
+
+
+class Command:
+    """Eval runner — keeps the BaseCommand-shaped API so the body reads identically to a manage.py command."""
+
+    def __init__(self) -> None:
+        self.stdout = _Stdout()
+        self.style = _Style()
+
+    def add_arguments(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--team-id", type=int, required=False, help="Team ID with a GitHub integration.")
         parser.add_argument("--user-id", type=int, required=False, help="User ID to attribute sandbox runs to.")
         parser.add_argument("--case", type=str, default=None, help="Run a single case by name.")
@@ -431,3 +490,22 @@ class Command(BaseCommand):
     @staticmethod
     def _wrap(text: str, width: int = 90, indent: str = "      ") -> str:
         return textwrap.fill(text, width=width, subsequent_indent=indent)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="python posthog/temporal/ai/eval_slack_repo_selection.py",
+        description="Eval the Slack repo selection flow (cascade → Haiku gate → agent) on a real team.",
+    )
+    cmd = Command()
+    cmd.add_arguments(parser)
+    options = vars(parser.parse_args())
+    try:
+        cmd.handle(**options)
+    except CommandError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
