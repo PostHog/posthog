@@ -116,7 +116,7 @@ mod tests {
     use proptest::prelude::*;
 
     /// Kafka's default partitioner (`murmur2_random_consistent`) is just
-    /// `murmur2(key) & 0x7fffffff % num_partitions` when a key is provided.
+    /// `(murmur2(key) & 0x7fffffff) % num_partitions` when a key is provided.
     /// Reimplementing it here so the test exercises the same hash the
     /// producer will use in prod.
     fn murmur2(data: &[u8]) -> u32 {
@@ -167,19 +167,25 @@ mod tests {
 
     const NUM_PARTITIONS: usize = 64;
 
-    /// Documents the bug we just fixed: keying on team_id alone funnels all
-    /// of a single team's traffic into one partition, regardless of how
-    /// many distinct messages they emit.
-    #[test]
-    fn old_key_single_team_collapses_to_one_partition() {
-        let key = "2".to_string();
-        let p = partition_for(&key, NUM_PARTITIONS);
-        for _ in 0..1000 {
-            assert_eq!(partition_for(&key, NUM_PARTITIONS), p);
-        }
-    }
-
     proptest! {
+        /// Documents the bug we just fixed. The old key extractor —
+        /// `|m| Some(m.team_id.to_string())` — produced the same Kafka key
+        /// for every message from a given team, so all of that team's
+        /// traffic landed on exactly one partition no matter how many
+        /// distinct property keys it emitted.
+        #[test]
+        fn old_key_single_team_collapses_to_one_partition(
+            team_id in i64::MIN..i64::MAX,
+            property_keys in prop::collection::hash_set("[a-z_$][a-z0-9_$]{2,30}", 1..200),
+        ) {
+            let mut partitions = std::collections::HashSet::new();
+            for _ in &property_keys {
+                let old_kafka_key = team_id.to_string();
+                partitions.insert(partition_for(&old_kafka_key, NUM_PARTITIONS));
+            }
+            prop_assert_eq!(partitions.len(), 1);
+        }
+
         /// New key shape `team_id:property_key` spreads a single team's
         /// traffic across most of the topic's partitions, since a typical
         /// team emits hundreds of distinct property keys. Property: no
@@ -220,10 +226,9 @@ mod tests {
             ),
         ) {
             let mut counts = [0usize; NUM_PARTITIONS];
-            // Heavy team: simulate ~95% of traffic by emitting each of its
-            // property keys ~20 times (the actual count per key doesn't
-            // matter for partition assignment, only the key identity does;
-            // this models distinct tuples, not raw event volume).
+            // Heavy team: each distinct property key is one entry. Partition
+            // assignment depends only on key identity, not message count;
+            // this models distinct tuples, not raw event volume.
             for key in &heavy_keys {
                 let kafka_key = format!("{heavy_team}:{key}");
                 counts[partition_for(&kafka_key, NUM_PARTITIONS)] += 1;
