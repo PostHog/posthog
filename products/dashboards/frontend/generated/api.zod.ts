@@ -243,6 +243,49 @@ export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
     tileId: zod.number().describe('Dashboard tile id to copy.'),
 })
 
+/**
+ * Add a markdown text tile to a dashboard.
+
+Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
+or annotations between insight tiles to give the dashboard structure.
+ */
+export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
+
+export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
+    body: zod
+        .string()
+        .max(dashboardsCreateTextTileCreateBodyBodyMax)
+        .describe(
+            'Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.'
+        ),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+        })
+        .optional()
+        .describe(
+            'Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1).'
+        ),
+    color: zod.string().nullish().describe("Optional accent color name (e.g. 'blue', 'green', 'purple', 'black')."),
+})
+
 export const dashboardsMoveTilePartialUpdateBodyNameMax = 400
 
 export const dashboardsMoveTilePartialUpdateBodyDeleteInsightsDefault = false
@@ -329,6 +372,47 @@ export const DashboardsSnapshotCreateBody = /* @__PURE__ */ zod
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
+
+/**
+ * Update the markdown body, layout, or color of an existing text tile on a dashboard.
+ */
+export const dashboardsUpdateTextTilePartialUpdateBodyBodyMax = 4000
+
+export const DashboardsUpdateTextTilePartialUpdateBody = /* @__PURE__ */ zod.object({
+    tile_id: zod
+        .number()
+        .optional()
+        .describe('ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.'),
+    body: zod
+        .string()
+        .max(dashboardsUpdateTextTilePartialUpdateBodyBodyMax)
+        .nullish()
+        .describe('New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+        })
+        .optional()
+        .describe('New grid layout per breakpoint. Omit to leave the layout unchanged.'),
+    color: zod.string().nullish().describe('New accent color name, or null to clear. Omit to leave unchanged.'),
+})
 
 /**
  * Bulk update tags on multiple objects.

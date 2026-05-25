@@ -75,6 +75,26 @@ tools:
                 - tiles.*.insight.last_viewed_at
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+    dashboard-create-text-tile:
+        operation: dashboards_create_text_tile_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Create dashboard text tile
+        description: >
+            Add a markdown text tile to a dashboard. Text tiles render as markdown blocks — useful as section headings,
+            dividers, or annotations between insight tiles to give a dashboard structure. The desktop grid is 12 columns
+            wide; a typical heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If
+            `layouts` is omitted, the tile is placed using the default layout — use dashboard-reorder-tiles afterwards
+            if you need precise placement.
+        param_overrides:
+            id:
+                cast: string-int
     dashboard-delete:
         operation: dashboards_destroy
         enabled: true
@@ -168,26 +188,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-    dashboard-create-text-tile:
-        operation: dashboards_create_text_tile_create
-        enabled: true
-        scopes:
-            - dashboard:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        enrich_url: '{id}'
-        title: Create dashboard text tile
-        description: >
-            Add a markdown text tile to a dashboard. Text tiles render as markdown blocks — useful as section
-            headings, dividers, or annotations between insight tiles to give a dashboard structure. The desktop grid
-            is 12 columns wide; a typical heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w:
-            12, h: 1}`). If `layouts` is omitted, the tile is placed using the default layout — use
-            dashboard-reorder-tiles afterwards if you need precise placement.
-        param_overrides:
-            id:
-                cast: string-int
     dashboard-reorder-tiles:
         operation: dashboards_reorder_tiles_create
         enabled: true
@@ -203,25 +203,6 @@ tools:
             Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a
             2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile
             IDs.
-    dashboard-update-text-tile:
-        operation: dashboards_update_text_tile_partial_update
-        enabled: true
-        scopes:
-            - dashboard:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Update dashboard text tile
-        description: >
-            Update the markdown body, layout, or color of an existing text tile on a dashboard. Pass the
-            DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are
-            updated; omitted fields are left unchanged. To remove a text tile from a dashboard, use dashboard-update
-            with the tile's `deleted: true` flag instead.
-        param_overrides:
-            id:
-                cast: string-int
     dashboard-templates-copy-between-projects-create:
         operation: dashboard_templates_copy_between_projects_create
         enabled: false
@@ -301,6 +282,25 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+    dashboard-update-text-tile:
+        operation: dashboards_update_text_tile_partial_update
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update dashboard text tile
+        description: >
+            Update the markdown body, layout, or color of an existing text tile on a dashboard. Pass the DashboardTile
+            id as `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are updated; omitted
+            fields are left unchanged. To remove a text tile from a dashboard, use dashboard-update with the tile's
+            `deleted: true` flag instead.
+        param_overrides:
+            id:
+                cast: string-int
     dashboards-analyze-refresh-result-create:
         operation: dashboards_analyze_refresh_result_create
         enabled: false
