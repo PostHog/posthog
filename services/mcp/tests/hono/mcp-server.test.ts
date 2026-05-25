@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { HonoMcpServer, type RequestProperties } from '@/hono/mcp-server'
+import { InMemorySessionResponseBus } from '@/hono/session-bus'
 
 interface MockRedis extends RedisLike {
     _store: Map<string, string>
@@ -41,12 +42,18 @@ describe('HonoMcpServer', () => {
 
     describe('constructor', () => {
         it('should create a server instance', () => {
-            const server = new HonoMcpServer(mockRedis, baseProps)
+            const server = new HonoMcpServer(mockRedis, baseProps, {
+                sessionBus: new InMemorySessionResponseBus(),
+                sessionId: 'test-session',
+            })
             expect(server.server).toBeTruthy()
         })
 
         it('should expose requestProperties', () => {
-            const server = new HonoMcpServer(mockRedis, baseProps)
+            const server = new HonoMcpServer(mockRedis, baseProps, {
+                sessionBus: new InMemorySessionResponseBus(),
+                sessionId: 'test-session',
+            })
             expect(server.requestProperties.userHash).toBe('test-hash')
             expect(server.requestProperties.apiToken).toBe('phx_test_token')
         })
@@ -55,14 +62,20 @@ describe('HonoMcpServer', () => {
     describe('getBaseUrl', () => {
         it('should return POSTHOG_API_BASE_URL from env', async () => {
             process.env.POSTHOG_API_BASE_URL = 'https://custom.posthog.com'
-            const server = new HonoMcpServer(mockRedis, baseProps)
+            const server = new HonoMcpServer(mockRedis, baseProps, {
+                sessionBus: new InMemorySessionResponseBus(),
+                sessionId: 'test-session',
+            })
             const url = await server.getBaseUrl()
             expect(url).toBe('https://custom.posthog.com')
         })
 
         it('should default to localhost:8010 in dev when not set', async () => {
             delete process.env.POSTHOG_API_BASE_URL
-            const server = new HonoMcpServer(mockRedis, baseProps)
+            const server = new HonoMcpServer(mockRedis, baseProps, {
+                sessionBus: new InMemorySessionResponseBus(),
+                sessionId: 'test-session',
+            })
             const url = await server.getBaseUrl()
             expect(url).toBe('http://localhost:8010')
         })
@@ -70,19 +83,28 @@ describe('HonoMcpServer', () => {
         it('should throw in production when not set', async () => {
             delete process.env.POSTHOG_API_BASE_URL
             process.env.NODE_ENV = 'production'
-            const server = new HonoMcpServer(mockRedis, baseProps)
+            const server = new HonoMcpServer(mockRedis, baseProps, {
+                sessionBus: new InMemorySessionResponseBus(),
+                sessionId: 'test-session',
+            })
             await expect(server.getBaseUrl()).rejects.toThrow('POSTHOG_API_BASE_URL must be set')
         })
     })
 
     describe('sessionManager', () => {
         it('should return a SessionManager instance', () => {
-            const server = new HonoMcpServer(mockRedis, baseProps)
+            const server = new HonoMcpServer(mockRedis, baseProps, {
+                sessionBus: new InMemorySessionResponseBus(),
+                sessionId: 'test-session',
+            })
             expect(server.sessionManager).toBeTruthy()
         })
 
         it('should return same instance on repeated access', () => {
-            const server = new HonoMcpServer(mockRedis, baseProps)
+            const server = new HonoMcpServer(mockRedis, baseProps, {
+                sessionBus: new InMemorySessionResponseBus(),
+                sessionId: 'test-session',
+            })
             const sm1 = server.sessionManager
             const sm2 = server.sessionManager
             expect(sm1).toBe(sm2)
@@ -91,7 +113,11 @@ describe('HonoMcpServer', () => {
 
     describe('getContext', () => {
         it('should return a context with all required fields', async () => {
-            const server = new HonoMcpServer(mockRedis, { ...baseProps, region: 'us' })
+            const server = new HonoMcpServer(
+                mockRedis,
+                { ...baseProps, region: 'us' },
+                { sessionBus: new InMemorySessionResponseBus(), sessionId: 'test-session' }
+            )
             vi.spyOn(server, 'getBaseUrl').mockResolvedValue('https://us.posthog.com')
             const ctx = await server.getContext()
             expect(ctx.api).toBeTruthy()
@@ -105,7 +131,10 @@ describe('HonoMcpServer', () => {
 
     describe('trackEvent', () => {
         it('should not throw on tracking errors', async () => {
-            const server = new HonoMcpServer(mockRedis, baseProps)
+            const server = new HonoMcpServer(mockRedis, baseProps, {
+                sessionBus: new InMemorySessionResponseBus(),
+                sessionId: 'test-session',
+            })
             vi.spyOn(server, 'getDistinctId').mockRejectedValue(new Error('fail'))
 
             const { AnalyticsEvent } = await import('@/lib/posthog/analytics')
@@ -116,7 +145,10 @@ describe('HonoMcpServer', () => {
     describe('api', () => {
         it('should cache the ApiClient instance', async () => {
             process.env.POSTHOG_API_BASE_URL = 'https://us.posthog.com'
-            const server = new HonoMcpServer(mockRedis, baseProps)
+            const server = new HonoMcpServer(mockRedis, baseProps, {
+                sessionBus: new InMemorySessionResponseBus(),
+                sessionId: 'test-session',
+            })
             const api1 = await server.api()
             const api2 = await server.api()
             expect(api1).toBe(api2)

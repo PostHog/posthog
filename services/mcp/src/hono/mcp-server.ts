@@ -1,10 +1,5 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { McpServer, type ToolCallback } from '@modelcontextprotocol/sdk/server/mcp.js'
-// The SDK's default `AjvJsonSchemaValidator` compiles JSON Schemas via `new Function()`,
-// which Cloudflare Workers' CSP blocks ("Code generation from strings disallowed").
-// That would break `elicitation/create` response validation. Use the Workers-compatible
-// interpreter instead. See https://github.com/modelcontextprotocol/typescript-sdk/issues/689
-import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker-provider.js'
 import type { z } from 'zod'
 
 import { ApiClient } from '@/api/client'
@@ -38,6 +33,12 @@ import { type Context, type Env, type State, type Tool } from '@/tools/types'
 import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getCustomApiBaseUrl, getEnv } from './constants'
 import { initDurationSeconds, toolCallDurationSeconds, toolCallsTotal } from './metrics'
+import {
+    type BusAwaitMetrics,
+    ElicitationGateway,
+    type SessionResponseBus,
+    type TransportMessageSender,
+} from './session-bus'
 
 export type { RequestProperties }
 
@@ -83,17 +84,53 @@ export class HonoMcpServer {
     private mcpMode: McpMode | undefined
     private mcpVersion: number | undefined
 
-    constructor(redis: RedisLike, props: RequestProperties) {
+    private readonly sessionBus: SessionResponseBus
+    private readonly sessionId: string
+    private readonly busMetrics: BusAwaitMetrics | undefined
+    private requestAbortSignal: AbortSignal | undefined
+    private transportSender: TransportMessageSender | undefined
+    /**
+     * JSONRPC id of the inbound request currently being handled, captured by
+     * the `registerTool` wrapper from `RequestHandlerExtra`. The elicit closure
+     * reads this lazily and forwards it to the transport as `relatedRequestId`
+     * so outbound `elicitation/create` messages reach the open SSE stream of
+     * the originating request.
+     */
+    private currentRequestId: string | number | undefined
+
+    constructor(
+        redis: RedisLike,
+        props: RequestProperties,
+        options: { sessionBus: SessionResponseBus; sessionId: string; busMetrics?: BusAwaitMetrics }
+    ) {
         this.props = props
         this.redis = redis
         this.env = getEnv()
+        this.sessionBus = options.sessionBus
+        this.sessionId = options.sessionId
+        this.busMetrics = options.busMetrics
         this.server = new McpServer(
             { name: 'PostHog', version: '1.0.0' },
-            {
-                instructions: instructionsFormatter.buildV1Instructions(),
-                jsonSchemaValidator: new CfWorkerJsonSchemaValidator(),
-            }
+            { instructions: instructionsFormatter.buildV1Instructions() }
         )
+    }
+
+    /**
+     * Bind a per-request transport message sender. Called by the streamable
+     * handler immediately after constructing the SDK transport. `Context.elicit`
+     * uses this to push outbound `elicitation/create` messages over the active
+     * SSE channel to the client.
+     */
+    bindTransportSender(sender: TransportMessageSender): void {
+        this.transportSender = sender
+    }
+
+    /**
+     * Bind the per-request AbortSignal (typically `c.req.raw.signal`) so that
+     * client disconnects propagate into pending elicit waits.
+     */
+    bindAbortSignal(signal: AbortSignal): void {
+        this.requestAbortSignal = signal
     }
 
     get requestProperties(): HonoRequestProperties {
@@ -267,7 +304,10 @@ export class HonoMcpServer {
         tool: Tool<TSchema>,
         handler: (params: z.infer<TSchema>) => Promise<any>
     ): void {
-        const wrappedHandler = async (params: z.infer<TSchema>): Promise<any> => {
+        const wrappedHandler = async (
+            params: z.infer<TSchema>,
+            extra?: { requestId?: string | number }
+        ): Promise<any> => {
             const validation = tool.schema.safeParse(params)
 
             if (!validation.success) {
@@ -282,6 +322,14 @@ export class HonoMcpServer {
                         },
                     ],
                 }
+            }
+
+            // Capture the inbound request id for the duration of the handler.
+            // `Context.elicit` reads it lazily so outbound `elicitation/create`
+            // messages are routed over the right SSE channel.
+            const previousRequestId = this.currentRequestId
+            if (extra?.requestId !== undefined) {
+                this.currentRequestId = extra.requestId
             }
 
             const stop = toolCallDurationSeconds.startTimer({ tool: tool.name })
@@ -321,6 +369,8 @@ export class HonoMcpServer {
                     distinctId,
                     this.props.sessionId ? await this.sessionManager.getSessionUuid(this.props.sessionId) : undefined
                 )
+            } finally {
+                this.currentRequestId = previousRequestId
             }
         }
 
@@ -360,7 +410,43 @@ export class HonoMcpServer {
             const analyticsContext = await this.getAnalyticsContextSafe(partialContext)
             await this.trackEvent(event, properties, analyticsContext ? { context: analyticsContext } : undefined)
         }
-        const elicit: Context['elicit'] = (params, options) => this.server.server.elicitInput(params, options)
+
+        // Elicit on Hono uses the cross-pod SessionResponseBus rather than the
+        // SDK's in-process pending-request map. The originating pod sends the
+        // `elicitation/create` message over its open SSE; the client's response
+        // may arrive at any pod via a new POST, and the streamable handler
+        // routes it back through `bus.deliver()`. The transport sender and
+        // abort signal are bound by the streamable handler AFTER `init()` runs
+        // (which itself calls `getContext()`), so we must read them lazily at
+        // elicit-call time — capturing them here would freeze stale undefined
+        // references and the elicit would never reach the client.
+        const sessionBus = this.sessionBus
+        const sessionId = this.sessionId
+        const self = this
+        const elicit: Context['elicit'] = (params, options) => {
+            const transportSender = self.transportSender
+            if (!transportSender) {
+                throw new Error(
+                    'Elicit invoked without a bound transport sender — bindTransportSender() must be called by the streamable handler before tool dispatch.'
+                )
+            }
+            const gatewayOptions: { metrics?: BusAwaitMetrics } = {}
+            if (self.busMetrics !== undefined) {
+                gatewayOptions.metrics = self.busMetrics
+            }
+            const gateway = new ElicitationGateway(sessionBus, transportSender, gatewayOptions)
+            const callOptions: { timeoutMs?: number; signal?: AbortSignal; relatedRequestId?: string | number } = {}
+            if (options?.timeout !== undefined) {
+                callOptions.timeoutMs = options.timeout
+            }
+            if (self.requestAbortSignal !== undefined) {
+                callOptions.signal = self.requestAbortSignal
+            }
+            if (self.currentRequestId !== undefined) {
+                callOptions.relatedRequestId = self.currentRequestId
+            }
+            return gateway.elicit(sessionId, params, callOptions)
+        }
         return { ...partialContext, trackEvent, elicit }
     }
 
@@ -508,10 +594,7 @@ export class HonoMcpServer {
             }
         }
 
-        this.server = new McpServer(
-            { name: 'PostHog', version: '1.0.0' },
-            { instructions, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() }
-        )
+        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
 
         // Register prompts and resources
         await Promise.all([
