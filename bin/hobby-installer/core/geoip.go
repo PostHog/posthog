@@ -74,7 +74,10 @@ func installGeoIPDeps() error {
 	}
 	logger.Debug("Installing brotli")
 	cmd := exec.Command("apt-get", "install", "-y", "--no-install-recommends", "brotli")
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to install brotli: %w", err)
+	}
+	return nil
 }
 
 func GeoIPExists() bool {
