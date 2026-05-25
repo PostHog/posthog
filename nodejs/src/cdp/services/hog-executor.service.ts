@@ -407,8 +407,12 @@ export class HogExecutorService {
             let execRes: ExecResult | undefined = undefined
 
             try {
-                // NOTE: As of the mappings work, we added input generation to the caller, reducing the amount of data passed into the function
-                // This is just a fallback to support the old format - once fully migrated we can remove the building and just use the globals
+                // Build inputs here when the invocation arrives without them.
+                // This is a supported path, not a transitional fallback: the
+                // rerun pipeline deliberately re-enqueues invocations with only
+                // the bare globals so the run resolves inputs against the
+                // current hog function config. Callers that pre-resolve inputs
+                // (e.g. the mappings path) skip the rebuild.
                 if (invocation.state.globals.inputs) {
                     globals = invocation.state.globals
                 } else {

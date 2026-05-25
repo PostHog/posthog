@@ -81,7 +81,7 @@ pub struct State {
     pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct HistoricalConfig {
     pub enable_historical_rerouting: bool,
     pub historical_rerouting_threshold_days: i64,

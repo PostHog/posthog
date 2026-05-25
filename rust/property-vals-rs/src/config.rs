@@ -26,20 +26,14 @@ pub struct Config {
     #[envconfig(default = "500000")]
     pub max_buffered_tuples: usize,
 
-    #[envconfig(default = "property-vals-rs-local-events")]
-    pub kafka_transactional_id: String,
-
     #[envconfig(default = "60")]
-    pub kafka_transaction_timeout_secs: u64,
+    pub kafka_produce_timeout_secs: u64,
 
     #[envconfig(default = "clickhouse_groups")]
     pub groups_kafka_consumer_topic: String,
 
     #[envconfig(default = "clickhouse-property-vals-rs-groups")]
     pub groups_kafka_consumer_group: String,
-
-    #[envconfig(default = "property-vals-rs-local-groups")]
-    pub groups_kafka_transactional_id: String,
 
     #[envconfig(default = "")]
     pub allowed_teams: TeamList,
@@ -79,13 +73,14 @@ impl FromStr for TeamList {
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        // auto_commit=false because offsets are committed by the
-        // transactional producer via send_offsets_to_transaction; auto-commit
-        // would break the exactly-once guarantee.
+        // auto_commit=true: background timer ships stored offsets to the
+        // broker every ~5s. We manually advance the stored offset only after
+        // a successful produce (see worker.rs::flush), so the broker never
+        // sees an offset for input we haven't actually written out.
         ConsumerConfig::set_defaults(
             "clickhouse-property-vals-rs",
             "clickhouse_events_json",
-            false,
+            true,
         );
         Config::init_from_env()
     }

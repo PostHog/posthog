@@ -84,6 +84,7 @@ js-source-scopes = { git = "https://github.com/getsentry/js-source-scopes", rev 
 debug = "line-tables-only"
 
 [workspace.dependencies]
+aho-corasick = "1.1"
 anyhow = "1.0"
 assert-json-diff = "2.0.2"
 async-compression = { version = "0.4", features = [

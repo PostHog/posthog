@@ -1,7 +1,15 @@
 import type { ListToolsResult } from '@modelcontextprotocol/sdk/types.js'
 
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
-import { handleToolError } from '@/lib/errors'
+import {
+    handleToolError,
+    MissingOrganizationContextError,
+    MissingProjectContextError,
+    PostHogApiError,
+    PostHogValidationError,
+    findPostHogPermissionError,
+    findRecoverableApiError,
+} from '@/lib/errors'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import type { RequestProperties } from '@/lib/request-properties'
 import { createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
@@ -9,7 +17,7 @@ import type { Context, ZodObjectAny } from '@/tools/types'
 
 import { trackToolCall } from './analytics'
 import type { InstructionsBuilder } from './instructions'
-import { toolCallDurationSeconds, toolCallsTotal } from './metrics'
+import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { ToolCatalog } from './tool-catalog'
 
@@ -18,6 +26,10 @@ interface ResolvedTool {
     schema: ZodObjectAny
     handler: (ctx: Context, args: unknown) => Promise<unknown>
     _meta?: { ui?: { resourceUri?: string }; [key: string]: unknown } | undefined
+}
+
+interface ExecMetricState {
+    innerToolName: string | undefined
 }
 
 export class ToolExecutor {
@@ -60,7 +72,7 @@ export class ToolExecutor {
         }
 
         if (state.useSingleExec && toolName === 'exec') {
-            return this.callTool(this.resolveExecTool(state, props), params, props, state)
+            return this.callExecTool(params, props, state)
         }
 
         if (!state.allTools.some((t) => t.name === toolName)) {
@@ -139,6 +151,7 @@ export class ToolExecutor {
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
+            classifyToolError(error, tool.name)
 
             void trackToolCall(tool.name, Date.now() - startMs, true, props, state)
 
@@ -147,10 +160,67 @@ export class ToolExecutor {
         }
     }
 
-    private resolveExecTool(state: ResolvedState, props: RequestProperties): ResolvedTool {
+    private async callExecTool(
+        params: Record<string, unknown> | undefined,
+        props: RequestProperties,
+        state: ResolvedState
+    ): Promise<unknown> {
+        const execMetrics: ExecMetricState = { innerToolName: undefined }
+        const resolved = this.resolveExecTool(state, props, execMetrics)
+
+        const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
+        const validation = resolved.schema.safeParse(toolArgs)
+        if (!validation.success) {
+            toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
+            return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
+        }
+
+        const startMs = Date.now()
+
+        try {
+            const handlerResult = await resolved.handler(state.context, validation.data)
+
+            void trackToolCall('exec', Date.now() - startMs, false, props, state)
+
+            if (isToolCallPayload(handlerResult)) {
+                return handlerResult
+            }
+
+            return buildToolResultPayload({
+                handlerResult,
+                toolMeta: resolved._meta,
+                toolName: 'exec',
+                params: validation.data,
+                clientName: props.mcpClientName,
+                distinctId: undefined,
+            })
+        } catch (error: unknown) {
+            const metricTool = execMetrics.innerToolName ?? 'exec'
+            if (!execMetrics.innerToolName) {
+                toolCallsTotal.inc({ tool: 'exec', status: 'error' })
+            }
+            classifyToolError(error, metricTool)
+
+            void trackToolCall('exec', Date.now() - startMs, true, props, state)
+
+            const sessionUuid = await state.reqCtx.getSessionUuid(props.sessionId)
+            return handleToolError(error, 'exec', state.distinctId, sessionUuid)
+        }
+    }
+
+    private resolveExecTool(
+        state: ResolvedState,
+        props: RequestProperties,
+        execMetrics: ExecMetricState
+    ): ResolvedTool {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
         const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
+            execMetrics.innerToolName = toolName
+            const status = properties.success ? 'success' : 'error'
+            toolCallsTotal.inc({ tool: toolName, status })
+            toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
+
             void (async () => {
                 const freshContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
                 await state.reqCtx.trackEvent(
@@ -178,6 +248,27 @@ export class ToolExecutor {
             schema: execTool.schema,
             handler: (ctx, args) => execTool.handler(ctx, args as { command: string }),
             _meta: execTool._meta,
+        }
+    }
+}
+
+function classifyToolError(error: unknown, toolName: string): void {
+    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
+        toolErrorsTotal.inc({ tool: toolName, error_type: 'missing_context' })
+    } else if (findPostHogPermissionError(error)) {
+        toolErrorsTotal.inc({ tool: toolName, error_type: 'permission' })
+    } else if (error instanceof Error && error.name === 'TimeoutError') {
+        toolErrorsTotal.inc({ tool: toolName, error_type: 'timeout' })
+    } else {
+        const apiError = findRecoverableApiError(error)
+        if (apiError instanceof PostHogValidationError) {
+            toolErrorsTotal.inc({ tool: toolName, error_type: 'validation' })
+        } else if (apiError instanceof PostHogApiError && apiError.status >= 500) {
+            toolErrorsTotal.inc({ tool: toolName, error_type: 'api_5xx' })
+        } else if (apiError instanceof PostHogApiError) {
+            toolErrorsTotal.inc({ tool: toolName, error_type: 'api_4xx' })
+        } else {
+            toolErrorsTotal.inc({ tool: toolName, error_type: 'internal' })
         }
     }
 }

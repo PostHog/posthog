@@ -228,7 +228,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
                 setAllowsNA: (state, { allowsNA }) =>
                     state ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } } : null,
-                setTriggerConditions: (state, { conditions }) => (state ? { ...state, conditions } : null),
+                setTriggerConditions: (state, { conditions }) =>
+                    state
+                        ? {
+                              ...state,
+                              conditions: conditions.map((c) =>
+                                  c.rollout_percentage != null
+                                      ? { ...c, rollout_percentage: Math.round(c.rollout_percentage * 100) / 100 }
+                                      : c
+                              ),
+                          }
+                        : null,
                 setModelConfiguration: (state, { modelConfiguration }) =>
                     state ? { ...state, model_configuration: modelConfiguration } : null,
                 setEvaluationType: (state, { evaluationType }) => {

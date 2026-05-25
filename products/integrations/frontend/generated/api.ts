@@ -14,6 +14,7 @@ import type {
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
     IntegrationConfigApi,
+    IntegrationsChannelsRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
@@ -288,16 +289,33 @@ export const integrationsAnthropicManagedAgentsRetrieve = async (
     })
 }
 
-export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/channels/`
+export const getIntegrationsChannelsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsChannelsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/channels/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/channels/`
 }
 
 export const integrationsChannelsRetrieve = async (
     projectId: string,
     id: number,
+    params?: IntegrationsChannelsRetrieveParams,
     options?: RequestInit
 ): Promise<SlackChannelsResponseApi> => {
-    return apiMutator<SlackChannelsResponseApi>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
+    return apiMutator<SlackChannelsResponseApi>(getIntegrationsChannelsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
