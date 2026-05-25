@@ -64,18 +64,23 @@ export class RequestStateResolver {
 
         const { features, tools, version: clientVersion, organizationId, projectId, readOnly, mode } = props
 
-        await reqCtx.cache.setMany({
+        await reqCtx.tokenCache.setMany({
             ...(organizationId ? { orgId: organizationId } : {}),
             ...(projectId ? { projectId } : {}),
-            ...(props.mcpClientName ? { mcpClientName: props.mcpClientName } : {}),
-            ...(props.mcpClientVersion ? { mcpClientVersion: props.mcpClientVersion } : {}),
-            ...(props.mcpProtocolVersion ? { mcpProtocolVersion: props.mcpProtocolVersion } : {}),
         })
 
-        let cachedProjectId = projectId || (await reqCtx.cache.get('projectId'))
+        if (props.mcpSessionId) {
+            await reqCtx.sessionCache.setMany({
+                ...(props.mcpClientName ? { mcpClientName: props.mcpClientName } : {}),
+                ...(props.mcpClientVersion ? { mcpClientVersion: props.mcpClientVersion } : {}),
+                ...(props.mcpProtocolVersion ? { mcpProtocolVersion: props.mcpProtocolVersion } : {}),
+            })
+        }
+
+        let cachedProjectId = projectId || (await reqCtx.tokenCache.get('projectId'))
         if (!cachedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
-            cachedProjectId = (await reqCtx.cache.get('projectId')) ?? undefined
+            cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
         const toolFlagKeys = getRequiredFeatureFlags(clientVersion)
@@ -94,11 +99,21 @@ export class RequestStateResolver {
         const toolFeatureFlags =
             toolFlagKeys.length > 0 ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]])) : undefined
 
-        const oauthClientName = (await reqCtx.cache.get('clientName')) || undefined
-        const mcpClientName = props.mcpClientName || (await reqCtx.cache.get('mcpClientName')) || undefined
-        const mcpClientVersion = props.mcpClientVersion || (await reqCtx.cache.get('mcpClientVersion')) || undefined
-        const mcpProtocolVersion =
-            props.mcpProtocolVersion || (await reqCtx.cache.get('mcpProtocolVersion')) || undefined
+        const oauthClientName = (await reqCtx.tokenCache.get('clientName')) || undefined
+
+        let mcpClientName = props.mcpClientName
+        let mcpClientVersion = props.mcpClientVersion
+        let mcpProtocolVersion = props.mcpProtocolVersion
+        if (props.mcpSessionId && (!mcpClientName || !mcpClientVersion || !mcpProtocolVersion)) {
+            const [cachedName, cachedVersion, cachedProto] = await Promise.all([
+                mcpClientName ? undefined : reqCtx.sessionCache.get('mcpClientName'),
+                mcpClientVersion ? undefined : reqCtx.sessionCache.get('mcpClientVersion'),
+                mcpProtocolVersion ? undefined : reqCtx.sessionCache.get('mcpProtocolVersion'),
+            ])
+            mcpClientName = mcpClientName || cachedName || undefined
+            mcpClientVersion = mcpClientVersion || cachedVersion || undefined
+            mcpProtocolVersion = mcpProtocolVersion || cachedProto || undefined
+        }
 
         props.mcpClientName = mcpClientName
         props.mcpClientVersion = mcpClientVersion

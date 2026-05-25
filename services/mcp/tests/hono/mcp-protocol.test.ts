@@ -14,6 +14,7 @@ import {
     defineResilienceTests,
     defineResourceCatalogTests,
     defineSessionLifecycleTests,
+    defineSessionTrackingTests,
     type ProtocolTestHarness,
 } from '../integration/mcp-protocol-suite'
 import { handlers, contextMillHandler } from '../workers/fixtures/handlers'
@@ -85,3 +86,4 @@ defineSessionLifecycleTests('Hono', harness)
 defineResourceCatalogTests('Hono', harness)
 defineCatalogFilterTests('Hono', harness)
 defineExecModeTests('Hono', harness)
+defineSessionTrackingTests('Hono', harness)
