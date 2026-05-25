@@ -461,6 +461,15 @@ def handle_posthog_code_rules_command_activity(
         _handle_rules_add(slack, integration, channel, thread_ts, user_id, command.rule_text or "", command.repository)
     elif command.action == "remove":
         _handle_rules_remove(slack, integration, channel, thread_ts, command.rule_numbers)
+    elif command.action == "deprecated_default_repo":
+        slack.client.chat_postMessage(
+            channel=channel,
+            thread_ts=thread_ts,
+            text=(
+                "`default repo` commands have been removed. PostHog now selects the repository "
+                "automatically based on your message context — just describe what you need."
+            ),
+        )
 
     return PostHogCodeRulesCommandResult(status="handled")
 

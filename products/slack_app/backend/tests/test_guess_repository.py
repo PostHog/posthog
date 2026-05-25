@@ -425,6 +425,26 @@ class TestParseRulesCommand:
             ("help", "help", RulesCommand(action="help")),
             ("help_case_insensitive", "Help", RulesCommand(action="help")),
             ("bot_mention_help", "<@U123BOT> help", RulesCommand(action="help")),
+            (
+                "deprecated_default_repo_set",
+                "default repo set posthog/posthog",
+                RulesCommand(action="deprecated_default_repo"),
+            ),
+            (
+                "deprecated_default_repo_show",
+                "default repo show",
+                RulesCommand(action="deprecated_default_repo"),
+            ),
+            (
+                "deprecated_default_repo_clear",
+                "default repo clear",
+                RulesCommand(action="deprecated_default_repo"),
+            ),
+            (
+                "deprecated_default_repo_with_bot_mention",
+                "<@U123BOT> default repo set posthog/posthog",
+                RulesCommand(action="deprecated_default_repo"),
+            ),
         ]
     )
     def test_parses_command(self, _name, text, expected):

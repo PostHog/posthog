@@ -133,7 +133,7 @@ class SlackUserContext:
 
 @dataclass
 class RulesCommand:
-    action: Literal["list", "add", "remove", "help"]
+    action: Literal["list", "add", "remove", "help", "deprecated_default_repo"]
     rule_text: str | None = None
     repository: str | None = None
     rule_numbers: list[int] | None = None
@@ -529,6 +529,11 @@ def _parse_rules_command(text: str) -> RulesCommand | None:
 
     if re.fullmatch(r"help", cleaned, flags=re.IGNORECASE):
         return RulesCommand(action="help")
+
+    # Intercept legacy `default repo` verbs so `default repo set org/repo` doesn't
+    # fall through into the explicit-repo cascade and spawn a junk task.
+    if re.fullmatch(r"default\s+repo\s+(set|show|clear)(\s+.*)?", cleaned, flags=re.IGNORECASE):
+        return RulesCommand(action="deprecated_default_repo")
 
     return None
 
