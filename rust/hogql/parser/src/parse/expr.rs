@@ -4539,6 +4539,31 @@ impl<'a> Parser<'a> {
         Ok((false, rhs))
     }
 
+    /// True when the `lambda` keyword sitting at `peek_next` (peek1) is the head
+    /// of a `lambdaExpr` body — `LAMBDA (identifier (COMMA identifier)* COMMA?)?
+    /// COLON …`. Probes past the keyword with a shadow lexer. Used by the
+    /// AS-alias infix to distinguish a lambda value (`… AS lambda y: y`, only
+    /// reachable in INTERPOLATE) from a plain `lambda` alias (`1 AS lambda`).
+    fn lambda_body_follows_after_peek_next(&self) -> bool {
+        let mut lex = Lexer::with_pos(self.src, self.peek1.end);
+        loop {
+            match lex.next_token().map(|t| t.kind) {
+                // bare `lambda :` or the `:` after the last param
+                Ok(TokenKind::Colon) => return true,
+                // a parameter identifier — must be followed by `,` (more params)
+                // or `:` (body); anything else means this isn't a lambda head.
+                Ok(TokenKind::Ident | TokenKind::QuotedIdent) => {
+                    match lex.next_token().map(|t| t.kind) {
+                        Ok(TokenKind::Colon) => return true,
+                        Ok(TokenKind::Comma) => continue,
+                        _ => return false,
+                    }
+                }
+                _ => return false,
+            }
+        }
+    }
+
     // ---- Multi-token / context-sensitive infix --------------------------
 
     /// Returns `Some(true)` if it consumed and produced an infix.
@@ -4810,14 +4835,18 @@ impl<'a> Parser<'a> {
                 if !next_is_alias_target {
                     return Ok(None);
                 }
-                // `LAMBDA` after `AS` always starts a `lambdaExpr`
-                // (`LAMBDA identifier (COMMA identifier)* COMMA?
-                // COLON columnExpr`), not an alias name. cpp's ALL(*)
-                // sees the lambda body's `:` and backtracks the alias
-                // alt; Pratt can't, so refuse the alias here so the
-                // outer `INTERPOLATE (expr AS columnExpr)` form picks
-                // the AS up itself.
-                if matches!(self.peek_next(), TokenKind::Keyword(Kw::Lambda)) {
+                // `AS lambda <params> :` is a `lambdaExpr` value, not an alias —
+                // only valid in `INTERPOLATE (expr AS columnExpr)`, where refusing
+                // the alias here lets the INTERPOLATE clause pick up the AS and
+                // parse the lambda. But a bare `AS lambda` with NO lambda body is
+                // a plain alias (`1 as lambda` -> `Alias(1, 'lambda')`, cpp
+                // accepts; `1 as lambda: 2` rejects on both since the lambda-expr
+                // form isn't allowed in plain expression context — the alias
+                // absorbs `lambda` and the trailing `: 2` then fails). So refuse
+                // only when a lambda body actually follows.
+                if matches!(self.peek_next(), TokenKind::Keyword(Kw::Lambda))
+                    && self.lambda_body_follows_after_peek_next()
+                {
                     return Ok(None);
                 }
                 // `AS <ident> ->` is the arrow-form lambda. The single

@@ -964,3 +964,38 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_expr(query, backend="rust-json"),
                 msg=query,
             )
+
+    @no_memory_leak_check
+    def test_lambda_keyword_is_a_plain_alias_after_as(self):
+        # The grammar's explicit `AS identifier` admits every keyword, so `AS
+        # lambda` is a plain alias `Alias(expr, 'lambda')` in expression context.
+        # rust blanket-refused `AS lambda` (it only ever heads a lambda value in
+        # `INTERPOLATE (expr AS columnExpr)`), so it rejected the alias. Refuse
+        # only when a lambda BODY (`lambda [params] :`) actually follows.
+        for query in (
+            "1 as lambda",
+            "x as lambda",
+            "(1) as lambda",
+            "1 + 1 as lambda",
+            "[1 as lambda]",
+            "f(1 as lambda)",
+            "1 as lambda()",
+            "1 as lambda + 2",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+        for query in ("select 1 as lambda", "select 1 as lambda, 2", "select 1 as lambda from t"):
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )
+        # A real lambda body after `AS` is not a valid alias and rejects on both
+        # in plain expression context (the alias absorbs `lambda`, the `:` trails).
+        for query in ("1 as lambda: 2", "1 as lambda x: x", "1 as lambda x"):
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError):
+                    parse_expr(query, backend=backend)
