@@ -6,6 +6,7 @@ the `rust-json` backend into that suite and lists the cases the Rust
 parser does not yet match the C++ reference on.
 """
 
+import pytest
 from posthog.test.base import no_memory_leak_check
 
 from posthog.hogql.errors import BaseHogQLError
@@ -1048,5 +1049,78 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             self.assertEqual(
                 parse_expr(query, backend="cpp-json"),
                 parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    # ---- Known divergences, tracked as xfail (strict) --------------------
+    # Each asserts the DESIRED cpp/rust parity and currently fails. strict=True
+    # flips a fix to a hard failure so the marker gets removed when the gap closes.
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="cpp ALL(*) parses `from f` as an invalid column under the leading comma (FROM-implicit-alias footgun); rust's single pass accepts the cross-join+sample",
+    )
+    @no_memory_leak_check
+    def test_xfail_select_leading_comma_keyword_table_sample(self):
+        for backend in ("cpp-json", "rust-json"):
+            with self.assertRaises(BaseHogQLError):
+                parse_select("select 1, from f, using sample 1", backend=backend)
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="cpp ALL(*) finds an alternative parse where the date literal node is never built; rust commits to the date literal and fatally rejects",
+    )
+    @no_memory_leak_check
+    def test_xfail_date_literal_in_alternative_parse_context(self):
+        query = "range := ( { ( 'nlhonme ' ) } order by 'e' , date 'fa' collate 'a' ) "
+        self.assertEqual(
+            parse_program(query, backend="cpp-json"),
+            parse_program(query, backend="rust-json"),
+        )
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="trailing FORMAT clause: cpp freezes JoinExpr.end at the table/alias and overwrites alias afterward; rust extends end over the format tokens (position-only)",
+    )
+    @no_memory_leak_check
+    def test_xfail_join_expr_end_with_trailing_format(self):
+        self.assertEqual(
+            parse_select("select 1 from x t format JSON", backend="cpp-json"),
+            parse_select("select 1 from x t format JSON", backend="rust-json"),
+        )
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="BETWEEN followed by a hoisting op: the inner BetweenExpr keeps high.end, missing a parenthesized high's closing paren (position-only)",
+    )
+    @no_memory_leak_check
+    def test_xfail_between_hoist_parenthesized_high_position(self):
+        for query in ("x between (1) and (2) or y", "1 between 2 and (3) and 4"):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="cpp re-reads `return ()` as Call(return, []) when the empty-parens return value is invalid; rust commits to the return statement and rejects the empty parens",
+    )
+    @no_memory_leak_check
+    def test_xfail_return_empty_parens_is_a_call(self):
+        self.assertEqual(
+            parse_program("return ()", backend="cpp-json"),
+            parse_program("return ()", backend="rust-json"),
+        )
+
+    @pytest.mark.xfail(
+        strict=True, reason="cpp accepts a string / empty EXCLUDE list in some contexts; rust requires identifiers"
+    )
+    @no_memory_leak_check
+    def test_xfail_exclude_list_string_or_empty(self):
+        for query in ("x := * exclude ('j')", "osl := * exclude ()"):
+            self.assertEqual(
+                parse_program(query, backend="cpp-json"),
+                parse_program(query, backend="rust-json"),
                 msg=query,
             )
