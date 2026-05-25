@@ -31,9 +31,9 @@ from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
 )
 from posthog.hogql_queries.insights.trends.aggregation_operations import ALLOWED_SESSION_MATH_PROPERTIES
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.models.experiment import Experiment
 
 
