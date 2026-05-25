@@ -425,28 +425,26 @@ export const AtMaxDepth: Story = {
                     children: [
                         {
                             // depth 2
-                            type: 'or',
-                            children: [
-                                {
-                                    // depth 3
-                                    type: 'and',
-                                    children: [
-                                        {
-                                            // depth 4 — deepest group; "Add group" disabled here
-                                            type: 'and',
-                                            children: [
-                                                {
-                                                    // depth 5 — the limit
-                                                    type: 'condition',
-                                                    field: 'event_name',
-                                                    operator: 'exact',
-                                                    value: '$deepest',
-                                                },
-                                            ],
-                                        },
-                                    ],
-                                },
-                            ],
+                            type: 'not',
+                            child: {
+                                // depth 3
+                                type: 'and',
+                                children: [
+                                    {
+                                        // depth 4 — deepest group; "Add group" disabled here
+                                        type: 'and',
+                                        children: [
+                                            {
+                                                // depth 5 — the limit
+                                                type: 'condition',
+                                                field: 'event_name',
+                                                operator: 'exact',
+                                                value: '$deepest',
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
                         },
                         { type: 'condition', field: 'event_name', operator: 'exact', value: '$shallow' },
                     ],
@@ -464,13 +462,17 @@ export const AtMaxDepth: Story = {
                 story: `
 Filter at the EVENT_FILTER_MAX_DEPTH limit (5 nesting levels). Confirms indentation, connector
 lines, and the "Add group" button being rendered in its disabled state inside the deepest group.
+The NOT sits at depth 2 so the deep chain still bottoms out in a group (AND at depth 4) rather
+than a NOT — which is what makes the depth-limit button state observable.
 
 Expected to show:
-- Visible nesting OR → AND → OR → AND → AND → condition (\`$deepest\`)
-- Sibling \`event_name = "$shallow"\` rendered at the AND-depth-1 level
+- Visible nesting OR → AND → NOT → AND → AND → condition (\`$deepest\`)
+- Sibling \`event_name = "$shallow"\` rendered alongside the NOT at AND-depth-1
 - "Add group" rendered disabled inside the depth-4 AND group (its tooltip is
   "Maximum nesting depth of 5 reached"); "Add condition" still enabled there
-- Two test cases, both with green "Pass" tags
+- Two test cases, both with green "Pass" tags: \`$shallow\` drops (matches the shallow
+  sibling AND the NOT inverts the inner chain to true), \`$deepest\` ingests (NOT inverts
+  to false, so the AND short-circuits)
                 `,
             },
         },
