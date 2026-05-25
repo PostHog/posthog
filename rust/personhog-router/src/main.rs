@@ -110,9 +110,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         const BUCKETS: &[f64] = &[
             1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
         ];
+        const RESPONSE_SIZE_BUCKETS: &[f64] = &[
+            64.0, 256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0,
+        ];
         let recorder_handle = PrometheusBuilder::new()
             .add_global_label("service", "personhog-router")
             .set_buckets(BUCKETS)
+            .unwrap()
+            .set_buckets_for_metric(
+                metrics_exporter_prometheus::Matcher::Prefix(
+                    "personhog_router_response_size".into(),
+                ),
+                RESPONSE_SIZE_BUCKETS,
+            )
             .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
@@ -304,7 +314,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
                 .http2_keepalive_timeout(keepalive_timeout)
-                .layer(GrpcMetricsLayer)
+                .layer(GrpcMetricsLayer::default())
                 .add_service(proxy)
                 .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
                 .await
@@ -318,7 +328,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
                 .http2_keepalive_timeout(keepalive_timeout)
-                .layer(GrpcMetricsLayer)
+                .layer(GrpcMetricsLayer::default())
                 .add_service(
                     PersonHogServiceServer::new(service)
                         .max_encoding_message_size(max_send)
