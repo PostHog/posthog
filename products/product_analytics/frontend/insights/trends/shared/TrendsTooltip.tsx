@@ -28,6 +28,9 @@ interface TrendsTooltipProps {
     formatCompareLabel?: (label: string, dateLabel?: string) => string
     onRowClick?: (datum: SeriesDatum) => void
     showHeader?: boolean
+    /** Overrides the default value formatter — needed for the pie chart, which renders the
+     *  raw aggregation plus the slice's share of the total. */
+    renderCount?: (value: number) => string
 }
 
 /** Bridges hog-charts TooltipContext to the legacy InsightTooltip.
@@ -48,6 +51,7 @@ export function TrendsTooltip({
     formatCompareLabel,
     onRowClick,
     showHeader,
+    renderCount: renderCountOverride,
 }: TrendsTooltipProps): React.ReactElement {
     const seriesData = useMemo<SeriesDatum[]>(
         () =>
@@ -75,6 +79,9 @@ export function TrendsTooltip({
 
     const renderCount = useCallback(
         (value: number): string => {
+            if (renderCountOverride) {
+                return renderCountOverride(value)
+            }
             if (showPercentView) {
                 // Stickiness percent view: value is already a percentage.
                 return `${value.toFixed(1)}%`
@@ -84,7 +91,7 @@ export function TrendsTooltip({
             }
             return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency)
         },
-        [showPercentView, isPercentStackView, trendsFilter, baseCurrency]
+        [renderCountOverride, showPercentView, isPercentStackView, trendsFilter, baseCurrency]
     )
 
     const hasMultipleSeries = seriesData.length > 1

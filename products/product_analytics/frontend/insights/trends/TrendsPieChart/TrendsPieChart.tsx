@@ -3,11 +3,15 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { PieChart, PieTooltip } from 'lib/hog-charts'
+import { PieChart } from 'lib/hog-charts'
 import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from 'lib/hog-charts'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import {
+    formatAggregationAxisValue,
+    formatAggregationAxisValueWithShareOfTotal,
+} from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
@@ -17,11 +21,13 @@ import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
+import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
 
 interface TrendsPieChartProps {
@@ -50,6 +56,7 @@ export function TrendsPieChart({
     const { baseCurrency } = useValues(teamLogic)
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { aggregationLabel } = useValues(groupsModel)
 
     const {
         indexedResults,
@@ -61,9 +68,18 @@ export function TrendsPieChart({
         hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
+        labelGroupType,
         getTrendsColor,
         getTrendsHidden,
     } = useValues(trendsDataLogic(insightProps))
+
+    const resolvedGroupTypeLabel =
+        context?.groupTypeLabel ??
+        (labelGroupType === 'people'
+            ? 'people'
+            : labelGroupType === 'none'
+              ? ''
+              : aggregationLabel(labelGroupType).plural)
 
     const onDataPointClick = context?.onDataPointClick
     const showAggregation = !pieChartVizOptions?.hideAggregation
@@ -122,9 +138,9 @@ export function TrendsPieChart({
     // Click parity with ActionsPie. The legacy path builds an InsightActorsQuery from the
     // GraphDataset.breakdownValues array; here each slice is already a single result, so we
     // pull its breakdown/compare straight from the IndexedTrendResult.
-    const onSliceClick = useCallback(
-        (payload: RadialSlicePayload<TrendsSeriesMeta>) => {
-            const result = visibleResults.find((r: IndexedTrendResult) => String(r.id) === payload.series.key)
+    const handleSliceClick = useCallback(
+        (seriesKey: string, label: string | undefined) => {
+            const result = visibleResults.find((r: IndexedTrendResult) => String(r.id) === seriesKey)
             if (!result) {
                 return
             }
@@ -143,7 +159,7 @@ export function TrendsPieChart({
                 return
             }
             openPersonsModal({
-                title: payload.series.label || '',
+                title: label || '',
                 query: datasetToActorsQuery({
                     dataset: {
                         action: result.action,
@@ -170,11 +186,46 @@ export function TrendsPieChart({
         ]
     )
 
+    const onSliceClick = useCallback(
+        (payload: RadialSlicePayload<TrendsSeriesMeta>) => handleSliceClick(payload.series.key, payload.series.label),
+        [handleSliceClick]
+    )
+
+    const renderCount = useCallback(
+        (value: number) => formatAggregationAxisValueWithShareOfTotal(trendsFilter, value, total, baseCurrency),
+        [trendsFilter, total, baseCurrency]
+    )
+
+    const onRowClick = useMemo(
+        () => (canHandleClick ? (datum: SeriesDatum) => handleSliceClick(String(datum.id), datum.label) : undefined),
+        [canHandleClick, handleSliceClick]
+    )
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => (
-            <PieTooltip<TrendsSeriesMeta> ctx={ctx} valueFormatter={valueFormatter} />
+            <TrendsTooltip
+                context={ctx}
+                breakdownFilter={breakdownFilter ?? undefined}
+                trendsFilter={trendsFilter}
+                formula={formula}
+                baseCurrency={baseCurrency}
+                groupTypeLabel={resolvedGroupTypeLabel}
+                formatCompareLabel={context?.formatCompareLabel}
+                onRowClick={onRowClick}
+                showHeader={false}
+                renderCount={renderCount}
+            />
         ),
-        [valueFormatter]
+        [
+            breakdownFilter,
+            trendsFilter,
+            formula,
+            baseCurrency,
+            resolvedGroupTypeLabel,
+            context?.formatCompareLabel,
+            onRowClick,
+            renderCount,
+        ]
     )
 
     if (!visibleResults.length) {
