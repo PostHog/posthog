@@ -203,7 +203,7 @@ class TestOAuthAPI(APIBaseTest):
         code = parse_qs(urlparse(location).query)["code"][0]
         grant = OAuthGrant.objects.get(code=code)
 
-        self.assertIn(self.team.pk, grant.scoped_teams)
+        self.assertEqual(grant.scoped_teams, [])
         self.assertIn(str(self.organization.id), grant.scoped_organizations)
 
     def test_authorize_missing_client_id(self):
@@ -430,8 +430,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("expires_in", data)
         self.assertIn("refresh_token", data)
         self.assertIn("scope", data)
-        self.assertIn("scoped_teams", data)
         self.assertIn("scoped_organizations", data)
+        self.assertNotIn("scoped_teams", data)
 
         access_token = data["access_token"]
         refresh_token = data["refresh_token"]
@@ -660,8 +660,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIn("access_token", token_response_data)
         self.assertIn("refresh_token", token_response_data)
-        self.assertIn("scoped_teams", token_response_data)
-        self.assertEqual(token_response_data["scoped_teams"], scoped_teams)
+        self.assertNotIn("scoped_teams", token_response_data)
 
         access_token = OAuthAccessToken.objects.get(token=token_response_data["access_token"])
 
@@ -686,8 +685,7 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIn("access_token", refresh_token_response_data)
         self.assertIn("refresh_token", refresh_token_response_data)
-        self.assertIn("scoped_teams", refresh_token_response_data)
-        self.assertEqual(refresh_token_response_data["scoped_teams"], scoped_teams)
+        self.assertNotIn("scoped_teams", refresh_token_response_data)
 
         access_token = OAuthAccessToken.objects.get(token=refresh_token_response_data["access_token"])
 
@@ -2190,10 +2188,9 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("access_token", response_data)
         self.assertIn("refresh_token", response_data)
         self.assertIn("token_type", response_data)
-        self.assertIn("scoped_teams", response_data)
         self.assertIn("scoped_organizations", response_data)
+        self.assertNotIn("scoped_teams", response_data)
         self.assertEqual(response_data["token_type"], "Bearer")
-        self.assertEqual(response_data["scoped_teams"], [])
         self.assertEqual(response_data["scoped_organizations"], [])
 
     def test_token_endpoint_with_invalid_json_payload(self):
@@ -2246,8 +2243,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
         self.assertEqual(data["client_id"], "test_confidential_client_id")
         self.assertEqual(data["client_name"], "Test Confidential App")
-        self.assertIn("scoped_teams", data)
         self.assertIn("scoped_organizations", data)
+        self.assertNotIn("scoped_teams", data)
 
         if token_type == "access_token":
             self.assertEqual(data["token_type"], "access_token")

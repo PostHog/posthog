@@ -588,12 +588,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 # Auto-approve with all user's accessible organizations.
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
-
-                # TODO(charlesvien): Populate scoped_teams for backwards compat with old
-                # Code clients that throw "No team found in OAuth scopes" when
-                # scoped_teams is empty. Remove once Code reads scoped_organizations.
-                team_ids = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
-                credentials["scoped_teams"] = list(team_ids)
+                credentials["scoped_teams"] = []
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -812,7 +807,6 @@ class OAuthTokenView(TokenView):
 
                 if access_token_value:
                     access_token = OAuthAccessToken.objects.get(token=access_token_value)
-                    response_data["scoped_teams"] = access_token.scoped_teams or []
                     response_data["scoped_organizations"] = access_token.scoped_organizations or []
 
                     if region_info := get_region_info():
@@ -930,7 +924,6 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 "active": True,
                 "token_type": "access_token",
                 "scope": access_token.scope,
-                "scoped_teams": access_token.scoped_teams or [],
                 "scoped_organizations": access_token.scoped_organizations or [],
                 "exp": int(calendar.timegm(access_token.expires.timetuple())),
             }
@@ -952,7 +945,6 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             data = {
                 "active": True,
                 "token_type": "refresh_token",
-                "scoped_teams": refresh_token.scoped_teams or [],
                 "scoped_organizations": refresh_token.scoped_organizations or [],
             }
             if refresh_token.application:
