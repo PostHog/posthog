@@ -479,7 +479,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         subscription = Subscription.objects.get(pk=subscription_id)
         assert subscription.enabled is True
         assert subscription.integration_id == new_integration.id
-        assert subscription.integration_id == get_slack_integration_for_team(self.team.id).id
+        team_slack_integration = get_slack_integration_for_team(self.team.id)
+        assert team_slack_integration is not None
+        assert subscription.integration_id == team_slack_integration.id
 
     def test_patch_enabled_true_rejected_for_webhook_subscription(self):
         """Webhook delivery is not supported, so a webhook subscription auto-disables on
