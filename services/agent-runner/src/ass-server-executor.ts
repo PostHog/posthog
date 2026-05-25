@@ -98,7 +98,7 @@ export class AssServerExecutor implements SessionExecutor {
 
     private async runWithBundle(
         input: ExecutorTurnInput,
-        _revision: ResolvedRevision,
+        revision: ResolvedRevision,
         bundleDir: string
     ): Promise<ExecutorTurnOutput> {
         // Deployed bundles are single-agent (one `.ass.yaml` per tarball, produced
@@ -146,6 +146,9 @@ export class AssServerExecutor implements SessionExecutor {
             triggerPayload,
             env: input.job.secrets,
             makeToolSandbox,
+            // Threaded so the sandbox container is labelled `ass.revision=<id>`,
+            // making it attributable to a deploy in `docker ps` / orphan reaping.
+            revisionId: revision.revisionId,
             onLog: (line: string) => {
                 logger.debug({ sessionId, line }, 'runSession')
                 sessionLogger.appendLog({ level: 'INFO', message: line })
