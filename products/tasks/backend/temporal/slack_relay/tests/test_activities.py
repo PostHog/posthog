@@ -81,9 +81,26 @@ class TestRelaySlackMessage(TestCase):
         mock_delete_progress.assert_called_once()
         mock_post.assert_called_once()
         assert "Which license should I use?" in mock_post.call_args.args[0]
-        mock_update.assert_called_once_with("hedgehog")
+        mock_update.assert_not_called()
         self.task_run.refresh_from_db()
         assert "relay-1" in self.task_run.state.get("slack_sent_relay_ids", [])
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_relay_with_explicit_reaction_updates_reaction(self, mock_delete_progress, mock_post, mock_update):
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-2",
+                text="Could not deliver follow-up",
+                user_message_ts="1234.5",
+                reaction_emoji="x",
+            )
+        )
+
+        mock_post.assert_called_once()
+        mock_update.assert_called_once_with("x")
 
 
 class TestMarkdownToSlackMrkdwn(TestCase):
