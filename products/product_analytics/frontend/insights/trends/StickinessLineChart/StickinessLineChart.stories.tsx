@@ -10,7 +10,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
-import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, InsightShortId } from '~/types'
 
 import { StickinessLineChart } from './StickinessLineChart'
 
@@ -48,9 +48,9 @@ function Stage({ children }: { children: React.ReactNode }): JSX.Element {
     )
 }
 
-function StickinessLineChartStory({ fixture }: { fixture: Partial<QueryBasedInsightModel> }): JSX.Element {
+function StickinessLineChartStory({ insightFixture }: { insightFixture: any }): JSX.Element {
     const [dashboardItemId] = useState(() => `StickinessLineChartStory.${uniqueNode++}` as InsightShortId)
-    const cachedInsight = { ...fixture, short_id: dashboardItemId } as QueryBasedInsightModel
+    const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
     const insightProps: InsightLogicProps = { dashboardItemId, doNotLoad: true, cachedInsight }
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -72,5 +72,5 @@ function StickinessLineChartStory({ fixture }: { fixture: Partial<QueryBasedInsi
 }
 
 export const Default: Story = {
-    render: () => <StickinessLineChartStory fixture={stickinessFixture as Partial<QueryBasedInsightModel>} />,
+    render: () => <StickinessLineChartStory insightFixture={stickinessFixture} />,
 }
