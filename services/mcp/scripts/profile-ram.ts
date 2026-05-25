@@ -35,10 +35,21 @@ import { resolve } from 'path'
 // workerd's V8 inspector requires an `Origin` header on the WebSocket upgrade;
 // Node's built-in `WebSocket` doesn't expose any way to set it, so we fall
 // back to the `ws` package via wrangler's dep tree (wrangler → miniflare → ws)
-// to avoid adding it as a direct dep.
+// to avoid adding it as a direct dep. We don't want to add `@types/ws` either
+// since this is a one-off profiling script; declare the minimal surface inline.
+interface WSInstance {
+    on(event: 'message', listener: (data: Buffer) => void): void
+    once(event: 'open', listener: () => void): void
+    once(event: 'error', listener: (err: Error) => void): void
+    once(event: 'close', listener: (code: number, reason: Buffer) => void): void
+    send(data: string): void
+    close(): void
+}
+interface WSConstructor {
+    new (url: string, opts: { origin: string; maxPayload: number }): WSInstance
+}
 const requireFromWrangler = createRequire(resolve(process.cwd(), 'node_modules/wrangler/package.json'))
-const WSClient: typeof import('ws').WebSocket = requireFromWrangler('ws')
-type WSInstance = InstanceType<typeof WSClient>
+const WSClient: WSConstructor = requireFromWrangler('ws') as WSConstructor
 
 interface InspectorTarget {
     id: string
@@ -58,7 +69,8 @@ interface CdpMessage {
 const args = process.argv.slice(2)
 const getFlag = (name: string, def: string): string => {
     const i = args.indexOf(name)
-    return i >= 0 && args[i + 1] ? args[i + 1] : def
+    const v = i >= 0 ? args[i + 1] : undefined
+    return v ?? def
 }
 const hasFlag = (name: string): boolean => args.includes(name)
 
@@ -73,13 +85,20 @@ const REQUEST_LOOP_SIZE = Number(getFlag('--requests', '25'))
 // same `mcp-session-id`, so every request hits the same DO. This is what you
 // want when chasing leaks *inside* a long-lived DO (the 256 MiB per-DO ceiling),
 // rather than the per-DO startup cost.
+// `tool-calls` initializes ONCE, sends `tools/list` to warm the catalog, then
+// drives N real `tools/call` requests against the same DO so we measure what
+// in-DO tool execution actually retains. The baseline snapshot is taken AFTER
+// init+tools/list, so the diff isolates the per-tool-call cost.
 const LOOP_MODE_FLAG = getFlag('--mode', 'tools')
 const LOOP_MODE: LoopMode =
     LOOP_MODE_FLAG === 'init'
         ? 'initialize-only'
         : LOOP_MODE_FLAG === 'intra-session'
           ? 'intra-session-tools-list'
-          : 'init-then-tools-list'
+          : LOOP_MODE_FLAG === 'tool-calls'
+            ? 'intra-session-tool-calls'
+            : 'init-then-tools-list'
+const TOOL_NAME = getFlag('--tool', 'debug-mcp-ui-apps')
 const HIT_PATHS = getFlag('--hit', '/,/health,/.well-known/oauth-protected-resource/mcp,/mcp')
     .split(',')
     .map((p) => p.trim())
@@ -159,7 +178,7 @@ const INITIALIZE_PARAMS = {
     clientInfo: { name: 'profile-ram', version: '0.0.1' },
 }
 
-type LoopMode = 'initialize-only' | 'init-then-tools-list' | 'intra-session-tools-list'
+type LoopMode = 'initialize-only' | 'init-then-tools-list' | 'intra-session-tools-list' | 'intra-session-tool-calls'
 
 interface LoopResult {
     ok: number
@@ -168,13 +187,16 @@ interface LoopResult {
     initOk: number
     toolsListOk: number
     avgToolsListBytes: number
+    toolCallsOk?: number
+    avgToolCallBytes?: number
+    liveSessionId?: string
 }
 
 async function postMcp(
     headers: Record<string, string>,
     body: string,
     sessionId?: string
-): Promise<{ status: number; sessionId?: string; bodySize: number }> {
+): Promise<{ status: number; sessionId: string | undefined; bodySize: number }> {
     const h = { ...headers }
     if (sessionId) {
         h['mcp-session-id'] = sessionId
@@ -188,6 +210,75 @@ async function postMcp(
     const newSession = r.headers.get('mcp-session-id') ?? sessionId
     const buf = await r.arrayBuffer()
     return { status: r.status, sessionId: newSession ?? undefined, bodySize: buf.byteLength }
+}
+
+function buildAuthHeaders(): Record<string, string> {
+    const h: Record<string, string> = {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+    }
+    if (BEARER_TOKEN) {
+        h.authorization = `Bearer ${BEARER_TOKEN}`
+    }
+    return h
+}
+
+/**
+ * For tool-calls mode: initialize + notifications/initialized + warm tools/list,
+ * leaving the DO session alive. Returns the session id so the caller can
+ * snapshot the DO target while it's still resident before driving tool calls.
+ */
+async function primeToolCallSession(
+    headers: Record<string, string>
+): Promise<{ sessionId: string; warmListBytes: number } | null> {
+    const init = await postMcp(headers, buildJsonRpcBody(1, 'initialize', INITIALIZE_PARAMS))
+    if (!(init.status >= 200 && init.status < 300) || !init.sessionId) {
+        console.warn(`[profile-ram] prime init failed: status=${init.status}`)
+        return null
+    }
+    await postMcp(headers, buildNotificationBody('notifications/initialized'), init.sessionId)
+    const warmList = await postMcp(headers, buildJsonRpcBody(2, 'tools/list'), init.sessionId)
+    if (!(warmList.status >= 200 && warmList.status < 300)) {
+        console.warn(`[profile-ram] prime tools/list failed: status=${warmList.status}`)
+    }
+    return { sessionId: init.sessionId, warmListBytes: warmList.bodySize }
+}
+
+async function driveToolCallsAgainstSession(
+    headers: Record<string, string>,
+    sessionId: string,
+    n: number
+): Promise<{ ok: number; nonOk: number; bytesTotal: number }> {
+    let ok = 0
+    let nonOk = 0
+    let bytesTotal = 0
+    for (let i = 0; i < n; i++) {
+        try {
+            const call = await postMcp(
+                headers,
+                buildJsonRpcBody(i + 3, 'tools/call', {
+                    name: TOOL_NAME,
+                    arguments: { message: `profile-ram iter ${i}` },
+                }),
+                sessionId
+            )
+            if (call.status >= 200 && call.status < 300) {
+                ok++
+                bytesTotal += call.bodySize
+            } else {
+                nonOk++
+                if (i === 0) {
+                    console.warn(`[profile-ram] first tools/call status=${call.status}`)
+                }
+            }
+        } catch (err) {
+            nonOk++
+            if (i === 0) {
+                console.warn(`[profile-ram] first tools/call errored: ${(err as Error).message}`)
+            }
+        }
+    }
+    return { ok, nonOk, bytesTotal }
 }
 
 async function driveRequestLoop(n: number, loopMode: LoopMode): Promise<LoopResult> {
@@ -204,6 +295,74 @@ async function driveRequestLoop(n: number, loopMode: LoopMode): Promise<LoopResu
     }
     if (BEARER_TOKEN) {
         headers.authorization = `Bearer ${BEARER_TOKEN}`
+    }
+    if (loopMode === 'intra-session-tool-calls') {
+        // One initialize → one notifications/initialized → one tools/list to
+        // warm the catalog → N tools/call against the same DO. Returns the
+        // sessionId so the caller can take per-DO snapshots while alive.
+        let toolCallsOk = 0
+        let toolCallsBytesTotal = 0
+        try {
+            const init = await postMcp(headers, buildJsonRpcBody(1, 'initialize', INITIALIZE_PARAMS))
+            if (!(init.status >= 200 && init.status < 300) || !init.sessionId) {
+                console.warn(`[profile-ram] tool-calls init failed: status=${init.status}`)
+                return { ok, nonOk: 1, mode, initOk, toolsListOk, avgToolsListBytes: 0 }
+            }
+            ok++
+            initOk++
+            const sessionId = init.sessionId
+            await postMcp(headers, buildNotificationBody('notifications/initialized'), sessionId)
+            const warmList = await postMcp(headers, buildJsonRpcBody(2, 'tools/list'), sessionId)
+            if (warmList.status >= 200 && warmList.status < 300) {
+                ok++
+                toolsListOk++
+                toolsListBytesTotal += warmList.bodySize
+            } else {
+                nonOk++
+            }
+            for (let i = 0; i < n; i++) {
+                try {
+                    const call = await postMcp(
+                        headers,
+                        buildJsonRpcBody(i + 3, 'tools/call', {
+                            name: TOOL_NAME,
+                            arguments: { message: `profile-ram iter ${i}` },
+                        }),
+                        sessionId
+                    )
+                    if (call.status >= 200 && call.status < 300) {
+                        ok++
+                        toolCallsOk++
+                        toolCallsBytesTotal += call.bodySize
+                    } else {
+                        nonOk++
+                        if (i === 0) {
+                            console.warn(`[profile-ram] first tools/call status=${call.status}`)
+                        }
+                    }
+                } catch (err) {
+                    nonOk++
+                    if (i === 0) {
+                        console.warn(`[profile-ram] first tools/call errored: ${(err as Error).message}`)
+                    }
+                }
+            }
+            await sleep(2000)
+            return {
+                ok,
+                nonOk,
+                mode,
+                initOk,
+                toolsListOk,
+                avgToolsListBytes: toolsListOk > 0 ? toolsListBytesTotal / toolsListOk : 0,
+                toolCallsOk,
+                avgToolCallBytes: toolCallsOk > 0 ? toolCallsBytesTotal / toolCallsOk : 0,
+                liveSessionId: sessionId,
+            }
+        } catch (err) {
+            console.warn(`[profile-ram] tool-calls setup errored: ${(err as Error).message}`)
+            return { ok, nonOk: nonOk + 1, mode, initOk, toolsListOk, avgToolsListBytes: 0 }
+        }
     }
     if (loopMode === 'intra-session-tools-list') {
         // One initialize → one notifications/initialized → N tools/list against
@@ -406,9 +565,11 @@ function analyzeSnapshot(json: string): SnapshotAnalysis {
     const nodeCount = nodes.length / fieldCount
 
     for (let i = 0; i < nodes.length; i += fieldCount) {
-        const type = typeNames[nodes[i + typeIdx]]
-        const name = strings[nodes[i + nameIdx]] ?? ''
-        const selfSize = nodes[i + selfSizeIdx]
+        const typeRaw = nodes[i + typeIdx] ?? 0
+        const nameRaw = nodes[i + nameIdx] ?? 0
+        const selfSize = nodes[i + selfSizeIdx] ?? 0
+        const type = typeNames[typeRaw] ?? '<unknown>'
+        const name = strings[nameRaw] ?? ''
         totalSelf += selfSize
         const truncated = name.length > 60 ? name.slice(0, 57) + '...' : name
         const key = `${type}:${truncated || '<no-name>'}`
@@ -466,7 +627,7 @@ function printDiff(target: InspectorTarget, before: SnapshotAnalysis, after: Sna
             `    ${fmtBytes(d.delta).padStart(12)}  Δcount=${String(d.deltaCount).padStart(6)}  after=${fmtBytes(d.afterSelf).padStart(11)}${perReqStr}  ${d.key}`
         )
     }
-    if (topShrinkers.length > 0 && topShrinkers[0].delta < 0) {
+    if (topShrinkers.length > 0 && (topShrinkers[0]?.delta ?? 0) < 0) {
         console.info(`\n  top shrinkers (likely GC'd or replaced):`)
         for (const d of topShrinkers) {
             if (d.delta >= 0) {
@@ -534,60 +695,123 @@ async function main(): Promise<void> {
             throw new Error(`no inspector targets at :${INSPECTOR_PORT}/json — is workerd's V8 inspector enabled?`)
         }
 
-        // If we have a bearer, do one auth'd request first so the DO isolate
-        // materializes before we take baselines.
-        if (BEARER_TOKEN) {
-            console.info('[profile-ram] MCP_BEARER_TOKEN set — sending one authenticated /mcp to spawn the DO...')
-            await driveRequestLoop(1, 'initialize-only')
-            const next = await discoverTargets({ minCount: targets.length + 1, timeoutMs: 5_000 })
-            if (next.length > targets.length) {
-                targets = next
-            } else {
-                targets = next.length > 0 ? next : targets
+        if (LOOP_MODE === 'intra-session-tool-calls') {
+            if (!BEARER_TOKEN) {
+                throw new Error('tool-calls mode requires MCP_BEARER_TOKEN')
+            }
+            console.info(
+                `[profile-ram] tool-calls mode: priming a DO session (init + tools/list), then driving ${REQUEST_LOOP_SIZE} ${TOOL_NAME} calls`
+            )
+            const headers = buildAuthHeaders()
+            const primed = await primeToolCallSession(headers)
+            if (!primed) {
+                throw new Error('failed to prime tool-call session')
+            }
+            console.info(
+                `  primed sessionId=${primed.sessionId.slice(0, 12)}…  warm tools/list response = ${fmtBytes(primed.warmListBytes)}`
+            )
+
+            // Re-discover targets now that the DO is alive and pinned by sessionId.
+            const liveTargets = await discoverTargets({ minCount: targets.length + 1, timeoutMs: 5_000 })
+            targets = liveTargets.length > 0 ? liveTargets : targets
+            const doTargets = targets.filter(
+                (t) => t.title.includes(primed.sessionId) || t.title.includes('streamable-http')
+            )
+            console.info(`[profile-ram] inspector targets (DO targets marked *):`)
+            for (const t of targets) {
+                const isDo = doTargets.includes(t)
+                console.info(`  ${isDo ? '*' : ' '} ${t.id}  "${t.title}"  ${t.webSocketDebuggerUrl}`)
+            }
+
+            // Baseline AFTER prime — the diff isolates per-tools/call retention.
+            console.info(`\n[profile-ram] taking baseline snapshots (post-prime)...`)
+            const targetStates: TargetState[] = []
+            for (const target of targets) {
+                const { analysis, path, usage } = await snapshotTarget(target, 'before')
+                console.info(
+                    `  ${target.title}: self_size=${fmtBytes(analysis.totalSelf)} nodes=${analysis.nodeCount.toLocaleString()}${usage ? ` (Runtime.usedSize=${fmtBytes(usage.usedSize)})` : ''} → ${path}`
+                )
+                targetStates.push({
+                    target,
+                    session: await CdpSession.connect(target.webSocketDebuggerUrl),
+                    before: analysis,
+                    beforePath: path,
+                })
+            }
+
+            const callResult = await driveToolCallsAgainstSession(headers, primed.sessionId, REQUEST_LOOP_SIZE)
+            console.info(
+                `[profile-ram] tool-calls done: ok=${callResult.ok} non-ok=${callResult.nonOk}  avg ${TOOL_NAME} response = ${fmtBytes(callResult.ok > 0 ? callResult.bytesTotal / callResult.ok : 0)}`
+            )
+
+            await sleep(2000)
+            console.info(`\n[profile-ram] taking post-load snapshots...`)
+            for (const state of targetStates) {
+                state.session.close()
+                const { analysis, path, usage } = await snapshotTarget(state.target, 'after')
+                console.info(
+                    `  ${state.target.title}: self_size=${fmtBytes(analysis.totalSelf)} nodes=${analysis.nodeCount.toLocaleString()}${usage ? ` (Runtime.usedSize=${fmtBytes(usage.usedSize)})` : ''} → ${path}`
+                )
+                printDiff(state.target, state.before, analysis, REQUEST_LOOP_SIZE)
             }
         } else {
+            // If we have a bearer, do one auth'd request first so the DO isolate
+            // materializes before we take baselines.
+            if (BEARER_TOKEN) {
+                console.info('[profile-ram] MCP_BEARER_TOKEN set — sending one authenticated /mcp to spawn the DO...')
+                await driveRequestLoop(1, 'initialize-only')
+                const next = await discoverTargets({ minCount: targets.length + 1, timeoutMs: 5_000 })
+                if (next.length > targets.length) {
+                    targets = next
+                } else {
+                    targets = next.length > 0 ? next : targets
+                }
+            } else {
+                console.info(
+                    '[profile-ram] no MCP_BEARER_TOKEN — unauth /mcp will 401 before DO instantiates; measuring entry isolate only.'
+                )
+            }
+
+            console.info(`[profile-ram] inspector targets:`)
+            for (const t of targets) {
+                console.info(`  - ${t.id}  "${t.title}"  ${t.webSocketDebuggerUrl}`)
+            }
+
+            // Baseline snapshots — one per target. Done before the load loop so
+            // the diff reflects what the loop allocated/retained.
+            console.info(`\n[profile-ram] taking baseline snapshots...`)
+            const targetStates: TargetState[] = []
+            for (const target of targets) {
+                const { analysis, path, usage } = await snapshotTarget(target, 'before')
+                console.info(
+                    `  ${target.title}: self_size=${fmtBytes(analysis.totalSelf)} nodes=${analysis.nodeCount.toLocaleString()}${usage ? ` (Runtime.usedSize=${fmtBytes(usage.usedSize)})` : ''} → ${path}`
+                )
+                const session = await CdpSession.connect(target.webSocketDebuggerUrl)
+                targetStates.push({ target, session, before: analysis, beforePath: path })
+            }
+
+            // Load loop.
+            const loopResult = await driveRequestLoop(REQUEST_LOOP_SIZE, LOOP_MODE)
             console.info(
-                '[profile-ram] no MCP_BEARER_TOKEN — unauth /mcp will 401 before DO instantiates; measuring entry isolate only.'
+                `[profile-ram] loop done: ${loopResult.ok} ok / ${loopResult.nonOk} non-ok (${loopResult.mode})`
             )
-        }
-
-        console.info(`[profile-ram] inspector targets:`)
-        for (const t of targets) {
-            console.info(`  - ${t.id}  "${t.title}"  ${t.webSocketDebuggerUrl}`)
-        }
-
-        // Baseline snapshots — one per target. Done before the load loop so
-        // the diff reflects what the loop allocated/retained.
-        console.info(`\n[profile-ram] taking baseline snapshots...`)
-        const targetStates: TargetState[] = []
-        for (const target of targets) {
-            const { analysis, path, usage } = await snapshotTarget(target, 'before')
             console.info(
-                `  ${target.title}: self_size=${fmtBytes(analysis.totalSelf)} nodes=${analysis.nodeCount.toLocaleString()}${usage ? ` (Runtime.usedSize=${fmtBytes(usage.usedSize)})` : ''} → ${path}`
+                `  initialize ok=${loopResult.initOk}  tools/list ok=${loopResult.toolsListOk}` +
+                    (loopResult.toolsListOk > 0
+                        ? `  avg tools/list response = ${fmtBytes(loopResult.avgToolsListBytes)}`
+                        : '')
             )
-            const session = await CdpSession.connect(target.webSocketDebuggerUrl)
-            targetStates.push({ target, session, before: analysis, beforePath: path })
-        }
 
-        // Load loop.
-        const loopResult = await driveRequestLoop(REQUEST_LOOP_SIZE, LOOP_MODE)
-        console.info(`[profile-ram] loop done: ${loopResult.ok} ok / ${loopResult.nonOk} non-ok (${loopResult.mode})`)
-        console.info(
-            `  initialize ok=${loopResult.initOk}  tools/list ok=${loopResult.toolsListOk}` +
-                (loopResult.toolsListOk > 0
-                    ? `  avg tools/list response = ${fmtBytes(loopResult.avgToolsListBytes)}`
-                    : '')
-        )
-
-        // After snapshots + diff.
-        console.info(`\n[profile-ram] taking post-load snapshots...`)
-        for (const state of targetStates) {
-            state.session.close()
-            const { analysis, path, usage } = await snapshotTarget(state.target, 'after')
-            console.info(
-                `  ${state.target.title}: self_size=${fmtBytes(analysis.totalSelf)} nodes=${analysis.nodeCount.toLocaleString()}${usage ? ` (Runtime.usedSize=${fmtBytes(usage.usedSize)})` : ''} → ${path}`
-            )
-            printDiff(state.target, state.before, analysis, REQUEST_LOOP_SIZE)
+            // After snapshots + diff.
+            console.info(`\n[profile-ram] taking post-load snapshots...`)
+            for (const state of targetStates) {
+                state.session.close()
+                const { analysis, path, usage } = await snapshotTarget(state.target, 'after')
+                console.info(
+                    `  ${state.target.title}: self_size=${fmtBytes(analysis.totalSelf)} nodes=${analysis.nodeCount.toLocaleString()}${usage ? ` (Runtime.usedSize=${fmtBytes(usage.usedSize)})` : ''} → ${path}`
+                )
+                printDiff(state.target, state.before, analysis, REQUEST_LOOP_SIZE)
+            }
         }
 
         console.info(`\n[profile-ram] open snapshots in Chrome DevTools → Memory → Load to drill down.`)

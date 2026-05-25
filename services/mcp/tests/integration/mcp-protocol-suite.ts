@@ -91,7 +91,35 @@ export function defineMcpProtocolTests(
             const instructions = client.getInstructions()
             expect(instructions).toBeTruthy()
             expect(typeof instructions).toBe('string')
-            expect(instructions!.length).toBeGreaterThan(0)
+            // Guard against the `_instructions` mutation regressing to empty: pure non-empty
+            // would pass for a single character. Real formatter output is hundreds of bytes
+            // and starts with one of two known signatures (v1 tools mode or single-exec).
+            // Verifying the prefix proves the formatter ran AND its output reached the
+            // initialize response — which is what the `_instructions` mutation has to
+            // preserve (vs. constructing a fresh McpServer with `{ instructions }`).
+            const value = instructions ?? ''
+            expect(value.length).toBeGreaterThan(100)
+            const v1Prefix = '- You are a helpful assistant that can query PostHog API.'
+            const execPrefix = 'Below are tools available in the MCP.'
+            const matchesKnownFormat = value.startsWith(v1Prefix) || value.startsWith(execPrefix)
+            expect(matchesKnownFormat, `unexpected instructions prefix: ${value.slice(0, 120)}`).toBe(true)
+        })
+
+        it('serves the same instructions across separate initialize handshakes', async () => {
+            // The `_instructions` mutation has to keep producing the right value on a new
+            // session, not just the first one. If the mutation got overwritten or the
+            // server got swapped out, a second connect would see different (or empty)
+            // instructions.
+            const first = client.getInstructions()
+            const { client: client2, transport: transport2 } = buildStreamableClient(currentHarness)
+            try {
+                await client2.connect(transport2 as ConnectableTransport)
+                const second = client2.getInstructions()
+                expect(second).toBeTruthy()
+                expect(second).toBe(first)
+            } finally {
+                await safeClose(client2)
+            }
         })
 
         it('lists available tools with non-empty schemas', async () => {
@@ -1111,17 +1139,12 @@ export function defineToolBehaviorTests(
                 fetch: harness.fetch,
                 requestInit: { headers: { Authorization: `Bearer ${harness.token}` } },
             })
-            const pinnedClient = new Client(
-                { name: 'pinned-project-test', version: '0.0.0' },
-                { capabilities: {} }
-            )
+            const pinnedClient = new Client({ name: 'pinned-project-test', version: '0.0.0' }, { capabilities: {} })
             try {
                 await pinnedClient.connect(transport as ConnectableTransport)
                 const result = await pinnedClient.callTool({ name: 'feature-flag-get-all', arguments: {} })
                 if (result.isError) {
-                    throw new Error(
-                        `feature-flag-get-all errored with pinned projectId: ${decodeText(result.content)}`
-                    )
+                    throw new Error(`feature-flag-get-all errored with pinned projectId: ${decodeText(result.content)}`)
                 }
             } finally {
                 await safeClose(pinnedClient)
@@ -1234,10 +1257,7 @@ export function defineCatalogFilterTests(
 
         it('pins the catalog to specific tools when ?tools= is set', async () => {
             const harness = await getHarness()
-            const { tools } = await listToolsWithQuery(
-                harness,
-                '?tools=organization-get,projects-get'
-            )
+            const { tools } = await listToolsWithQuery(harness, '?tools=organization-get,projects-get')
             expect(tools.length).toBeGreaterThan(0)
             const names = tools.map((t) => t.name)
             // Pinned tools must appear; non-pinned ones must not.

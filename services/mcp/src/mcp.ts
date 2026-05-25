@@ -712,7 +712,11 @@ export class MCP extends McpAgent<Env> {
             }
         }
 
-        this.server = new McpServer({ name: 'PostHog', version: '1.0.0' }, { instructions })
+        // Mutate the existing server's instructions instead of constructing a new McpServer:
+        // re-creating triggers a full per-tool re-registration on every DO init, which dominates
+        // per-DO startup memory cost. `_instructions` is private in @modelcontextprotocol/sdk's
+        // Server, so cast through unknown.
+        ;(this.server.server as unknown as { _instructions: string })._instructions = instructions
 
         // Register prompts and resources
         await Promise.all([
