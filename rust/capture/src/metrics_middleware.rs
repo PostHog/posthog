@@ -9,9 +9,8 @@ use axum::{
     response::IntoResponse,
     routing::Router,
 };
+use common_metrics::normalize_unmatched_path;
 use metrics::gauge;
-
-const UNMATCHED_PATH_LABEL: &str = "unknown";
 
 // Global atomic counter for active connections
 static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
@@ -42,7 +41,7 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
     let path = if let Some(matched_path) = req.extensions().get::<MatchedPath>() {
         matched_path.as_str().to_owned()
     } else {
-        UNMATCHED_PATH_LABEL.to_owned()
+        normalize_unmatched_path(req.uri().path())
     };
 
     let method = req.method().clone();
@@ -91,7 +90,7 @@ where
                 let path = if let Some(matched) = req.extensions().get::<MatchedPath>() {
                     matched.as_str().to_owned()
                 } else {
-                    UNMATCHED_PATH_LABEL.to_owned()
+                    normalize_unmatched_path(req.uri().path())
                 };
                 let client_ip = req
                     .headers()

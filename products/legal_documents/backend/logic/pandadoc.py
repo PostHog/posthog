@@ -121,7 +121,7 @@ class PandaDocClient:
         template_id: str,
         name: str,
         recipients: list[PandaDocRecipient],
-        owner_email: str | None = None,
+        sender_email: str | None = None,
         tokens: dict[str, str] | None = None,
         metadata: dict[str, str] | None = None,
     ) -> PandaDocDocument:
@@ -129,9 +129,8 @@ class PandaDocClient:
         Create a new document from a PandaDoc template. The returned document is in
         `document.uploaded` state — call `send_document` to dispatch the signing email.
 
-        `owner_email` sets the PandaDoc user who owns the document inside the workspace.
-        It does *not* affect the "From" identity in signing emails — that's controlled
-        by `sender_email` on `send_document`.
+        `sender_email` is the email address that will be used to send the signing
+        envelope. Defaults to the email address that owns the API key.
 
         `tokens` is a flat {name: value} map that maps onto the template's token
         placeholders (`[Client.Company]`, `[Client.StreetAddress]`, etc.). Only
@@ -144,8 +143,8 @@ class PandaDocClient:
             "recipients": [_serialize_recipient(r) for r in recipients],
         }
 
-        if owner_email:
-            payload["owner"] = {"email": owner_email}
+        if sender_email:
+            payload["sender"] = {"email": sender_email}
         if tokens:
             payload["tokens"] = [{"name": name, "value": value} for name, value in tokens.items()]
         if metadata:
@@ -158,25 +157,14 @@ class PandaDocClient:
             name=data.get("name", name),
         )
 
-    def send_document(
-        self,
-        *,
-        document_id: str,
-        subject: str,
-        message: str,
-        sender_email: str | None = None,
-    ) -> None:
+    def send_document(self, *, document_id: str, subject: str, message: str) -> None:
         """
         Trigger the signing envelope email. PandaDoc returns 200/202 with a body we don't use.
-
-        `sender_email` controls the "From" identity recipients see in the signing
-        email. Without it, PandaDoc falls back to the owner of the API key — the
-        `sender` set during document creation does not affect the send-time email.
         """
-        payload: dict[str, Any] = {"subject": subject, "message": message, "silent": False}
-        if sender_email:
-            payload["sender"] = {"email": sender_email}
-        self._post(f"/public/v1/documents/{document_id}/send", payload)
+        self._post(
+            f"/public/v1/documents/{document_id}/send",
+            {"subject": subject, "message": message, "silent": False},
+        )
 
     @contextmanager
     def stream_document(self, *, document_id: str) -> Iterator[IO[bytes]]:

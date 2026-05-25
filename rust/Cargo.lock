@@ -1724,6 +1724,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
+ "common-metrics",
  "common-redis",
  "common-types",
  "envconfig",

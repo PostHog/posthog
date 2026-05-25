@@ -6,16 +6,15 @@ from django.utils import timezone
 from posthog.models.utils import UUIDModel
 
 
-def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> str:
+def jsonhas_expr(prop: str, param_prefix: str) -> str:
     """Build a ClickHouse ``JSONHas`` expression for a (possibly nested) property path.
 
     Splits dotted names so ``"sub.prop"`` becomes
-    ``JSONHas(properties, %(prefix_0)s, %(prefix_1)s)``.  Pass ``column`` to
-    target a different JSON column (e.g. ``"person_properties"``).
+    ``JSONHas(properties, %(prefix_0)s, %(prefix_1)s)``.
     """
     parts = prop.split(".")
     args = ", ".join(f"%({param_prefix}_{i})s" for i in range(len(parts)))
-    return f"JSONHas({column}, {args})"
+    return f"JSONHas(properties, {args})"
 
 
 def compile_hogql_predicate(obj) -> tuple[str, dict]:
@@ -154,14 +153,7 @@ class DataDeletionRequest(UUIDModel):
         models.CharField(max_length=1024),
         blank=True,
         default=list,
-        help_text="Property names to remove from events.properties. Required for property_removal requests when person_properties is empty.",
-    )
-    person_properties = ArrayField(
-        models.CharField(max_length=1024),
-        blank=True,
-        null=True,
-        default=list,
-        help_text="Property names to remove from events.person_properties. Required for property_removal requests when properties is empty.",
+        help_text="Property names to remove. Required for property_removal requests.",
     )
     person_uuids = ArrayField(
         models.UUIDField(),
@@ -334,8 +326,6 @@ class DataDeletionRequest(UUIDModel):
             raise ValidationError({"events": "events / delete_all_events are not valid for person_removal."})
         if self.properties:
             raise ValidationError({"properties": "properties are not valid for person_removal."})
-        if self.person_properties:
-            raise ValidationError({"person_properties": "person_properties are not valid for person_removal."})
         if self.hogql_predicate:
             raise ValidationError({"hogql_predicate": "hogql_predicate is not valid for person_removal."})
 

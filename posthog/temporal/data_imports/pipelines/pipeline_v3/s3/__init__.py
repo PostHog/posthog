@@ -4,7 +4,6 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
     ensure_bucket,
     get_base_folder,
     get_data_folder,
-    get_date_partition,
     strip_s3_protocol,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.reader import list_parquet_files, read_parquet
@@ -17,7 +16,6 @@ __all__ = [
     "ensure_bucket",
     "get_base_folder",
     "get_data_folder",
-    "get_date_partition",
     "list_parquet_files",
     "read_parquet",
     "strip_s3_protocol",
