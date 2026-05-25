@@ -287,10 +287,18 @@ describe('ValueLabels', () => {
         })
     })
 
-    it('isPercent on context is informational — consumers supply their own formatter', () => {
-        const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [0.25, 0.5, 0.75] }]
-        const ctx = makeContext(series, { isPercent: true, labels: ['Mon', 'Tue', 'Wed'] })
+    it('in percent layout, formatter receives each segment fraction (0..1), not raw data', () => {
+        // Two series with raw counts 20 and 15 (band total 35). In percent layout the formatter
+        // must receive the share of the band — 20/35 ≈ 0.571 and 15/35 ≈ 0.429 — not the raw
+        // counts. We position the segments on different bands so collision avoidance doesn't drop
+        // either label.
+        const series: ResolvedSeries[] = [
+            { key: 'a', label: 'A', color: '#f00', data: [20, 0] },
+            { key: 'b', label: 'B', color: '#0f0', data: [0, 15] },
+        ]
+        const ctx = makeContext(series, { isPercent: true, labels: ['Mon', 'Tue'] })
         const { container } = renderInChart(ctx, <ValueLabels valueFormatter={(v) => `${(v * 100).toFixed(1)}%`} />)
-        expect(labelDivs(container).map((d) => d.textContent)).toEqual(['25.0%', '50.0%', '75.0%'])
+        // Each band has a single non-zero segment, so its share of the band is 100%.
+        expect(labelDivs(container).map((d) => d.textContent)).toEqual(['100.0%', '100.0%'])
     })
 })
