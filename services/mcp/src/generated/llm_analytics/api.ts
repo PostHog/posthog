@@ -2024,10 +2024,10 @@ export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.obje
         ),
     product: zod
         .string()
+        .min(1)
         .max(llmAnalyticsPersonalSpendListQueryProductMax)
-        .nullish()
         .describe(
-            'Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code. When omitted, those breakdowns aggregate across every product captured for the user.'
+            'Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.'
         ),
     refresh: zod
         .boolean()

@@ -120,15 +120,13 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         help_text=("End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted."),
     )
     product = serializers.CharField(
-        required=False,
-        allow_null=True,
+        required=True,
+        allow_null=False,
         allow_blank=False,
         max_length=MAX_PRODUCT_KEY_LENGTH,
-        default=None,
         help_text=(
-            "Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product. "
-            f"Only the following products are currently supported: {', '.join(sorted(SUPPORTED_PRODUCTS))}. "
-            "When omitted, those breakdowns aggregate across every product captured for the user."
+            "Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. "
+            f"Only the following products are currently supported: {', '.join(sorted(SUPPORTED_PRODUCTS))}."
         ),
     )
     limit = serializers.IntegerField(
@@ -148,9 +146,7 @@ class _SpendQueryParamsSerializer(serializers.Serializer):
         help_text="If true, bypass the result cache and re-run the underlying queries against ClickHouse.",
     )
 
-    def validate_product(self, value: str | None) -> str | None:
-        if value is None:
-            return value
+    def validate_product(self, value: str) -> str:
         if value not in SUPPORTED_PRODUCTS:
             raise serializers.ValidationError(
                 f"product `{value}` is not supported. Supported products: {', '.join(sorted(SUPPORTED_PRODUCTS))}."
@@ -561,12 +557,12 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     and the HogQL printer uses `pmat_email` on the main cluster's `person`
     when registered -- so this path should be comparable to what the
     satellite would have served. The endpoint is cached for 5 minutes per
-    user (see `CACHE_TIMEOUT_SECONDS`). Optionally filter tool /
-    model / trace breakdowns to a single
-    `ai_product` via the `product` query param; `by_product` always returns
-    the full cross-product breakdown. The endpoint is only registered on US
-    Cloud + dev/test envs; hobby / self-hosted deploys never see this URL;
-    EU deploys receive a 302 to the US URL.
+    user (see `CACHE_TIMEOUT_SECONDS`). The `product` query param is required
+    and scopes tool / model / trace breakdowns to a single `ai_product`; only
+    `posthog_code` is currently supported. `by_product` always returns the full
+    cross-product breakdown. The endpoint is only registered on US Cloud +
+    dev/test envs; hobby / self-hosted deploys never see this URL; EU deploys
+    receive a 302 to the US URL.
     """
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
@@ -603,10 +599,10 @@ class PersonalSpendViewSet(viewsets.ViewSet):
         description=(
             "Return a structured personal LLM spend analysis for the requesting user. Pass "
             "`date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound "
-            "the window — defaults to the last 30 days, max 90 days. Pass `product=<ai_product>` "
-            "to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`); "
-            "omit it for an aggregate view. `by_product` is always returned for cross-product "
-            "visibility. Use `refresh=true` to bypass the 5-minute response cache."
+            "the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` "
+            "query param is required and scopes the tool / model / trace breakdowns to a single "
+            "product; only `posthog_code` is currently supported. `by_product` is always returned "
+            "for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache."
         ),
         tags=["LLM Analytics"],
     )
