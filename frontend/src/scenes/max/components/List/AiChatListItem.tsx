@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconMessage, IconOpenSidebar, IconShare, IconTrash } from '@posthog/icons'
-import { LemonDialog, Spinner } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
 import { ConversationStatus } from '~/types'
 
+import { openDeleteConversationDialog } from '../../conversationDialogs'
 import { maxGlobalLogic } from '../../maxGlobalLogic'
 import { formatConversationDate } from '../../utils'
 
@@ -83,18 +84,7 @@ function Actions({ conversationId }: { conversationId: string }): JSX.Element {
                 <DropdownMenuItem asChild>
                     <ButtonPrimitive
                         menuItem
-                        onClick={() => {
-                            LemonDialog.open({
-                                title: 'Delete chat?',
-                                description: 'The chat will be removed from your history.',
-                                primaryButton: {
-                                    children: 'Delete',
-                                    status: 'danger',
-                                    onClick: () => deleteConversation(conversationId),
-                                },
-                                secondaryButton: { children: 'Cancel' },
-                            })
-                        }}
+                        onClick={() => openDeleteConversationDialog(() => deleteConversation(conversationId))}
                     >
                         <IconTrash className="size-4 text-danger" />
                         <span className="text-danger">Delete chat</span>

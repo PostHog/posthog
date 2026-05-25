@@ -212,10 +212,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                         logic.actions.startNewConversation()
                     }
                 }
+                actions.loadConversationHistory()
             } catch {
                 lemonToast.error('Failed to delete chat')
             }
-            actions.loadConversationHistory()
         },
     })),
     afterMount(({ actions }) => {

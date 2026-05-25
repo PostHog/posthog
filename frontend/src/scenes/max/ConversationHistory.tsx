@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconExternal, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { urls } from 'scenes/urls'
@@ -11,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
+import { openDeleteConversationDialog } from './conversationDialogs'
 import { maxLogic } from './maxLogic'
 import { formatConversationDate, getSlackThreadUrl } from './utils'
 
@@ -163,16 +164,7 @@ function ConversationCard({
                     onClick={(e) => {
                         e.preventDefault()
                         e.stopPropagation()
-                        LemonDialog.open({
-                            title: 'Delete chat?',
-                            description: 'The chat will be removed from your history.',
-                            primaryButton: {
-                                children: 'Delete',
-                                status: 'danger',
-                                onClick: () => deleteConversation(conversation.id),
-                            },
-                            secondaryButton: { children: 'Cancel' },
-                        })
+                        openDeleteConversationDialog(() => deleteConversation(conversation.id))
                     }}
                 />
             </div>
