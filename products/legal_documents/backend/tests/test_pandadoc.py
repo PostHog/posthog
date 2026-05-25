@@ -121,8 +121,9 @@ class TestPandaDocClient(TestCase):
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
     def test_send_document_includes_sender_when_provided(self) -> None:
         # PandaDoc only honors the configured sender identity if `sender` is on
-        # the /send call — the `sender` set at create time controls ownership,
-        # not the email "From" name. Without it, recipients see the API key owner.
+        # the /send call — `owner` at create time controls workspace ownership
+        # inside PandaDoc, not the email "From" name. Without `sender` on /send,
+        # recipients see the API key owner.
         fake_response = MagicMock()
         fake_response.status_code = 200
         fake_response.content = b""
