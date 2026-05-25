@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.test import override_settings
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -18,12 +21,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
-from products.signals.backend.models import (
-    SignalProjectProfile,
-    SignalScoutConfig,
-    SignalScoutRun,
-    SignalScratchpad,
-)
+from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutRun, SignalScratchpad
 from products.tasks.backend.models import Task, TaskRun
 
 # Fresh RSA key so RS256 OAuth apps validate in tests (OIDC_RSA_PRIVATE_KEY is unset by
