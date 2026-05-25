@@ -201,6 +201,7 @@ export interface NewSurvey extends Pick<
     | 'headline_response_count'
     | 'form_content'
     | 'translations'
+    | 'base_language'
 > {
     id: 'new'
     linked_flag_id: number | null
@@ -237,6 +238,7 @@ export const NEW_SURVEY: NewSurvey = {
     enable_partial_responses: true,
     user_access_level: AccessControlLevel.Editor,
     form_content: null,
+    base_language: 'en',
 }
 
 export enum SurveyTemplateType {
@@ -253,7 +255,11 @@ export enum SurveyTemplateType {
     OnboardingFeedback = 'Onboarding feedback',
     BetaFeedback = 'Beta feedback',
     Announcement = 'Announcement',
+    UserResearchIntake = 'User research intake',
+    ProductResearch = 'Product research',
 }
+
+export type SurveyTemplateMode = 'in_app' | 'hosted'
 
 export interface QuickSurveyFromTemplate {
     context: QuickSurveyContext
@@ -268,6 +274,8 @@ export type SurveyTemplate = Partial<Survey> & {
     badge?: string
     featured?: boolean
     quickSurvey?: QuickSurveyFromTemplate
+    // Which template modes this template should appear in. Omitted = available in all modes.
+    modes?: SurveyTemplateMode[]
 }
 
 export const defaultSurveyTemplates: SurveyTemplate[] = [
@@ -310,6 +318,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         category: 'Business',
         badge: 'New!',
         featured: true,
+        modes: ['in_app'],
         quickSurvey: {
             context: { type: QuickSurveyType.ANNOUNCEMENT },
             modalTitle: 'New announcement',
@@ -511,6 +520,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: 'Get user context when errors occur to debug faster.',
         tagType: 'default',
         category: 'General',
+        modes: ['in_app'],
         appearance: {
             ...defaultSurveyAppearance,
             surveyPopupDelaySeconds: 2,
@@ -576,6 +586,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: "Capture first impressions while they're fresh.",
         tagType: 'primary',
         category: 'Product',
+        modes: ['in_app'],
         appearance: defaultSurveyAppearance,
     },
     {
@@ -616,6 +627,103 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         tagType: 'primary',
         category: 'Product',
         appearance: defaultSurveyAppearance,
+    },
+    {
+        type: SurveyType.ExternalSurvey,
+        templateType: SurveyTemplateType.UserResearchIntake,
+        questions: [
+            {
+                type: SurveyQuestionType.SingleChoice,
+                question: 'Would you be open to a 30-minute conversation with our team?',
+                description: 'We are exploring how customers use our product and would love to hear from you.',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                choices: ['Yes, I am interested', 'Maybe later', 'No thanks'],
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is the best email to reach you at?',
+                description: 'We will send a calendar invite within one business day.',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                buttonText: 'Submit',
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'Anything specific you would like to talk about?',
+                description: 'Optional. Helps us prepare for the call.',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                optional: true,
+                buttonText: 'Send',
+            },
+        ],
+        appearance: {
+            ...defaultSurveyAppearance,
+            displayThankYouMessage: true,
+            thankYouMessageHeader: 'Thanks — we will be in touch shortly!',
+        },
+        description: 'Recruit research participants via a shareable link.',
+        tagType: 'completion',
+        category: 'Business',
+        modes: ['hosted'],
+    },
+    {
+        type: SurveyType.ExternalSurvey,
+        templateType: SurveyTemplateType.ProductResearch,
+        questions: [
+            {
+                type: SurveyQuestionType.SingleChoice,
+                question: 'How would you describe your role?',
+                choices: ['Founder / leadership', 'Product manager', 'Engineer', 'Designer', 'Marketing', 'Other'],
+                hasOpenChoice: true,
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.SingleChoice,
+                question: 'How often do you use the product?',
+                choices: ['Daily', 'A few times a week', 'A few times a month', 'Rarely', 'Never'],
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Rating,
+                question: 'How likely are you to recommend us to a colleague?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                display: 'number',
+                scale: SURVEY_RATING_SCALE.NPS_10_POINT,
+                lowerBoundLabel: 'Not at all likely',
+                upperBoundLabel: 'Extremely likely',
+                isNpsQuestion: true,
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is the single biggest benefit you get from our product?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What would you like us to improve next?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What would you use instead if our product did not exist?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                optional: true,
+            },
+        ],
+        appearance: {
+            ...defaultSurveyAppearance,
+            displayThankYouMessage: true,
+            thankYouMessageHeader: 'Thanks for sharing your perspective!',
+        },
+        description: 'Go deep on segmentation, satisfaction, and roadmap signal.',
+        tagType: 'primary',
+        category: 'Product',
+        modes: ['hosted'],
     },
 ]
 

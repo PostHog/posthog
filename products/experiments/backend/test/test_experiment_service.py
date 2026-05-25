@@ -18,11 +18,11 @@ from posthog.schema import EventsNode, ExperimentMetric
 
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.models import FeatureFlag, Team
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
@@ -2549,7 +2549,7 @@ class TestExperimentService(APIBaseTest):
     # Ship variant
     # ------------------------------------------------------------------
 
-    def test_ship_variant_running_experiment(self):
+    def test_ship_variant_running_experiment_default_preserves_groups(self):
         experiment = self._create_running_experiment(name="Ship Running", feature_flag_key="ship-running-flag")
 
         assert experiment.is_running
@@ -2567,17 +2567,112 @@ class TestExperimentService(APIBaseTest):
         assert shipped.end_date is not None
         assert shipped.conclusion == "won"
 
-        # Verify flag filter transformation
+        # Verify variant distribution flipped
         variants = shipped.feature_flag.filters["multivariate"]["variants"]
         assert any(v["key"] == "test" and v["rollout_percentage"] == 100 for v in variants)
         assert any(v["key"] == "control" and v["rollout_percentage"] == 0 for v in variants)
 
-        # Verify catch-all group prepended and original groups preserved
+        # Default mode: existing groups preserved untouched, no catch-all prepended
+        assert shipped.feature_flag.filters["groups"] == original_groups
+
+    def test_ship_variant_running_experiment_release_to_everyone_prepends_catch_all(self):
+        experiment = self._create_running_experiment(
+            name="Ship Running Everyone", feature_flag_key="ship-running-everyone-flag"
+        )
+
+        assert experiment.is_running
+        original_groups = experiment.feature_flag.filters.get("groups", [])
+
+        shipped = self._service().ship_variant(
+            experiment,
+            variant_key="test",
+            release_to_everyone=True,
+            conclusion="won",
+            request=self._make_request(),
+        )
+
+        shipped.refresh_from_db()
+        shipped.feature_flag.refresh_from_db()
+
+        assert shipped.is_stopped
+        assert shipped.conclusion == "won"
+
+        variants = shipped.feature_flag.filters["multivariate"]["variants"]
+        assert any(v["key"] == "test" and v["rollout_percentage"] == 100 for v in variants)
+        assert any(v["key"] == "control" and v["rollout_percentage"] == 0 for v in variants)
+
+        # release_to_everyone: catch-all prepended; original groups preserved after it
         groups = shipped.feature_flag.filters["groups"]
         assert groups[0]["properties"] == []
         assert groups[0]["rollout_percentage"] == 100
         assert "Added automatically" in groups[0].get("description", "")
         assert groups[1:] == original_groups
+
+    def test_ship_variant_default_preserves_scoped_release_condition(self):
+        experiment = self._create_running_experiment(name="Ship Scoped", feature_flag_key="ship-scoped-flag")
+
+        # Replace flag groups with a scoped release condition (e.g. only EU users)
+        flag = experiment.feature_flag
+        scoped_group = {
+            "properties": [{"key": "country", "value": "EU", "operator": "exact", "type": "person"}],
+            "rollout_percentage": 100,
+        }
+        updated_filters = {**flag.filters, "groups": [scoped_group]}
+        serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": updated_filters},
+            partial=True,
+            context={
+                "request": self._make_request(),
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        flag.refresh_from_db()
+        original_groups = flag.filters["groups"]
+
+        shipped = self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
+        shipped.feature_flag.refresh_from_db()
+
+        # Scoping is preserved exactly — no catch-all destroys it
+        assert shipped.feature_flag.filters["groups"] == original_groups
+
+    def test_ship_variant_default_preserves_variant_override(self):
+        experiment = self._create_running_experiment(name="Ship Override", feature_flag_key="ship-override-flag")
+
+        # Add a release condition with a variant override (force a cohort to "control")
+        flag = experiment.feature_flag
+        override_group = {
+            "properties": [{"key": "email", "value": "qa@example.com", "operator": "exact", "type": "person"}],
+            "rollout_percentage": 100,
+            "variant": "control",
+        }
+        existing_groups = flag.filters.get("groups", [])
+        updated_filters = {**flag.filters, "groups": [override_group, *existing_groups]}
+        serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": updated_filters},
+            partial=True,
+            context={
+                "request": self._make_request(),
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        flag.refresh_from_db()
+        original_groups = flag.filters["groups"]
+
+        # Ship "test" without release_to_everyone — the QA override to "control" must survive
+        shipped = self._service().ship_variant(experiment, variant_key="test", request=self._make_request())
+        shipped.feature_flag.refresh_from_db()
+
+        groups = shipped.feature_flag.filters["groups"]
+        assert groups == original_groups
+        assert groups[0]["variant"] == "control"
 
     def test_ship_variant_already_stopped_experiment(self):
         experiment = self._create_ended_experiment(name="Ship Stopped", feature_flag_key="ship-stopped-flag")
@@ -2694,11 +2789,28 @@ class TestExperimentService(APIBaseTest):
         assert "experiment completed" in event_names
         assert "experiment stopped" in event_names
 
-        # Verify variant_key in shipped event metadata
+        # Verify variant_key and release_to_everyone in shipped event metadata
         shipped_call = next(
             call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
         )
         assert shipped_call.args[2]["variant_key"] == "test"
+        # Default behavior: release_to_everyone is False
+        assert shipped_call.args[2]["release_to_everyone"] is False
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_ship_variant_release_to_everyone_recorded_in_analytics(self, mock_report_user_action):
+        experiment = self._create_running_experiment(
+            name="Ship Analytics Everyone", feature_flag_key="ship-analytics-everyone-flag"
+        )
+
+        self._service().ship_variant(
+            experiment, variant_key="test", release_to_everyone=True, request=self._make_request()
+        )
+
+        shipped_call = next(
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "experiment variant shipped"
+        )
+        assert shipped_call.args[2]["release_to_everyone"] is True
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_ship_variant_stopped_reports_only_shipped_event(self, mock_report_user_action):
@@ -2718,7 +2830,7 @@ class TestExperimentService(APIBaseTest):
     # Transform filters for winning variant
     # ------------------------------------------------------------------
 
-    def test_transform_filters_for_winning_variant(self):
+    def test_transform_filters_default_preserves_groups(self):
         current_filters = {
             "groups": [{"properties": [], "rollout_percentage": 100}],
             "payloads": {},
@@ -2733,6 +2845,33 @@ class TestExperimentService(APIBaseTest):
 
         result = ExperimentService._transform_filters_for_winning_variant(current_filters, "test")
 
+        # Variant distribution flipped
+        assert result["multivariate"]["variants"] == [
+            {"key": "control", "name": "Control Group", "rollout_percentage": 0},
+            {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
+        ]
+        # Groups preserved exactly — no catch-all prepended in default mode
+        assert result["groups"] == current_filters["groups"]
+        assert result["payloads"] == {}
+        assert result["aggregation_group_type_index"] is None
+
+    def test_transform_filters_release_to_everyone_prepends_catch_all(self):
+        current_filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "payloads": {},
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                    {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                ]
+            },
+            "aggregation_group_type_index": None,
+        }
+
+        result = ExperimentService._transform_filters_for_winning_variant(
+            current_filters, "test", release_to_everyone=True
+        )
+
         assert result["multivariate"]["variants"] == [
             {"key": "control", "name": "Control Group", "rollout_percentage": 0},
             {"key": "test", "name": "Test Variant", "rollout_percentage": 100},
@@ -2745,6 +2884,27 @@ class TestExperimentService(APIBaseTest):
         assert result["groups"][1:] == [{"properties": [], "rollout_percentage": 100}]
         assert result["payloads"] == {}
         assert result["aggregation_group_type_index"] is None
+
+    def test_transform_filters_default_does_not_mutate_input(self):
+        """Defensive: ensure the function returns a new groups list without mutating caller's filters."""
+        original_groups = [{"properties": [], "rollout_percentage": 50}]
+        current_filters = {
+            "groups": original_groups,
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            },
+        }
+
+        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "test")
+
+        # Caller's list reference is untouched
+        assert current_filters["groups"] is original_groups
+        # Result's groups equals original by value but is a distinct list object
+        assert result["groups"] == original_groups
+        assert result["groups"] is not original_groups
 
     def test_transform_filters_multiple_variants_with_payloads(self):
         current_filters = {
@@ -2766,7 +2926,9 @@ class TestExperimentService(APIBaseTest):
             "aggregation_group_type_index": 1,
         }
 
-        result = ExperimentService._transform_filters_for_winning_variant(current_filters, "control")
+        result = ExperimentService._transform_filters_for_winning_variant(
+            current_filters, "control", release_to_everyone=True
+        )
 
         assert result["multivariate"]["variants"] == [
             {"key": "control", "name": "This is control", "rollout_percentage": 100},
@@ -2894,6 +3056,74 @@ class TestExperimentService(APIBaseTest):
 
         assert result["status"] == "completed"
         assert result["computed_at"] is not None
+
+    def test_get_timeseries_results_strips_step_sessions_and_emits_formatted_results(self):
+        self._create_flag(key="ts-strip")
+        service = self._service()
+        now = timezone.now()
+        start_midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        end_midnight = start_midnight + timedelta(days=1)
+        experiment = service.create_experiment(
+            name="Strip",
+            feature_flag_key="ts-strip",
+            start_date=start_midnight,
+            end_date=end_midnight,
+        )
+
+        session = {"event_uuid": "u", "person_id": "p", "session_id": "s", "timestamp": "t"}
+        stored_payload = {
+            "baseline": {
+                "key": "control",
+                "number_of_samples": 100,
+                "sum": 5,
+                "sum_squares": 5,
+                "step_sessions": [[session]],
+            },
+            "variant_results": [
+                {
+                    "key": "test",
+                    "method": "bayesian",
+                    "number_of_samples": 110,
+                    "sum": 8,
+                    "sum_squares": 8,
+                    "chance_to_win": 0.9,
+                    "credible_interval": [0.01, 0.05],
+                    "significant": True,
+                    "step_sessions": [[session, session]],
+                }
+            ],
+        }
+        for day_offset in range(2):
+            ExperimentMetricResult.objects.create(
+                experiment=experiment,
+                metric_uuid="m1",
+                fingerprint="fp1",
+                query_from=start_midnight + timedelta(days=day_offset),
+                query_to=start_midnight + timedelta(days=day_offset + 1),
+                status="completed",
+                result=stored_payload,
+                completed_at=now,
+            )
+
+        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+
+        for day_payload in result["timeseries"].values():
+            if day_payload is None:
+                continue
+            assert "step_sessions" not in day_payload["baseline"]
+            for variant in day_payload["variant_results"]:
+                assert "step_sessions" not in variant
+
+        # Stored row is untouched — stripping happens on read.
+        stored = ExperimentMetricResult.objects.first()
+        assert stored is not None
+        assert stored.result is not None
+        assert "step_sessions" in stored.result["baseline"]
+
+        formatted = result["formatted_results"]
+        assert "Method: bayesian" in formatted
+        assert "Variants: control (baseline), test" in formatted
+        assert "step_sessions" not in formatted
 
     # ------------------------------------------------------------------
     # Timeseries recalculation

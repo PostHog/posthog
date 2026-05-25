@@ -1,5 +1,5 @@
 """
-ViewSet for LLM Analytics Proxy
+ViewSet for AI observability proxy
 
 Endpoints:
 - GET /api/llm_proxy/models
@@ -89,8 +89,8 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
 
 class LLMProxyViewSet(viewsets.ViewSet):
     """
-    ViewSet for LLM Analytics Proxy
-    Proxies LLM calls from the llm analytics playground
+    ViewSet for AI observability proxy.
+    Proxies LLM calls from the AI observability playground.
     """
 
     authentication_classes = [SessionAuthentication]

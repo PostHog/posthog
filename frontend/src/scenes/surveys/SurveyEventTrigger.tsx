@@ -172,39 +172,32 @@ function SurveyEventSelector({
                                         {
                                             key: panelKey,
                                             header: (
-                                                <div className="flex items-center gap-2 flex-1">
-                                                    <span className="font-semibold text-sm">{event.name}</span>
-                                                    <span className="text-xs text-muted bg-border px-1.5 py-0.5 rounded">
-                                                        {hasPropertyFilters
-                                                            ? `${propertyFilterCount} filter${propertyFilterCount !== 1 ? 's' : ''}`
-                                                            : 'No filters yet'}
-                                                    </span>
-                                                    <span className="text-xs text-muted-alt">
-                                                        {hasPropertyFilters
-                                                            ? 'Refine this trigger'
-                                                            : 'Optional: add property filters'}
-                                                    </span>
+                                                <div className="flex items-center gap-2 flex-1 justify-between">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <span className="font-semibold text-sm truncate">
+                                                            {event.name}
+                                                        </span>
+                                                        <span className="text-xs text-muted bg-border px-1.5 py-0.5 rounded shrink-0">
+                                                            {hasPropertyFilters
+                                                                ? `${propertyFilterCount} filter${propertyFilterCount !== 1 ? 's' : ''}`
+                                                                : 'No filters'}
+                                                        </span>
+                                                    </div>
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        icon={<IconX />}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            removeEventAtIndex(index)
+                                                        }}
+                                                        type="tertiary"
+                                                        status="alt"
+                                                        tooltip="Remove event"
+                                                    />
                                                 </div>
                                             ),
                                             content: (
-                                                <div>
-                                                    <div className="flex justify-end mb-2">
-                                                        <LemonButton
-                                                            size="xsmall"
-                                                            icon={<IconX />}
-                                                            onClick={() => removeEventAtIndex(index)}
-                                                            type="tertiary"
-                                                            status="alt"
-                                                        >
-                                                            Remove event
-                                                        </LemonButton>
-                                                    </div>
-                                                    <div className="text-xs font-medium text-muted-alt mb-2 uppercase tracking-wide">
-                                                        Event property filters
-                                                    </div>
-                                                    <div className="text-xs text-muted mb-3">
-                                                        Narrow this trigger to matching events only.
-                                                    </div>
+                                                <div className="space-y-2">
                                                     <PropertyFilters
                                                         propertyFilters={convertPropertyFiltersToArray(
                                                             event.propertyFilters
@@ -224,11 +217,9 @@ function SurveyEventSelector({
                                                         buttonSize="small"
                                                         operatorAllowlist={SUPPORTED_OPERATORS}
                                                     />
-                                                    <span className="text-xs text-muted">
-                                                        Only primitive types (strings, numbers, booleans) are supported
-                                                        for property filters. Array and object properties are not
-                                                        supported and will not be shown.
-                                                    </span>
+                                                    <p className="text-xs text-muted m-0">
+                                                        Array and object properties aren't supported here.
+                                                    </p>
                                                 </div>
                                             ),
                                         },
@@ -241,7 +232,7 @@ function SurveyEventSelector({
 
                 {showRepeatedActivation && surveyRepeatedActivationAvailable && (
                     <LemonCheckbox
-                        label="Display the survey every time events occur, instead of only once per user"
+                        label="Show every time these events fire (otherwise: once per user)"
                         checked={survey.conditions?.events?.repeatedActivation || false}
                         onChange={(checked) => {
                             setSurveyValue('conditions', {
@@ -270,9 +261,9 @@ export function SurveyEventTrigger(): JSX.Element {
         <SurveyEventSelector
             conditionField="events"
             label="User sends events"
-            info="It only triggers when the event is captured in the current user session and using the PostHog SDK. Filtering by event properties requires posthog-js >= v1.268.0 or posthog-react-native >= v4.15.0. Not supported for other SDKs."
+            info="Triggers fire when the event is captured in the current user session via a PostHog SDK. Property filtering requires posthog-js 1.268+ or posthog-react-native 4.15+."
             emptyTitle="No events selected"
-            emptyDescription="Add events to trigger this survey when those events are captured in the current user session"
+            emptyDescription="Pick events that should trigger this survey."
             showRepeatedActivation
         />
     )
@@ -286,9 +277,9 @@ export function SurveyCancelEventTrigger(): JSX.Element {
         <SurveyEventSelector
             conditionField="cancelEvents"
             label="Cancel survey on events"
-            info="It only triggers when the event is captured in the current user session and using the PostHog SDK. Requires posthog-js SDK at least v1.299.0, and it's supported only for web surveys."
+            info="Triggers fire when the event is captured in the current user session via a PostHog SDK. Requires posthog-js 1.299+. Web surveys only."
             emptyTitle={`During your ${delaySeconds} second delay...`}
-            emptyDescription="If any of these events fire, the survey will be cancelled. Useful for not interrupting users who complete an action successfully."
+            emptyDescription="If any of these events fire, the survey is cancelled — useful when the user has already completed the action."
             addButtonText="Add cancel event"
         />
     )

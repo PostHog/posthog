@@ -7,7 +7,7 @@ import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsCo
 import { SDKKey } from '~/types'
 
 import SetupWizardBanner from '../sdk-install-instructions/components/SetupWizardBanner'
-import { AdvertiseMobileReplay, AdvertiseMobileReplayContext } from '../session-replay/SessionReplaySDKInstructions'
+import { AdvertiseMobileReplay, type AdvertiseMobileReplayContext } from '../session-replay/AdvertiseMobileReplay'
 
 interface OnboardingDocsWrapperOptions {
     Installation: React.ComponentType<any>

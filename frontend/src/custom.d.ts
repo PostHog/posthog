@@ -40,12 +40,13 @@ declare module '*.sql?raw' {
     export default content
 }
 
-// This fixes a TS error where @tiptap/react/menus cannot be found because of our moduleResolution
-declare module '@tiptap/react/menus' {
-    export * from '@tiptap/react/dist/menus/index.d.ts'
-}
+// This fixes TS2882 errors when side-effect importing .scss files
+declare module '*.scss'
 
-// This fixes a TS error where react-grid-layout/extras cannot be found because of our moduleResolution
-declare module 'react-grid-layout/extras' {
-    export * from 'react-grid-layout/dist/extras'
-}
+// This fixes TS2882 errors when side-effect importing .css files
+declare module '*.css'
+
+// @testing-library/jest-dom ships no type declarations of its own (it relies on
+// @types/testing-library__jest-dom). Declare the bare module so side-effect
+// imports satisfy TS 6.0's TS2882 without claiming a type surface.
+declare module '@testing-library/jest-dom'

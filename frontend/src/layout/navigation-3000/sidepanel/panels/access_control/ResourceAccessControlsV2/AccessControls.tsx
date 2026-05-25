@@ -91,12 +91,12 @@ function AccessControlTabContainer(props: { activeTab: AccessControlsTab; childr
     if (props.activeTab === 'roles') {
         return (
             <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>{props.children}</PayGateMini>
+                <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>{props.children}</PayGateMini>
             </PayGateMini>
         )
     }
     if (props.activeTab === 'members') {
-        return <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>{props.children}</PayGateMini>
+        return <PayGateMini feature={AvailableFeature.ACCESS_CONTROL}>{props.children}</PayGateMini>
     }
 
     return <>{props.children}</>

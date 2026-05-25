@@ -226,7 +226,7 @@ describe('createXAxisTickCallback', () => {
         it.each(expected.map((exp, i) => ({ index: i, expected: exp })))(
             'formats index $index as $expected',
             ({ index, expected: exp }) => {
-                expect(callback('ignored', index)).toBe(exp)
+                expect(callback?.('ignored', index)).toBe(exp)
             }
         )
     })
@@ -238,9 +238,9 @@ describe('createXAxisTickCallback', () => {
                 allDays: ['2025-04-01 00:00:00', '2025-04-01 01:00:00', '2025-04-01 02:00:00'],
                 timezone: 'America/New_York',
             })
-            expect(callback('ignored', 0)).toBe('00:00')
-            expect(callback('ignored', 1)).toBe('01:00')
-            expect(callback('ignored', 2)).toBe('02:00')
+            expect(callback?.('ignored', 0)).toBe('00:00')
+            expect(callback?.('ignored', 1)).toBe('01:00')
+            expect(callback?.('ignored', 2)).toBe('02:00')
         })
 
         it.each([
@@ -253,16 +253,23 @@ describe('createXAxisTickCallback', () => {
                 allDays: ['2023-06-01', '2023-07-01', '2023-08-01'],
                 timezone: 'US/Pacific',
             })
-            expect(callback('ignored', 0)).toBe('June')
-            expect(callback('ignored', 1)).toBe('July')
-            expect(callback('ignored', 2)).toBe('August')
+            expect(callback?.('ignored', 0)).toBe('June')
+            expect(callback?.('ignored', 1)).toBe('July')
+            expect(callback?.('ignored', 2)).toBe('August')
         })
     })
 
     describe('fallbacks', () => {
-        it('returns raw value when allDays is empty', () => {
-            const callback = createXAxisTickCallback({ interval: 'day', allDays: [], timezone: 'UTC' })
-            expect(callback('2025-04-01', 0)).toBe('2025-04-01')
+        it.each([
+            { scenario: 'allDays is empty', allDays: [] as (string | number)[] },
+            { scenario: 'allDays contains numbers (non-date axis)', allDays: [1, 2, 3, 4, 5] as (string | number)[] },
+            {
+                scenario: 'allDays contains unparseable date strings',
+                allDays: ['not-a-date'] as (string | number)[],
+            },
+        ])('returns undefined when $scenario, deferring to the default formatter', ({ allDays }) => {
+            const callback = createXAxisTickCallback({ interval: 'day', allDays, timezone: 'UTC' })
+            expect(callback).toBeUndefined()
         })
 
         it('returns raw value when index is out of bounds', () => {
@@ -271,37 +278,7 @@ describe('createXAxisTickCallback', () => {
                 allDays: ['2025-04-01'],
                 timezone: 'UTC',
             })
-            expect(callback('some-label', 5)).toBe('some-label')
-        })
-
-        it('returns raw value when days are numbers and no prefix is provided', () => {
-            const callback = createXAxisTickCallback({
-                interval: 'day',
-                allDays: [1, 2, 3, 4, 5],
-                timezone: 'UTC',
-            })
-            expect(callback(1, 0)).toBe('1')
-            expect(callback(3, 2)).toBe('3')
-        })
-
-        it('formats numbers with a prefix when provided', () => {
-            const callback = createXAxisTickCallback({
-                interval: 'day',
-                allDays: [1, 2, 3, 4, 5],
-                timezone: 'UTC',
-                numericTickPrefix: 'Day',
-            })
-            expect(callback(1, 0)).toBe('Day 1')
-            expect(callback(3, 2)).toBe('Day 3')
-        })
-
-        it('returns raw value for unparseable dates', () => {
-            const callback = createXAxisTickCallback({
-                interval: 'day',
-                allDays: ['not-a-date'],
-                timezone: 'UTC',
-            })
-            expect(callback('fallback', 0)).toBe('fallback')
+            expect(callback?.('some-label', 5)).toBe('some-label')
         })
     })
 })

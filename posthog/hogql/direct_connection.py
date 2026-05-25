@@ -8,7 +8,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
-from products.data_warehouse.backend.models import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 if TYPE_CHECKING:
     from posthog.models import Team, User

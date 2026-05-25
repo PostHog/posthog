@@ -7,6 +7,139 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+ * @nullable
+ */
+export type AccountApiProperties = {
+    /** @nullable */
+    csm?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_executive?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_owner?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    stripe_customer_id?: string | null
+    /** @nullable */
+    hubspot_deal_id?: string | null
+    /** @nullable */
+    billing_id?: string | null
+    /** @nullable */
+    sfdc_id?: string | null
+    /** @nullable */
+    zendesk_id?: string | null
+} | null
+
+/**
+ * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+ */
+export interface AccountApi {
+    readonly id: string
+    /**
+     * Human-readable name of the account.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * @maxLength 400
+     * @nullable
+     */
+    external_id?: string | null
+    /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    properties?: AccountApiProperties
+    /** Tag names attached to the account. Pass a list to replace existing tags. */
+    tags?: string[]
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedAccountListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountApi[]
+}
+
+/**
+ * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+ * @nullable
+ */
+export type PatchedAccountApiProperties = {
+    /** @nullable */
+    csm?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_executive?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    account_owner?: {
+        id: number
+        email: string
+    } | null
+    /** @nullable */
+    stripe_customer_id?: string | null
+    /** @nullable */
+    hubspot_deal_id?: string | null
+    /** @nullable */
+    billing_id?: string | null
+    /** @nullable */
+    sfdc_id?: string | null
+    /** @nullable */
+    zendesk_id?: string | null
+} | null
+
+/**
+ * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
+ */
+export interface PatchedAccountApi {
+    readonly id?: string
+    /**
+     * Human-readable name of the account.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * @maxLength 400
+     * @nullable
+     */
+    external_id?: string | null
+    /**
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * @nullable
+     */
+    properties?: PatchedAccountApiProperties
+    /** Tag names attached to the account. Pass a list to replace existing tags. */
+    tags?: string[]
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
 export interface CustomerJourneyApi {
     readonly id: string
     insight: number
@@ -205,6 +338,45 @@ export interface PatchedGroupUsageMetricApi {
      * @nullable
      */
     math_property?: string | null
+}
+
+export type AccountsListParams = {
+    /**
+     * Filter by account executive. Use 'unassigned' or an integer user id.
+     */
+    account_executive?: string
+    /**
+     * Filter by account owner. Use 'unassigned' or an integer user id.
+     */
+    account_owner?: string
+    /**
+     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     */
+    all_roles_unassigned?: boolean
+    /**
+     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
+     */
+    csm?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Sort order. Defaults to '-created_at'.
+     */
+    ordering?: string
+    /**
+     * Case-insensitive substring search across account name and external ID.
+     */
+    search?: string
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
+     */
+    tags?: string
 }
 
 export type CustomerJourneysListParams = {

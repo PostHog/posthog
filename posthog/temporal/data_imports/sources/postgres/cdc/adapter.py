@@ -11,7 +11,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCD
 if TYPE_CHECKING:
     from posthog.temporal.data_imports.cdc.types import CDCStreamReader
 
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 class PostgresCDCAdapter:

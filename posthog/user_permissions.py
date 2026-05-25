@@ -194,7 +194,7 @@ class UserTeamPermissions:
         if organization is None or organization_membership is None:
             return None
 
-        if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+        if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
             return cast("OrganizationMembership.Level", organization_membership.level)
 
         # Use prefetched data to check team privacy and access
@@ -225,10 +225,13 @@ class UserTeamPermissions:
             for ac in access_controls
         )
 
-        # Check role-based access before returning any member level
+        # Role-backed project AccessControl rows only take effect if the organization has
+        # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the
+        # project access settings page (and as resource-level role overrides).
+        role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
         user_roles = self.p._prefetched_role_memberships.get(organization_membership.id, [])
 
-        if user_roles:
+        if user_roles and role_based_access_supported:
             role_has_admin_access = any(
                 ac["resource_id"] == str(self.team.id) and ac["role_id"] in user_roles and ac["access_level"] == "admin"
                 for ac in access_controls
@@ -286,9 +289,7 @@ class UserDashboardPermissions:
     def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
         return (
             Dashboard.RestrictionLevel(self.dashboard.restriction_level)
-            if cast(Organization, self.p.current_organization).is_feature_available(
-                AvailableFeature.ADVANCED_PERMISSIONS
-            )
+            if cast(Organization, self.p.current_organization).is_feature_available(AvailableFeature.ACCESS_CONTROL)
             else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 

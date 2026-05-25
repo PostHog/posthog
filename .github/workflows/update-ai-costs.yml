@@ -10,6 +10,10 @@ on:
 permissions:
     contents: read
 
+concurrency:
+    group: update-ai-costs
+    cancel-in-progress: false
+
 jobs:
     update-ai-costs:
         runs-on: ubuntu-latest
@@ -24,7 +28,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
 
             - name: Checkout repository
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
 
@@ -76,8 +80,25 @@ jobs:
               run: |
                   existing_pr=$(gh pr list --head "chore/llma-update-ai-costs" --json number --jq '.[0].number' 2>/dev/null || true)
                   if [ -n "$existing_pr" ]; then
+                    gh pr comment "$existing_pr" --body "Closing — a fresh run found no cost changes against master, so this PR is no longer needed. A new PR will open automatically the next time pricing drifts." || true
                     gh pr close "$existing_pr" --delete-branch || true
                     echo "Closed stale PR #$existing_pr and deleted branch"
+                  fi
+
+            - name: Capture any open PR before branch reset
+              # Force-resetting the branch below can auto-close the previously open PR
+              # (GitHub closes a PR when its head branch no longer contains any commits
+              # beyond the base). Remember the PR number now so we can cross-link the
+              # old and new PRs later if a new one gets created.
+              id: previous-pr
+              if: steps.check-changes.outputs.changes == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  pr=$(gh pr list --head "chore/llma-update-ai-costs" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+                  echo "number=$pr" >> "$GITHUB_OUTPUT"
+                  if [ -n "$pr" ]; then
+                    echo "Captured open PR #$pr before branch reset"
                   fi
 
             - name: Reset branch to checked-out SHA
@@ -115,14 +136,17 @@ jobs:
               if: steps.check-changes.outputs.changes == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PREVIOUS_PR: ${{ steps.previous-pr.outputs.number }}
               run: |
                   existing_pr=$(gh pr list --head "chore/llma-update-ai-costs" --json number --jq '.[0].number' 2>/dev/null || true)
                   if [ -n "$existing_pr" ]; then
                     echo "PR #$existing_pr already exists — updated by commit"
-                  else
-                    gh pr create \
-                      --title "chore(llma): Update LLM costs" \
-                      --body "$(cat <<'BODY'
+                    exit 0
+                  fi
+
+                  new_pr_url=$(gh pr create \
+                    --title "chore(llma): Update LLM costs" \
+                    --body "$(cat <<'BODY'
                   This is an automated PR to update LLM pricing models.
 
                   ## Reviewer checklist
@@ -135,11 +159,24 @@ jobs:
                   - [Mistral AI Pricing](https://mistral.ai/pricing#api-pricing)
                   BODY
                   )" \
-                      --base master \
-                      --head chore/llma-update-ai-costs \
-                      --label "automated" --label "llm-analytics" \
-                      --reviewer "PostHog/team-llm-analytics" \
-                      --reviewer "PostHog/team-llm-gateway"
+                    --base master \
+                    --head chore/llma-update-ai-costs \
+                    --label "automated" --label "llm-analytics" \
+                    --reviewer "PostHog/team-ai-observability" \
+                    --reviewer "PostHog/team-ai-gateway")
+                  echo "Created $new_pr_url"
+
+                  # If the previously open PR on this branch got auto-closed by the
+                  # force-reset above, cross-link it with the new PR so reviewers
+                  # have a trail from the closed one to the replacement.
+                  if [ -n "$PREVIOUS_PR" ] && [ -n "$new_pr_url" ]; then
+                    prev_state=$(gh pr view "$PREVIOUS_PR" --json state --jq '.state' 2>/dev/null || echo "")
+                    if [ "$prev_state" = "CLOSED" ]; then
+                      gh pr comment "$PREVIOUS_PR" --body "Superseded by $new_pr_url" || true
+                      current_body=$(gh pr view "$new_pr_url" --json body --jq '.body')
+                      printf '%s\n\nSupersedes #%s.\n' "$current_body" "$PREVIOUS_PR" \
+                        | gh pr edit "$new_pr_url" --body-file - || true
+                    fi
                   fi
 
             - name: Alert Slack on failure

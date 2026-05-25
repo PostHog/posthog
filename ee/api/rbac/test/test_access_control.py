@@ -24,7 +24,7 @@ class BaseAccessControlTest(APILicensedTest):
     def setUp(self):
         super().setUp()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
@@ -125,13 +125,32 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         assert "organization member id" in res.json()["detail"]
         assert "/api/organizations/" in res.json()["detail"]
 
+    def test_role_based_access_control_rejected_without_role_based_access_feature(self):
+        # Drop ROLE_BASED_ACCESS, keep ACCESS_CONTROL — same shape as the UI gate
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        role = Role.objects.create(name="Engineering", organization=self.organization)
+
+        res = self._put_project_access_control({"role": str(role.id), "access_level": "admin"})
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert "Role-based access" in res.json()["detail"]
+
+        # Member-level writes still work — only the role-backed write is blocked
+        res = self._put_project_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
 
 class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_cannot_be_below_viewer(self):
         """Test that action access level cannot be set below minimum 'viewer'"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-
-        from posthog.models.action import Action
+        from products.actions.backend.models.action import Action
 
         action = Action.objects.create(team=self.team, name="test action")
 
@@ -145,8 +164,7 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_accepts_viewer_and_above(self):
         """Test that action access level accepts viewer, editor, and manager"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-
-        from posthog.models.action import Action
+        from products.actions.backend.models.action import Action
 
         action = Action.objects.create(team=self.team, name="test action")
 
@@ -1677,13 +1695,12 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
         role_data = self._find_role(res.json()["results"], self.role.id)
         assert role_data["project"]["access_level"] == "member"
 
-    def test_resource_role_overrides_ignored_when_role_based_access_not_available(self):
-        """Without ROLE_BASED_ACCESS, role-based resource overrides are inert at runtime,
-        so the per-role preview must show the resource default as the effective level.
-        Project-level role overrides remain effective (runtime still honors them via
-        UserTeamPermissions when ADVANCED_PERMISSIONS is enabled)."""
+    def test_role_overrides_ignored_when_role_based_access_not_available(self):
+        """Without ROLE_BASED_ACCESS, role-based overrides (project- and resource-level)
+        are inert at runtime, so the per-role preview must show the resource/project
+        default as the effective level."""
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 
@@ -1703,10 +1720,10 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
         assert dashboard["inherited_access_level"] == "viewer"
         assert dashboard["inherited_access_level_reason"] == "project_default"
 
-        # Project-level role override is still effective (mirrors runtime)
+        # Project-level role override must also be ignored — falls back to project default
         project = role_data["project"]
-        assert project["access_level"] == "admin"
-        assert project["effective_access_level"] == "admin"
+        assert project["access_level"] is None
+        assert project["effective_access_level"] == "member"
 
 
 class TestAccessControlMembersEndpoint(BaseAccessControlTest):
@@ -1847,19 +1864,13 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert ff["effective_access_level"] is None
         assert ff["inherited_access_level"] is None
 
-    def test_resource_role_overrides_ignored_when_role_based_access_not_available(self):
+    def test_role_overrides_ignored_when_role_based_access_not_available(self):
         """When the organization does not have the ROLE_BASED_ACCESS feature, role-based
-        *resource* overrides must not influence a member's effective resource access level.
-        The member should fall back to the resource default.
-
-        Project-level role overrides are deliberately NOT gated by this feature, because
-        UserTeamPermissions.effective_membership_level_for_parent_membership honors
-        role-backed project AccessControl rows whenever ADVANCED_PERMISSIONS is enabled
-        (no ROLE_BASED_ACCESS check). The preview must match that runtime behaviour.
-        """
-        # Remove the ROLE_BASED_ACCESS feature, keep ADVANCED_PERMISSIONS
+        overrides (project- and resource-level) must not influence a member's effective
+        access. The member should fall back to the default at each level."""
+        # Remove the ROLE_BASED_ACCESS feature, keep ACCESS_CONTROL
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 
@@ -1886,11 +1897,11 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert dashboard["inherited_access_level"] == "viewer"
         assert dashboard["inherited_access_level_reason"] == "project_default"
 
-        # Project-level: role override IS still honored at runtime, so the preview must reflect it
+        # Project-level: role override must also be ignored, fall back to project default
         project = member_data["project"]
-        assert project["effective_access_level"] == "admin"
-        assert project["inherited_access_level"] == "admin"
-        assert project["inherited_access_level_reason"] == "role_override"
+        assert project["effective_access_level"] == "member"
+        assert project["inherited_access_level"] == "member"
+        assert project["inherited_access_level_reason"] == "project_default"
 
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""

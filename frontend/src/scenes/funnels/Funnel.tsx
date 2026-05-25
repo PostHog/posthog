@@ -3,6 +3,7 @@ import './Funnel.scss'
 import { useValues } from 'kea'
 
 import { FunnelLayout } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -13,21 +14,25 @@ import { FunnelBarVertical } from './FunnelBarVertical/FunnelBarVertical'
 import { funnelDataLogic } from './funnelDataLogic'
 import { FunnelFlowGraph } from './FunnelFlowGraph/FunnelFlowGraph'
 import { FunnelHistogram } from './FunnelHistogram'
+import { FunnelHistogramChart } from './viz/funnel-histogram/FunnelHistogramChart'
+import { FunnelLineChart } from './viz/funnel-line-chart/FunnelLineChart'
+import { FunnelStepsBarChart } from './viz/funnel-steps-bar-chart/FunnelStepsBarChart'
 
 export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { funnelsFilter } = useValues(funnelDataLogic(insightProps))
+    const hogChartsFunnelEnabled = useFeatureFlag('PRODUCT_ANALYTICS_HOG_CHARTS_FUNNEL')
     const { funnelVizType, layout } = funnelsFilter || {}
 
     let viz: JSX.Element | null = null
     if (funnelVizType == FunnelVizType.Trends) {
-        viz = <FunnelLineGraph {...props} />
+        viz = hogChartsFunnelEnabled ? <FunnelLineChart {...props} /> : <FunnelLineGraph {...props} />
     } else if (funnelVizType == FunnelVizType.TimeToConvert) {
-        viz = <FunnelHistogram />
+        viz = hogChartsFunnelEnabled ? <FunnelHistogramChart /> : <FunnelHistogram />
     } else if (funnelVizType === FunnelVizType.Flow) {
         viz = <FunnelFlowGraph />
     } else if ((layout || FunnelLayout.vertical) === FunnelLayout.vertical) {
-        viz = <FunnelBarVertical {...props} />
+        viz = hogChartsFunnelEnabled ? <FunnelStepsBarChart {...props} /> : <FunnelBarVertical {...props} />
     } else {
         viz = <FunnelBarHorizontal {...props} />
     }

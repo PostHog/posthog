@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestTicketEmailFallbackPersonLookup.test_email_fallback_uses_ngram_skip_index
+# name: TestTicketEmailFallbackPersonLookup.test_email_fallback_uses_bloom_filter_lower_skip_index
   '''
   SELECT persons.id AS id,
          persons.properties___email AS email
@@ -10,7 +10,35 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), in(lower(nullIf(nullIf(where_optimization.pmat_email, ''), 'null')), ['indexed@example.com'])))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), has(['indexed@example.com'], lower(where_optimization.pmat_email))))))
+     GROUP BY person.id
+     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+  WHERE in(lower(persons.properties___email),
+           ['indexed@example.com'])
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestTicketEmailFallbackPersonLookup.test_email_fallback_uses_bloom_filter_lower_skip_index.1
+  '''
+  SELECT persons.id AS id,
+         persons.properties___email AS email
+  FROM
+    (SELECT tupleElement(argMax(tuple(nullIf(nullIf(person.pmat_email, ''), 'null')), person.version), 1) AS properties___email,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), has(['indexed@example.com'], lower(where_optimization.pmat_email))))))
      GROUP BY person.id
      HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
   WHERE in(lower(persons.properties___email),

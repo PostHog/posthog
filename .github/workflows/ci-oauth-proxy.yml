@@ -21,7 +21,7 @@ jobs:
         outputs:
             oauth-proxy: ${{ steps.filter.outputs.oauth-proxy || 'true' }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -47,7 +47,7 @@ jobs:
         if: needs.changes.outputs.oauth-proxy == 'true'
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Setup pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -66,6 +66,10 @@ jobs:
 
             - name: Type check
               run: cd services/oauth-proxy && pnpm typecheck
+
+            - name: Type check (tsgo, shadow, non-blocking)
+              run: cd services/oauth-proxy && pnpm typecheck:tsgo
+              continue-on-error: true
 
             - name: Run tests
               run: cd services/oauth-proxy && pnpm test

@@ -16,6 +16,7 @@ from typing import Literal, get_args
 APIScopeObject = Literal[
     "action",
     "access_control",
+    "account",
     "activity_log",
     "alert",
     "annotation",
@@ -78,7 +79,7 @@ APIScopeObject = Literal[
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints
-    "replay_lens",
+    "replay_scanner",
     "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
@@ -124,7 +125,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"clickhouse_t
 # OAuth metadata. Used for alpha / not-yet-public products where a user can
 # manually paste the scope into a PAT but where we don't want OAuth-based
 # clients (the consent screen, MCP, third-party apps) to discover it.
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"replay_lens"})
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"replay_scanner"})
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
@@ -136,6 +137,41 @@ def get_scope_descriptions() -> dict[str, str]:
         if obj not in INTERNAL_API_SCOPE_OBJECTS
         for action in API_SCOPE_ACTIONS
     }
+
+
+def downgrade_scopes_to_read_only(scope_str: str) -> str:
+    """Strip write access from a space-separated OAuth scope string.
+
+    - `<object>:write` becomes `<object>:read`.
+    - `*` is the full-access wildcard (see `posthog/permissions.py` — `if "*" in key_scopes`
+      short-circuits the scope check, granting read+write). Pass-through would defeat the
+      downgrade, so `*` is expanded to every public `*:read` scope.
+    - Existing `<object>:read` scopes and OIDC scopes (`openid`, `profile`, `email`) pass through.
+
+    Returns a deduped, space-separated string preserving first-seen order.
+    """
+    if not scope_str:
+        return scope_str
+    all_public_read_scopes = [
+        f"{obj}:read"
+        for obj in API_SCOPE_OBJECTS
+        if obj not in INTERNAL_API_SCOPE_OBJECTS and obj not in OAUTH_HIDDEN_SCOPE_OBJECTS
+    ]
+    expanded: list[str] = []
+    for raw in scope_str.split():
+        if raw == "*":
+            expanded.extend(all_public_read_scopes)
+        elif raw.endswith(":write"):
+            expanded.append(raw[: -len(":write")] + ":read")
+        else:
+            expanded.append(raw)
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for s in expanded:
+        if s not in seen:
+            seen.add(s)
+            deduped.append(s)
+    return " ".join(deduped)
 
 
 # OIDC scopes published in OAuth server metadata alongside the resource scopes.

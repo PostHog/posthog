@@ -265,9 +265,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from "project" to "environment" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
 export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -344,12 +342,10 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                 'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
             ),
         frequency: zod
-            .enum(['hourly', 'daily', 'weekly', 'monthly', 'yearly'])
+            .enum(['daily', 'weekly', 'monthly', 'yearly'])
+            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
             .describe(
-                '* `hourly` - Hourly\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
-            )
-            .describe(
-                'How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.\n\n* `hourly` - Hourly\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
             ),
         interval: zod
             .number()
@@ -472,13 +468,11 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                 'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
             ),
         frequency: zod
-            .enum(['hourly', 'daily', 'weekly', 'monthly', 'yearly'])
-            .describe(
-                '* `hourly` - Hourly\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
-            )
+            .enum(['daily', 'weekly', 'monthly', 'yearly'])
+            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
             .optional()
             .describe(
-                'How often to deliver: hourly, daily, weekly, monthly, or yearly. Hourly is feature-flagged and limited to one active subscription per organization.\n\n* `hourly` - Hourly\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
             ),
         interval: zod
             .number()
@@ -636,5 +630,11 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
+        ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
 })

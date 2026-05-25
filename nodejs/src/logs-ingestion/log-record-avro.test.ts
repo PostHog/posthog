@@ -99,6 +99,11 @@ const LOG_RECORD_SCHEMA = avro.parse(`{
         "values": "string"
     }],
     "doc": "A map of custom string-valued attributes associated with the log."
+    },
+    {
+    "name": "bytes_uncompressed",
+    "type": ["null", "long"],
+    "doc": "Logical content size of the row (sum of byte lengths of string/map fields). Used by drop-rule accounting; does not include fixed-width numeric or timestamp fields."
     }
 ]
 }`)
@@ -209,6 +214,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: 'test@1.0.0',
                     event_name: null,
                     attributes: { key: 'value1' },
+                    bytes_uncompressed: 123,
                 },
                 {
                     uuid: 'test-uuid-2',
@@ -225,6 +231,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: 'test@1.0.0',
                     event_name: null,
                     attributes: { key: 'value2' },
+                    bytes_uncompressed: 456,
                 },
             ]
 
@@ -251,6 +258,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -258,6 +266,33 @@ describe('log-record-avro', () => {
             const [_, __, decoded] = await decodeLogRecords(encoded)
 
             expect(decoded).toEqual(records)
+        })
+
+        it('preserves bytes_uncompressed across encode/decode', async () => {
+            const records: LogRecord[] = [
+                {
+                    uuid: 'with-bytes',
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: null,
+                    observed_timestamp: null,
+                    body: 'hello world',
+                    severity_text: null,
+                    severity_number: null,
+                    service_name: null,
+                    resource_attributes: null,
+                    instrumentation_scope: null,
+                    event_name: null,
+                    attributes: null,
+                    bytes_uncompressed: 789,
+                },
+            ]
+
+            const encoded = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', records)
+            const [_, __, decoded] = await decodeLogRecords(encoded)
+
+            expect(decoded[0].bytes_uncompressed).toBe(789)
         })
 
         it('rejects promise for invalid buffer', async () => {
@@ -386,6 +421,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -417,6 +453,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
                 {
                     uuid: 'test-uuid-2',
@@ -433,6 +470,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -469,6 +507,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -499,6 +538,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -534,6 +574,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: { note: 'only-attr@example.com' },
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -565,6 +606,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: { note: 'c@d.co' },
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -600,6 +642,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -631,6 +674,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
                 {
                     uuid: 'test-uuid-2',
@@ -647,6 +691,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -677,6 +722,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 
@@ -728,6 +774,7 @@ describe('log-record-avro', () => {
                     instrumentation_scope: null,
                     event_name: null,
                     attributes: null,
+                    bytes_uncompressed: null,
                 },
             ]
 

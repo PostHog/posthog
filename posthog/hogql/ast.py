@@ -29,6 +29,8 @@ from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionErro
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
 
+# Allowlist for `OrderExpr.order`; the SQL printer interpolates it verbatim. Shared between `__post_init__` and the printer's defense-in-depth check.
+VALID_ORDER_DIRECTIONS = ("ASC", "DESC")
 VALID_JOIN_CONSTRAINT_TYPES = get_args(Literal["ON", "USING"])
 VALID_JOIN_TYPES = frozenset(
     {
@@ -689,11 +691,9 @@ class FieldType(Type):
             # to determine if this field supports property access (JSON / array).
             constant_type = self.resolve_constant_type(context)
             if isinstance(constant_type, (StringJSONType, StringArrayType)):
-                self._check_property_access_control(name, context)
                 return PropertyType(chain=[name], field_type=self)
             raise ResolutionError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
-            self._check_property_access_control(name, context)
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
             return PropertyType(chain=[name], field_type=self)
@@ -703,48 +703,6 @@ class FieldType(Type):
         raise ResolutionError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
-
-    def _check_property_access_control(self, property_name: str | int, context: HogQLContext) -> None:
-        """
-        Raises ResolutionError if the property is restricted by property-level access control.
-
-        The error message intentionally matches the message for genuinely non-existent fields
-        so that an attacker cannot distinguish between "this property exists but I can't see it"
-        and "this property doesn't exist".
-        """
-        if not context.restricted_properties or self.name != "properties":
-            return
-
-        from posthog.hogql.database.schema.events import EventsTable
-        from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-
-        from products.event_definitions.backend.models.property_definition import PropertyDefinition
-
-        prop_name_str = str(property_name)
-        prop_def_types: list[int] = []
-
-        if isinstance(self.table_type, BaseTableType):
-            try:
-                table = self.table_type.resolve_database_table(context)
-            except ResolutionError:
-                return
-
-            if isinstance(table, EventsTable):
-                if isinstance(self.table_type, VirtualTableType) and self.table_type.field == "poe":
-                    prop_def_types.append(PropertyDefinition.Type.PERSON)
-                else:
-                    prop_def_types.append(PropertyDefinition.Type.EVENT)
-            elif isinstance(table, (PersonsTable, RawPersonsTable)):
-                prop_def_types.append(PropertyDefinition.Type.PERSON)
-            else:
-                return
-
-        if not prop_def_types:
-            return
-
-        for prop_type in prop_def_types:
-            if (prop_name_str, prop_type) in context.restricted_properties:
-                raise ResolutionError(f'Can not access property "{prop_name_str}" on field "{self.name}".')
 
     def resolve_table_type(self, context: HogQLContext):
         return self.table_type
@@ -941,7 +899,7 @@ class OrderExpr(Expr):
     with_fill: Optional[WithFillExpr] = None
 
     def __post_init__(self):
-        if self.order not in ("ASC", "DESC"):
+        if self.order not in VALID_ORDER_DIRECTIONS:
             raise ValueError(f"Invalid order direction: {self.order}")
 
 
@@ -992,9 +950,25 @@ class Constant(Expr):
     value: Any
 
 
+# Allowlist for `Keyword.name`; the SQL printer interpolates it verbatim (CH returns `name` directly, Postgres uppercases). Restricted to the Postgres-family time pseudo-functions from `resolver.POSTGRES_KEYWORD_TYPES` — a broader `str.isidentifier()` check would still admit arbitrary Python identifiers and let them emit as unquoted ClickHouse tokens.
+VALID_KEYWORD_NAMES = frozenset(
+    {
+        "current_date",
+        "current_time",
+        "current_timestamp",
+        "localtime",
+        "localtimestamp",
+    }
+)
+
+
 @dataclass(kw_only=True, slots=True)
 class Keyword(Expr):
     name: str
+
+    def __post_init__(self):
+        if self.name not in VALID_KEYWORD_NAMES:
+            raise ValueError(f"Invalid Keyword name: {self.name!r}")
 
 
 @dataclass(kw_only=True, slots=True)
