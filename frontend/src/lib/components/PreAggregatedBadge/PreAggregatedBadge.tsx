@@ -19,7 +19,7 @@ const VARIANT_CONFIG: Record<
     },
     precomputed: {
         tooltip: 'Loaded from a pre-computed dataset',
-        iconClassName: 'text-success w-4 h-4',
+        iconClassName: 'text-muted w-4 h-4',
         Icon: IconDatabaseBolt,
     },
 }
