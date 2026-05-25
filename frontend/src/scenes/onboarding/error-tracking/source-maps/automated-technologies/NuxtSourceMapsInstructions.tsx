@@ -77,10 +77,10 @@ const nuxtModuleConfig = (apiKey: string, host: string, teamId: string): string 
     },
     sourcemaps: {
       enabled: true,
-      envId: '${teamId}', // Your environment ID (project ID)
+      projectId: '${teamId}', // Your environment ID (project ID)
       personalApiKey: '<ph_personal_api_key>', // Your personal API key from PostHog settings
-      project: 'my-application', // Optional: Project name, defaults to git repository name
-      version: '1.0.0', // Optional: Release version, defaults to current git commit
+      releaseName: 'my-application', // Optional: Release name, defaults to git repository name
+      releaseVersion: '1.0.0', // Optional: Release version, defaults to current git commit
     },
   },
 })`
