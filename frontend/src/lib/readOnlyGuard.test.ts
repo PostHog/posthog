@@ -82,6 +82,19 @@ describe('readOnlyGuard', () => {
                 ['query log', 'POST', '/api/environments/2/query/abc-123/log'],
                 ['query with trailing query string', 'POST', '/api/environments/2/query/?refresh=true'],
                 ['delete on query path', 'DELETE', '/api/environments/2/query/abc-123/'],
+                ['feature flag blast radius', 'POST', '/api/projects/2/feature_flags/user_blast_radius'],
+                [
+                    'feature flag blast radius with trailing slash',
+                    'POST',
+                    '/api/projects/2/feature_flags/user_blast_radius/',
+                ],
+                [
+                    'feature flag blast radius with query string',
+                    'POST',
+                    '/api/projects/2/feature_flags/user_blast_radius?foo=bar',
+                ],
+                ['feature flag bulk keys', 'POST', '/api/projects/2/feature_flags/bulk_keys'],
+                ['feature flag bulk keys with trailing slash', 'POST', '/api/projects/2/feature_flags/bulk_keys/'],
                 ['file system log view', 'POST', '/api/environments/2/file_system/log_view/'],
                 ['log view with query string', 'POST', '/api/environments/2/file_system/log_view/?foo=bar'],
                 ['insights viewed (no trailing slash)', 'POST', '/api/environments/2/insights/viewed'],
@@ -109,6 +122,18 @@ describe('readOnlyGuard', () => {
             it.each([
                 ['endpoint that just contains the word query in a name', 'POST', '/api/environments/2/queryless/'],
                 ['similar prefix without slash', 'POST', '/api/environments/2/queryteam/'],
+                ['feature flag create blocked', 'POST', '/api/projects/2/feature_flags/'],
+                ['feature flag update blocked', 'PATCH', '/api/projects/2/feature_flags/123/'],
+                [
+                    'feature flag blast-radius-like prefix blocked',
+                    'POST',
+                    '/api/projects/2/feature_flags/user_blast_radius_foo/',
+                ],
+                [
+                    'feature flag bulk-keys-like prefix blocked',
+                    'POST',
+                    '/api/projects/2/feature_flags/bulk_keys_other/',
+                ],
                 ['file system entity write blocked', 'POST', '/api/environments/2/file_system/'],
                 ['file system non-log_view blocked', 'POST', '/api/environments/2/file_system/abc-123/move'],
                 ['insight create blocked', 'POST', '/api/environments/2/insights/'],

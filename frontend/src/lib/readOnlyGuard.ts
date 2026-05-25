@@ -47,7 +47,10 @@ export function isReadOnly(): boolean {
 // Writes that should pass through in read-only mode. Three categories:
 //   1. Reads disguised as writes — /query serves HogQL / trends / funnels /
 //      retention via POST because the payload is too large for a query string.
-//      Block-listing it would make the entire app unusable.
+//      The flag editor's blast-radius endpoint and the bulk flag-key lookup
+//      follow the same pattern (POST a list of conditions / ids, return a
+//      computed read). Block-listing them would make the affected screens
+//      unusable.
 //   2. Passive telemetry that fires automatically on view/mount and should not
 //      raise: /file_system/log_view, /insights/viewed, /insights/timing
 //      (time-to-see-data), and /metalytics (side-panel scene view tracking).
@@ -58,6 +61,8 @@ export function isReadOnly(): boolean {
 //      /projects/ — so the discriminator is the sub-feature, not the prefix.
 const READ_ONLY_ALLOWED_PATTERNS = [
     /\/query(?:\/|$|\?)/, // /api/environments/:team_id/query, /api/environments/:team_id/query/:queryId/log, etc.
+    /\/feature_flags\/user_blast_radius(?:\/|$|\?)/, // /api/projects/:team_id/feature_flags/user_blast_radius — auto-fires on every flag release-condition edit; pure read, POSTed because the condition payload is too large for a query string
+    /\/feature_flags\/bulk_keys(?:\/|$|\?)/, // /api/projects/:team_id/feature_flags/bulk_keys — paired with the blast-radius listener; pure read of flag id→key mapping, POSTed because the id list is too large for a query string
     /\/file_system\/log_view(?:\/|$|\?)/, // /api/environments/:team_id/file_system/log_view
     /\/insights\/viewed(?:\/|$|\?)/, // /api/environments/:team_id/insights/viewed — passive "recently viewed" telemetry
     /\/insights\/timing(?:\/|$|\?)/, // /api/projects/:team_id/insights/timing — time-to-see-data telemetry fired after every dashboard/insight load
