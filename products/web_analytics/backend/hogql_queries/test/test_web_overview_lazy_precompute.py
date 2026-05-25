@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -262,7 +263,7 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         sql, values = _build_manual_insert_sql(
             team=self.team,
-            job=job,
+            job=cast(PreaggregationJob, job),
             insert_query=INSERT_QUERY_TEMPLATE,
             table=LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED,
             base_placeholders=base_placeholders,
