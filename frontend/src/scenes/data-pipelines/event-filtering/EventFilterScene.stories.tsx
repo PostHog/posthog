@@ -16,6 +16,9 @@ const meta: Meta<typeof App> = {
         layout: 'fullscreen',
         viewMode: 'story',
         pageUrl: urls.eventFiltering(),
+        // Pin "now" so the metrics chart's default `-7d` window — and any
+        // other date-derived UI — is stable across snapshot runs.
+        mockDate: '2026-05-25',
         testOptions: {
             waitForLoadersToDisappear: true,
         },
@@ -60,15 +63,58 @@ const SIMPLE_FILTER = {
     updated_at: '2024-01-01T00:00:00Z',
 }
 
-const EMPTY_METRICS = { labels: [], series: [] }
-const EMPTY_TOTALS = { totals: {} }
+// `EventFilterMetrics` doesn't hit `/event_filter/metrics/`; it goes through
+// `appMetricsLogic`, which posts HogQL queries to `/query/HogQLQuery/`. The
+// time-series query returns rows shaped `[dates, breakdown, totals]` and the
+// totals query returns rows shaped `[total, ...breakdowns]`. Both are fired
+// on mount, plus a separate previous-period time-series call.
+//
+// In live mode only `dropped` accumulates; in dry-run mode only
+// `would_be_dropped` accumulates (events match the filter but are not
+// actually dropped). The mocks below mirror that based on the form mode.
 
-const SAMPLE_METRICS = {
-    labels: ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05'],
-    series: [
-        { name: 'dropped', values: [120, 95, 140, 110, 130] },
-        { name: 'would_be_dropped', values: [0, 0, 0, 0, 0] },
-    ],
+const METRIC_DATES = [
+    '2026-05-18T00:00:00Z',
+    '2026-05-19T00:00:00Z',
+    '2026-05-20T00:00:00Z',
+    '2026-05-21T00:00:00Z',
+    '2026-05-22T00:00:00Z',
+    '2026-05-23T00:00:00Z',
+    '2026-05-24T00:00:00Z',
+]
+const METRIC_VALUES = [120, 95, 140, 110, 130, 105, 150]
+const METRIC_ZEROS = [0, 0, 0, 0, 0, 0, 0]
+const METRIC_TOTAL = METRIC_VALUES.reduce((sum, v) => sum + v, 0)
+
+const EMPTY_TIMESERIES_RESULTS: unknown[][] = []
+const EMPTY_TOTALS_RESULTS: unknown[][] = []
+
+function metricsHandler(
+    timeSeriesResults: unknown[][],
+    totalsResults: unknown[][]
+): (req: { json: () => Promise<unknown> }) => Promise<[number, unknown]> {
+    return async (req) => {
+        const body = (await req.json()) as { query?: { query?: string } }
+        const isTimeSeries = body.query?.query?.includes('calendar') ?? false
+        return [200, { results: isTimeSeries ? timeSeriesResults : totalsResults }]
+    }
+}
+
+function metricsForMode(mode: 'live' | 'dry_run'): {
+    timeSeries: unknown[][]
+    totals: unknown[][]
+} {
+    const isLive = mode === 'live'
+    return {
+        timeSeries: [
+            [METRIC_DATES, 'dropped', isLive ? METRIC_VALUES : METRIC_ZEROS],
+            [METRIC_DATES, 'would_be_dropped', isLive ? METRIC_ZEROS : METRIC_VALUES],
+        ],
+        totals: [
+            [isLive ? METRIC_TOTAL : 0, 'dropped'],
+            [isLive ? 0 : METRIC_TOTAL, 'would_be_dropped'],
+        ],
+    }
 }
 
 function withFilter(overrides: Record<string, unknown> = {}): () => JSX.Element {
@@ -76,8 +122,12 @@ function withFilter(overrides: Record<string, unknown> = {}): () => JSX.Element 
         useStorybookMocks({
             get: {
                 '/api/environments/:team_id/event_filter/': { ...SIMPLE_FILTER, ...overrides },
-                '/api/environments/:team_id/event_filter/metrics/': EMPTY_METRICS,
-                '/api/environments/:team_id/event_filter/metrics/totals/': EMPTY_TOTALS,
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind/': metricsHandler(
+                    EMPTY_TIMESERIES_RESULTS,
+                    EMPTY_TOTALS_RESULTS
+                ),
             },
         })
         return <App />
@@ -86,11 +136,14 @@ function withFilter(overrides: Record<string, unknown> = {}): () => JSX.Element 
 
 function withFilterAndMetrics(overrides: Record<string, unknown> = {}): () => JSX.Element {
     return () => {
+        const mode = (overrides.mode as 'live' | 'dry_run' | undefined) ?? (SIMPLE_FILTER.mode as 'dry_run')
+        const { timeSeries, totals } = metricsForMode(mode)
         useStorybookMocks({
             get: {
                 '/api/environments/:team_id/event_filter/': { ...SIMPLE_FILTER, ...overrides },
-                '/api/environments/:team_id/event_filter/metrics/': SAMPLE_METRICS,
-                '/api/environments/:team_id/event_filter/metrics/totals/': EMPTY_TOTALS,
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind/': metricsHandler(timeSeries, totals),
             },
         })
         return <App />
@@ -133,7 +186,8 @@ Expected to show:
 - "Dry run" selected in the mode segmented button
 - Filter tree: root OR containing \`event_name = "$drop_me"\` and a nested AND group with two conditions
 - Four test cases, all with green "Pass" tags
-- Metrics chart with a "dropped" series populated across five days
+- Metrics chart with a "would_be_dropped" series populated across seven days
+  (May 18–24, 2026); "dropped" is flat at zero because the filter is not live
                 `,
             },
         },
@@ -153,7 +207,8 @@ Expected to show:
 - "Live" selected in the mode segmented button
 - Status copy "Matching events are being dropped from ingestion."
 - Same tree and test cases as the dry-run story
-- Metrics chart unchanged
+- Metrics chart with a "dropped" series populated across the same seven days;
+  "would_be_dropped" is flat at zero (live mode no longer counts matches separately)
                 `,
             },
         },
@@ -635,8 +690,12 @@ Expected to show:
                         { event_name: '$dro', distinct_id: 'user-1', expected_result: 'drop' },
                     ],
                 },
-                '/api/environments/:team_id/event_filter/metrics/': EMPTY_METRICS,
-                '/api/environments/:team_id/event_filter/metrics/totals/': EMPTY_TOTALS,
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind/': metricsHandler(
+                    EMPTY_TIMESERIES_RESULTS,
+                    EMPTY_TOTALS_RESULTS
+                ),
             },
         })
         return <App />
@@ -776,8 +835,12 @@ export const BuildFilterFromScratch: Story = {
         useStorybookMocks({
             get: {
                 '/api/environments/:team_id/event_filter/': () => [204, null],
-                '/api/environments/:team_id/event_filter/metrics/': EMPTY_METRICS,
-                '/api/environments/:team_id/event_filter/metrics/totals/': EMPTY_TOTALS,
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind/': metricsHandler(
+                    EMPTY_TIMESERIES_RESULTS,
+                    EMPTY_TOTALS_RESULTS
+                ),
             },
         })
         return <App />
