@@ -872,9 +872,13 @@ export async function toolbarFetch(
                 ...(body !== undefined ? { body } : {}),
             })
         } catch (err) {
-            const detail = err instanceof Error ? err.message : String(err)
-            toolbarLogger.warn('fetch', 'network error', { url: fullUrl, error: detail })
-            return new Response(JSON.stringify({ results: [], detail: 'network_error', error: detail }), {
+            // Put the underlying message in `detail` because several callers
+            // (experimentsTabLogic, actionsTabLogic, productToursLogic, …) surface
+            // `errorData.detail` directly to users as toast text. `statusText`
+            // carries the category for anyone who needs to branch on it.
+            const message = err instanceof Error ? err.message : String(err)
+            toolbarLogger.warn('fetch', 'network error', { url: fullUrl, error: message })
+            return new Response(JSON.stringify({ results: [], detail: message }), {
                 status: 503,
                 statusText: 'network_error',
             })

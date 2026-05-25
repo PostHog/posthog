@@ -1501,14 +1501,16 @@ describe('toolbar toolbarConfigLogic', () => {
         // toolbarFetch and crash whichever caller's `await` was unguarded — including the toolbar's
         // afterMount path through webVitalsToolbarLogic. The fetch must now resolve to a synthetic
         // non-OK Response so every caller's existing `response.ok` check handles the failure path.
+        // `detail` carries the underlying error message (callers surface it as toast text);
+        // `statusText` carries the category.
         it('converts fetch rejections into a synthetic 503 response instead of throwing', async () => {
             ;(global.fetch as jest.Mock).mockRejectedValueOnce(new TypeError('Failed to fetch'))
             const res = await toolbarFetch('/api/environments/@current/web_vitals')
             expect(res.ok).toBe(false)
             expect(res.status).toBe(503)
+            expect(res.statusText).toBe('network_error')
             const body = await res.json()
-            expect(body.detail).toBe('network_error')
-            expect(body.error).toBe('Failed to fetch')
+            expect(body.detail).toBe('Failed to fetch')
             expect(body.results).toEqual([])
         })
     })
