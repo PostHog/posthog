@@ -2139,7 +2139,7 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
             probe_unconstrained_numeric_scale=probe_unconstrained_numeric_scale,
         )
 
-    def get_partition_settings(  # type: ignore[override]
+    def get_partition_settings(
         self,
         cursor: psycopg.Cursor,
         schema: str,
