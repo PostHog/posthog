@@ -2121,6 +2121,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def launch(self, request: request.Request, **kwargs: Any) -> Response:
         survey = self.get_object()
         now = datetime.now(UTC)
+        if survey.archived:
+            raise exceptions.ValidationError("Cannot launch an archived survey. Unarchive it first.")
+        if survey.end_date and survey.end_date <= now:
+            raise exceptions.ValidationError(
+                "Cannot launch a survey with end_date in the past. Extend the end_date first."
+            )
         if survey.start_date and survey.start_date <= now:
             # Already launched — no-op, return current state.
             return Response(SurveySerializer(survey, context=self.get_serializer_context()).data)
@@ -2166,6 +2172,8 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def stop(self, request: request.Request, **kwargs: Any) -> Response:
         survey = self.get_object()
         now = datetime.now(UTC)
+        if survey.archived:
+            raise exceptions.ValidationError("Cannot stop an archived survey. Unarchive it first if needed.")
         if survey.end_date and survey.end_date <= now:
             return Response(SurveySerializer(survey, context=self.get_serializer_context()).data)
 

@@ -6730,6 +6730,25 @@ class TestSurveyLifecycleActions(APIBaseTest):
         self.survey.refresh_from_db()
         self.assertIsNotNone(self.survey.end_date)
 
+    def test_launch_rejects_archived_survey(self):
+        self.survey.archived = True
+        self.survey.save()
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/launch/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_launch_rejects_ended_survey(self):
+        self.survey.start_date = datetime(2024, 1, 1, tzinfo=UTC)
+        self.survey.end_date = datetime(2024, 2, 1, tzinfo=UTC)
+        self.survey.save()
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/launch/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_stop_rejects_archived_survey(self):
+        self.survey.archived = True
+        self.survey.save()
+        response = self.client.post(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/stop/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_stop_is_idempotent_when_already_stopped(self):
         original_end = datetime(2024, 1, 1, tzinfo=UTC)
         self.survey.start_date = datetime(2023, 12, 1, tzinfo=UTC)
