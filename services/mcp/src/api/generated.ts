@@ -31733,16 +31733,13 @@ export namespace Schemas {
       date_from: string;
       /** Exclusive UTC end of the spend window resolved from the request. */
       date_to: string;
-      /**
-         * The `ai_product` filter applied to tool / model / trace breakdowns. Null when unfiltered.
-         * @nullable
-         */
-      product: string | null;
+      /** The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`. */
+      product: string;
       /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
       total_cost_usd: number;
       /** Total $ai_generation + $ai_embedding events captured across every product. */
       event_count: number;
-      /** Total cost in USD for the product filter (or all products when unfiltered). Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
+      /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
       scoped_cost_usd: number;
       /** Total $ai_generation + $ai_embedding events for the scoped slice. */
       scoped_event_count: number;
@@ -31849,7 +31846,7 @@ export namespace Schemas {
       by_tool: _ToolBreakdown;
       /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
       by_model: _ModelBreakdown;
-      /** Most expensive trace IDs (sessions) in the window. Scoped to `product` when set. */
+      /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
       top_traces: _TopTraces;
     }
 
@@ -35983,6 +35980,21 @@ export namespace Schemas {
       conditions?: TaggerCondition[];
       model_configuration?: TaggerModelConfigurationWrite | null;
       deleted?: boolean;
+    }
+
+    /**
+     * Request body for the presence beacon and beacon-leave endpoints.
+
+    `device_id` is the UUID of the caller's `UserPushToken` row, which the
+    client received when it registered for push via `/api/users/@me/push_tokens/`.
+    The client is expected to use the same identifier on the beacon and leave
+    calls; if the user has unregistered the underlying push token, the value
+    won't resolve and the call returns 404 — at which point pushes were
+    already not going there anyway.
+     */
+    export interface TaskPresenceBeaconRequest {
+      /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
+      device_id: string;
     }
 
     export interface TaskRepositoriesResponse {
@@ -40345,6 +40357,22 @@ export namespace Schemas {
 
     export type AccountsListParams = {
     /**
+     * Filter by account executive. Use 'unassigned' or an integer user id.
+     */
+    account_executive?: string;
+    /**
+     * Filter by account owner. Use 'unassigned' or an integer user id.
+     */
+    account_owner?: string;
+    /**
+     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     */
+    all_roles_unassigned?: boolean;
+    /**
+     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
+     */
+    csm?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -40353,7 +40381,15 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.
+     * Sort order. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Case-insensitive substring search across account name and external ID.
+     */
+    search?: string;
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
      */
     tags?: string;
     };
@@ -41690,11 +41726,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across every product captured for the user.
+     * Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.
+     * @minLength 1
      * @maxLength 64
-     * @nullable
      */
-    product?: string | null;
+    product: string;
     /**
      * If true, bypass the result cache and re-run the underlying queries against ClickHouse.
      */
@@ -43330,6 +43366,14 @@ export namespace Schemas {
     } as const;
 
     export type EventDefinitionsListParams = {
+    /**
+     * When true, omit events that have been explicitly hidden by a team admin (Enterprise only).
+     */
+    exclude_hidden?: boolean;
+    /**
+     * When true, omit events whose last ingested occurrence is older than 30 days. Events that have never been seen (`last_seen_at` is null) are kept so newly-defined events remain discoverable. Default false. If a search returns zero results with this filter on, retry with `exclude_stale=false` and tell the user the matches are stale.
+     */
+    exclude_stale?: boolean;
     /**
      * Number of results to return per page.
      */

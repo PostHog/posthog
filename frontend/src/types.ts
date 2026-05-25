@@ -1,11 +1,11 @@
 import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
+import { LogLevel } from 'posthog-js/rrweb-plugin-console-record'
+import { eventWithTime } from 'posthog-js/rrweb-types'
 import { ReactNode } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 
 import { LemonTableColumns } from '@posthog/lemon-ui'
-import { LogLevel } from '@posthog/rrweb-plugin-console-record'
-import { eventWithTime } from '@posthog/rrweb-types'
 
 import { PaginatedResponse } from 'lib/api'
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
@@ -5369,7 +5369,6 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
-    | 'personal_spend'
     | 'persisted_folder'
     | 'plugin'
     | 'product_tour'

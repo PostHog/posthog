@@ -67,6 +67,10 @@ jobs:
             - name: Type check
               run: cd services/oauth-proxy && pnpm typecheck
 
+            - name: Type check (tsgo, shadow, non-blocking)
+              run: cd services/oauth-proxy && pnpm typecheck:tsgo
+              continue-on-error: true
+
             - name: Run tests
               run: cd services/oauth-proxy && pnpm test
 

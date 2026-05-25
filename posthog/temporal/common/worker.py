@@ -305,6 +305,7 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            plugins=plugins,
         )
     else:
         worker = Worker(

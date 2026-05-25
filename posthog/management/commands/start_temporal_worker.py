@@ -531,7 +531,13 @@ class Command(BaseCommand):
 
         tag_queries(kind="temporal")
 
-        enable_otel = settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True and settings.OTEL_SERVICE_NAME is not None
+        # Max AI traces span the Django request and the Temporal activity that runs the agent loop.
+        # Without the OTel plugin on the worker, every span emitted from an activity is a root span
+        # and the conversation trace splits across disconnected pieces. Force-enable for that queue
+        # so investigations don't depend on an operator flipping TEMPORAL_OTEL_PLUGIN_ENABLED.
+        enable_otel = (
+            settings.TEMPORAL_OTEL_PLUGIN_ENABLED is True or task_queue == settings.MAX_AI_TASK_QUEUE
+        ) and settings.OTEL_SERVICE_NAME is not None
         if enable_otel is True:
             # Mypy doesn't understand we have already checked settings.OTEL_SERVICE_NAME
             initialize_otel(settings.OTEL_SERVICE_NAME, settings.TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT)  # type: ignore

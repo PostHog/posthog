@@ -18,11 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql.ai import hit_openai
 
-from posthog.api.annotation_context import (
-    format_annotations_for_prompt,
-    get_annotations_for_ai_context,
-    resolve_query_date_range,
-)
+from posthog.api.annotation_context import build_annotations_block, resolve_query_date_range
 from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
@@ -214,12 +210,11 @@ def get_insight_analysis(
         if insight_description:
             context_str += f"Insight Description: {insight_description}\n"
 
-        annotations_block = ""
-        date_range = resolve_query_date_range(query, team)
-        if date_range is not None:
-            date_from, date_to = date_range
-            annotations = get_annotations_for_ai_context(team, date_from, date_to, insight_id=insight_id)
-            annotations_block = format_annotations_for_prompt(annotations)
+        annotations_block = build_annotations_block(
+            team,
+            resolve_query_date_range(query, team),
+            insight_ids=[insight_id] if insight_id else None,
+        )
 
         prompt = (
             "You are a senior product data analyst. "

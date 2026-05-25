@@ -163,7 +163,7 @@ jobs:
                     --head chore/llma-update-ai-costs \
                     --label "automated" --label "llm-analytics" \
                     --reviewer "PostHog/team-ai-observability" \
-                    --reviewer "PostHog/team-llm-gateway")
+                    --reviewer "PostHog/team-ai-gateway")
                   echo "Created $new_pr_url"
 
                   # If the previously open PR on this branch got auto-closed by the

@@ -16,12 +16,32 @@ use crate::config::CaptureMode;
 use crate::v1::context::Context;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
-use crate::v1::sinks::types::{BatchSummary, Outcome, SinkResult};
+use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, SinkResult};
 use crate::v1::sinks::{Config, SinkName};
 
 use super::producer::ProduceRecord;
 use super::types::{KafkaResult, KafkaSinkError};
 use super::KafkaProducerTrait;
+
+/// Null the partition key when person processing is force-disabled for
+/// Main/Overflow destinations — spreads load across partitions instead of
+/// hotspotting on a single token:distinct_id pair.
+fn effective_partition_key<'a>(
+    key_buf: &'a str,
+    force_disable_person_processing: bool,
+    destination: &Destination,
+) -> Option<&'a str> {
+    if force_disable_person_processing
+        && matches!(
+            destination,
+            Destination::AnalyticsMain | Destination::Overflow
+        )
+    {
+        None
+    } else {
+        Some(key_buf)
+    }
+}
 
 /// Shared label values for metrics emitted within a single `publish_batch` call.
 /// All fields are `&'static str` (zero-cost) or `SharedString` (Arc-based, so
@@ -158,10 +178,19 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                 continue;
             }
 
-            let headers: rdkafka::message::OwnedHeaders = event.headers(ctx).into();
+            let captured_headers = event.headers(ctx);
 
             key_buf.clear();
-            let key = event.partition_key(ctx, &mut key_buf);
+            event.partition_key(ctx, &mut key_buf);
+            let key = effective_partition_key(
+                &key_buf,
+                captured_headers
+                    .force_disable_person_processing
+                    .unwrap_or(false),
+                event.destination(),
+            );
+
+            let headers: rdkafka::message::OwnedHeaders = captured_headers.into();
 
             let mut record = ProduceRecord {
                 topic,
@@ -445,5 +474,26 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         })
         .await
         .map_err(|e| anyhow::anyhow!("flush task panicked: {e:#}"))?
+    }
+}
+
+#[cfg(test)]
+mod effective_partition_key_tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::main_disabled(true, Destination::AnalyticsMain, None)]
+    #[case::overflow_disabled(true, Destination::Overflow, None)]
+    #[case::dlq_disabled(true, Destination::Dlq, Some("k"))]
+    #[case::historical_disabled(true, Destination::AnalyticsHistorical, Some("k"))]
+    #[case::custom_disabled(true, Destination::Custom("t".into()), Some("k"))]
+    #[case::main_not_disabled(false, Destination::AnalyticsMain, Some("k"))]
+    fn policy(
+        #[case] force_disable: bool,
+        #[case] dest: Destination,
+        #[case] expected: Option<&str>,
+    ) {
+        assert_eq!(effective_partition_key("k", force_disable, &dest), expected);
     }
 }

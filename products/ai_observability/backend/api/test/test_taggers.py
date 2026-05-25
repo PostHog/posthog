@@ -337,6 +337,22 @@ class TestTaggersApi(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand([("fractional", 33.3), ("slider_minimum", 0.1), ("whole", 50)])
+    def test_can_save_fractional_rollout_percentage(self, _name: str, rollout_percentage: float):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/taggers/",
+            {
+                "name": "Feature Tagger",
+                "tagger_config": _make_tagger_config(),
+                "conditions": [{"id": "cond-1", "rollout_percentage": rollout_percentage, "properties": []}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        tagger = Tagger.objects.get(id=response.data["id"])
+        assert tagger.conditions[0]["rollout_percentage"] == rollout_percentage
+
     def test_patch_tagger_type_without_fresh_config_is_rejected(self):
         tagger = Tagger.objects.create(
             name="LLM tagger",
