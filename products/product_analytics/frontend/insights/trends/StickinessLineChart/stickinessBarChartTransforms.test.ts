@@ -1,9 +1,6 @@
 import type { TooltipConfig } from 'lib/hog-charts'
 
-import {
-    buildStickinessBarSeries,
-    buildStickinessBarTimeSeriesConfig,
-} from './stickinessBarChartTransforms'
+import { buildStickinessBarSeries, buildStickinessBarTimeSeriesConfig } from './stickinessBarChartTransforms'
 import type { StickinessResultLike } from './stickinessChartTransforms'
 
 const RED = '#ff0000'

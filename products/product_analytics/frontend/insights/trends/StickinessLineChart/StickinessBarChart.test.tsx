@@ -29,8 +29,7 @@ const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_STICKINESS
 const stickinessBar = (
     display: ChartDisplayType.ActionsBar | ChartDisplayType.ActionsUnstackedBar = ChartDisplayType.ActionsBar,
     extra?: Parameters<typeof buildStickinessQuery>[0]
-): ReturnType<typeof buildStickinessQuery> =>
-    buildStickinessQuery({ stickinessFilter: { display }, ...extra })
+): ReturnType<typeof buildStickinessQuery> => buildStickinessQuery({ stickinessFilter: { display }, ...extra })
 
 describe('StickinessBarChart', () => {
     describe('renders', () => {

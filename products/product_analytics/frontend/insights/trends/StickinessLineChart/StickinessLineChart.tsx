@@ -22,6 +22,7 @@ import { resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSe
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
 import {
+    buildStickinessAltTitle,
     buildStickinessLabels,
     buildStickinessLineTimeSeriesConfig,
     buildStickinessSeries,
@@ -39,16 +40,6 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
         feature: 'stickiness-line-chart',
         componentStack: info.componentStack ?? undefined,
     })
-}
-
-/** Stickiness `date` is an interval-count integer (1, 2, …), not a date.
- *  Render "stickiness on {interval} {day}" so InsightTooltip doesn't try to
- *  format it as a calendar date (which would land on 1970-01-01). */
-function buildStickinessAltTitle(interval: string | null | undefined): (seriesData: SeriesDatum[]) => string {
-    return (seriesData) => {
-        const day = seriesData[0]?.date_label ?? ''
-        return `stickiness on ${interval || 'day'} ${day}`
-    }
 }
 
 export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.Element | null {

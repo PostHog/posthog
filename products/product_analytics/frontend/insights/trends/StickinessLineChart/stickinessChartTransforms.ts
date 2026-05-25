@@ -1,5 +1,6 @@
 import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
 import type { Series, TimeSeriesLineChartConfig, TooltipConfig, YAxisConfig } from 'lib/hog-charts'
+import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 // Shape both IndexedTrendResult (kea) and StickinessResultItem (MCP) satisfy.
 export interface StickinessResultLike {
@@ -67,6 +68,16 @@ export function buildStickinessLabels(count: number, interval: string | null | u
 /** Emit `85.0%`-style ticks — legacy parity with `${value.toFixed(1)}%` in LineGraph. */
 export function stickinessPercentFormatter(value: number): string {
     return `${value.toFixed(1)}%`
+}
+
+/** Stickiness `date` is an interval-count integer (1, 2, …), not a date.
+ *  Render "stickiness on {interval} {day}" so InsightTooltip doesn't try to
+ *  format it as a calendar date (which would land on 1970-01-01). */
+export function buildStickinessAltTitle(interval: string | null | undefined): (seriesData: SeriesDatum[]) => string {
+    return (seriesData) => {
+        const day = seriesData[0]?.date_label ?? ''
+        return `stickiness on ${interval || 'day'} ${day}`
+    }
 }
 
 export interface BuildStickinessLineTimeSeriesConfigOpts {

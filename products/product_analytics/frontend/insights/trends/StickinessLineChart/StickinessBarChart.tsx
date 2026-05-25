@@ -22,11 +22,8 @@ import { ChartDisplayType } from '~/types'
 import { resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
-import {
-    buildStickinessBarSeries,
-    buildStickinessBarTimeSeriesConfig,
-} from './stickinessBarChartTransforms'
-import { buildStickinessLabels, stickinessPercentFormatter } from './stickinessChartTransforms'
+import { buildStickinessBarSeries, buildStickinessBarTimeSeriesConfig } from './stickinessBarChartTransforms'
+import { buildStickinessAltTitle, buildStickinessLabels, stickinessPercentFormatter } from './stickinessChartTransforms'
 
 interface StickinessBarChartProps {
     context?: QueryContext<InsightVizNode>
@@ -39,16 +36,6 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
         feature: 'stickiness-bar-chart',
         componentStack: info.componentStack ?? undefined,
     })
-}
-
-/** Stickiness `date` is an interval-count integer (1, 2, …), not a date.
- *  Render "stickiness on {interval} {day}" so InsightTooltip doesn't try to
- *  format it as a calendar date (which would land on 1970-01-01). */
-function buildStickinessAltTitle(interval: string | null | undefined): (seriesData: SeriesDatum[]) => string {
-    return (seriesData) => {
-        const day = seriesData[0]?.date_label ?? ''
-        return `stickiness on ${interval || 'day'} ${day}`
-    }
 }
 
 export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.Element | null {
