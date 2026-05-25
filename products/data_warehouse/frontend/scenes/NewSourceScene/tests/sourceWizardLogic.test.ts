@@ -1,5 +1,6 @@
 import type { SourceConfig } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import type { ExternalDataSourceSyncSchema } from '~/types'
 
 import {
     buildKeaFormDefaultFromSourceDetails,
@@ -662,6 +663,135 @@ describe('sourceWizardLogic', () => {
                 payload: { host: 'foo' },
                 access_method: 'warehouse',
             })
+        })
+    })
+
+    // Stripe (and any other source whose `get_endpoint_permissions` reports a per-endpoint denial)
+    // returns `permission_error` on individual schemas. The wizard must never let those rows get
+    // toggled into a sync — defense-in-depth lives in the reducers so programmatic toggle paths
+    // (bulk select-all, group toggle) can't bypass the UI guard.
+    describe('permission_error sync gating', () => {
+        const stripeSource = {
+            name: 'Stripe',
+            iconPath: '',
+            caption: null,
+            fields: [],
+        } as SourceConfig
+
+        const buildSchema = (overrides: Partial<ExternalDataSourceSyncSchema> = {}): ExternalDataSourceSyncSchema =>
+            ({
+                table: 'Customer',
+                label: null,
+                rows: null,
+                should_sync: false,
+                sync_time_of_day: null,
+                incremental_field: null,
+                incremental_field_type: null,
+                sync_type: null,
+                incremental_fields: [],
+                incremental_available: false,
+                append_available: false,
+                supports_webhooks: true,
+                description: null,
+                should_sync_default: true,
+                primary_key_columns: null,
+                available_columns: [],
+                detected_primary_keys: null,
+                permission_error: null,
+                ...overrides,
+            }) as ExternalDataSourceSyncSchema
+
+        const mountWithSchemas = (
+            schemas: ExternalDataSourceSyncSchema[]
+        ): { logic: ReturnType<typeof sourceWizardLogic>; unmount: () => void } => {
+            const logic = sourceWizardLogic({
+                availableSources: { Stripe: stripeSource },
+                tabId: `perm-test-${Math.random()}`,
+            })
+            const unmount = logic.mount()
+            logic.actions.selectConnector(stripeSource)
+            logic.actions.setDatabaseSchemas(schemas)
+            return { logic, unmount }
+        }
+
+        it('toggleAllTables(selectAll=true) leaves permission_error rows unchecked', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer' }),
+                buildSchema({ table: 'Charge', permission_error: 'Missing rak_charge_read' }),
+            ])
+
+            try {
+                logic.actions.toggleAllTables(true)
+                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['Customer'].should_sync).toBe(true)
+                expect(byTable['Charge'].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('toggleAllTables(selectAll=true) with explicit tableNames still skips permission_error rows', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer' }),
+                buildSchema({ table: 'Charge', permission_error: 'Missing rak_charge_read' }),
+            ])
+
+            try {
+                logic.actions.toggleAllTables(true, ['Customer', 'Charge'])
+                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['Customer'].should_sync).toBe(true)
+                expect(byTable['Charge'].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('toggleSchemaShouldSync(true) on a permission_error row stays off', () => {
+            const blockedSchema = buildSchema({
+                table: 'Charge',
+                permission_error: 'Missing rak_charge_read',
+            })
+            const { logic, unmount } = mountWithSchemas([blockedSchema])
+
+            try {
+                logic.actions.toggleSchemaShouldSync(blockedSchema, true)
+                expect(logic.values.databaseSchema[0].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('toggleSchemaShouldSync(true) on a normal row still flips it on', () => {
+            const okSchema = buildSchema({ table: 'Customer' })
+            const { logic, unmount } = mountWithSchemas([okSchema])
+
+            try {
+                logic.actions.toggleSchemaShouldSync(okSchema, true)
+                expect(logic.values.databaseSchema[0].should_sync).toBe(true)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('toggleDirectQuerySchemaGroup skips permission_error rows in a group', () => {
+            // Direct-query mode groups by `<schema>.<table>` prefix. Even though permission_error
+            // is Stripe-only today, the reducer guard must hold for direct-query toggles too so a
+            // future source overriding `get_endpoint_permissions` doesn't regress.
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'public.customers' }),
+                buildSchema({ table: 'public.charges', permission_error: 'Missing scope' }),
+                buildSchema({ table: 'public.invoices' }),
+            ])
+
+            try {
+                logic.actions.toggleDirectQuerySchemaGroup('public', true)
+                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['public.customers'].should_sync).toBe(true)
+                expect(byTable['public.invoices'].should_sync).toBe(true)
+                expect(byTable['public.charges'].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
         })
     })
 })

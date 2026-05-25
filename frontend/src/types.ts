@@ -5912,6 +5912,12 @@ export interface ExternalDataSourceSyncSchema {
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
     /**
+     * For sources that gate read access by scope (e.g. Stripe restricted API keys), the
+     * reason this endpoint is currently unreachable. `null`/undefined = endpoint is
+     * available. The UI should disable selection and surface this string when set.
+     */
+    permission_error?: string | null
+    /**
      * User-selected source columns to sync. `null`/undefined = sync all columns.
      * PK columns and the active incremental field are always retained server-side.
      */

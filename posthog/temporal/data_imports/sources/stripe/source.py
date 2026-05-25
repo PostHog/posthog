@@ -51,6 +51,7 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
     StripeResumeConfig,
     StripeValidationError,
+    check_endpoint_permissions as check_stripe_endpoint_permissions,
     create_webhook,
     delete_webhook,
     get_external_webhook_info,
@@ -292,9 +293,14 @@ If automatic creation failed due to a permissions error and you're using a restr
         team_id: int,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
+        # Two-tier validation: callers without a specific schema (initial source setup,
+        # update) get the cheap auth-only probe. Schema-specific callers (e.g. the
+        # incremental-fields endpoint, which already knows the user picked this table)
+        # still get the per-endpoint probe so a 403 surfaces immediately.
+        endpoints = [schema_name] if schema_name is not None else None
         try:
             api_key = self._get_api_key(config, team_id)
-            if validate_stripe_credentials(api_key, schema_name, auth_method=config.auth_method.selection):
+            if validate_stripe_credentials(api_key, endpoints, auth_method=config.auth_method.selection):
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
@@ -333,6 +339,24 @@ If automatic creation failed due to a permissions error and you're using a restr
             return False, message
         except Exception as e:
             return False, str(e)
+
+    def get_endpoint_permissions(
+        self, config: StripeSourceConfig, team_id: int, endpoints: list[str]
+    ) -> dict[str, str | None]:
+        # Per-endpoint scope check used by the schema-selection UI to mark tables the user can /
+        # cannot sync. A 401 propagates as an empty dict + error so the caller can decide how to
+        # surface a credential failure separately from per-endpoint gaps.
+        try:
+            api_key = self._get_api_key(config, team_id)
+        except Exception as e:
+            error_msg = str(e)
+            return dict.fromkeys(endpoints, error_msg)
+
+        try:
+            return check_stripe_endpoint_permissions(api_key, endpoints, auth_method=config.auth_method.selection)
+        except StripeAuthenticationError as e:
+            error_msg = e.stripe_message
+            return dict.fromkeys(endpoints, error_msg)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[StripeResumeConfig]:
         return ResumableSourceManager[StripeResumeConfig](inputs, StripeResumeConfig)
