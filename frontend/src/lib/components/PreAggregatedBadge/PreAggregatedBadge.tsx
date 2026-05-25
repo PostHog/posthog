@@ -18,7 +18,7 @@ const VARIANT_CONFIG: Record<
         Icon: IconBolt,
     },
     precomputed: {
-        tooltip: 'Loaded instantly from a pre-computed result',
+        tooltip: 'Loaded from a pre-computed dataset',
         iconClassName: 'text-success w-4 h-4',
         Icon: IconDatabaseBolt,
     },
