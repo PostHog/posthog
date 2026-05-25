@@ -974,6 +974,7 @@ def forward_posthog_code_followup_activity(
 
     from posthog.models.integration import Integration, SlackIntegration
 
+    from products.slack_app.backend.api import resolve_slack_user
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.services.agent_command import send_user_message
     from products.tasks.backend.services.connection_token import create_sandbox_connection_token
@@ -999,18 +1000,17 @@ def forward_posthog_code_followup_activity(
     )
     slack = SlackIntegration(integration)
 
-    if slack_user_id != mapping.mentioning_slack_user_id:
+    # The sandbox runs under the original starter's identity, so any thread participant who drives
+    # it inherits those permissions. Require the follow-up sender to be a member of the same
+    # PostHog org as the starter — the same gate applied to new @mentions in
+    # resolve_posthog_code_slack_user_activity. Without this, external participants in shared /
+    # Slack Connect channels could drive a sandbox they shouldn't have access to.
+    if resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts) is None:
         log.info(
-            "posthog_code_followup_unauthorized_actor",
+            "posthog_code_followup_non_org_member",
             channel=channel,
             thread_ts=thread_ts,
-            expected=mapping.mentioning_slack_user_id,
-            actual=slack_user_id,
-        )
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="Only the person who started this task can send follow-up messages to the agent.",
+            slack_user_id=slack_user_id,
         )
         return True
 

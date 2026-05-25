@@ -426,6 +426,14 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             status=self.TaskRun.Status.IN_PROGRESS,
             state={"sandbox_url": "https://sandbox.example.com/rpc"},
         )
+        # Treat every Slack sender as an org member by default. Individual tests can override
+        # the patched resolver to simulate a non-org-member sender.
+        resolver_patcher = patch("products.slack_app.backend.api.resolve_slack_user")
+        self.mock_resolve_slack_user = resolver_patcher.start()
+        self.addCleanup(resolver_patcher.stop)
+        self.mock_resolve_slack_user.return_value = SimpleNamespace(
+            user=SimpleNamespace(id=self.user.id), is_team_member=True
+        )
 
     def _create_mapping(self, mentioning_user: str = "U_ALICE") -> SlackThreadTaskMapping:
         return SlackThreadTaskMapping.objects.create(
@@ -527,13 +535,13 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("initial_prompt_override", "")
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("pending_user_message", "")
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_terminal_run_unauthorized_user_returns_true_with_error(self, mock_slack_cls):
+    def test_terminal_run_resumes_for_other_thread_participant(self, mock_slack_cls, mock_execute_workflow):
         self.task_run.status = self.TaskRun.Status.COMPLETED
         self.task_run.save()
         self._create_mapping(mentioning_user="U_ALICE")
-        mock_slack_instance = MagicMock()
-        mock_slack_cls.return_value = mock_slack_instance
+        mock_slack_cls.return_value = MagicMock()
 
         inputs = _make_inputs(self.integration.id)
         result = forward_posthog_code_followup_activity(
@@ -541,8 +549,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         assert result is True
-        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
-        assert "Only the person who started" in call_kwargs["text"]
+        mock_execute_workflow.assert_called_once()
+        assert mock_execute_workflow.call_args.kwargs["task_id"] == str(self.task.id)
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_run_missing_created_by_returns_true_with_error(self, mock_slack_cls):
@@ -586,20 +594,40 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
         assert mapping.task_run_id == self.task_run.id
 
+    @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt-token")
+    @patch("products.tasks.backend.services.agent_command.send_user_message")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_unauthorized_actor_returns_true_with_message(self, mock_slack_cls):
+    def test_other_thread_participant_can_send_followup(self, mock_slack_cls, mock_send, mock_token):
         self._create_mapping(mentioning_user="U_ALICE")
-        mock_slack_instance = MagicMock()
-        mock_slack_cls.return_value = mock_slack_instance
+        mock_slack_cls.return_value = MagicMock()
+        mock_send.return_value = _command_result(
+            success=True,
+            status_code=200,
+            data={"result": {"assistant_message": "thanks"}},
+        )
 
         inputs = _make_inputs(self.integration.id)
         result = forward_posthog_code_followup_activity(
-            inputs, "C123", "1234.5678", "U_BOB", "do something", "1234.5679"
+            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> do something", "1234.5679"
         )
         assert result is True
-        mock_slack_instance.client.chat_postMessage.assert_called_once()
-        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
-        assert "Only the person who started" in call_kwargs["text"]
+        mock_send.assert_called_once_with(self.task_run, "do something", auth_token="jwt-token", timeout=90)
+
+    @patch("products.tasks.backend.services.agent_command.send_user_message")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_non_org_member_followup_is_dropped(self, mock_slack_cls, mock_send):
+        # External Slack user in a shared channel — resolve_slack_user returns None and posts
+        # an ephemeral rejection. The activity must not forward the message to the sandbox.
+        self._create_mapping(mentioning_user="U_ALICE")
+        mock_slack_cls.return_value = MagicMock()
+        self.mock_resolve_slack_user.return_value = None
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_EXTERNAL", "<@BOT> do something", "1234.5679"
+        )
+        assert result is True
+        mock_send.assert_not_called()
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_sandbox_not_ready_returns_true_with_message(self, mock_slack_cls):
