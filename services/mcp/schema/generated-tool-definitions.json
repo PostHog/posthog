@@ -1140,7 +1140,7 @@
         }
     },
     "dashboard-update-text-tile": {
-        "description": "Update the markdown body, layout, or color of an existing text tile on a dashboard. Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are updated; omitted fields are left unchanged. To remove a text tile from a dashboard, use dashboard-update with the tile's `deleted: true` flag instead.",
+        "description": "Update the markdown body, layout, or color of an existing text tile on a dashboard. Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are updated; omitted fields are left unchanged.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard text tile",
