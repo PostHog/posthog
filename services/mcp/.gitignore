@@ -28,3 +28,6 @@ public/ui-apps/
 
 # Copied instruction references (from products/posthog_ai)
 shared/
+
+# Local profiler output (services/mcp/scripts/profile-ram.ts)
+.heapsnapshots/

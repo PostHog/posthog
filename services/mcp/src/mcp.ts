@@ -17,6 +17,7 @@ import {
     toCloudRegion,
 } from '@/lib/constants'
 import { handleToolError, wrapError } from '@/lib/errors'
+import { InitProfiler } from '@/lib/init-profiler'
 import { type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { getPostHogClient } from '@/lib/posthog'
@@ -550,6 +551,9 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
+        const profiler = new InitProfiler()
+        profiler.mark('init_start')
+
         const {
             features,
             tools,
@@ -566,6 +570,7 @@ export class MCP extends McpAgent<Env> {
         // worker entry point); the DO-storage fallback inside
         // `resolveClientInfo` is only reachable post-init.
         await this.resolveClientInfo()
+        profiler.mark('client_info_resolved')
 
         // User-level flags resolve in parallel with cache seeding. Tool flags are
         // deferred until orgId is known so org-group rollouts evaluate correctly.
@@ -597,6 +602,7 @@ export class MCP extends McpAgent<Env> {
         if (!cachedProjectId) {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
+        profiler.mark('default_org_project_resolved')
 
         // Flag-eval groups mirror analytics `$groups` so per-organization and per-project
         // rollouts evaluate against the same entities — see `buildMCPAnalyticsGroups`.
@@ -610,6 +616,7 @@ export class MCP extends McpAgent<Env> {
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
         ])
+        profiler.mark('flags_and_auth_resolved')
 
         const oauthClientName = (await this.cache.get('clientName')) || undefined
 
@@ -641,6 +648,7 @@ export class MCP extends McpAgent<Env> {
             })(),
             context.stateManager.getEnvironmentPrompt(),
         ])
+        profiler.mark('group_types_and_metadata_fetched')
         // When project ID is provided, both switch tools are removed (project implies org).
         // When only organization ID is provided, only switch-organization is removed.
         const excludeTools: string[] = []
@@ -653,6 +661,7 @@ export class MCP extends McpAgent<Env> {
         // Fetch tools up-front so we can build the query tool catalog (and the
         // CLI exec tool's domain list) before constructing the system prompt.
         const { getToolsFromContext } = await import('@/tools')
+        profiler.mark('tools_module_loaded')
         const allTools = await getToolsFromContext(context, {
             features,
             tools,
@@ -661,6 +670,7 @@ export class MCP extends McpAgent<Env> {
             readOnly,
             featureFlags: toolFeatureFlags,
         })
+        profiler.mark('tools_factories_built')
 
         // OAuth introspection ran above (we awaited `getApiKey()` before constructing
         // `clientProfile`), so update the ApiClient with the verified OAuth client
@@ -721,9 +731,11 @@ export class MCP extends McpAgent<Env> {
         // per-DO startup memory cost. `_instructions` is private in @modelcontextprotocol/sdk's
         // Server, so cast through unknown.
         ;(this.server.server as unknown as { _instructions: string })._instructions = instructions
+        profiler.mark('instructions_built')
 
         // Register resources (context-mill catalog metadata + UI apps).
         await Promise.all([registerResources(this.server, context), registerUiAppResources(this.server, context)])
+        profiler.mark('resources_registered')
 
         // execute-sql is v2-only. Swap its description with the rich SQL prompt
         // (visible via `info execute-sql` in single-exec, and as the tool's own
@@ -777,6 +789,7 @@ export class MCP extends McpAgent<Env> {
                 this.registerTool(typedTool, async (params) => typedTool.handler(context, params))
             }
         }
+        profiler.mark('tools_registered')
 
         // mcp-analytics (per-tool wrapper + tracing) is disabled — the per-DO
         // wrapping pass was the dominant per-DO startup cost (see profile-ram
@@ -787,6 +800,21 @@ export class MCP extends McpAgent<Env> {
         const initDurationMs = this.requestProperties.requestStartTime
             ? Date.now() - this.requestProperties.requestStartTime
             : undefined
+
+        // One structured log per init. Filter on `event=mcp_init_timeline`
+        // in the prod log pipeline to attribute the setName/init() wallTime+CPU
+        // to the specific phase that owns it. We can't measure bundle parse +
+        // module-top-level cost from inside the worker — Cloudflare quantizes
+        // `performance.now()` per request to prevent timing fingerprinting,
+        // so cross-request comparisons are meaningless. That cost shows up as
+        // the gap between request arrival and the first `init_start` mark in
+        // the access log.
+        profiler.flush({
+            tool_count: allTools.length,
+            use_single_exec: useSingleExec,
+            version,
+            mode: mode ?? null,
+        })
 
         // Resolve analytics context from the already-primed cache (getEnvironmentPrompt
         // above populated `cachedProject`/`cachedOrg`), so this is effectively free here.
