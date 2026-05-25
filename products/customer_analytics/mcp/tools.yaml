@@ -36,6 +36,7 @@ tools:
                 description: >
                     Tag names to attach to the account. Tags are created on demand if they do not already exist for the
                     team.
+        feature_flag: customer-analytics-csp
     accounts-destroy:
         operation: accounts_destroy
         enabled: true
@@ -48,6 +49,7 @@ tools:
         title: Delete account
         description: |
             Permanently delete a Customer Analytics account by id.
+        feature_flag: customer-analytics-csp
     accounts-list:
         operation: accounts_list
         enabled: true
@@ -71,6 +73,7 @@ tools:
                 description: >
                     JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
                     that have any of the listed tags.
+        feature_flag: customer-analytics-csp
     accounts-partial-update:
         operation: accounts_partial_update
         enabled: true
@@ -95,6 +98,7 @@ tools:
                 description: >
                     Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a
                     delta. Tags are created on demand if they do not already exist for the team.
+        feature_flag: customer-analytics-csp
     accounts-retrieve:
         operation: accounts_retrieve
         enabled: true
@@ -109,6 +113,7 @@ tools:
             Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
             account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
             zendesk_id external identifiers) and `tags`.
+        feature_flag: customer-analytics-csp
     accounts-update:
         operation: accounts_update
         enabled: false

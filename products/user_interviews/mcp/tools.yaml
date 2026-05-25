@@ -26,6 +26,7 @@ tools:
             unchanged. Returns the updated topic.
         include_params:
             - identifier
+        feature_flag: user-interviews
     user-interview-topics-create:
         operation: user_interview_topics_create
         enabled: true
@@ -51,6 +52,7 @@ tools:
             - topic
             - agent_context
             - questions
+        feature_flag: user-interviews
     user-interview-topics-destroy:
         operation: user_interview_topics_destroy
         enabled: false
@@ -70,6 +72,7 @@ tools:
             an IntervieweeContext row and an enabled SharingConfiguration, and returns the merged voice-agent context
             alongside the URL the interviewee should open. The URL hosts the call publicly — no PostHog login required.
             Calling this multiple times is safe: existing share links are reused.
+        feature_flag: user-interviews
     user-interview-topics-interviewees-bulk-create:
         operation: user_interview_topics_interviewees_bulk_create
         enabled: true
@@ -88,6 +91,7 @@ tools:
             `user-interview-topics-interviewees-create` when adding many rows.
         include_params:
             - items
+        feature_flag: user-interviews
     user-interview-topics-interviewees-create:
         operation: user_interview_topics_interviewees_create
         enabled: true
@@ -108,6 +112,7 @@ tools:
         include_params:
             - interviewee_identifier
             - agent_context
+        feature_flag: user-interviews
     user-interview-topics-interviewees-destroy:
         operation: user_interview_topics_interviewees_destroy
         enabled: true
@@ -123,6 +128,7 @@ tools:
             `IntervieweeContext` row — does not change the topic's targeting (`interviewee_emails` /
             `interviewee_distinct_ids`). Use `user-interview-topics-remove-interviewee` if you want to drop the
             interviewee from targeting as well.
+        feature_flag: user-interviews
     user-interview-topics-interviewees-list:
         operation: user_interview_topics_interviewees_list
         enabled: true
@@ -137,6 +143,7 @@ tools:
         description: >
             List the per-interviewee context rows attached to a single user interview topic. Each row is
             (interviewee_identifier, agent_context). Use this to see who has extra context attached before adding more.
+        feature_flag: user-interviews
     user-interview-topics-interviewees-partial-update:
         operation: user_interview_topics_interviewees_partial_update
         enabled: true
@@ -153,6 +160,7 @@ tools:
             `user-interview-topics-remove-interviewee` for that.
         include_params:
             - agent_context
+        feature_flag: user-interviews
     user-interview-topics-interviewees-retrieve:
         operation: user_interview_topics_interviewees_retrieve
         enabled: false
@@ -174,6 +182,7 @@ tools:
             downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`.
             Use this when the human plans to mail-merge the links into their own email tooling rather than letting
             PostHog send the invites.
+        feature_flag: user-interviews
     user-interview-topics-list:
         operation: user_interview_topics_list
         enabled: true
@@ -189,6 +198,7 @@ tools:
             List planned user interview topics in the current project, newest first. Each result includes the topic,
             targeting (interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context,
             questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.
+        feature_flag: user-interviews
     user-interview-topics-partial-update:
         operation: user_interview_topics_partial_update
         enabled: true
@@ -209,6 +219,7 @@ tools:
             - questions
             - interviewee_emails
             - interviewee_distinct_ids
+        feature_flag: user-interviews
     user-interview-topics-remove-interviewee:
         operation: user_interview_topics_remove_interviewee_create
         enabled: true
@@ -226,6 +237,7 @@ tools:
             removing an identifier that isn't present is a no-op. Returns the updated topic.
         include_params:
             - identifier
+        feature_flag: user-interviews
     user-interview-topics-retrieve:
         operation: user_interview_topics_retrieve
         enabled: true
@@ -240,6 +252,7 @@ tools:
             Retrieve a single user interview topic by ID, including its full targeting (`interviewee_emails`,
             `interviewee_distinct_ids`), voice agent setup (`agent_context`, `questions`), and metadata. Use this to
             list the current interviewees on a topic before adding, editing, or removing them.
+        feature_flag: user-interviews
     user-interview-topics-send-invites:
         operation: user_interview_topics_send_invites_create
         enabled: true
@@ -260,6 +273,7 @@ tools:
             - subject
             - reply_to
             - send_async
+        feature_flag: user-interviews
     user-interview-topics-update:
         operation: user_interview_topics_update
         enabled: false
@@ -288,6 +302,7 @@ tools:
             yet?". Use `limit`/`offset` for pagination. `transcript` and `summary` can be long; when listing, prefer
             skimming the response shapes and then call `user-interviews-retrieve` for the full text of a specific
             interview.
+        feature_flag: user-interviews
     user-interviews-partial-update:
         operation: user_interviews_partial_update
         enabled: false
@@ -305,6 +320,7 @@ tools:
             Fetch a single completed user interview response by id, including the full AI-generated `transcript` and
             `summary`. Use after `user-interviews-list` has narrowed down to a specific interview — for example, to read
             what a particular interviewee said about a research topic.
+        feature_flag: user-interviews
     user-interviews-search:
         operation: user_interviews_search_create
         enabled: true
@@ -323,6 +339,7 @@ tools:
             `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of
             returned matches (1-50, default 10). Useful for surfacing relevant excerpts when the caller has a research
             question rather than a known string to grep for.
+        feature_flag: user-interviews
     user-interviews-update:
         operation: user_interviews_update
         enabled: false

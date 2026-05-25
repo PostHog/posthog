@@ -88,7 +88,12 @@ describe('Tool schema snapshots', () => {
     it('snapshots runtime tool schemas', async () => {
         const shouldUpdateSnapshots = isSnapshotUpdateAll()
         const root = path.resolve(__dirname, '__snapshots__', 'tool-schemas')
-        const tools = [...(await getToolsFromContext(context))].sort((a, b) => a.name.localeCompare(b.name))
+        // Enable flag-gated tools we snapshot here: agent-feedback, tracing (APM spans). Other
+        // flag-gated tools (logs-alerts, visual-review, etc.) stay off to keep the surface stable.
+        const featureFlags = { 'mcp-feedback-tool': true, tracing: true }
+        const tools = [...(await getToolsFromContext(context, { featureFlags }))].sort((a, b) =>
+            a.name.localeCompare(b.name)
+        )
 
         await mkdir(root, { recursive: true })
         const expectedPaths = new Set<string>()

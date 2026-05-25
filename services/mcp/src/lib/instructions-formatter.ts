@@ -31,6 +31,9 @@ export interface InstructionsContext {
     metadata?: string | undefined
     tools?: ToolInfo[] | undefined
     queryTools?: QueryToolInfo[] | undefined
+    /** Resolved tool feature flags from `resolveToolFeatureFlags`. Used to gate
+     *  prompt sections whose corresponding tool is flag-gated. */
+    featureFlags?: Record<string, boolean> | undefined
 }
 
 /**
@@ -50,7 +53,7 @@ export class InstructionsFormatter {
                 SCHEMA_WORKFLOW,
                 ENV_CONTEXT,
                 URL_PATTERNS,
-                AGENT_FEEDBACK,
+                ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
                 EXAMPLES,
             ],
             ctx,
@@ -87,11 +90,18 @@ export class InstructionsFormatter {
             SCHEMA_WORKFLOW,
             ENV_CONTEXT,
             URL_PATTERNS,
-            AGENT_FEEDBACK,
+            ...(this.agentFeedbackEnabled(ctx.featureFlags) ? [AGENT_FEEDBACK] : []),
             EXAMPLES,
         ]
         const renderCtx: InstructionsContext = opts.stripEnvContext ? { guidelines: ctx.guidelines } : ctx
         return this.compose(sections, renderCtx, { compact: false })
+    }
+
+    /** The agent-feedback section is only useful when the `agent-feedback` tool
+     *  is reachable, which is governed by the `mcp-feedback-tool` flag evaluated
+     *  in `resolveToolFeatureFlags`. */
+    private agentFeedbackEnabled(featureFlags: Record<string, boolean> | undefined): boolean {
+        return featureFlags?.['mcp-feedback-tool'] === true
     }
 
     private compose(sections: string[], ctx: InstructionsContext, opts: { compact: boolean }): string {

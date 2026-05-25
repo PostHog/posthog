@@ -3,6 +3,7 @@ import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import { evaluateFeatureFlags, type FlagGroups } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
+import { getRequiredFeatureFlags } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, ZodObjectAny } from '@/tools/types'
 
 import type { RedisLike } from './cache/RedisCache'
@@ -16,6 +17,7 @@ export interface ResolvedState {
     context: Context
     version: number
     useSingleExec: boolean
+    toolFeatureFlags: Record<string, boolean> | undefined
     apiKeyScopes: string[]
     clientProfile: MCPClientProfile
     allTools: Tool<ZodObjectAny>[]
@@ -75,16 +77,22 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.cache.get('projectId')) ?? undefined
         }
 
+        const toolFlagKeys = getRequiredFeatureFlags()
+        const allFlagKeys = [...SYSTEM_FLAGS, ...toolFlagKeys]
+
         const flagAnalyticsContext = await reqCtx.getAnalyticsContextSafe(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
         const [allFlags, _apiKey, distinctId] = await Promise.all([
-            this.resolveAllFlags(reqCtx, [...SYSTEM_FLAGS], flagGroups),
+            this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
 
         const singleExecFlagOn = !!allFlags['mcp-single-exec-tool']
+        const toolFeatureFlags = toolFlagKeys.length > 0
+            ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]]))
+            : undefined
 
         const oauthClientName = (await reqCtx.cache.get('clientName')) || undefined
         const mcpClientName = props.mcpClientName || (await reqCtx.cache.get('mcpClientName')) || undefined
@@ -117,6 +125,7 @@ export class RequestStateResolver {
             tools,
             excludeTools,
             readOnly,
+            featureFlags: toolFeatureFlags,
             scopes: apiKeyScopes,
             aiConsentGiven: aiConsentGiven ?? undefined,
         })
@@ -126,6 +135,7 @@ export class RequestStateResolver {
             context,
             version,
             useSingleExec,
+            toolFeatureFlags,
             apiKeyScopes,
             clientProfile,
             allTools,

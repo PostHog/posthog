@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
-import { getToolDefinitions, getToolsForFeatures, type ToolDefinition } from '@/tools/toolDefinitions'
+import {
+    getRequiredFeatureFlags,
+    getToolDefinitions,
+    getToolsForFeatures,
+    type ToolDefinition,
+} from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
 /**
@@ -131,14 +136,16 @@ describe('Tool Filtering - Tools Allowlist', () => {
             expect(withEmptyTools).toEqual(allTools)
         })
 
-        it('should return only specified tools (plus always_available tools)', () => {
+        it('should return only specified tools (plus always_available tools when enabled)', () => {
             const tools = getToolsForFeatures({
                 tools: ['dashboard-get', 'dashboard-create'],
+                featureFlags: { 'mcp-feedback-tool': true },
             })
             expect(tools).toContain('dashboard-get')
             expect(tools).toContain('dashboard-create')
 
-            // always_available tools are included alongside the allowlist regardless of order.
+            // always_available tools are included alongside the allowlist regardless of order
+            // (when their gating feature flag is enabled).
             const alwaysAvailableTools = collectAlwaysAvailableToolNames()
             expect(tools).toContain('agent-feedback')
 
@@ -152,6 +159,7 @@ describe('Tool Filtering - Tools Allowlist', () => {
         it('should return only always_available tools for nonexistent tool names', () => {
             const tools = getToolsForFeatures({
                 tools: ['nonexistent-tool'],
+                featureFlags: { 'mcp-feedback-tool': true },
             })
             const alwaysAvailableTools = collectAlwaysAvailableToolNames()
 
@@ -163,8 +171,19 @@ describe('Tool Filtering - Tools Allowlist', () => {
         it('should always include agent-feedback even when feature filter matches no tools', () => {
             const tools = getToolsForFeatures({
                 features: ['nonexistent-feature'],
+                featureFlags: { 'mcp-feedback-tool': true },
             })
             expect(tools).toContain('agent-feedback')
+        })
+
+        it('should hide agent-feedback when its gating feature flag is off', () => {
+            // Flag explicitly off — tool is hidden even though it's always_available.
+            const toolsWithFlagOff = getToolsForFeatures({ featureFlags: { 'mcp-feedback-tool': false } })
+            expect(toolsWithFlagOff).not.toContain('agent-feedback')
+
+            // No flags evaluated at all — also hidden (default behavior is `enable`).
+            const toolsWithoutFlags = getToolsForFeatures({})
+            expect(toolsWithoutFlags).not.toContain('agent-feedback')
         })
 
         it('should union with features (OR) when both are provided', () => {
@@ -199,6 +218,7 @@ describe('Tool Filtering - Tools Allowlist', () => {
             const withConsent = getToolsForFeatures({
                 tools: ['dashboard-get', 'session-recording-summarize'],
                 aiConsentGiven: true,
+                featureFlags: { 'replay-video-based-summarization': true },
             })
             expect(withConsent).toContain('dashboard-get')
             expect(withConsent).toContain('session-recording-summarize')
@@ -303,7 +323,7 @@ describe('Tool Filtering - API Scopes', () => {
 
     it('should return only tools with no required scopes when user has no matching scopes', async () => {
         const context = createMockContext(['some:unknown'])
-        const tools = await getToolsFromContext(context)
+        const tools = await getToolsFromContext(context, { featureFlags: { 'mcp-feedback-tool': true } })
         const toolNames = tools.map((t) => t.name)
 
         // Only tools with no required scopes (or that bypass scope checks) should be available.
@@ -314,7 +334,7 @@ describe('Tool Filtering - API Scopes', () => {
 
     it('should return only tools with no required scopes when user has empty scopes', async () => {
         const context = createMockContext([])
-        const tools = await getToolsFromContext(context)
+        const tools = await getToolsFromContext(context, { featureFlags: { 'mcp-feedback-tool': true } })
         const toolNames = tools.map((t) => t.name)
 
         expect(toolNames).toContain('debug-mcp-ui-apps')
@@ -426,7 +446,10 @@ describe('Tool Filtering - AI Consent', () => {
     })
 
     it('should include tools requiring AI consent when aiConsentGiven is true', () => {
-        const tools = getToolsForFeatures({ aiConsentGiven: true })
+        const tools = getToolsForFeatures({
+            aiConsentGiven: true,
+            featureFlags: { 'replay-video-based-summarization': true },
+        })
         expect(tools).toContain('session-recording-summarize')
     })
 
@@ -493,7 +516,7 @@ describe('Tool Filtering - AI Consent', () => {
             getDistinctId: async () => 'test-distinct-id',
             trackEvent: async () => {},
         }
-        const tools = await getToolsFromContext(context)
+        const tools = await getToolsFromContext(context, { featureFlags: { 'replay-video-based-summarization': true } })
         const toolNames = tools.map((t) => t.name)
         expect(toolNames).toContain('session-recording-summarize')
     })
@@ -553,5 +576,174 @@ describe('Tool Filtering - Read-Only Mode', () => {
         expect(toolNames).not.toContain('dashboard-get')
         expect(toolNames).not.toContain('dashboard-create')
         expect(toolNames).toContain('dashboards-get-all')
+    })
+})
+
+describe('Tool Filtering - Feature Flags', () => {
+    const baseAnnotations = {
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+        readOnlyHint: true,
+    }
+
+    const baseDef: ToolDefinition = {
+        description: 'test',
+        category: 'Test',
+        feature: 'test',
+        summary: 'test',
+        title: 'test',
+        required_scopes: ['test:read'],
+        annotations: baseAnnotations,
+    }
+
+    it('should not affect tools without feature_flag when featureFlags is provided', () => {
+        const withoutFlags = getToolsForFeatures({})
+        const withFlags = getToolsForFeatures({ featureFlags: { 'some-flag': true } })
+        // No real tool has feature_flag, so results should be identical
+        expect(withFlags).toEqual(withoutFlags)
+    })
+
+    it('should not affect tools without feature_flag when featureFlags is empty', () => {
+        const withoutFlags = getToolsForFeatures({})
+        const withFlags = getToolsForFeatures({ featureFlags: {} })
+        expect(withFlags).toEqual(withoutFlags)
+    })
+
+    it('getRequiredFeatureFlags should return flags used by current definitions', () => {
+        const flags = getRequiredFeatureFlags()
+        // Includes the gating flag for agent-feedback alongside the other gated tools.
+        expect(flags).toEqual(
+            expect.arrayContaining([
+                'logs-alerting',
+                'replay-video-based-summarization',
+                'tracing',
+                'visual-review',
+                'mcp-feedback-tool',
+                'user-interviews',
+                'customer-analytics-csp',
+            ])
+        )
+        expect(flags).toHaveLength(7)
+    })
+
+    // Test the filtering logic with a direct unit test approach using
+    // a standalone implementation that mirrors getToolsForFeatures' logic
+    describe('feature flag filter predicate', () => {
+        function filterByFeatureFlags(
+            entries: [string, ToolDefinition][],
+            featureFlags?: Record<string, boolean>
+        ): string[] {
+            let filtered = entries
+
+            if (featureFlags) {
+                filtered = filtered.filter(([_, definition]) => {
+                    if (!definition.feature_flag) {
+                        return true
+                    }
+                    const flagValue = featureFlags[definition.feature_flag]
+                    const isOn = flagValue === true
+                    const behavior = definition.feature_flag_behavior ?? 'enable'
+                    return behavior === 'enable' ? isOn : !isOn
+                })
+            } else {
+                filtered = filtered.filter(([_, definition]) => {
+                    if (!definition.feature_flag) {
+                        return true
+                    }
+                    return (definition.feature_flag_behavior ?? 'enable') === 'disable'
+                })
+            }
+
+            return filtered.map(([name]) => name)
+        }
+
+        it('should include tools with feature_flag when flag is enabled', () => {
+            const entries: [string, ToolDefinition][] = [
+                ['tool-a', { ...baseDef }],
+                ['tool-b', { ...baseDef, feature_flag: 'flag-new-tool' }],
+            ]
+            const tools = filterByFeatureFlags(entries, { 'flag-new-tool': true })
+            expect(tools).toContain('tool-a')
+            expect(tools).toContain('tool-b')
+        })
+
+        it('should exclude tools with feature_flag when flag is disabled', () => {
+            const entries: [string, ToolDefinition][] = [
+                ['tool-a', { ...baseDef }],
+                ['tool-b', { ...baseDef, feature_flag: 'flag-new-tool' }],
+            ]
+            const tools = filterByFeatureFlags(entries, { 'flag-new-tool': false })
+            expect(tools).toContain('tool-a')
+            expect(tools).not.toContain('tool-b')
+        })
+
+        it('should exclude enable-gated tools when no featureFlags provided', () => {
+            const entries: [string, ToolDefinition][] = [
+                ['tool-a', { ...baseDef }],
+                ['tool-b', { ...baseDef, feature_flag: 'flag-new-tool' }],
+            ]
+            const tools = filterByFeatureFlags(entries)
+            expect(tools).toContain('tool-a')
+            expect(tools).not.toContain('tool-b')
+        })
+
+        it('should exclude enable-gated tools when flag is missing from evaluated map', () => {
+            const entries: [string, ToolDefinition][] = [
+                ['tool-a', { ...baseDef }],
+                ['tool-b', { ...baseDef, feature_flag: 'flag-new-tool' }],
+            ]
+            const tools = filterByFeatureFlags(entries, {})
+            expect(tools).toContain('tool-a')
+            expect(tools).not.toContain('tool-b')
+        })
+
+        it('should hide tool with disable behavior when flag is enabled', () => {
+            const entries: [string, ToolDefinition][] = [
+                ['old-tool', { ...baseDef, feature_flag: 'flag-sunset', feature_flag_behavior: 'disable' }],
+                ['new-tool', { ...baseDef, feature_flag: 'flag-sunset' }],
+            ]
+            const tools = filterByFeatureFlags(entries, { 'flag-sunset': true })
+            expect(tools).not.toContain('old-tool')
+            expect(tools).toContain('new-tool')
+        })
+
+        it('should show tool with disable behavior when flag is off', () => {
+            const entries: [string, ToolDefinition][] = [
+                ['old-tool', { ...baseDef, feature_flag: 'flag-sunset', feature_flag_behavior: 'disable' }],
+                ['new-tool', { ...baseDef, feature_flag: 'flag-sunset' }],
+            ]
+            const tools = filterByFeatureFlags(entries, { 'flag-sunset': false })
+            expect(tools).toContain('old-tool')
+            expect(tools).not.toContain('new-tool')
+        })
+
+        it('should include disable-gated tools when no featureFlags provided', () => {
+            const entries: [string, ToolDefinition][] = [
+                ['old-tool', { ...baseDef, feature_flag: 'flag-sunset', feature_flag_behavior: 'disable' }],
+            ]
+            const tools = filterByFeatureFlags(entries)
+            expect(tools).toContain('old-tool')
+        })
+
+        it('should support same flag enabling new tools and disabling old ones', () => {
+            const entries: [string, ToolDefinition][] = [
+                ['old-tool-v1', { ...baseDef, feature_flag: 'flag-experiment', feature_flag_behavior: 'disable' }],
+                ['new-tool-v2', { ...baseDef, feature_flag: 'flag-experiment' }],
+                ['unrelated-tool', { ...baseDef }],
+            ]
+
+            // Flag on: new tool visible, old tool hidden
+            const toolsOn = filterByFeatureFlags(entries, { 'flag-experiment': true })
+            expect(toolsOn).toContain('new-tool-v2')
+            expect(toolsOn).not.toContain('old-tool-v1')
+            expect(toolsOn).toContain('unrelated-tool')
+
+            // Flag off: old tool visible, new tool hidden
+            const toolsOff = filterByFeatureFlags(entries, { 'flag-experiment': false })
+            expect(toolsOff).not.toContain('new-tool-v2')
+            expect(toolsOff).toContain('old-tool-v1')
+            expect(toolsOff).toContain('unrelated-tool')
+        })
     })
 })

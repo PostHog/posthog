@@ -12,7 +12,8 @@
             "idempotentHint": false,
             "openWorldHint": false,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "mcp-feedback-tool"
     },
     "debug-mcp-ui-apps": {
         "description": "Debug tool for testing MCP Apps SDK integration. Returns sample data displayed in an interactive UI app with component showcase. Use this to verify that MCP Apps are working correctly.",
@@ -350,7 +351,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "replay-video-based-summarization"
     },
     "survey-create": {
         "description": "Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow.",

@@ -30,6 +30,7 @@ tools:
             List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository
             and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full
             name, baseline file paths, and pr-comment configuration.
+        feature_flag: visual-review
     visual-review-repos-partial-update:
         operation: visual_review_repos_partial_update
         enabled: false
@@ -55,6 +56,7 @@ tools:
         description: >
             Get a visual review repo by id. Returns baseline file paths keyed by run_type (e.g. storybook → baseline
             YAML path in the repo), pr-comment setting, and repo metadata.
+        feature_flag: visual-review
     visual-review-repos-runs-counts-retrieve:
         operation: visual_review_repos_runs_counts_retrieve
         enabled: false
@@ -89,6 +91,7 @@ tools:
         description: >
             Return review state counts across all runs for the current project: `needs_review`, `clean`, `processing`,
             `stale`. Useful as a single call to show reviewer workload before drilling into the list.
+        feature_flag: visual-review
     visual-review-runs-create:
         operation: visual_review_runs_create
         enabled: false
@@ -110,6 +113,7 @@ tools:
             triage workload, or by `pr_number` / `commit_sha` / `branch` to find the specific run(s) blocking a PR.
             Returns status, review decision, commit sha, branch, pr number, and a summary of changed / new / removed /
             unchanged snapshots.
+        feature_flag: visual-review
     visual-review-runs-recompute-create:
         operation: visual_review_runs_recompute_create
         enabled: false
@@ -128,6 +132,7 @@ tools:
             Get a visual review run by id. Returns run status, review decision, commit/branch/pr context, a summary
             (total, changed, new, removed, unchanged, tolerated-matched snapshot counts), and staleness info if a newer
             run supersedes this one. Use `visual-review-runs-snapshots-list` for per-snapshot diff details.
+        feature_flag: visual-review
     visual-review-runs-snapshot-history-list:
         operation: visual_review_runs_snapshot_history_list
         enabled: true
@@ -142,6 +147,7 @@ tools:
             List recent change history for a snapshot `identifier` across previous runs in the same repo. Useful for
             diagnosing flaky snapshots — if the same identifier flips between changed and clean across runs, it is a
             candidate for tolerated hashes or quarantine. Requires `identifier` query parameter.
+        feature_flag: visual-review
     visual-review-runs-snapshots-list:
         operation: visual_review_runs_snapshots_list
         enabled: true
@@ -158,6 +164,7 @@ tools:
             Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional
             `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and
             `review_state` (`pending`, `approved`). Paginated.
+        feature_flag: visual-review
     visual-review-runs-tolerate-create:
         operation: visual_review_runs_tolerate_create
         enabled: false
@@ -175,3 +182,4 @@ tools:
             List known tolerated alternate hashes for a snapshot `identifier` in the run's repo. Tolerated hashes
             catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes.
             Requires `identifier` query parameter.
+        feature_flag: visual-review

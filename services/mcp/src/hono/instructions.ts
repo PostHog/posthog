@@ -58,6 +58,7 @@ export class InstructionsBuilder {
                         ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
                     } as QueryToolInfo
                 }),
+            featureFlags: state.toolFeatureFlags,
         }
     }
 

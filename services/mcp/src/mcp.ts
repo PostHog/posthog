@@ -28,7 +28,7 @@ import {
     McpAnalyticsInitResult,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
+import { evaluateFeatureFlags, type FlagGroups, isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -555,7 +555,8 @@ export class MCP extends McpAgent<Env> {
         // `resolveClientInfo` is only reachable post-init.
         await this.resolveClientInfo()
 
-        // User-level flags resolve in parallel with cache seeding.
+        // User-level flags resolve in parallel with cache seeding. Tool flags are
+        // deferred until orgId is known so org-group rollouts evaluate correctly.
         const singleExecPromise = this.resolveSingleExecFlag()
 
         // Seed cache with header-provided IDs before any fetches
@@ -585,7 +586,14 @@ export class MCP extends McpAgent<Env> {
             await context.stateManager.setDefaultOrganizationAndProject()
         }
 
-        const [singleExecFlagOn, _apiKey] = await Promise.all([
+        // Flag-eval groups mirror analytics `$groups` so per-organization and per-project
+        // rollouts evaluate against the same entities — see `buildMCPAnalyticsGroups`.
+        const flagAnalyticsContext = await this.getAnalyticsContextSafe(context)
+        const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
+        const toolFlagsPromise = this.resolveToolFeatureFlags(flagGroups)
+
+        const [toolFeatureFlags, singleExecFlagOn, _apiKey] = await Promise.all([
+            toolFlagsPromise,
             singleExecPromise,
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
@@ -637,6 +645,7 @@ export class MCP extends McpAgent<Env> {
             tools,
             excludeTools,
             readOnly,
+            featureFlags: toolFeatureFlags,
         })
 
         // OAuth introspection ran above (we awaited `getApiKey()` before constructing
@@ -669,6 +678,7 @@ export class MCP extends McpAgent<Env> {
             metadata,
             tools: toolInfos,
             queryTools: queryToolInfos,
+            featureFlags: toolFeatureFlags,
         }
 
         // In single-exec mode, when the client honors the MCP `instructions` field we
@@ -872,6 +882,20 @@ export class MCP extends McpAgent<Env> {
             return !!(await isFeatureFlagEnabled('mcp-single-exec-tool', distinctId))
         } catch {
             return false
+        }
+    }
+
+    private async resolveToolFeatureFlags(groups?: FlagGroups): Promise<Record<string, boolean> | undefined> {
+        try {
+            const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
+            const flagKeys = getRequiredFeatureFlags()
+            if (flagKeys.length === 0) {
+                return undefined
+            }
+            const distinctId = await this.getDistinctId()
+            return await evaluateFeatureFlags(flagKeys, distinctId, groups)
+        } catch {
+            return undefined
         }
     }
 }

@@ -13,7 +13,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "customer-analytics-csp"
     },
     "accounts-destroy": {
         "description": "Permanently delete a Customer Analytics account by id.",
@@ -29,7 +30,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
         "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id.",
@@ -45,7 +47,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "customer-analytics-csp"
     },
     "accounts-partial-update": {
         "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged. Pass `tags` to replace the full set of tags on the account.",
@@ -61,7 +64,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
         "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`.",
@@ -77,7 +81,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "customer-analytics-csp"
     },
     "action-create": {
         "description": "Create a new action in the project. Actions define reusable event triggers based on page views, clicks, form submissions, or custom events. Each action can have multiple steps (OR conditions). Use actions to create composite events for insights and funnels. Example: Create a 'Sign Up Click' action with steps matching button clicks on the signup page.",
@@ -220,7 +225,8 @@
             "idempotentHint": false,
             "openWorldHint": false,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "mcp-feedback-tool"
     },
     "alert-create": {
         "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nNote: subscribed_users only controls email recipients. For Slack or HTTPS webhook delivery, see the recipe on cdp-functions-create \u2014 it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
@@ -412,7 +418,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tracing"
     },
     "apm-attributes-list": {
         "description": "List available span or resource attribute names. Use attribute_type \"span_attribute\" for span-level attributes or \"span_resource_attribute\" for resource-level attributes (e.g. k8s labels). Use this to discover available attribute keys before building filters.",
@@ -428,7 +435,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tracing"
     },
     "apm-services-list": {
         "description": "List distinct service names that have emitted trace spans. Use to discover available services before filtering spans by service name.",
@@ -444,7 +452,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tracing"
     },
     "apm-spans-aggregate": {
         "description": "Aggregate trace span statistics grouped by `(service_name, name)` over a date window.\n\nReturns one row per `(service_name, name)` pair with the following metrics:\n\n- `count` \u2014 number of spans matched\n- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` \u2014 duration stats in nanoseconds (1 second = 1,000,000,000 ns)\n- `error_count` \u2014 spans with OTel status code `Error` (status_code = 2)\n\nRows are ordered by `total_duration_nano` DESC and capped at 5000.\n\nUse to answer:\n\n- \"Which services/operations consume the most time?\"\n- \"What's the p95 latency of `GET /users`?\"\n- \"How many errors did the checkout service emit in the last day?\"\n- \"Did `POST /orders` get slower this week vs last week?\" (with `compareFilter`)\n\nFor per-call-tree breakdowns (parent \u2192 child relationships), use `apm-spans-tree` instead.\n\nAll parameters must be nested inside a `query` object.\n\n# Comparison window\n\nSet `query.compareFilter.compare: true` to also fetch a comparison window. The response then includes a `compare` array of the same shape as `results`.\n\n- Omit `compare_to` (or set null) to compare against the immediately previous period of equal length (e.g. `dateRange: -1d` \u2192 compares vs the day before).\n- Set `compare_to: \"-7d\"` to compare against the window 7 days earlier (same length as the primary window).\n\n# Data narrowing\n\n## Property filters\n\nUse `query.filterGroup` to narrow results to spans matching specific attributes. Only include filters that are essential to the user's question.\n\nFilter `type` values:\n\n- `span` \u2014 built-in span fields (trace_id, span_id, duration, name, kind, status_code)\n- `span_attribute` \u2014 span-level attributes (e.g. \"http.method\", \"http.status_code\")\n- `span_resource_attribute` \u2014 resource-level attributes (e.g. k8s labels, deployment info)\n\nUse `apm-attributes-list` and `apm-attribute-values-list` to discover available attribute keys/values before guessing.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Existence (no value needed): `is_set`, `is_not_set`\n\n## Time period\n\nUse `query.dateRange` to control the time window. Default is the last hour (`-1h`). Examples: `-1h`, `-6h`, `-1d`, `-7d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Omit when you only need the primary window.\n\n- `compare` (boolean): set to true to enable comparison.\n- `compare_to` (string, optional): relative offset for the comparison window (e.g. `-1d`, `-7d`). Defaults to the immediately previous period of equal length.\n\n## query.serviceNames\n\nList of service names to restrict the aggregation to. Use `apm-services-list` to discover available services.\n\n## query.filterGroup\n\nA flat list of property filters applied to both the primary and comparison windows. See the \"Property filters\" section.\n\n# Examples\n\n## Top operations by total time in the last hour\n\n```json\n{\n  \"query\": {}\n}\n```\n\n## p95 latency by operation in the last day\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\nInspect the `p95_duration_nano` field on each result.\n\n## Compare this hour vs the previous hour\n\n```json\n{\n  \"query\": {\n    \"compareFilter\": { \"compare\": true }\n  }\n}\n```\n\nReturns `results` for the last hour and `compare` for the hour before. Diff `total_duration_nano`, `avg_duration_nano`, etc. to find regressions.\n\n## Compare today vs same time last week\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n## Aggregate only error spans\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": 2 }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Aggregate within one service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n# Reminders\n\n- Duration values are in nanoseconds. Divide by 1,000,000 for ms, 1,000,000,000 for seconds.\n- Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.\n- Use `apm-attributes-list` and `apm-attribute-values-list` to discover attribute keys/values before filtering.\n- Use `apm-services-list` to discover services before filtering by service name.\n- For parent \u2192 child breakdowns, use `apm-spans-tree` instead.",
@@ -460,7 +469,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tracing"
     },
     "apm-spans-tree": {
         "description": "Aggregate trace span statistics as a call tree \u2014 one row per `(parent_service, parent_name) \u2192 (service_name, name)` edge.\n\nRequires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it), and a `serviceName` to scope the returned tree to a single service. All traces that contain at least one span with the given name in the given service are included, and every span in those traces from that service is aggregated against its parent.\n\nReturns rows with:\n\n- `parent_service`, `parent_name` \u2014 the parent span identity (`parent_name` is `\"<ROOT>\"` for root spans)\n- `service_name`, `name` \u2014 the child span identity\n- `count` \u2014 number of spans matched for this `(parent, child)` edge\n- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` \u2014 duration stats in nanoseconds\n- `error_count` \u2014 child spans with OTel status code `Error` (status_code = 2)\n- `avg_start_offset_nano` \u2014 average nanoseconds from the parent span's start to this child's start\n\nRows are ordered by `total_duration_nano` DESC and capped at 5000.\n\nUse to answer:\n\n- \"What does the `/checkout` flow actually call downstream?\"\n- \"Which child operation under `POST /orders` is the slowest?\"\n- \"Where is time spent inside `process_payment` \u2014 DB, external API, or something else?\"\n- \"Did the call tree under `/api/feed` change between last week and this week?\" (with `compareFilter`)\n\nFor a flat per-operation view (no parent linkage), use `apm-spans-aggregate` instead.\n\nAll parameters must be nested inside a `query` object.\n\n# Comparison window\n\nSet `query.compareFilter.compare: true` to also fetch a comparison window. The response then includes a `compare` array of the same shape as `results`.\n\n- Omit `compare_to` (or set null) to compare against the immediately previous period of equal length.\n- Set `compare_to: \"-7d\"` to compare against the window 7 days earlier (same length as the primary window).\n\n# Data narrowing\n\n## Property filters\n\n`query.filterGroup` narrows the matched span set. Same filter shape and operators as `apm-spans-aggregate` / `query-apm-spans`:\n\n- `span` \u2014 built-in span fields (trace_id, span_id, duration, name, kind, status_code)\n- `span_attribute` \u2014 span-level attributes\n- `span_resource_attribute` \u2014 resource-level attributes\n\nUse `apm-attributes-list` and `apm-attribute-values-list` to discover available attribute keys/values.\n\n## Time period\n\nUse `query.dateRange` to control the time window. Default is the last hour (`-1h`).\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.spanName (required)\n\nThe span name that anchors the matched trace set. Every trace containing at least one span with this name (in the given `serviceName`) is included.\n\nPick a high-level entry-point span (e.g. an HTTP route or job name). Generic names (`HTTP`, `GET`) match too many traces and produce noisy aggregates. Use `query-apm-spans` first if you need to discover concrete span names.\n\n## query.serviceName (required)\n\nThe service the tree should be scoped to. Applied to the spans CTE so the returned rows only contain spans from this service, even when the matched traces also touch other services. Use `apm-services-list` to discover service names.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Same shape as in `apm-spans-aggregate`.\n\n## query.serviceNames\n\nList of service names to filter the matched span set. Use `apm-services-list` to discover services.\n\n## query.filterGroup\n\nProperty filters applied to both windows. See the \"Property filters\" section.\n\n# Examples\n\n## Call tree under a specific operation in the last hour\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\"\n  }\n}\n```\n\n## Call tree over the last day\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"checkout_flow\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Compare today's call tree vs last week\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n## Restrict to error-bearing traces\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": 2 }]\n  }\n}\n```\n\n# Reminders\n\n- `spanName` and `serviceName` are both required. Bound `spanName` to a specific high-level span (avoid generic names like `HTTP`); set `serviceName` to the one service whose call-tree you want.\n- Root spans have `parent_name = \"<ROOT>\"` and `avg_start_offset_nano = 0`.\n- Duration values are in nanoseconds.\n- Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.\n- For a flat per-operation aggregate without parent linkage, use `apm-spans-aggregate`.\n- Use `apm-services-list`, `apm-attributes-list`, `apm-attribute-values-list` to discover values before filtering.",
@@ -476,7 +486,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tracing"
     },
     "apm-trace-get": {
         "description": "Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including parent-child relationships, timing, and status information. Use this to inspect a specific trace in detail after discovering it via the query tool.",
@@ -492,7 +503,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tracing"
     },
     "approval-policies-list": {
         "description": "List all approval policies configured for this project. Shows which actions require approval, who can approve, and bypass rules.",
@@ -3966,7 +3978,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "logs-alerting"
     },
     "logs-alerts-destinations-create": {
         "description": "Attach a notification destination (Slack channel or webhook) to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically \u2014 the returned hog_function_ids identify the destination group.",
@@ -3982,7 +3995,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "logs-alerting"
     },
     "logs-alerts-destinations-delete-create": {
         "description": "Remove a notification destination from a log alert by passing the hog_function_ids returned from logs-alerts-destinations-create. Destinations are deleted as one atomic group \u2014 partial deletion fails the call.",
@@ -3998,7 +4012,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "logs-alerting"
     },
     "logs-alerts-destroy": {
         "description": "Permanently delete a log alert configuration by ID.",
@@ -4014,7 +4029,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "logs-alerting"
     },
     "logs-alerts-events-list": {
         "description": "List historical events for a log alert \u2014 fires, resolves, errors, enable/disable toggles, threshold changes. Use to evaluate how an existing alert has behaved (firing cadence, error rate, flap pattern) before tuning thresholds. Quiet no-op check rows are filtered out server-side. Optional `kind` query param narrows to a single event kind.",
@@ -4030,7 +4046,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "logs-alerting"
     },
     "logs-alerts-list": {
         "description": "List log alert configurations in the current project, newest first. Returns alert name, state, threshold, filters, and scheduling details. Use this to review existing alerts before creating or modifying them.",
@@ -4046,7 +4063,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "logs-alerting"
     },
     "logs-alerts-partial-update": {
         "description": "Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust thresholds, filters, enable/disable alerts, or snooze them.",
@@ -4062,7 +4080,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "logs-alerting"
     },
     "logs-alerts-retrieve": {
         "description": "Get a log alert configuration by ID. Returns full details including current state, threshold settings, filters, and scheduling information.",
@@ -4078,7 +4097,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "logs-alerting"
     },
     "logs-alerts-simulate-create": {
         "description": "Run a draft alert configuration against historical logs and return per-bucket results from the full state machine \u2014 count, threshold_breached, state, notification (none/fire/resolve), reason. Use to validate threshold + N-of-M settings before creating an alert. Read-only; no alert records are written. Aim for fire_count between 0 and 3 over a `-7d` lookback for a healthy threshold.",
@@ -4094,7 +4114,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "logs-alerting"
     },
     "logs-attribute-values-list": {
         "description": "List values for a specific log attribute key. Use to discover what values exist before building filters. Defaults to attribute_type \"log\" (log-level attributes). To get values for resource-level attributes (e.g. service.name, k8s.pod.name), you MUST explicitly pass attribute_type: \"resource\". Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
@@ -4591,7 +4612,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "tracing"
     },
     "query-error-tracking-issue": {
         "description": "Get compact details for one Error tracking issue.\n\nUse this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, name/description, first/last seen timestamps, assignee, compact impact counts, top in-app frame, and latest release metadata.\n\nDefaults are intentionally useful: last 7 days, test accounts filtered out, aggregate impact included, and no sparkline unless requested.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days.\n- `includeSparkline`: set true only if a trend/sparkline helps answer the user. When true, `volumeResolution` defaults to 12 if not provided.\n- `volumeResolution`: number of volume buckets when sparkline data is needed.\n\n# Next steps\n\nUse `query-error-tracking-issue-events` with the same `issueId` when the user needs concrete event examples, stack traces, browser/OS/URL context, or `$session_id` values for Session replay.",
@@ -5139,7 +5161,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "replay-video-based-summarization"
     },
     "sql-variables-create": {
         "description": "Create a reusable SQL variable for HogQL queries. Provide a human-readable name and type. The code_name is generated from the name and is referenced in SQL as {variables.code_name}. For List variables, provide values as the allowed options.",
@@ -5571,7 +5594,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-create": {
         "description": "Plan a user interview by recording who you want to target and what product or idea you want to ask them about. `topic` is the free-text description of the question or product area. Targets are specified as a combination of `interviewee_emails` (list of email addresses) and `interviewee_distinct_ids` (list of PostHog distinct IDs) \u2014 at least one of the two must be provided. To target a cohort, resolve cohort members to emails/distinct_ids in the calling agent first (see the planning-user-interviews skill) and pass them explicitly here \u2014 topics snapshot their audience at creation time. Pass `agent_context` (free text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of questions the agent should work through.",
@@ -5587,7 +5611,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-generate-links": {
         "description": "Generate one public, unauthenticated interview link per targeted interviewee on a user interview topic. For each identifier in the topic's `interviewee_emails` and `interviewee_distinct_ids`, materializes (or reuses) an IntervieweeContext row and an enabled SharingConfiguration, and returns the merged voice-agent context alongside the URL the interviewee should open. The URL hosts the call publicly \u2014 no PostHog login required. Calling this multiple times is safe: existing share links are reused.",
@@ -5603,7 +5628,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-interviewees-bulk-create": {
         "description": "Create up to 500 per-interviewee context rows for a topic in a single request. Each item is (interviewee_identifier, agent_context). Rows whose (topic, interviewee_identifier) already exists are skipped \u2014 the response surfaces `inserted_count`, `skipped_count`, and `skipped_identifiers` so the caller can reconcile. Items must have unique `interviewee_identifier` values within the batch. Prefer this over `user-interview-topics-interviewees-create` when adding many rows.",
@@ -5619,7 +5645,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-interviewees-create": {
         "description": "Attach extra context for a single interviewee on a user interview topic. Use this to give the voice agent background it should know about this specific person \u2014 e.g. \"uses the replay product but has never used summarization\". `interviewee_identifier` is the email or PostHog distinct ID matching one of the entries in the parent topic's targeting fields. `agent_context` is free text. At most one row per (topic, interviewee_identifier) \u2014 calling create twice for the same pair will conflict. Prefer `user-interview-topics-interviewees-bulk-create` when adding many rows at once.",
@@ -5635,7 +5662,8 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-interviewees-destroy": {
         "description": "Remove the extra context attached to a single interviewee on a user interview topic. Only deletes the `IntervieweeContext` row \u2014 does not change the topic's targeting (`interviewee_emails` / `interviewee_distinct_ids`). Use `user-interview-topics-remove-interviewee` if you want to drop the interviewee from targeting as well.",
@@ -5651,7 +5679,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-interviewees-list": {
         "description": "List the per-interviewee context rows attached to a single user interview topic. Each row is (interviewee_identifier, agent_context). Use this to see who has extra context attached before adding more.",
@@ -5667,7 +5696,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-interviewees-partial-update": {
         "description": "Update the `agent_context` field on a per-interviewee context row. Pass only the fields you want to change. Does not modify the topic's targeting; use `user-interview-topics-add-interviewee` / `user-interview-topics-remove-interviewee` for that.",
@@ -5683,7 +5713,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-links-csv": {
         "description": "Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`. Use this when the human plans to mail-merge the links into their own email tooling rather than letting PostHog send the invites.",
@@ -5699,7 +5730,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-list": {
         "description": "List planned user interview topics in the current project, newest first. Each result includes the topic, targeting (interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
@@ -5715,7 +5747,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-partial-update": {
         "description": "Update fields on a user interview topic. Pass only the fields you want to change. For incremental edits to targeting, prefer `user-interview-topics-add-interviewee` and `user-interview-topics-remove-interviewee` \u2014 sending `interviewee_emails` or `interviewee_distinct_ids` here replaces the entire array.",
@@ -5731,7 +5764,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-remove-interviewee": {
         "description": "Remove an interviewee identifier from a topic's targeting. Drops the identifier from both `interviewee_emails` and `interviewee_distinct_ids`, and disables any active SharingConfiguration tied to that interviewee on this topic so the removed person can no longer open their interview link. Idempotent \u2014 removing an identifier that isn't present is a no-op. Returns the updated topic.",
@@ -5747,7 +5781,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-retrieve": {
         "description": "Retrieve a single user interview topic by ID, including its full targeting (`interviewee_emails`, `interviewee_distinct_ids`), voice agent setup (`agent_context`, `questions`), and metadata. Use this to list the current interviewees on a topic before adding, editing, or removing them.",
@@ -5763,7 +5798,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interview-topics-send-invites": {
         "description": "Generate (if not yet created) and email a personalized public interview link to every targeted interviewee on a user interview topic whose identifier is an email address. The email includes a friendly greeting and a button linking to the public voice-interview page. Distinct-ID-only interviewees are skipped and surfaced in the response. Use this once a topic is finalized; safe to call repeatedly \u2014 invites are deduplicated per share via the messaging system's idempotency record, and a token rotation produces a fresh send key.",
@@ -5779,7 +5815,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interviews-list": {
         "description": "List completed user interview responses in the current project, newest first. Each row includes the interviewee email(s) and identifier, the linked `topic` UUID (set when the interview came in via a topic's shared link), and the AI-generated `transcript` and `summary` fields. Pass `topic` with a topic UUID to scope to a single research topic \u2014 use this to answer questions like \"do I have any responses on my X topic yet?\". Use `limit`/`offset` for pagination. `transcript` and `summary` can be long; when listing, prefer skimming the response shapes and then call `user-interviews-retrieve` for the full text of a specific interview.",
@@ -5795,7 +5832,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interviews-retrieve": {
         "description": "Fetch a single completed user interview response by id, including the full AI-generated `transcript` and `summary`. Use after `user-interviews-list` has narrowed down to a specific interview \u2014 for example, to read what a particular interviewee said about a research topic.",
@@ -5811,7 +5849,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-interviews-search": {
         "description": "Search recorded user interviews by meaning, not keywords. Embeds the natural-language `query` with the same model used to index transcripts and summaries, then returns the top matches by cosine similarity. Each match is a single (interview, document_type) pair \u2014 an interview can appear up to twice if both its transcript and summary score above other interviews. Use `document_types` to restrict to just `transcript` or just `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of returned matches (1-50, default 10). Useful for surfacing relevant excerpts when the caller has a research question rather than a known string to grep for.",
@@ -5827,7 +5866,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "user-interviews"
     },
     "user-settings-update": {
         "description": "Update the authenticated user's profile and settings using PATCH semantics \u2014 only the fields included in the request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account. Use `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email` triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes with the user before applying.",
@@ -6003,7 +6043,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "visual-review"
     },
     "visual-review-repos-retrieve": {
         "description": "Get a visual review repo by id. Returns baseline file paths keyed by run_type (e.g. storybook \u2192 baseline YAML path in the repo), pr-comment setting, and repo metadata.",
@@ -6019,7 +6060,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "visual-review"
     },
     "visual-review-runs-counts-retrieve": {
         "description": "Return review state counts across all runs for the current project: `needs_review`, `clean`, `processing`, `stale`. Useful as a single call to show reviewer workload before drilling into the list.",
@@ -6035,7 +6077,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "visual-review"
     },
     "visual-review-runs-list": {
         "description": "List visual review runs for the current project. Each run represents a single CI execution that captured screenshots for a commit. Filter by `review_state` (e.g. `needs_review`, `clean`, `processing`, `stale`) to triage workload, or by `pr_number` / `commit_sha` / `branch` to find the specific run(s) blocking a PR. Returns status, review decision, commit sha, branch, pr number, and a summary of changed / new / removed / unchanged snapshots.",
@@ -6051,7 +6094,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "visual-review"
     },
     "visual-review-runs-retrieve": {
         "description": "Get a visual review run by id. Returns run status, review decision, commit/branch/pr context, a summary (total, changed, new, removed, unchanged, tolerated-matched snapshot counts), and staleness info if a newer run supersedes this one. Use `visual-review-runs-snapshots-list` for per-snapshot diff details.",
@@ -6067,7 +6111,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshot-history-list": {
         "description": "List recent change history for a snapshot `identifier` across previous runs in the same repo. Useful for diagnosing flaky snapshots \u2014 if the same identifier flips between changed and clean across runs, it is a candidate for tolerated hashes or quarantine. Requires `identifier` query parameter.",
@@ -6083,7 +6128,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshots-list": {
         "description": "List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Paginated.",
@@ -6099,7 +6145,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "visual-review"
     },
     "visual-review-runs-tolerated-hashes-list": {
         "description": "List known tolerated alternate hashes for a snapshot `identifier` in the run's repo. Tolerated hashes catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes. Requires `identifier` query parameter.",
@@ -6115,7 +6162,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "visual-review"
     },
     "web-analytics-weekly-digest": {
         "description": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1\u201390, default 7) and `compare` (bool, default true) query params \u2014 pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",

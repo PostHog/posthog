@@ -76,6 +76,7 @@ vi.mock('@/tools/toolDefinitions', () => ({
         tools?: string[]
         readOnly?: boolean
         aiConsentGiven?: boolean
+        featureFlags?: Record<string, boolean>
     }) => {
         let names = Object.keys(DEFINITIONS)
         if (options?.features?.length) {

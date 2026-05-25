@@ -29,6 +29,7 @@ const fullCtx: InstructionsContext = {
     metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
+    featureFlags: { 'mcp-feedback-tool': true },
 }
 
 describe('InstructionsFormatter', () => {
@@ -75,10 +76,15 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('{metadata}')
         })
 
-        it('always includes the agent-feedback section', () => {
+        it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildV2Instructions(fullCtx)
-            expect(result).toContain('### Sharing feedback on this MCP server')
+            const withFeedback = formatter.buildV2Instructions(fullCtx)
+            expect(withFeedback).toContain('### Sharing feedback on this MCP server')
+
+            for (const featureFlags of [undefined, { 'mcp-feedback-tool': false }, {}]) {
+                const result = formatter.buildV2Instructions({ ...fullCtx, featureFlags })
+                expect(result).not.toContain('### Sharing feedback on this MCP server')
+            }
         })
     })
 
@@ -176,11 +182,17 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('\n- dashboard\n')
         })
 
-        it('always includes the agent-feedback section', () => {
+        it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
             const formatter = new InstructionsFormatter()
             for (const stripEnvContext of [true, false]) {
-                const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
-                expect(result).toContain('### Sharing feedback on this MCP server')
+                const withFeedback = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
+                expect(withFeedback).toContain('### Sharing feedback on this MCP server')
+
+                const withoutFeedback = formatter.buildExecCommandReference(
+                    { ...fullCtx, featureFlags: { 'mcp-feedback-tool': false } },
+                    { stripEnvContext }
+                )
+                expect(withoutFeedback).not.toContain('### Sharing feedback on this MCP server')
             }
         })
     })

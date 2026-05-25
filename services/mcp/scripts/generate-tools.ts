@@ -1366,6 +1366,10 @@ function generateDefinitionsJson(
                     readOnlyHint: toolConfig.annotations.readOnly,
                 },
                 ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
+                ...(toolConfig.feature_flag_behavior
+                    ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
+                    : {}),
                 ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
             }
         }
@@ -1384,6 +1388,10 @@ function generateDefinitionsJson(
                     openWorldHint: true,
                     readOnlyHint: wrapperConfig.annotations.readOnly,
                 },
+                ...(wrapperConfig.feature_flag ? { feature_flag: wrapperConfig.feature_flag } : {}),
+                ...(wrapperConfig.feature_flag_behavior
+                    ? { feature_flag_behavior: wrapperConfig.feature_flag_behavior }
+                    : {}),
                 ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
             }
         }
@@ -1555,6 +1563,8 @@ function generateQueryWrapperDefinitionsJson(
                 openWorldHint: true,
                 readOnlyHint: toolConfig.annotations.readOnly,
             },
+            ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
+            ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
         }
     }
