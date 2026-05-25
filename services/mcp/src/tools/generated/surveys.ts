@@ -426,7 +426,6 @@ const surveysResponsesList = (): ToolBase<typeof SurveysResponsesListSchema, Sch
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/responses/`,
                 query: {
                     exclude_archived: params.exclude_archived,
-                    include_person_properties: params.include_person_properties,
                     limit: params.limit,
                     offset: params.offset,
                     question_id: params.question_id,

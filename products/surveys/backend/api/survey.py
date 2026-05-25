@@ -683,14 +683,6 @@ class SurveyResponseRowSerializer(serializers.Serializer):
             "callers do not need to look up `$survey_response_<id>` keys."
         ),
     )
-    person_properties = serializers.DictField(
-        allow_null=True,
-        required=False,
-        help_text=(
-            "Person properties at event time. Only present when `include_person_properties=true` was passed on the "
-            "request — kept opt-in to keep default payloads small."
-        ),
-    )
     extra = SurveyResponseExtraSerializer(
         help_text="Convenience fields extracted from the event properties (device, browser, geoip, iteration)."
     )
@@ -725,11 +717,6 @@ class SurveyResponsesQuerySerializer(serializers.Serializer):
             "Filter to rows where the rating answer for `question_id` is >= this value. "
             "Common use: NPS promoters with score_gte=9. Requires question_id."
         ),
-    )
-    include_person_properties = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="When true, include the respondent's person properties at event time in each row. Off by default.",
     )
     exclude_archived = serializers.BooleanField(
         required=False,
@@ -2152,7 +2139,15 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             activity="launched",
             detail=Detail(
                 name=survey.name,
-                changes=[Change(type="Survey", field="start_date", before=previous_start, after=survey.start_date)],
+                changes=[
+                    Change(
+                        type="Survey",
+                        action="changed",
+                        field="start_date",
+                        before=previous_start,
+                        after=survey.start_date,
+                    )
+                ],
             ),
         )
 
@@ -2188,7 +2183,15 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
             activity="stopped",
             detail=Detail(
                 name=survey.name,
-                changes=[Change(type="Survey", field="end_date", before=previous_end, after=survey.end_date)],
+                changes=[
+                    Change(
+                        type="Survey",
+                        action="changed",
+                        field="end_date",
+                        before=previous_end,
+                        after=survey.end_date,
+                    )
+                ],
             ),
         )
 
@@ -2798,10 +2801,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         description=(
             "List survey responses for a specific survey, with question text resolved server-side so callers do not "
             "have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, "
-            "`submitted_at`, and an `extra` block (device, geoip, iteration) so agents can cross-pivot to recordings, "
-            "persons, or paths in a single follow-up call. Person properties at event time are available opt-in via "
-            "`include_person_properties=true`. Use `question_id` + `score_lte` to fetch NPS detractors and similar "
-            "score-filtered cohorts."
+            "`submitted_at`, and an `extra` block (device, browser, OS, geoip, current_url, iteration) so agents can "
+            "cross-pivot to recordings, persons, or paths in a single follow-up call. For person properties at "
+            "event time, follow up with `persons-get` using the returned `distinct_id` — keeps scopes scoped. "
+            "Use `question_id` + `score_lte` to fetch NPS detractors and similar score-filtered cohorts."
         ),
         parameters=[SurveyResponsesQuerySerializer],
         responses={200: SurveyResponsesListSerializer},
@@ -2827,7 +2830,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 question_id=cleaned.get("question_id"),
                 score_lte=cleaned.get("score_lte"),
                 score_gte=cleaned.get("score_gte"),
-                include_person_properties=cleaned.get("include_person_properties", False),
                 limit=cleaned.get("limit", 100),
                 offset=cleaned.get("offset", 0),
                 exclude_uuids=exclude_uuids,
@@ -2855,7 +2857,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                             }
                             for a in row.answers
                         ],
-                        "person_properties": row.person_properties,
                         "extra": row.extra,
                     }
                     for row in rows

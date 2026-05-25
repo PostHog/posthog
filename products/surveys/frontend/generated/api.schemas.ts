@@ -2014,12 +2014,6 @@ export interface SurveyResponseExtraApi {
     iteration?: string | null
 }
 
-/**
- * Person properties at event time. Only present when `include_person_properties=true` was passed on the request — kept opt-in to keep default payloads small.
- * @nullable
- */
-export type SurveyResponseRowApiPersonProperties = { [key: string]: unknown } | null
-
 export interface SurveyResponseRowApi {
     /** UUID of the underlying `survey sent` event. Use as the response identifier for archive operations. */
     uuid: string
@@ -2034,11 +2028,6 @@ export interface SurveyResponseRowApi {
     submitted_at: string
     /** One entry per survey question that received a non-empty answer. Question text is already resolved — callers do not need to look up `$survey_response_<id>` keys. */
     answers: SurveyResponseAnswerApi[]
-    /**
-     * Person properties at event time. Only present when `include_person_properties=true` was passed on the request — kept opt-in to keep default payloads small.
-     * @nullable
-     */
-    person_properties?: SurveyResponseRowApiPersonProperties
     /** Convenience fields extracted from the event properties (device, browser, geoip, iteration). */
     extra: SurveyResponseExtraApi
 }
@@ -2162,10 +2151,6 @@ export type SurveysResponsesListParams = {
      * When true, exclude responses that have been archived via the archive_response endpoint.
      */
     exclude_archived?: boolean
-    /**
-     * When true, include the respondent's person properties at event time in each row. Off by default.
-     */
-    include_person_properties?: boolean
     /**
      * Maximum number of rows to return (1-500). Defaults to 100.
      * @minimum 1

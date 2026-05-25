@@ -37669,12 +37669,6 @@ export namespace Schemas {
       iteration?: string | null;
     }
 
-    /**
-     * Person properties at event time. Only present when `include_person_properties=true` was passed on the request — kept opt-in to keep default payloads small.
-     * @nullable
-     */
-    export type SurveyResponseRowPersonProperties = { [key: string]: unknown } | null;
-
     export interface SurveyResponseRow {
       /** UUID of the underlying `survey sent` event. Use as the response identifier for archive operations. */
       uuid: string;
@@ -37689,11 +37683,6 @@ export namespace Schemas {
       submitted_at: string;
       /** One entry per survey question that received a non-empty answer. Question text is already resolved — callers do not need to look up `$survey_response_<id>` keys. */
       answers: SurveyResponseAnswer[];
-      /**
-         * Person properties at event time. Only present when `include_person_properties=true` was passed on the request — kept opt-in to keep default payloads small.
-         * @nullable
-         */
-      person_properties?: SurveyResponseRowPersonProperties;
       /** Convenience fields extracted from the event properties (device, browser, geoip, iteration). */
       extra: SurveyResponseExtra;
     }
@@ -49585,10 +49574,6 @@ export namespace Schemas {
      * When true, exclude responses that have been archived via the archive_response endpoint.
      */
     exclude_archived?: boolean;
-    /**
-     * When true, include the respondent's person properties at event time in each row. Off by default.
-     */
-    include_person_properties?: boolean;
     /**
      * Maximum number of rows to return (1-500). Defaults to 100.
      * @minimum 1

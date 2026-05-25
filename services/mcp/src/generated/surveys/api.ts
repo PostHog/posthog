@@ -1623,7 +1623,7 @@ export const SurveysLaunchParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * List survey responses for a specific survey, with question text resolved server-side so callers do not have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, `submitted_at`, and an `extra` block (device, geoip, iteration) so agents can cross-pivot to recordings, persons, or paths in a single follow-up call. Person properties at event time are available opt-in via `include_person_properties=true`. Use `question_id` + `score_lte` to fetch NPS detractors and similar score-filtered cohorts.
+ * List survey responses for a specific survey, with question text resolved server-side so callers do not have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, `submitted_at`, and an `extra` block (device, browser, OS, geoip, current_url, iteration) so agents can cross-pivot to recordings, persons, or paths in a single follow-up call. For person properties at event time, follow up with `persons-get` using the returned `distinct_id` — keeps scopes scoped. Use `question_id` + `score_lte` to fetch NPS detractors and similar score-filtered cohorts.
  */
 export const SurveysResponsesListParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
@@ -1635,7 +1635,6 @@ export const SurveysResponsesListParams = /* @__PURE__ */ zod.object({
 })
 
 export const surveysResponsesListQueryExcludeArchivedDefault = false
-export const surveysResponsesListQueryIncludePersonPropertiesDefault = false
 export const surveysResponsesListQueryLimitDefault = 100
 export const surveysResponsesListQueryLimitMax = 500
 
@@ -1647,10 +1646,6 @@ export const SurveysResponsesListQueryParams = /* @__PURE__ */ zod.object({
         .boolean()
         .default(surveysResponsesListQueryExcludeArchivedDefault)
         .describe('When true, exclude responses that have been archived via the archive_response endpoint.'),
-    include_person_properties: zod
-        .boolean()
-        .default(surveysResponsesListQueryIncludePersonPropertiesDefault)
-        .describe("When true, include the respondent's person properties at event time in each row. Off by default."),
     limit: zod
         .number()
         .min(1)

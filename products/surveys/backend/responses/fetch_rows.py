@@ -35,7 +35,6 @@ class SurveyResponseRow:
     session_id: str | None
     submitted_at: datetime
     answers: list[QuestionAnswer]
-    person_properties: dict[str, Any] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -98,7 +97,6 @@ def fetch_response_rows(
     question_id: str | None = None,
     score_lte: float | None = None,
     score_gte: float | None = None,
-    include_person_properties: bool = False,
     limit: int = 100,
     offset: int = 0,
     exclude_uuids: set[str] | None = None,
@@ -128,8 +126,6 @@ def fetch_response_rows(
         "timestamp AS submitted_at",
         "properties AS event_properties",
     ]
-    if include_person_properties:
-        select_columns.append("person.properties AS person_props")
 
     conditions = [
         "event = 'survey sent'",
@@ -186,7 +182,6 @@ def fetch_response_rows(
     rows: list[SurveyResponseRow] = []
     for raw in query_response.results:
         uuid_val, distinct_id, session_id, submitted_at, event_properties = raw[:5]
-        person_props = raw[5] if include_person_properties and len(raw) > 5 else None
 
         properties_dict: dict[str, Any] = event_properties if isinstance(event_properties, dict) else {}
 
@@ -225,7 +220,6 @@ def fetch_response_rows(
                 session_id=str(session_id) if session_id else None,
                 submitted_at=submitted_at,
                 answers=answers,
-                person_properties=person_props if isinstance(person_props, dict) else None,
                 extra=extra,
             )
         )

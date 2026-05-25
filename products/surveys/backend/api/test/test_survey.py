@@ -6597,28 +6597,10 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(answers_by_id[self.question_id_text]["question_text"], "Why?")
         self.assertEqual(answers_by_id[self.question_id_text]["answer"], "Loved the UX")
         # Person properties off by default
-        self.assertIsNone(row.get("person_properties"))
+        # Person properties intentionally not exposed on this endpoint — agents should call
+        # persons-get with the row's distinct_id to fetch person data under the right scope.
+        self.assertNotIn("person_properties", row)
         assert person  # silence unused
-
-    def test_include_person_properties_opt_in(self):
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=["user-1"],
-            properties={"email": "alice@example.com", "plan": "enterprise"},
-        )
-        self._create_response_event("user-1", "2024-06-10 09:05:00", "9", "Loved the UX")
-        flush_persons_and_events()
-
-        # Default: off
-        default_response = self.client.get(self.url).json()
-        self.assertIsNone(default_response["results"][0].get("person_properties"))
-
-        # Opt-in: populated
-        opt_in_response = self.client.get(self.url, {"include_person_properties": "true"}).json()
-        person_props = opt_in_response["results"][0]["person_properties"]
-        self.assertIsNotNone(person_props)
-        self.assertEqual(person_props.get("email"), "alice@example.com")
-        self.assertEqual(person_props.get("plan"), "enterprise")
 
     def test_score_lte_filters_detractors(self):
         Person.objects.create(team=self.team, distinct_ids=["detractor"])
