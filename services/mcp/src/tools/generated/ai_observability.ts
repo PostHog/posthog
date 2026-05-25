@@ -24,6 +24,13 @@ import {
     LlmAnalyticsSummarizationCreateBody,
     LlmAnalyticsTraceReviewsCreateBody,
     LlmAnalyticsTraceReviewsListQueryParams,
+    LlmPromptsCreateBody,
+    LlmPromptsNameDuplicateCreateBody,
+    LlmPromptsNameDuplicateCreateParams,
+    LlmPromptsNamePartialUpdateBody,
+    LlmPromptsNamePartialUpdateParams,
+    LlmPromptsNameRetrieveParams,
+    LlmPromptsNameRetrieveQueryParams,
     LlmSkillsCreateBody,
     LlmSkillsListQueryParams,
     LlmSkillsNameArchiveCreateParams,
@@ -45,7 +52,7 @@ import {
     TaggersListQueryParams,
     TaggersTestHogCreateBody,
 } from '@/generated/ai_observability/api'
-import { ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
+import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -383,6 +390,126 @@ const llmaPersonalSpend = (): ToolBase<typeof LlmaPersonalSpendSchema, Schemas.P
                 product: params.product,
                 refresh: params.refresh,
             },
+        })
+        return result
+    },
+})
+
+const LlmaPromptCreateSchema = LlmPromptsCreateBody
+
+const llmaPromptCreate = (): ToolBase<typeof LlmaPromptCreateSchema, Schemas.LLMPrompt> => ({
+    name: 'llma-prompt-create',
+    schema: LlmaPromptCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaPromptCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        const result = await context.api.request<Schemas.LLMPrompt>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_prompts/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaPromptDuplicateSchema = LlmPromptsNameDuplicateCreateParams.omit({ project_id: true }).extend(
+    LlmPromptsNameDuplicateCreateBody.shape
+)
+
+const llmaPromptDuplicate = (): ToolBase<typeof LlmaPromptDuplicateSchema, Schemas.LLMPrompt> => ({
+    name: 'llma-prompt-duplicate',
+    schema: LlmaPromptDuplicateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaPromptDuplicateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.new_name !== undefined) {
+            body['new_name'] = params.new_name
+        }
+        const result = await context.api.request<Schemas.LLMPrompt>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/duplicate/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaPromptGetSchema = LlmPromptsNameRetrieveParams.omit({ project_id: true }).extend(
+    LlmPromptsNameRetrieveQueryParams.shape
+)
+
+const llmaPromptGet = (): ToolBase<typeof LlmaPromptGetSchema, Schemas.LLMPromptPublic> => ({
+    name: 'llma-prompt-get',
+    schema: LlmaPromptGetSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaPromptGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LLMPromptPublic>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/`,
+            query: {
+                content: params.content,
+                version: params.version,
+            },
+        })
+        return result
+    },
+})
+
+const LlmaPromptListSchema = PromptListInputSchema
+
+const llmaPromptList = (): ToolBase<
+    typeof LlmaPromptListSchema,
+    Omit<Schemas.PaginatedLLMPromptListList, 'results'> & {
+        results: (Omit<Schemas.LLMPromptList, 'prompt'> & { prompt?: unknown })[]
+    }
+> => ({
+    name: 'llma-prompt-list',
+    schema: LlmaPromptListSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaPromptListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const parsedParams = LlmaPromptListSchema.parse(params)
+        const result = await context.api.request<
+            Omit<Schemas.PaginatedLLMPromptListList, 'results'> & {
+                results: (Omit<Schemas.LLMPromptList, 'prompt'> & { prompt?: unknown })[]
+            }
+        >({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_prompts/`,
+            query: parsedParams,
+        })
+        return result
+    },
+})
+
+const LlmaPromptUpdateSchema = LlmPromptsNamePartialUpdateParams.omit({ project_id: true }).extend(
+    LlmPromptsNamePartialUpdateBody.shape
+)
+
+const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLMPrompt> => ({
+    name: 'llma-prompt-update',
+    schema: LlmaPromptUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaPromptUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.edits !== undefined) {
+            body['edits'] = params.edits
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        const result = await context.api.request<Schemas.LLMPrompt>({
+            method: 'PATCH',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/`,
+            body,
         })
         return result
     },
@@ -1102,6 +1229,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-evaluation-summary-create': llmaEvaluationSummaryCreate,
     'llma-evaluation-test-hog': llmaEvaluationTestHog,
     'llma-personal-spend': llmaPersonalSpend,
+    'llma-prompt-create': llmaPromptCreate,
+    'llma-prompt-duplicate': llmaPromptDuplicate,
+    'llma-prompt-get': llmaPromptGet,
+    'llma-prompt-list': llmaPromptList,
+    'llma-prompt-update': llmaPromptUpdate,
     'llma-review-queue-create': llmaReviewQueueCreate,
     'llma-review-queue-item-create': llmaReviewQueueItemCreate,
     'llma-review-queue-item-list': llmaReviewQueueItemList,
