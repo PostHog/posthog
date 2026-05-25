@@ -1,4 +1,5 @@
 import { ApiClient } from '@/api/client'
+import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
 import {
     AnalyticsEvent,
@@ -74,7 +75,9 @@ export class RequestContext {
     }
 
     async getSessionUuid(sessionId: string | undefined): Promise<string | undefined> {
-        if (!sessionId) {return undefined}
+        if (!sessionId) {
+            return undefined
+        }
         return this.sessionManager.getSessionUuid(sessionId)
     }
 
@@ -87,7 +90,9 @@ export class RequestContext {
 
     private async resolveDistinctId(): Promise<string> {
         const cached = await this.cache.get('distinctId')
-        if (cached) {return cached}
+        if (cached) {
+            return cached
+        }
         const userResult = await (await this.api()).users().me()
         if (!userResult.success) {
             throw wrapError(`Failed to get user: ${userResult.error.message}`, userResult.error)
@@ -115,9 +120,7 @@ export class RequestContext {
         return { ...partialContext, trackEvent }
     }
 
-    async getAnalyticsContextSafe(
-        context: Pick<Context, 'stateManager'>
-    ): Promise<MCPAnalyticsContext | undefined> {
+    async getAnalyticsContextSafe(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {
         try {
             return await context.stateManager.getAnalyticsContext()
         } catch {
@@ -131,7 +134,9 @@ export class RequestContext {
         previousContext: MCPAnalyticsContext | undefined
     ): Promise<void> {
         const resolvedContext = await this.getAnalyticsContextSafe(context)
-        if (!resolvedContext) {return}
+        if (!resolvedContext) {
+            return
+        }
 
         const event =
             toolName === 'switch-project'
@@ -139,7 +144,9 @@ export class RequestContext {
                 : toolName === 'switch-organization'
                   ? AnalyticsEvent.MCP_ORGANIZATION_SWITCHED
                   : undefined
-        if (!event) {return}
+        if (!event) {
+            return
+        }
 
         const distinctId = await this.getDistinctId()
         await this.trackEvent(event, {}, resolvedContext, previousContext, distinctId, this.props)
@@ -148,12 +155,21 @@ export class RequestContext {
     buildClientProperties(props?: RequestProperties): Record<string, unknown> {
         const p = props ?? this.props
         return {
+            $ai_product: 'mcp',
+            $mcp_source: MCP_ANALYTICS_SOURCE,
+            $mcp_server_name: MCP_SERVER_NAME,
+            $mcp_server_version: MCP_SERVER_VERSION,
+            $mcp_client_name: p.mcpClientName,
+            $mcp_client_version: p.mcpClientVersion,
+            $mcp_client_user_agent: p.clientUserAgent,
+            $mcp_protocol_version: p.mcpProtocolVersion,
+            $mcp_transport: p.transport,
+            $mcp_session_id: p.mcpSessionId,
+            $mcp_conversation_id: p.mcpConversationId,
+            $mcp_consumer: p.mcpConsumer,
+            $mcp_mode: p.mode,
+            $mcp_region: p.region,
             mcp_runtime: 'hono',
-            ...(p.mcpClientName ? { mcp_client_name: p.mcpClientName } : {}),
-            ...(p.mcpClientVersion ? { mcp_client_version: p.mcpClientVersion } : {}),
-            ...(p.mcpProtocolVersion ? { mcp_protocol_version: p.mcpProtocolVersion } : {}),
-            ...(p.mcpConsumer ? { mcp_consumer: p.mcpConsumer } : {}),
-            ...(p.transport ? { mcp_transport: p.transport } : {}),
         }
     }
 
@@ -184,7 +200,7 @@ export class RequestContext {
                     ...(resolvedProps.sessionId
                         ? { $session_id: await this.getSessionUuid(resolvedProps.sessionId) }
                         : {}),
-                    ...(clientName ? { mcp_oauth_client_name: clientName } : {}),
+                    ...(clientName ? { $mcp_oauth_client_name: clientName } : {}),
                     ...contextProperties,
                     ...previousContextProperties,
                     ...properties,

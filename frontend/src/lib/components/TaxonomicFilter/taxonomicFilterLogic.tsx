@@ -53,7 +53,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, isString, objectsEqual, pluralize, toParams } from 'lib/utils'
+import { isString, objectsEqual, pluralize } from 'lib/utils'
+import { isDefinitionStale } from 'lib/utils/definitions'
 import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
 import {
     getEventDefinitionIcon,
@@ -70,14 +71,12 @@ import {
 } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
@@ -92,7 +91,6 @@ import {
     EventDefinitionType,
     Experiment,
     FeatureFlagType,
-    Group,
     PersonProperty,
     PersonType,
     PropertyDefinition,
@@ -107,6 +105,7 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
+import { groupAnalyticsTaxonomicGroupsLogic } from './groupAnalyticsTaxonomicGroupsLogic'
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
@@ -330,8 +329,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['currentTeamId', 'currentTeam'],
             projectLogic,
             ['currentProjectId'],
-            groupsModel,
-            ['groupTypes', 'aggregationLabel'],
             dataWarehouseSettingsSceneLogic, // This logic needs to be connected to stop the popover from erroring out
             ['dataWarehouseTables'],
             joinsLogic,
@@ -342,6 +339,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['featureFlags'],
             primaryEventPropertiesModel,
             ['primaryProperties'],
+            groupAnalyticsTaxonomicGroupsLogic,
+            ['groupAnalyticsTaxonomicGroups', 'groupAnalyticsTaxonomicGroupNames'],
         ],
         actions: [primaryEventPropertiesModel, ['ensureLoadedForEvents']],
     })),
@@ -375,6 +374,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             items,
         }),
         openRevealBarrier: true,
+        setIncludeStaleEvents: (includeStaleEvents: boolean) => ({ includeStaleEvents }),
     })),
     reducers(({ props, selectors }) => ({
         searchQuery: [
@@ -454,6 +454,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             {
                 setSearchQuery: (_, { searchQuery }: { searchQuery: string }) => !(searchQuery ?? '').trim(),
                 openRevealBarrier: () => true,
+            },
+        ],
+        includeStaleEvents: [
+            // Per-session opt-in to surface event definitions whose last ingested occurrence
+            // is older than STALE_EVENT_DAYS. Resets back to false on every fresh search so
+            // the user re-opts in deliberately rather than carrying stale results across
+            // unrelated queries.
+            false,
+            {
+                setIncludeStaleEvents: (_, { includeStaleEvents }: { includeStaleEvents: boolean }) =>
+                    includeStaleEvents,
+                setSearchQuery: () => false,
+                setActiveTab: () => false,
             },
         ],
     })),
@@ -1556,47 +1569,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 return filtered
             },
         ],
-        groupAnalyticsTaxonomicGroupNames: [
-            (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
-            (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
-                Array.from(groupTypes.values()).map((type) => ({
-                    name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).plural)}`,
-                    searchPlaceholder: `${aggregationLabel(type.group_type_index).plural}`,
-                    type: `${TaxonomicFilterGroupType.GroupNamesPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
-                    endpoint: combineUrl(`api/environments/${teamId}/groups/`, {
-                        group_type_index: type.group_type_index,
-                    }).url,
-                    getPopoverHeader: () => `Group Names`,
-                    getName: (group: Group) => groupDisplayId(group.group_key, group.group_properties),
-                    getValue: (group: Group) => group.group_key,
-                    groupTypeIndex: type.group_type_index,
-                })),
-        ],
-        groupAnalyticsTaxonomicGroups: [
-            (s) => [s.groupTypes, s.currentProjectId, s.aggregationLabel],
-            (groupTypes, projectId, aggregationLabel): TaxonomicFilterGroup[] =>
-                Array.from(groupTypes.values()).map((type) => ({
-                    name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
-                    searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
-                    type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
-                    endpoint: combineUrl(`api/projects/${projectId}/property_definitions`, {
-                        type: 'group',
-                        group_type_index: type.group_type_index,
-                        exclude_hidden: true,
-                        exclude_restricted: true,
-                    }).url,
-                    valuesEndpoint: (key) =>
-                        `api/projects/${projectId}/groups/property_values?${toParams({
-                            key,
-                            group_type_index: type.group_type_index,
-                        })}`,
-                    getName: (group) => group.name,
-                    getValue: (group) => group.name,
-                    getPopoverHeader: () => `Property`,
-                    getIcon: getPropertyDefinitionIcon,
-                    groupTypeIndex: type.group_type_index,
-                })),
-        ],
         infiniteListLogics: [
             (s) => [s.taxonomicGroupTypes, (_, props) => props],
             (taxonomicGroupTypes, props): Record<string, BuiltLogic<infiniteListLogicType>> =>
@@ -1803,6 +1775,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const wasFromRecents = hasRecentContext(item)
                 const wasFromPinnedList = hasPinnedContext(item)
 
+                const isEventTab =
+                    sourceGroupType === TaxonomicFilterGroupType.Events ||
+                    sourceGroupType === TaxonomicFilterGroupType.CustomEvents
+                const wasStale =
+                    isEventTab && item && typeof item === 'object' && 'last_seen_at' in item
+                        ? isDefinitionStale(item)
+                        : undefined
+
                 posthog.capture('taxonomic filter item selected', {
                     groupType: values.activeTab,
                     sourceGroupType,
@@ -1812,6 +1792,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     hadSearchInput,
                     position: meta?.position,
                     query: values.searchQuery || undefined,
+                    wasStale,
                     ...(wasQuickFilter && {
                         filterName: item.name,
                         propertyKey: item.propertyKey,
@@ -1960,8 +1941,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     groupType: activeTaxonomicGroup?.type,
                     inputMode,
                     pastedFraction: totalLength > 0 ? Math.min(1, pastedChars / totalLength) : 0,
+                    excludeStale: !values.includeStaleEvents,
                 })
             }
+        },
+
+        setIncludeStaleEvents: ({ includeStaleEvents }) => {
+            posthog.capture('taxonomic filter include stale toggled', {
+                includeStaleEvents,
+                groupType: values.activeTab,
+                searchQuery: values.searchQuery || undefined,
+            })
         },
 
         infiniteListResultsReceived: async ({ groupType, results }, breakpoint) => {

@@ -4,24 +4,38 @@ import { useState } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { mswDecorator } from '~/mocks/browser'
+import stickinessFixture from '~/mocks/fixtures/api/projects/team_id/insights/stickiness.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { FunnelStepsBarChart } from './FunnelStepsBarChart'
+import { StickinessLineChart } from './StickinessLineChart'
 
 type Story = StoryObj<{}>
 
 const meta: Meta = {
-    title: 'Insights/FunnelStepsBarChart',
-    component: FunnelStepsBarChart,
+    title: 'Insights/StickinessLineChart',
+    component: StickinessLineChart,
     parameters: {
         layout: 'centered',
-        mockDate: '2022-03-12',
+        mockDate: '2022-03-15',
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/annotations/': {
+                    count: 0,
+                    next: null,
+                    previous: null,
+                    results: [],
+                },
+            },
+        }),
+    ],
 }
 export default meta
 
@@ -30,20 +44,19 @@ let uniqueNode = 0
 function Stage({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ height: 420, width: 720, display: 'flex', flexDirection: 'column' }}>{children}</div>
+        <div style={{ height: 360, width: 720, display: 'flex', flexDirection: 'column' }}>{children}</div>
     )
 }
 
-function StoryRender({ insightFixture }: { insightFixture: any }): JSX.Element {
-    const [dashboardItemId] = useState(() => `FunnelStepsBarChartStory.${uniqueNode++}` as InsightShortId)
-    const source = insightFixture.query.source
+function StickinessLineChartStory({ insightFixture }: { insightFixture: any }): JSX.Element {
+    const [dashboardItemId] = useState(() => `StickinessLineChartStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
     const insightProps: InsightLogicProps = { dashboardItemId, doNotLoad: true, cachedInsight }
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: source,
+        query: cachedInsight.query.source,
         key: insightVizDataNodeKey(insightProps),
-        cachedResults: getCachedResults(cachedInsight, source),
+        cachedResults: getCachedResults(cachedInsight, cachedInsight.query.source),
         doNotLoad: true,
     }
 
@@ -51,24 +64,13 @@ function StoryRender({ insightFixture }: { insightFixture: any }): JSX.Element {
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <Stage>
-                    <FunnelStepsBarChart />
+                    <StickinessLineChart />
                 </Stage>
             </BindLogic>
         </BindLogic>
     )
 }
 
-/* eslint-disable @typescript-eslint/no-var-requires */
-const funnelStepsInsight = (): any =>
-    require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json')
-const funnelStepsBreakdownInsight = (): any =>
-    require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
-
 export const Default: Story = {
-    render: () => <StoryRender insightFixture={funnelStepsInsight()} />,
+    render: () => <StickinessLineChartStory insightFixture={stickinessFixture} />,
 }
-
-export const Breakdown: Story = {
-    render: () => <StoryRender insightFixture={funnelStepsBreakdownInsight()} />,
-}
-/* eslint-enable @typescript-eslint/no-var-requires */

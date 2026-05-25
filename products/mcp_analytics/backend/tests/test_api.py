@@ -1,12 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+
+from django.core.cache import cache
 
 from posthog.models.utils import uuid7
 
 from products.mcp_analytics.backend.facade import api, contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
-from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 
 
 class TestMCPAnalyticsFacade(APIBaseTest):
@@ -59,89 +60,126 @@ class TestMCPAnalyticsFacade(APIBaseTest):
         assert submissions[0].kind == enums.SubmissionKind.MISSING_CAPABILITY
 
 
-class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
-    def _create_session(
+class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Listing results are cached briefly; clear so each test sees fresh data.
+        cache.clear()
+
+    def _seed_session(
         self,
         session_id: str,
-        tools_used: list[str],
+        tool_sequence: list[str],
+        *,
         client_name: str = "Claude Desktop",
         distinct_id: str = "anon_seed",
         session_start: datetime | None = None,
         session_end: datetime | None = None,
-    ) -> MCPSession:
-        session_start = session_start or datetime.now(tz=UTC) - timedelta(minutes=5)
-        session_end = session_end or datetime.now(tz=UTC)
-        return MCPSession.objects.create(
-            team=self.team,
-            session_id=session_id,
-            session_start=session_start,
-            session_end=session_end,
-            duration_seconds=int((session_end - session_start).total_seconds()),
-            tools_used=tools_used,
-            distinct_id=distinct_id,
-            mcp_client_name=client_name,
-        )
+    ) -> None:
+        """Seed one mcp_tool_call event per element of ``tool_sequence``.
+
+        tool_call_count == len(tool_sequence); tools_used == its distinct values.
+        Events span [session_start, session_end] so min/max timestamps line up.
+        """
+        now = datetime.now(tz=UTC)
+        session_start = session_start or now - timedelta(minutes=5)
+        session_end = session_end or now
+        n = len(tool_sequence)
+        span = session_end - session_start
+        for i, tool in enumerate(tool_sequence):
+            timestamp = session_end if n == 1 else session_start + span * (i / (n - 1))
+            _create_event(
+                team=self.team,
+                event="mcp_tool_call",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={
+                    "$mcp_session_id": session_id,
+                    "$mcp_tool_name": tool,
+                    "$mcp_client_name": client_name,
+                },
+            )
 
     def test_lists_sessions_in_newest_first_order(self) -> None:
         session_a = str(uuid7())
         session_b = str(uuid7())
         now = datetime.now(tz=UTC)
 
-        self._create_session(
+        self._seed_session(
             session_a,
-            tools_used=["query_run", "insight_get"],
+            ["query_run", "insight_get"],
             session_start=now - timedelta(minutes=10),
             session_end=now - timedelta(minutes=8),
         )
-        self._create_session(
+        self._seed_session(
             session_b,
-            tools_used=["dashboard_get", "query_run"],
+            ["dashboard_get", "query_run"],
             client_name="Cursor",
             session_start=now - timedelta(minutes=5),
             session_end=now - timedelta(minutes=4),
         )
 
-        sessions = api.list_mcp_sessions(self.team, limit=50, offset=0)
+        sessions = [
+            s for s in api.list_mcp_sessions(self.team, limit=50, offset=0) if s.session_id in {session_a, session_b}
+        ]
 
         assert len(sessions) == 2
         # Newest session_end first
         assert sessions[0].session_id == session_b
         assert sessions[0].mcp_client_name == "Cursor"
         assert sorted(sessions[0].tools_used) == ["dashboard_get", "query_run"]
-        # tool_calls reflects the persisted total from the backfill activity
-        assert sessions[0].tool_calls == 0
+        # tool_calls is now the live event count, not a persisted total
+        assert sessions[0].tool_calls == 2
 
         assert sessions[1].session_id == session_a
         assert sessions[1].mcp_client_name == "Claude Desktop"
         assert sorted(sessions[1].tools_used) == ["insight_get", "query_run"]
-        assert sessions[1].tool_calls == 0
+        assert sessions[1].tool_calls == 2
 
     def test_returns_empty_list_when_no_sessions(self) -> None:
         assert api.list_mcp_sessions(self.team, limit=50, offset=0) == []
+
+    def test_does_not_cache_empty_responses(self) -> None:
+        # An empty result must not be cached, so a session created moments later
+        # shows up immediately instead of being hidden by a cached empty list.
+        assert api.list_mcp_sessions(self.team, limit=50, offset=0) == []
+        session_id = str(uuid7())
+        self._seed_session(session_id, ["query_run"])
+
+        sessions = api.list_mcp_sessions(self.team, limit=50, offset=0)
+
+        assert [s.session_id for s in sessions] == [session_id]
+
+    def test_excludes_events_without_mcp_session_id(self) -> None:
+        # Events with no $mcp_session_id (e.g. the bare-schema producers) must not
+        # collapse into one empty-keyed "session".
+        kept = str(uuid7())
+        self._seed_session(kept, ["query_run"])
+        _create_event(
+            team=self.team,
+            event="mcp_tool_call",
+            distinct_id="anon_noisy",
+            timestamp=datetime.now(tz=UTC),
+            properties={"$mcp_tool_name": "query_run"},
+        )
+
+        sessions = api.list_mcp_sessions(self.team, limit=50, offset=0)
+
+        assert [s.session_id for s in sessions] == [kept]
 
     def test_search_filters_across_multiple_columns(self) -> None:
         alice_id = str(uuid7())
         bob_id = str(uuid7())
         misc_id = str(uuid7())
 
-        self._create_session(
+        self._seed_session(
             alice_id,
-            tools_used=["query_run", "insight_get"],
+            ["query_run", "insight_get"],
             client_name="Claude Desktop",
             distinct_id="alice@hedgehog.dev",
         )
-        self._create_session(
-            bob_id,
-            tools_used=["dashboard_get"],
-            client_name="Cursor",
-            distinct_id="bob@example.com",
-        )
-        self._create_session(
-            misc_id,
-            tools_used=["feature_flag_get"],
-            client_name="Windsurf",
-            distinct_id="anon_dead",
-        )
+        self._seed_session(bob_id, ["dashboard_get"], client_name="Cursor", distinct_id="bob@example.com")
+        self._seed_session(misc_id, ["feature_flag_get"], client_name="Windsurf", distinct_id="anon_dead")
 
         def search(term: str) -> set[str]:
             return {s.session_id for s in api.list_mcp_sessions(self.team, limit=50, offset=0, search=term)}
@@ -155,8 +193,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         # session_id substring — use suffix because uuid7 prefixes (timestamp) collide
         # when sessions are created microseconds apart.
         assert search(alice_id[-12:]) == {alice_id}
-        # empty search returns everything we created (DB may contain other rows from
-        # earlier test runs if transactions aren't isolating; subset is enough).
+        # empty search returns everything we created
         assert {alice_id, bob_id, misc_id}.issubset(search(""))
         # no match
         assert search("zzzz") == set()
@@ -167,33 +204,25 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         big_id = str(uuid7())
         now = datetime.now(tz=UTC)
 
-        self._create_session(
+        # tool_call_count == number of events; counts chosen so big > old > new.
+        self._seed_session(
             old_id,
-            tools_used=["query_run"],
+            ["query_run"] * 3,
             session_start=now - timedelta(minutes=120),
             session_end=now - timedelta(minutes=110),
         )
-        old_row = MCPSession.objects.get(session_id=old_id)
-        old_row.tool_call_count = 3
-        old_row.save(update_fields=["tool_call_count"])
-        self._create_session(
+        self._seed_session(
             new_id,
-            tools_used=["dashboard_get"],
+            ["dashboard_get"],
             session_start=now - timedelta(minutes=20),
             session_end=now - timedelta(minutes=10),
         )
-        new_row = MCPSession.objects.get(session_id=new_id)
-        new_row.tool_call_count = 1
-        new_row.save(update_fields=["tool_call_count"])
-        self._create_session(
+        self._seed_session(
             big_id,
-            tools_used=["insight_get"],
+            ["insight_get"] * 5,
             session_start=now - timedelta(minutes=60),
             session_end=now - timedelta(minutes=50),
         )
-        big_row = MCPSession.objects.get(session_id=big_id)
-        big_row.tool_call_count = 99
-        big_row.save(update_fields=["tool_call_count"])
 
         # Restrict to the three we just created so other rows don't interfere.
         target = {old_id, new_id, big_id}

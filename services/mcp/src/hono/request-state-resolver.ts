@@ -28,16 +28,14 @@ export interface ResolvedState {
 
 export function resolveModeAndVersion(args: {
     mode: McpMode | undefined
-    singleExecFlagOn: boolean
     clientProfile: MCPClientProfile
     flagVersion: number | undefined
     clientVersion: number | undefined
 }): { useSingleExec: boolean; version: number } {
-    const { mode, singleExecFlagOn, clientProfile, flagVersion, clientVersion } = args
+    const { mode, clientProfile, flagVersion, clientVersion } = args
     const useSingleExec =
         mode === 'cli' ||
         (mode !== 'tools' &&
-            singleExecFlagOn &&
             (clientProfile.isCodingAgent() ||
                 clientProfile.isPostHogCodeConsumer() ||
                 clientProfile.isVibeCodingClient()))
@@ -47,7 +45,7 @@ export function resolveModeAndVersion(args: {
 
 // ─── Resolver ───
 
-const SYSTEM_FLAGS = ['mcp-version-2', 'mcp-single-exec-tool'] as const
+const SYSTEM_FLAGS = ['mcp-version-2'] as const
 
 export class RequestStateResolver {
     private readonly catalog: ToolCatalog
@@ -93,14 +91,18 @@ export class RequestStateResolver {
         ])
 
         const flagVersion = allFlags['mcp-version-2'] ? 2 : undefined
-        const singleExecFlagOn = !!allFlags['mcp-single-exec-tool']
-        const toolFeatureFlags = toolFlagKeys.length > 0
-            ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]]))
-            : undefined
+        const toolFeatureFlags =
+            toolFlagKeys.length > 0 ? Object.fromEntries(toolFlagKeys.map((k) => [k, !!allFlags[k]])) : undefined
 
         const oauthClientName = (await reqCtx.cache.get('clientName')) || undefined
         const mcpClientName = props.mcpClientName || (await reqCtx.cache.get('mcpClientName')) || undefined
         const mcpClientVersion = props.mcpClientVersion || (await reqCtx.cache.get('mcpClientVersion')) || undefined
+        const mcpProtocolVersion =
+            props.mcpProtocolVersion || (await reqCtx.cache.get('mcpProtocolVersion')) || undefined
+
+        props.mcpClientName = mcpClientName
+        props.mcpClientVersion = mcpClientVersion
+        props.mcpProtocolVersion = mcpProtocolVersion
         const clientProfile = new MCPClientProfile({
             clientName: mcpClientName,
             clientVersion: mcpClientVersion,
@@ -110,11 +112,14 @@ export class RequestStateResolver {
 
         const { useSingleExec, version } = resolveModeAndVersion({
             mode,
-            singleExecFlagOn,
             clientProfile,
             flagVersion,
             clientVersion,
         })
+
+        if (!props.mode) {
+            props.mode = useSingleExec ? 'cli' : 'tools'
+        }
 
         const apiKeyScopes = _apiKey?.scopes ?? []
         const aiConsentGiven = await context.stateManager.getAiConsentGiven()
@@ -155,7 +160,9 @@ export class RequestStateResolver {
         flagKeys: string[],
         groups?: FlagGroups
     ): Promise<Record<string, boolean>> {
-        if (flagKeys.length === 0) {return {}}
+        if (flagKeys.length === 0) {
+            return {}
+        }
         try {
             const distinctId = await reqCtx.getDistinctId()
             return await evaluateFeatureFlags(flagKeys, distinctId, groups)

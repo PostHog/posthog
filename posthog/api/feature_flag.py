@@ -1486,6 +1486,40 @@ class FeatureFlagSerializer(
         except Exception:
             raise serializers.ValidationError("Can't evaluate flag - please check release conditions")
 
+    def _free_key_held_by_soft_deleted_flags(self, key: str, exclude_pk: int | None = None) -> None:
+        # The (team, key) unique constraint spans soft-deleted rows, so we must
+        # clear any tombstone holding `key`. Hard-delete first; if an FK blocks
+        # it (Experiment uses RESTRICT, EarlyAccessFeature uses PROTECT), rename
+        # the tombstone instead — same scheme as the soft-delete update path.
+        # Only safe when no active dependent references it; re-check that
+        # invariant and error clearly if violated.
+        soft_deleted_qs = FeatureFlag.objects_including_soft_deleted.filter(
+            key=key,
+            team__project_id=self.context["project_id"],
+            deleted=True,
+        )
+        if exclude_pk is not None:
+            soft_deleted_qs = soft_deleted_qs.exclude(pk=exclude_pk)
+
+        for flag in soft_deleted_qs:
+            try:
+                flag.delete()
+            except (deletion.RestrictedError, deletion.ProtectedError):
+                blockers = []
+                active_experiment_ids = list(flag.experiment_set.filter(deleted=False).values_list("id", flat=True))
+                if active_experiment_ids:
+                    blockers.append(f"active experiment(s) with ID(s): {', '.join(map(str, active_experiment_ids))}")
+                eaf_count = flag.features.count()
+                if eaf_count:
+                    blockers.append(f"{eaf_count} early access feature(s)")
+                if blockers:
+                    raise exceptions.ValidationError(
+                        f"Cannot reuse key '{flag.key}': a soft-deleted flag with this key is still "
+                        f"referenced by {' and '.join(blockers)}. Please contact support."
+                    )
+                flag.key = f"{flag.key}:deleted:{flag.id}"
+                flag.save(update_fields=["key"])
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
@@ -1518,16 +1552,7 @@ class FeatureFlagSerializer(
 
         encrypt_flag_payloads(validated_data)
 
-        try:
-            FeatureFlag.objects_including_soft_deleted.filter(
-                key=validated_data["key"],
-                team__project_id=self.context["project_id"],
-                deleted=True,
-            ).delete()
-        except deletion.RestrictedError:
-            raise exceptions.ValidationError(
-                "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag."
-            )
+        self._free_key_held_by_soft_deleted_flags(validated_data["key"])
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
@@ -1756,22 +1781,11 @@ class FeatureFlagSerializer(
             validated_data["version"] = locked_version + 1
             old_key = instance.key
 
-            # If the key is changing, free it up by hard-deleting any soft-deleted
-            # flag that still holds the target key — the DB unique constraint on
-            # (team, key) spans soft-deleted rows, so without this the update
-            # would fail with an IntegrityError. Mirrors the behavior in create().
+            # Clear any soft-deleted tombstone on `new_key` so the (team, key)
+            # unique constraint doesn't block the rename. Mirrors create().
             new_key = validated_data.get("key")
             if new_key and new_key != old_key and validated_data.get("deleted", instance.deleted) is False:
-                try:
-                    FeatureFlag.objects_including_soft_deleted.filter(
-                        key=new_key,
-                        team__project_id=self.context["project_id"],
-                        deleted=True,
-                    ).exclude(pk=instance.pk).delete()
-                except deletion.RestrictedError:
-                    raise exceptions.ValidationError(
-                        "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before renaming the flag."
-                    )
+                self._free_key_held_by_soft_deleted_flags(new_key, exclude_pk=instance.pk)
 
             with ImpersonatedContext(request):
                 instance = super().update(instance, validated_data)

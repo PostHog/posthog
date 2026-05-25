@@ -18,7 +18,22 @@ export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
 export type { ChartProps } from './core/Chart'
+export { RadialChart, RADIAL_MARGINS } from './core/RadialChart'
+export type { RadialChartProps, RadialLayoutBuilder } from './core/RadialChart'
 export { DEFAULT_MARGINS } from './core/hooks/useChartMargins'
+
+// Pie / donut
+export { PieChart } from './charts/PieChart/PieChart'
+export type { PieChartConfig, PieChartProps } from './charts/PieChart/PieChart'
+export { computePieLayout, cursorOffsetToAngle, sliceAt, defaultSliceValue } from './charts/PieChart/computePieLayout'
+export type { PieLayout, PieSlice } from './charts/PieChart/computePieLayout'
+export { SliceLabels } from './charts/PieChart/SliceLabels'
+export type { SliceLabelsProps } from './charts/PieChart/SliceLabels'
+export { PieTooltip } from './charts/PieChart/PieTooltip'
+export type { PieTooltipProps } from './charts/PieChart/PieTooltip'
+export { useRadialLayout } from './core/radial-context'
+export type { RadialLayoutContextValue } from './core/radial-context'
+export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 
 // Chart context (for custom overlay children)
 export { useChart, useChartHover, useChartLayout } from './core/chart-context'

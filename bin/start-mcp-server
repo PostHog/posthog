@@ -3,7 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../services/mcp"
 
-RUNTIME="${MCP_RUNTIME:-cloudflare}"
+RUNTIME="${MCP_RUNTIME:-hono}"
 
 pnpm install --frozen-lockfile
 
