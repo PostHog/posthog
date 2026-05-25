@@ -1,0 +1,3 @@
+team_id	access_method	query_type	query_duration_ms	event_time
+430628		stats_table_main_query	7601	2026-05-19T08:24:43Z
+210253		stats_table_main_query	5909	2026-05-19T07:36:46Z

@@ -1,0 +1,7 @@
+query_type	query_count	avg_duration_ms	p95_duration_ms	p99_duration_ms	max_duration_ms	first_seen	last_seen
+web_overview_query	2795	707.2	1627.0	3911.0	13051	2026-05-18T22:38:31Z	2026-05-19T04:37:56Z
+web_vitals_path_breakdown_query	350	282.4	539.0	1210.6	2389	2026-05-18T22:38:42Z	2026-05-19T04:36:09Z
+stats_table_query	296	938.2	1758.2	6844.6	17298	2026-05-18T22:39:48Z	2026-05-19T04:15:19Z
+web_goals_query	278	1168.8	3612.3	8595.3	15400	2026-05-18T22:39:48Z	2026-05-19T04:38:00Z
+WebAnalyticsPageURLSearch	30	163.7	204.6	282.0	313	2026-05-18T22:56:24Z	2026-05-19T03:41:28Z
+external_clicks_query	12	1005.1	2374.8	2996.6	3152	2026-05-19T04:20:07Z	2026-05-19T04:35:18Z

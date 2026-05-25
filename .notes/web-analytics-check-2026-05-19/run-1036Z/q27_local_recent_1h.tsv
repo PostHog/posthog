@@ -1,0 +1,15 @@
+bucket	query_type	cnt	over_5s	p95_ms	max_ms
+2026-05-19T10:30:00Z	stats_table_main_query	8	0	1764.0	2138
+2026-05-19T10:30:00Z	stats_table_path_bounce_query	5	0	1362.0	1363
+2026-05-19T10:30:00Z	stats_table_frustration_metrics_query	2	0	711.0	722
+2026-05-19T10:20:00Z	stats_table_main_query	5	0	1144.0	1274
+2026-05-19T10:20:00Z	stats_table_frustration_metrics_query	2	0	821.0	839
+2026-05-19T10:10:00Z	stats_table_main_query	7	0	2587.0	3296
+2026-05-19T10:10:00Z	stats_table_path_bounce_query	3	0	1498.0	1526
+2026-05-19T10:10:00Z	stats_table_frustration_metrics_query	2	0	736.0	751
+2026-05-19T10:00:00Z	stats_table_main_query	13	0	861.0	956
+2026-05-19T10:00:00Z	stats_table_frustration_metrics_query	4	0	1001.0	1036
+2026-05-19T09:50:00Z	stats_table_main_query	9	0	1496.0	1893
+2026-05-19T09:40:00Z	stats_table_main_query	9	0	1959.0	2703
+2026-05-19T09:40:00Z	stats_table_frustration_metrics_query	3	0	1146.0	1190
+2026-05-19T09:40:00Z	stats_table_path_bounce_query	2	0	1185.0	1192

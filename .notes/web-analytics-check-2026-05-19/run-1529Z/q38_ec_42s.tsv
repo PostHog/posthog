@@ -1,0 +1,4 @@
+team_id	access_method	query_duration_ms	read_rows	memory_mb	event_time	query_id
+125691	personal_api_key	42828	1243321	726.0	2026-05-19T15:15:49Z	125691_1c2ee424-90f3-468f-86ba-18f2a879f854_rl2gyYre
+125691	personal_api_key	18234	1280206	726.0	2026-05-19T15:16:29Z	125691_77b3d4f8-283e-4347-b6a1-4bc9c67fb4bd_RNPPaFBE
+125691	personal_api_key	11167	1180512	707.0	2026-05-19T15:16:05Z	125691_029e1490-62f7-4070-b154-58ebc0ec8251_orQn51lh

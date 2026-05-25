@@ -28,6 +28,8 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
     LazyPrecomputeIneligible,
     LazyPrecomputeRunner,
     can_use_lazy_precompute as _can_use_lazy_precompute_shared,
@@ -37,6 +39,8 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     test_account_filter_expr,
     user_filter_expr,
 )
+
+_FAMILY = "web_stats"
 
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
@@ -50,12 +54,17 @@ WEB_STATS_LAZY_FAILED = Counter(
     ["error_type"],
 )
 
-# Low-cardinality breakdowns served by `SimpleBreakdownStrategy` /
-# `ChannelTypeStrategy`. Restricted to bounded-cardinality dimensions on purpose:
-# the precompute read returns every breakdown row and paginates in Python, so a
-# high-cardinality breakdown (every distinct URL/path) would be a memory/latency
-# risk. The page/path/referring-URL breakdowns, FRUSTRATION_METRICS and LANGUAGE
-# all fall through to the raw path.
+# Breakdowns served by `SimpleBreakdownStrategy` / `ChannelTypeStrategy` that we
+# expect to behave well under precompute. UTM/browser/OS/region/city values are
+# user-controlled at ingestion so cardinality is not strictly bounded, but in
+# practice they sit several orders of magnitude below the per-URL breakdowns we
+# deliberately route to the raw path (page/path/referring-URL, FRUSTRATION_METRICS,
+# LANGUAGE). The failure mode for a pathological team is a slow precompute INSERT,
+# not an incorrect result — sort, pagination and HAVING all run in SQL so the
+# read returns exactly the page the user asked for regardless of total distinct
+# values. If a team's INSERT becomes a hotspot we can carve them out via the
+# rollout gate; we are not adding a defensive SQL-side cardinality cap because
+# it would silently truncate results vs. the raw path.
 #
 # Tuple/float breakdowns (REGION, CITY, VIEWPORT, TIMEZONE) are supported: the
 # breakdown value is JSON-encoded into the `breakdown_value` String column and
@@ -478,6 +487,7 @@ def execute_lazy_precomputed_read(
         time_range_end = ceil_utc_day(current_end_utc)
 
         if time_range_start >= time_range_end:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="empty_range").inc()
             logger.info(
                 "web_stats_lazy_precompute_empty_range",
                 team_id=team_id,
@@ -502,6 +512,7 @@ def execute_lazy_precomputed_read(
         )
 
         if not result.job_ids:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="no_job_ids").inc()
             logger.info(
                 "web_stats_lazy_precompute_no_job_ids",
                 team_id=team_id,
@@ -510,6 +521,7 @@ def execute_lazy_precomputed_read(
             return None
 
         if not result.ready:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="current_not_ready").inc()
             logger.info(
                 "web_stats_lazy_precompute_current_not_ready",
                 team_id=team_id,
@@ -548,6 +560,7 @@ def execute_lazy_precomputed_read(
                     )
 
                     if not prev_result.ready:
+                        WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="previous_not_ready").inc()
                         logger.info(
                             "web_stats_lazy_precompute_previous_not_ready",
                             team_id=team_id,
@@ -556,6 +569,14 @@ def execute_lazy_precomputed_read(
                         return None
 
                     job_ids.extend(str(jid) for jid in prev_result.job_ids)
+                else:
+                    # Cap collapsed the previous-period window to nothing (e.g. a
+                    # non-UTC boundary day shared the same job_id as the current
+                    # period). Clear the previous bounds so the read does not
+                    # filter for a window with no backing job_ids — otherwise
+                    # every `*MergeIf(..., prev_*)` would silently return 0.
+                    previous_start_utc = None
+                    previous_end_utc = None
 
         rows, has_more, sort_metric = execute_read_query(
             runner=runner,
@@ -566,6 +587,7 @@ def execute_lazy_precomputed_read(
             previous_end_utc=previous_end_utc,
         )
 
+        WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS.labels(family=_FAMILY).inc()
         logger.info(
             "web_stats_lazy_precompute_completed",
             team_id=team_id,

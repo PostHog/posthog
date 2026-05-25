@@ -1,0 +1,7 @@
+team_id	access_method	query_type	query_duration_ms	read_rows	memory_mb	event_time	query_id
+204248	personal_api_key	web_overview_query	33542	764609	684.0	2026-05-19T12:17:49Z	204248_019e402b3aef79aea8b006db583286e6_5sLwuXz7
+204248	personal_api_key	stats_table_main_query	32439	909465	700.0	2026-05-19T12:17:48Z	204248_019e402b3aec7b2fbfc330b3479c7250_caEnL6jS
+112458		stats_table_path_bounce_query	20099	651306533	24078.0	2026-05-19T12:43:18Z	112458_1b266861-28a0-4907-bbbd-a2d9d0c6d758_c7jdBDaa
+112458		web_overview_query	13239	325853106	11958.0	2026-05-19T12:43:12Z	112458_d3d6cbba-a1dd-4f29-a2f2-353562020ec5_GvEQZcsV
+125691	personal_api_key	external_clicks_query	10654	982004	717.0	2026-05-19T11:45:22Z	125691_bab23a32-1666-43f6-ae8c-8c149202289b_Tsb9Wn4k
+125691	personal_api_key	external_clicks_query	8578	998838	713.0	2026-05-19T12:05:22Z	125691_dea8e365-7572-4e39-837a-3b890307f46d_GOpTJuYy

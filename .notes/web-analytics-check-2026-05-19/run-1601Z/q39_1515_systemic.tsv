@@ -1,0 +1,4 @@
+team_id	access_method	query_type	query_duration_ms	read_rows	event_time
+125691	personal_api_key	external_clicks_query	42828	1243321	2026-05-19T15:15:49Z
+125691	personal_api_key	external_clicks_query	11167	1180512	2026-05-19T15:16:05Z
+125691	personal_api_key	external_clicks_query	18234	1280206	2026-05-19T15:16:29Z

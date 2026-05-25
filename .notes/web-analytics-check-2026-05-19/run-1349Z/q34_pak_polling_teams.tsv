@@ -1,0 +1,3 @@
+team_id	access_method	query_type	cnt	avg_ms	p95_ms	max_ms
+204248	personal_api_key	web_overview_query	74	797.0	1689.0	3543
+125691	personal_api_key	external_clicks_query	36	983.0	1741.0	2297

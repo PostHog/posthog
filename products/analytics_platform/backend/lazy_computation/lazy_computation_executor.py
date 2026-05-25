@@ -278,6 +278,7 @@ class LazyComputationTable(StrEnum):
     EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
     WEB_OVERVIEW_PREAGGREGATED = "web_overview_preaggregated"
     WEB_STATS_PREAGGREGATED = "web_stats_preaggregated"
+    WEB_STATS_PATHS_PREAGGREGATED = "web_stats_paths_preaggregated"
     WEB_VITALS_PATHS_PREAGGREGATED = "web_vitals_paths_preaggregated"
 
 

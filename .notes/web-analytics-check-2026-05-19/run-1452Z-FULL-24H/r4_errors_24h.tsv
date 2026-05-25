@@ -1,0 +1,15 @@
+query_type	exception_code	error_name	cnt	teams_affected
+stats_table_main_query	394	QUERY_WAS_CANCELLED	74	55
+stats_table_query	394	QUERY_WAS_CANCELLED	73	47
+stats_table_path_bounce_query	394	QUERY_WAS_CANCELLED	38	31
+stats_table_frustration_metrics_query	394	QUERY_WAS_CANCELLED	35	31
+web_overview_query	394	QUERY_WAS_CANCELLED	25	19
+web_goals_query	394	QUERY_WAS_CANCELLED	16	13
+stats_table_entry_bounce_query	394	QUERY_WAS_CANCELLED	5	3
+web_vitals_path_breakdown_query	394	QUERY_WAS_CANCELLED	2	2
+stats_table_frustration_metrics_query	159	TIMEOUT_EXCEEDED	1	1
+external_clicks_query	159	TIMEOUT_EXCEEDED	1	1
+stats_table_query	241	MEMORY_LIMIT_EXCEEDED	1	1
+stats_table_main_query	386	NO_COMMON_TYPE	1	1
+stats_table_path_bounce_query	159	TIMEOUT_EXCEEDED	1	1
+external_clicks_query	394	QUERY_WAS_CANCELLED	1	1

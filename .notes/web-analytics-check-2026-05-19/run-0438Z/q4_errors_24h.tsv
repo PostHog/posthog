@@ -1,0 +1,10 @@
+query_type	exception_code	error_name	cnt	teams_affected	avg_duration_ms	p95_duration_ms
+stats_table_query	394	QUERY_WAS_CANCELLED	150	108	1081.7	3730.4
+web_overview_query	394	QUERY_WAS_CANCELLED	25	19	991.1	2179.4
+stats_table_query	202	TOO_MANY_SIMULTANEOUS_QUERIES	24	21	479.5	860.9
+web_goals_query	394	QUERY_WAS_CANCELLED	14	10	936.0	2128.5
+web_overview_query	202	TOO_MANY_SIMULTANEOUS_QUERIES	13	13	545.3	746.4
+stats_table_query	386	NO_COMMON_TYPE	2	1	509.5	553.2
+web_goals_query	202	TOO_MANY_SIMULTANEOUS_QUERIES	2	2	635.0	676.4
+stats_table_query	241	MEMORY_LIMIT_EXCEEDED	1	1	9177.0	9177.0
+web_vitals_path_breakdown_query	394	QUERY_WAS_CANCELLED	1	1	182.0	182.0

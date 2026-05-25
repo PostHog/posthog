@@ -1,0 +1,13 @@
+team_id	access_method	query_type	user_id	query_duration_ms	read_rows	event_time
+39058		stats_table_preaggregated_query	56062	167	8364032	2026-05-19T17:18:36Z
+39058		stats_table_preaggregated_path_breakdown_query	56062	193	14229504	2026-05-19T17:18:36Z
+39058		stats_table_preaggregated_query	56062	94	8364032	2026-05-19T17:18:36Z
+39058		web_overview_preaggregated_query	56062	105	5865472	2026-05-19T17:18:36Z
+39058		stats_table_preaggregated_query	56062	149	18341888	2026-05-19T17:18:47Z
+39058		web_overview_preaggregated_query	56062	144	12378112	2026-05-19T17:18:47Z
+39058		stats_table_preaggregated_query	56062	217	18341888	2026-05-19T17:18:48Z
+39058		stats_table_preaggregated_path_breakdown_query	56062	298	30720000	2026-05-19T17:18:48Z
+39058		web_overview_preaggregated_query	56062	291	12918784	2026-05-19T17:19:07Z
+39058		stats_table_preaggregated_path_breakdown_query	56062	423	33923072	2026-05-19T17:19:07Z
+39058		stats_table_preaggregated_query	56062	257	21004288	2026-05-19T17:19:07Z
+39058		stats_table_preaggregated_query	56062	252	21004288	2026-05-19T17:19:07Z

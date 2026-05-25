@@ -1,0 +1,4 @@
+team_id	access_method	query_duration_ms	read_rows	memory_mb	event_time
+234917		3263	6562758	7.0	2026-05-19T14:44:58Z
+234917		3133	6556842	9.0	2026-05-19T14:44:56Z
+430943		1614	6027	3.0	2026-05-19T10:41:49Z
