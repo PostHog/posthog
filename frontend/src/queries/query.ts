@@ -182,8 +182,12 @@ async function executeQuery<N extends DataNode>(
             limitContext,
         })
 
-        if (response.detail) {
+        if (response?.detail) {
             throw new Error(response.detail)
+        }
+
+        if (!response) {
+            throw new Error('Query returned an empty response')
         }
 
         if (!isAsyncResponse(response)) {
