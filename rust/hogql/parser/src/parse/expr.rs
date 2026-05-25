@@ -4129,6 +4129,12 @@ impl<'a> Parser<'a> {
         let cp = self.checkpoint();
         match self.parse_type_expr() {
             Ok(name) if matches!(self.peek(), TokenKind::Comma | TokenKind::RParen) => Ok(name),
+            // A FATAL error means the nested type committed and failed a
+            // visitor-level check — e.g. `q(w('k'=1))`, where the inner
+            // `w('k'=1)` is a `ColumnTypeExprEnum` that cpp rejects. Propagate
+            // it rather than masking it with the raw-text Param fallback (which
+            // would over-accept). Mirrors `try_alt`'s fatal short-circuit.
+            Err(e) if e.fatal => Err(e),
             _ => {
                 self.restore(cp)?;
                 self.consume_raw_type_param_text()

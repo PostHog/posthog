@@ -1359,12 +1359,27 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
             for backend in ("cpp-json", "rust-json"):
                 with self.assertRaises(BaseHogQLError):
                     parse_expr(f"cast(1 as q('a' = {value}))", backend=backend)
-        # Non-enum parametric / nested / complex types are unaffected.
+        # A NESTED enum (an enum type sitting in another type's parens, e.g.
+        # `q(w('k' = 1))`) is a `ColumnTypeExprEnum` cpp also rejects. rust used
+        # to mask the nested enum's (fatal) rejection with the raw-text Param
+        # fallback and over-accept; the type-param parser now propagates fatal
+        # errors instead.
+        for value in ("1", "inf", "nan", "0x1f"):
+            for query in (f"cast(1 as q(w('k' = {value})))", f"cast(1 as q(w('a' = 1, 'b' = {value})))"):
+                for backend in ("cpp-json", "rust-json"):
+                    with self.assertRaises(BaseHogQLError, msg=query):
+                        parse_expr(query, backend=backend)
+        # A nested NON-enum (string / ident value) falls back to Param and is
+        # accepted on both — the fatal propagation must not over-reject these.
         for query in (
+            "cast(1 as q(w('k' = '')))",
+            "cast(1 as q(w('k' = x)))",
+            # Non-enum parametric / nested / complex types are unaffected.
             "cast(1 as Decimal(10, 2))",
             "cast(1 as FixedString(5))",
             "cast(1 as Array(Int))",
             "cast(1 as Tuple(UInt8, String))",
+            "cast(1 as Array(Tuple(UInt8, String)))",
         ):
             self.assertEqual(
                 parse_expr(query, backend="cpp-json"),
