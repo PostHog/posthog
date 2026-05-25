@@ -162,6 +162,43 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _, kwargs = mock_client.build_request.call_args
         assert kwargs["headers"]["Mcp-Session-Id"] == "client-session-xyz"
 
+    @patch("products.mcp_store.backend.proxy.httpx.Client")
+    def test_proxy_forwards_posthog_namespace_headers(self, mock_client_cls):
+        # Required for PostHog MCP installs through the Store: without
+        # `x-posthog-mcp-consumer` reaching the upstream, single-exec mode
+        # never resolves and `exec` comes back as "Tool exec not found".
+        installation = self._create_installation(
+            sensitive_configuration={"api_key": "sk-test-key"},
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        mock_client = self._mock_client_with_response(mock_client_cls, mock_response)
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+            headers={
+                "x-posthog-mcp-consumer": "posthog-code",
+                "x-posthog-mcp-mode": "cli",
+                "x-posthog-mcp-version": "2",
+                "x-posthog-project-id": "42",
+                "x-posthog-read-only": "true",
+                "x-not-posthog-namespace": "should-not-be-forwarded",
+            },
+        )
+
+        assert response.status_code == 200
+        _, kwargs = mock_client.build_request.call_args
+        assert kwargs["headers"]["x-posthog-mcp-consumer"] == "posthog-code"
+        assert kwargs["headers"]["x-posthog-mcp-mode"] == "cli"
+        assert kwargs["headers"]["x-posthog-mcp-version"] == "2"
+        assert kwargs["headers"]["x-posthog-project-id"] == "42"
+        assert kwargs["headers"]["x-posthog-read-only"] == "true"
+        assert "x-not-posthog-namespace" not in kwargs["headers"]
+
     @patch("products.mcp_store.backend.oauth.refresh_oauth_token")
     @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_proxy_refreshes_expired_oauth_token(self, mock_client_cls, mock_refresh):

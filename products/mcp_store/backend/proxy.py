@@ -276,6 +276,23 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
         **auth_headers,
     }
 
+    # Forward PostHog-namespace headers so the upstream server can identify the
+    # consumer, mode, and version that the caller declared. Without this, the
+    # PostHog MCP cannot resolve single-exec mode for posthog-code-installed
+    # PostHog MCPs (the consumer header never reaches the resolver), and the
+    # `exec` tool comes back as "Tool exec not found". Non-PostHog upstreams
+    # ignore unknown `x-posthog-mcp-*` headers, so this is safe for any server.
+    for ph_header in (
+        "x-posthog-mcp-consumer",
+        "x-posthog-mcp-mode",
+        "x-posthog-mcp-version",
+        "x-posthog-project-id",
+        "x-posthog-read-only",
+    ):
+        value = request.headers.get(ph_header)
+        if value:
+            headers[ph_header] = value
+
     mcp_session_id = request.headers.get("mcp-session-id")
     if mcp_session_id:
         headers["Mcp-Session-Id"] = mcp_session_id
