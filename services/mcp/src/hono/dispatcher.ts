@@ -24,10 +24,13 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
 import { getEnv } from './constants'
+import { ElicitBinding } from './elicit-binding'
 import { InstructionsBuilder } from './instructions'
 import { initDurationSeconds, initTotal } from './metrics'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
+import { type BusAwaitMetrics, RedisPollingSessionResponseBus, type SessionResponseBus } from './session-bus'
+import { createSseResponse, type SseResponseHandle } from './sse-response'
 import { ToolCatalog } from './tool-catalog'
 import { ToolExecutor } from './tool-executor'
 
@@ -100,22 +103,43 @@ function jsonRpcErrorResponse(id: unknown, code: number, message: string): Respo
     })
 }
 
+export interface McpDispatcherOptions {
+    /**
+     * Cross-pod session bus. Defaults to a Redis-polling bus over the same
+     * `RedisLike` client. Tests can inject `InMemorySessionResponseBus`.
+     */
+    sessionBus?: SessionResponseBus
+    /**
+     * Per-await metrics adapter (e.g. Prometheus). Defaults to no-op.
+     */
+    busMetrics?: BusAwaitMetrics
+}
+
 class McpDispatcher {
     private readonly catalog: ToolCatalog
     private readonly resourceCatalog: ResourceCatalog
     private readonly stateResolver: RequestStateResolver
     private readonly toolExecutor: ToolExecutor
     private readonly instructionsBuilder: InstructionsBuilder
+    private readonly sessionBus: SessionResponseBus
+    private readonly busMetrics: BusAwaitMetrics | undefined
 
     private warmupPromise: Promise<void> | undefined
 
-    constructor(catalog: ToolCatalog, redis: RedisLike) {
+    constructor(catalog: ToolCatalog, redis: RedisLike, options: McpDispatcherOptions = {}) {
         const env = getEnv()
         this.catalog = catalog
         this.resourceCatalog = new ResourceCatalog(env)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(loadGuidelines())
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
+        this.sessionBus = options.sessionBus ?? new RedisPollingSessionResponseBus(redis)
+        this.busMetrics = options.busMetrics
+    }
+
+    /** Test accessor — exposes the bus so tests can deliver elicit responses. */
+    get bus(): SessionResponseBus {
+        return this.sessionBus
     }
 
     async warmup(): Promise<void> {
@@ -156,6 +180,14 @@ class McpDispatcher {
         const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
         const state = needsState ? await this.stateResolver.resolve(props) : undefined
 
+        // Single-message tools/call can upgrade to SSE if the tool handler
+        // calls `context.elicit()`. Batches and other methods stay on the
+        // plain JSON path — server-initiated elicits don't fit the batch
+        // request/response shape and aren't valid for non-tool methods.
+        if (!wasArray && requests.length === 1 && requests[0]!.method === Method.ToolsCall) {
+            return await this.dispatchToolsCallWithMaybeSse(requests[0]!, props, state!, req.signal)
+        }
+
         if (!wasArray && requests.length === 1) {
             const result = await this.dispatch(requests[0]!, props, state)
             return new Response(JSON.stringify(result), {
@@ -169,6 +201,110 @@ class McpDispatcher {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
         })
+    }
+
+    /**
+     * Dispatch a single `tools/call` request that may surface an elicit.
+     *
+     * Runs the tool handler concurrently with a watcher for the first elicit.
+     * Whichever finishes first decides the response shape:
+     * - **Handler completes first** → return plain JSON, exactly as the
+     *   pre-elicit code path did. Zero extra cost when no elicit fires.
+     * - **First elicit fires first** → return the SSE response immediately
+     *   (already carrying the `elicitation/create` message). Continue
+     *   awaiting the handler in the background; when it resolves, write
+     *   the final JSONRPC result to the SSE stream and close it.
+     */
+    private async dispatchToolsCallWithMaybeSse(
+        request: JSONRPCRequest,
+        props: RequestProperties,
+        state: ResolvedState,
+        requestSignal: AbortSignal
+    ): Promise<Response> {
+        const { id, params } = request
+
+        const binding = new ElicitBinding({
+            bus: this.sessionBus,
+            createSseHandle: async () => createSseResponse(),
+            requestSignal,
+            ...(this.busMetrics !== undefined ? { gatewayOptions: { metrics: this.busMetrics } } : {}),
+        })
+        state.reqCtx.setElicitBinding(binding)
+
+        type HandlerOutcome = { kind: 'success'; value: unknown } | { kind: 'error'; error: unknown }
+        const handlerPromise: Promise<HandlerOutcome> = this.toolExecutor
+            .handleToolCall(params, props, state)
+            .then((value): HandlerOutcome => ({ kind: 'success', value }))
+            .catch((error): HandlerOutcome => ({ kind: 'error', error }))
+
+        // Wait for whichever happens first.
+        const winner = await Promise.race([
+            handlerPromise.then(() => 'handler' as const),
+            binding.firstElicit.then(() => 'elicit' as const),
+        ])
+
+        if (winner === 'handler') {
+            const outcome = await handlerPromise
+            const result = this.buildToolsCallJsonRpcResponse(id, outcome)
+            return new Response(JSON.stringify(result), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            })
+        }
+
+        // SSE path — the binding already wrote `elicitation/create` to the
+        // writer. Hand the response back to the client now; flush the
+        // handler's eventual result asynchronously.
+        const sseHandle = binding.getSseHandle()
+        if (!sseHandle) {
+            // Should never happen: firstElicit resolved but no handle was
+            // recorded. Treat as internal error.
+            const fallback = jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
+            return new Response(JSON.stringify(fallback), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            })
+        }
+
+        void this.finalizeSseResponse(sseHandle, id, handlerPromise)
+        return sseHandle.response
+    }
+
+    /**
+     * Wait for the tool handler to complete, then write the final JSONRPC
+     * result (or error) to the SSE writer and close the stream. Errors
+     * during the writes themselves are swallowed — the client has already
+     * disconnected at that point.
+     */
+    private async finalizeSseResponse(
+        sseHandle: SseResponseHandle,
+        id: number | string,
+        handlerPromise: Promise<{ kind: 'success'; value: unknown } | { kind: 'error'; error: unknown }>
+    ): Promise<void> {
+        try {
+            const outcome = await handlerPromise
+            const result = this.buildToolsCallJsonRpcResponse(id, outcome)
+            await sseHandle.writer.write(result)
+        } catch (error) {
+            console.error('[McpDispatcher] SSE finalize failed:', error)
+        } finally {
+            try {
+                await sseHandle.writer.close()
+            } catch {
+                /* already closed */
+            }
+        }
+    }
+
+    private buildToolsCallJsonRpcResponse(
+        id: number | string,
+        outcome: { kind: 'success'; value: unknown } | { kind: 'error'; error: unknown }
+    ): JsonRpcResponse {
+        if (outcome.kind === 'success') {
+            return jsonRpcResult(id, outcome.value)
+        }
+        console.error('[McpDispatcher] Internal error:', outcome.error)
+        return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
     }
 
     private async dispatch(

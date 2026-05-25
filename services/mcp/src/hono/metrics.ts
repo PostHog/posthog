@@ -103,4 +103,27 @@ export function routeLabel(pathname: string): string {
     return 'other'
 }
 
+// Cross-pod elicitation correlation via the SessionResponseBus. These trace the
+// human-in-the-loop latency: how long pods sit on a parked `bus.await` between
+// sending an `elicitation/create` and the client's response landing (possibly
+// on a different pod). A spike in `timeout` is the leading indicator of clients
+// not honoring elicitation; `unhealthy` flags Redis or schema issues.
+export const sessionBusAwaitsTotal = new Counter({
+    name: 'mcp_session_bus_awaits_total',
+    help: 'Total session-response bus awaits, broken down by outcome.',
+    labelNames: ['outcome'] as const,
+})
+
+export const sessionBusAwaitDurationSeconds = new Histogram({
+    name: 'mcp_session_bus_await_duration_seconds',
+    help: 'Time from session-bus await start to resolution.',
+    labelNames: ['outcome'] as const,
+    buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300],
+})
+
+export const sessionBusPollsTotal = new Counter({
+    name: 'mcp_session_bus_polls_total',
+    help: 'Total Redis GETs performed by the polling session-response bus.',
+})
+
 export { register }

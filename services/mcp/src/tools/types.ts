@@ -1,3 +1,4 @@
+import type { ElicitRequestFormParams, ElicitResult } from '@modelcontextprotocol/sdk/types.js'
 import type { z } from 'zod'
 
 import type { ApiClient, GroupType } from '@/api/client'
@@ -95,7 +96,27 @@ export type Context = {
      * stateManager when not provided.
      */
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
+    /**
+     * Request structured input from the user via the MCP client (an elicitation
+     * modal). Used to gate destructive actions behind manual confirmation.
+     *
+     * Optional because not every runtime wires elicitation today: the Hono
+     * dispatcher sets it via the per-request elicit binding when a tool handler
+     * needs to surface a prompt; runtimes without that wiring leave it undefined,
+     * and consumers should fall back to "no confirmation available, fail closed".
+     *
+     * Throws (cross-pod errors from the underlying session bus):
+     * - `SessionBusTimeoutError` if no response within the deadline
+     * - `SessionBusAbortedError` if the request signal aborts
+     * - `SessionBusUnhealthyError` if the bus or validation fails
+     */
+    elicit?: ElicitFn
 }
+
+export type ElicitFn = (
+    params: ElicitRequestFormParams,
+    options?: { timeoutMs?: number; signal?: AbortSignal }
+) => Promise<ElicitResult>
 
 export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
     name: string

@@ -1,13 +1,13 @@
 import { ApiClient } from '@/api/client'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
+import { getPostHogClient } from '@/lib/posthog'
 import {
     AnalyticsEvent,
     buildMCPAnalyticsGroups,
     buildMCPContextProperties,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import { getPostHogClient } from '@/lib/posthog'
 import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
@@ -15,6 +15,7 @@ import type { Context, Env, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getCustomApiBaseUrl } from './constants'
+import type { ElicitBinding } from './elicit-binding'
 
 export class RequestContext {
     private cacheInstance: RedisCache<State> | undefined
@@ -24,11 +25,26 @@ export class RequestContext {
     private readonly redis: RedisLike
     private readonly env: Env
     private readonly props: RequestProperties
+    /**
+     * Per-request slot the dispatcher fills in before invoking a tool
+     * handler. The `Context.elicit` closure reads this lazily, so the
+     * binding may be set either before or after `getContext()` runs.
+     */
+    private elicitBinding: ElicitBinding | undefined
 
     constructor(redis: RedisLike, env: Env, props: RequestProperties) {
         this.redis = redis
         this.env = env
         this.props = props
+    }
+
+    /**
+     * Install (or replace) the elicit binding for this request. Called by
+     * the dispatcher for tool-call requests; no-op for other JSONRPC
+     * methods that can't surface elicits.
+     */
+    setElicitBinding(binding: ElicitBinding | undefined): void {
+        this.elicitBinding = binding
     }
 
     get cache(): RedisCache<State> {
@@ -104,7 +120,7 @@ export class RequestContext {
     async getContext(): Promise<Context> {
         const api = await this.api()
         const stateManager = new StateManager(this.cache, api)
-        const partialContext: Omit<Context, 'trackEvent'> = {
+        const partialContext: Omit<Context, 'trackEvent' | 'elicit'> = {
             api,
             cache: this.cache,
             env: this.env,
@@ -117,7 +133,19 @@ export class RequestContext {
             const distinctId = await this.getDistinctId()
             await this.trackEvent(event, properties, analyticsContext, undefined, distinctId, this.props)
         }
-        return { ...partialContext, trackEvent }
+        // Read the binding lazily — the dispatcher may set it after this
+        // method returns. The closure captures `this`, not the current value.
+        const self = this
+        const elicit: Context['elicit'] = (params, options) => {
+            const binding = self.elicitBinding
+            if (!binding) {
+                throw new Error(
+                    'Elicit is not available in this request context. The dispatcher only installs the elicit binding for tools/call.'
+                )
+            }
+            return binding.invoke(params, options)
+        }
+        return { ...partialContext, trackEvent, elicit }
     }
 
     async getAnalyticsContextSafe(context: Pick<Context, 'stateManager'>): Promise<MCPAnalyticsContext | undefined> {
