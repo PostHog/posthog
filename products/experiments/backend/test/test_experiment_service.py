@@ -1206,6 +1206,32 @@ class TestExperimentService(APIBaseTest):
 
         assert "global filter properties" in str(ctx.exception)
 
+    @parameterized.expand([("regex",), ("not_regex",)])
+    def test_update_experiment_allows_existing_invalid_regex_in_flag_filters(self, operator):
+        experiment = self._create_draft_experiment()
+        flag = experiment.feature_flag
+        flag.filters["groups"][0]["properties"] = [
+            {"key": "email", "value": "[unclosed", "operator": operator, "type": "person"}
+        ]
+        flag.save(update_fields=["filters"])
+
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                },
+            },
+        )
+
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["properties"][0]["value"] == "[unclosed"
+        assert flag.filters["groups"][0]["properties"][0]["operator"] == operator
+
     def test_update_experiment_syncs_feature_flag_variants_for_draft(self):
         experiment = self._create_draft_experiment()
         service = self._service()

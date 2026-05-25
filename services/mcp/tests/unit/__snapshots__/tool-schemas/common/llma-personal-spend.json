@@ -28,16 +28,10 @@
             "type": "number"
         },
         "product": {
-            "anyOf": [
-                {
-                    "maxLength": 64,
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Optional `ai_product` key to scope the tool / model / trace breakdowns to a single product (e.g. `posthog_code`, `background_agents`). When omitted, those breakdowns aggregate across every product captured for the user."
+            "description": "Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
         },
         "refresh": {
             "default": false,
@@ -45,5 +39,6 @@
             "type": "boolean"
         }
     },
+    "required": ["product"],
     "type": "object"
 }
