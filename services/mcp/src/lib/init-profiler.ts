@@ -36,6 +36,18 @@ export class InitProfiler {
             entry.heapBytes = usedHeap
         }
         this.marks.push(entry)
+        // Per-mark log so sessions that OOM mid-init still leave a trail. The
+        // `mcp_init_timeline` summary at the end is preferred for analysis;
+        // these per-mark lines exist to attribute OOMs to a specific phase
+        // when the summary never gets flushed.
+        console.info(
+            JSON.stringify({
+                event: 'mcp_init_mark',
+                label,
+                elapsedMs: entry.elapsedMs,
+                ...(entry.heapBytes !== undefined ? { heapBytes: entry.heapBytes } : {}),
+            })
+        )
     }
 
     flush(extras?: Record<string, unknown>): void {

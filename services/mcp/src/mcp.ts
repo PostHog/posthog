@@ -277,6 +277,38 @@ export class MCP extends McpAgent<Env> {
     }
 
     /**
+     * Wraps the `agents/mcp` framework's `onStart` to attribute time spent
+     * *after* `init()` returns. The framework's post-init() work (resolve
+     * server, init transport, `server.connect(transport)`, replay any saved
+     * `initializeRequest` via `reinitializeServer`) all happens inside the
+     * same `setName` RPC accounting in Cloudflare's trace events — so if a
+     * `mcp_init_timeline` log reaches the pipeline but a `setName` OOM
+     * follows, the cause is in this window, not in `init()`.
+     */
+    async onStart(props: unknown): Promise<void> {
+        const startedAt = performance.now()
+        try {
+            await super.onStart(props as RequestProperties)
+            console.info(
+                JSON.stringify({
+                    event: 'mcp_onstart_complete',
+                    afterSuperMs: Math.round(performance.now() - startedAt),
+                })
+            )
+        } catch (error) {
+            console.info(
+                JSON.stringify({
+                    event: 'mcp_onstart_error',
+                    afterSuperMs: Math.round(performance.now() - startedAt),
+                    errorName: (error as Error)?.name,
+                    errorMessage: (error as Error)?.message,
+                })
+            )
+            throw error
+        }
+    }
+
+    /**
      * Called by the `agents` SDK on cold start / hibernation wake to persist
      * and hydrate props. Apply the token + `this.props` synchronously BEFORE
      * awaiting storage: the SDK fires `updateProps` without awaiting and then
