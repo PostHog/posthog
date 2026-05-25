@@ -452,23 +452,23 @@ describe('extractSessionTurns — tools and errors', () => {
         expect(turn.errors).toEqual([])
     })
 
-    it('treats `$ai_is_error: "false"` as NOT an error even when `$ai_error` is populated', () => {
-        // Some SDKs record a partial `$ai_error` object during a retry loop, then mark
-        // the final event `$ai_is_error: 'false'` because the operation ultimately
-        // succeeded. The explicit non-error flag should win over the payload presence.
-        const resolvedRetryEvent: LLMTraceEvent = {
+    it('treats a populated `$ai_error` payload as an error even when `$ai_is_error` is "false"', () => {
+        // The payload is the authoritative signal — if it's there, surface the error
+        // regardless of what the flag says. SDKs that mis-populate `$ai_is_error: 'false'`
+        // would otherwise hide a real failure.
+        const payloadEvent: LLMTraceEvent = {
             id: 's1',
             event: '$ai_span',
             createdAt: '2026-05-11T00:00:01.000Z',
             properties: {
                 $ai_span_name: 'fetch_user',
                 $ai_is_error: 'false',
-                $ai_error: { message: 'transient timeout on attempt 1 of 3' },
+                $ai_error: { message: 'connection timeout' },
             },
         }
-        const t1 = makeTrace('t1', [makeGeneration('g1', '2026-05-11T00:00:00.000Z'), resolvedRetryEvent])
+        const t1 = makeTrace('t1', [makeGeneration('g1', '2026-05-11T00:00:00.000Z'), payloadEvent])
         const [turn] = extractSessionTurns([t1], { t1 })
-        expect(turn.errors).toEqual([])
+        expect(turn.errors).toEqual([{ label: 'fetch_user', message: 'connection timeout' }])
     })
 
     it('dedups errors by label + message — retries collapse to one entry', () => {

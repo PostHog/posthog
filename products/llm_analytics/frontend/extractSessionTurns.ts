@@ -109,16 +109,12 @@ function collectDistinctErrors(events: LLMTraceEvent[]): SessionTurnError[] {
     const seen = new Set<string>()
     const ordered: SessionTurnError[] = []
     for (const event of sorted) {
-        // PostHog SDKs serialize booleans as strings, so `$ai_is_error: 'false'` is
-        // a truthy non-empty string. Explicit non-error takes priority over
-        // `$ai_error` presence — some SDKs record a partial error object during a
-        // retry that ultimately resolves successfully, then mark the final event as
-        // non-error.
+        // A populated `$ai_error` payload is the authoritative signal — if it's
+        // there, treat the event as an error regardless of `$ai_is_error`.
+        // (Note that PostHog SDKs serialize booleans as strings)
+        const hasErrorPayload = !!event.properties.$ai_error
         const isErrorFlag = event.properties.$ai_is_error
-        if (isErrorFlag === false || isErrorFlag === 'false') {
-            continue
-        }
-        const isError = isErrorFlag === true || isErrorFlag === 'true' || event.properties.$ai_error
+        const isError = hasErrorPayload || isErrorFlag === true || isErrorFlag === 'true'
         if (!isError) {
             continue
         }
