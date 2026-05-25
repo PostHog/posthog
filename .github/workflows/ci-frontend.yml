@@ -274,10 +274,7 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
         runs-on: ubuntu-latest
-        # Kea typegen invalidates on changes to any logic plus everything that depends on it.
-        # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is large
-        # and the cache miss costs ~5min on top of the master baseline (~10min). 15 is too tight.
-        timeout-minutes: 20
+        timeout-minutes: 15
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 

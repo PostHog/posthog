@@ -164,7 +164,6 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 token=access_token,
                 team_id=ctx.team_id,
                 user_id=task.created_by_id,
-                interaction_origin=ctx.interaction_origin,
             )
             if user_mcp_configs:
                 mcp_configs = mcp_configs + user_mcp_configs

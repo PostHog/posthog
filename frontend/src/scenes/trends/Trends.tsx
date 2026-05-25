@@ -59,8 +59,8 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         inSharedMode,
     }
 
-    const hogChartsTrendsEnabled =
-        featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS] && !isLifecycle && !isStickiness
+    const showHogChartsBar =
+        featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR] && !isLifecycle && !isStickiness
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -69,13 +69,13 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             display === ChartDisplayType.ActionsLineGraphCumulative ||
             display === ChartDisplayType.ActionsAreaGraph
         ) {
-            if (hogChartsTrendsEnabled) {
+            if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS] && !isLifecycle && !isStickiness) {
                 return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
             }
             return <ActionsLineGraph {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
-            if (hogChartsTrendsEnabled) {
+            if (showHogChartsBar) {
                 return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
             }
             return <ActionsLineGraph {...commonProps} />
@@ -98,7 +98,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <ActionsPie {...commonProps} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
-            if (hogChartsTrendsEnabled) {
+            if (showHogChartsBar) {
                 return <TrendsBarChart context={context} inSharedMode={inSharedMode} />
             }
             return <ActionsHorizontalBar {...commonProps} />

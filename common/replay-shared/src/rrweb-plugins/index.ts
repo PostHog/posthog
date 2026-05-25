@@ -1,4 +1,4 @@
-import { ReplayPlugin, playerConfig } from 'posthog-js/rrweb'
+import { ReplayPlugin, playerConfig } from '@posthog/rrweb'
 
 import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../mobile/transformer/shared'
 

@@ -44,7 +44,7 @@
         "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",
         "start-vite": "pnpm build:products && concurrently -n VITE,TOOLBAR -c green,magenta \"vite --host 0.0.0.0\" \"pnpm watch:toolbar\"",
         "watch:toolbar": "node ./bin/build-toolbar.mjs --dev",
-        "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path 'node_modules/posthog-js/dist/rrweb-types.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json && oxfmt ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json",
+        "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path 'node_modules/@posthog/rrweb-types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json && oxfmt ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json",
         "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path './src/scenes/session-recordings/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json && oxfmt ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json",
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json",
         "build:survey-sdk-docs": "ts-node -r tsconfig-paths/register --transpile-only ./bin/docs/build-survey-sdk-docs.ts"
@@ -120,6 +120,9 @@
         "@posthog/quill": "workspace:*",
         "@posthog/react": "catalog:",
         "@posthog/replay-shared": "workspace:*",
+        "@posthog/rrweb": "0.0.59",
+        "@posthog/rrweb-plugin-console-record": "0.0.59",
+        "@posthog/rrweb-types": "0.0.59",
         "@posthog/tailwind": "workspace:*",
         "@protomaps/basemaps": "^5.7.2",
         "@radix-ui/react-accordion": "^1.2.12",

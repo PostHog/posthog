@@ -1,4 +1,4 @@
-import { playerConfig } from 'posthog-js/rrweb'
+import { playerConfig } from '@posthog/rrweb'
 
 export type BuiltLogging = {
     logger: playerConfig['logger']

@@ -2,13 +2,14 @@ import equal from 'fast-deep-equal'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import {
     EventType as RRWebEventType,
     customEvent,
     eventWithTime,
     fullSnapshotEvent,
     pluginEvent,
-} from 'posthog-js/rrweb-types'
+} from '@posthog/rrweb-types'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'

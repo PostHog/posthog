@@ -2942,7 +2942,7 @@
         "feature": "llm_analytics",
         "summary": "Get my LLM spend analysis",
         "title": "Get my LLM spend analysis",
-        "required_scopes": ["user:read"],
+        "required_scopes": ["llm_analytics:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,

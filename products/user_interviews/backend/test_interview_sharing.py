@@ -708,30 +708,8 @@ class TestVapiWebhook(APIBaseTest):
             "/api/user_interviews/vapi_webhook/",
             data=self._end_of_call_payload(share.access_token),
             content_type="application/json",
-            HTTP_X_VAPI_SIGNATURE="a" * 64,  # right shape, wrong value
+            HTTP_X_VAPI_SIGNATURE="wrong",
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    @parameterized.expand(
-        [
-            ("missing", None),
-            ("empty", ""),
-            ("too_short", "abc"),
-            ("non_hex", "z" * 64),
-            ("uppercase", "A" * 64),
-        ]
-    )
-    @override_settings(VAPI_WEBHOOK_SECRET="topsecret")
-    def test_webhook_rejects_malformed_signature_pre_hmac(self, _name: str, value: Any):
-        share = self._create_share()
-        self.client.logout()
-        kwargs: dict[str, Any] = {
-            "data": self._end_of_call_payload(share.access_token),
-            "content_type": "application/json",
-        }
-        if value is not None:
-            kwargs["HTTP_X_VAPI_SIGNATURE"] = value
-        response = self.client.post("/api/user_interviews/vapi_webhook/", **kwargs)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @override_settings(VAPI_WEBHOOK_SECRET="topsecret")

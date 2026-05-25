@@ -1,5 +1,4 @@
 import posthog from 'posthog-js'
-import { EventType } from 'posthog-js/rrweb-types'
 
 import { ReplayTelemetry } from '@posthog/replay-shared'
 import {
@@ -9,6 +8,7 @@ import {
     keyForSource,
     processAllSnapshots,
 } from '@posthog/replay-shared'
+import { EventType } from '@posthog/rrweb-types'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource, SnapshotSourceType } from '~/types'
 

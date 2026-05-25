@@ -229,6 +229,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 tooltipPlacement="right"
                                                 data-attr="new-account-menu-project-settings-button"
                                                 to={urls.project(currentTeam.id, urls.settings('project'))}
+                                                skipContext
                                             >
                                                 <IconGear />
                                                 Project settings
@@ -318,6 +319,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     menuItem: true,
                                                     truncate: true,
                                                 }}
+                                                skipContext
                                             >
                                                 <IconReceipt />
                                                 {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
@@ -339,6 +341,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             tooltip="Organization settings"
                                             tooltipPlacement="right"
                                             data-attr="new-account-menu-organization-settings-button"
+                                            skipContext
                                         >
                                             <IconGear />
                                             Organization settings
@@ -362,6 +365,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     }}
                                                     data-attr="new-account-menu-django-admin"
                                                     disableClientSideRouting
+                                                    skipContext
                                                 >
                                                     <IconShieldLock />
                                                     Django admin
@@ -377,6 +381,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         menuItem: true,
                                                     }}
                                                     data-attr="new-account-menu-instance-panel"
+                                                    skipContext
                                                 >
                                                     <IconServer />
                                                     Instance panel
@@ -392,6 +397,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         menuItem: true,
                                                     }}
                                                     data-attr="new-account-menu-query-performance"
+                                                    skipContext
                                                 >
                                                     <IconDatabase />
                                                     Query performance
@@ -418,6 +424,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             tooltip="User settings"
                                             tooltipPlacement="right"
                                             data-attr="new-account-menu-account-owner-button"
+                                            skipContext
                                         >
                                             <ProfilePicture user={user} size="xs" />
                                             <span className="flex flex-col truncate">

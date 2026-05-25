@@ -1,6 +1,5 @@
-import { EventType, IncrementalSource } from 'posthog-js/rrweb-types'
-
 import { LoadBatch, SnapshotStore } from '@posthog/replay-shared'
+import { EventType, IncrementalSource } from '@posthog/rrweb-types'
 
 import { RecordingSegment, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 

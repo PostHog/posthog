@@ -1,7 +1,8 @@
 import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
-import { EventType } from 'posthog-js/rrweb-types'
+
+import { EventType } from '@posthog/rrweb-types'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 

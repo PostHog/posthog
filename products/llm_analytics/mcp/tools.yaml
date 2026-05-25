@@ -406,7 +406,7 @@ tools:
         operation: llm_analytics_personal_spend_list
         enabled: true
         scopes:
-            - user:read
+            - llm_analytics:read
         annotations:
             readOnly: true
             destructive: false

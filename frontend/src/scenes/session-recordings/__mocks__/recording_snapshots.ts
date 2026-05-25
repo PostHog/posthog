@@ -1,6 +1,5 @@
-import { eventWithTime } from 'posthog-js/rrweb-types'
-
 import { RegisterWindowIdCallback, createWindowIdRegistry } from '@posthog/replay-shared'
+import { eventWithTime } from '@posthog/rrweb-types'
 
 import { RecordingSnapshot } from '~/types'
 

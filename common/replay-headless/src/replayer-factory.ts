@@ -1,6 +1,3 @@
-import { Replayer } from 'posthog-js/rrweb'
-import { EventType, type eventWithTime } from 'posthog-js/rrweb-types'
-
 import {
     AudioMuteReplayerPlugin,
     CanvasReplayerPlugin,
@@ -16,6 +13,8 @@ import {
     type RecordingSegment,
     type ViewportResolution,
 } from '@posthog/replay-shared'
+import { Replayer } from '@posthog/rrweb'
+import { EventType, type eventWithTime } from '@posthog/rrweb-types'
 
 import { loadAllSources } from './data-loader'
 import type { HostBridge } from './host-bridge'

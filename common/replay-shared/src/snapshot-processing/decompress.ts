@@ -1,5 +1,6 @@
 import { gunzipSync, strFromU8, strToU8 } from 'fflate'
-import { EventType, IncrementalSource } from 'posthog-js/rrweb-types'
+
+import { EventType, IncrementalSource } from '@posthog/rrweb-types'
 
 import { ReplayTelemetry } from '../telemetry'
 import { throttleCapture } from './throttle-capturing'
