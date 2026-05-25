@@ -27,8 +27,8 @@ export const getWizardSessionsListUrl = (projectId: string, params?: WizardSessi
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/wizard_sessions/?${stringifiedParams}`
-        : `/api/projects/${projectId}/wizard_sessions/`
+        ? `/api/projects/${projectId}/wizard/sessions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/wizard/sessions/`
 }
 
 /**
@@ -46,7 +46,7 @@ export const wizardSessionsList = async (
 }
 
 export const getWizardSessionsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/wizard_sessions/`
+    return `/api/projects/${projectId}/wizard/sessions/`
 }
 
 /**
@@ -62,5 +62,23 @@ export const wizardSessionsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(upsertWizardSessionRequestApi),
+    })
+}
+
+export const getWizardSessionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/wizard/sessions/${id}/`
+}
+
+/**
+ * Retrieve a single wizard session by its session_id (path parameter {id}).
+ */
+export const wizardSessionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<WizardSessionDTOApi> => {
+    return apiMutator<WizardSessionDTOApi>(getWizardSessionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }

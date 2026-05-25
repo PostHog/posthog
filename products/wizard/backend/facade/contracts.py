@@ -6,10 +6,12 @@ No Django imports. Used by facade as inputs/outputs.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .enums import RunPhase, TaskStatus
+
+STALE_AFTER = timedelta(minutes=10)
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,7 @@ class WizardSessionDTO:
     error: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
+    is_stale: bool
 
 
 @dataclass(frozen=True)

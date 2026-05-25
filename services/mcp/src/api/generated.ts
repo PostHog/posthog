@@ -25987,6 +25987,7 @@ export namespace Schemas {
       error: WizardSessionDTOError;
       created_at: string;
       updated_at: string;
+      is_stale: boolean;
     }
 
     export interface PaginatedWizardSessionDTOList {

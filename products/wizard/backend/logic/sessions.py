@@ -4,6 +4,7 @@ Business logic for Wizard sessions.
 
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO, WizardTaskDTO
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
+from products.wizard.backend.logic.utils import is_stale
 from products.wizard.backend.models import WizardSession
 
 
@@ -59,13 +60,15 @@ def list_sessions(
 
 
 def _to_dto(instance: WizardSession) -> WizardSessionDTO:
+    run_phase = RunPhase(instance.run_phase)
     return WizardSessionDTO(
         session_id=instance.session_id,
         team_id=instance.team_id,
         workflow_id=instance.workflow_id,
         skill_id=instance.skill_id,
         started_at=instance.started_at,
-        run_phase=RunPhase(instance.run_phase),
+        run_phase=run_phase,
+        is_stale=is_stale(run_phase, instance.updated_at),
         tasks=tuple(
             WizardTaskDTO(
                 id=task["id"],

@@ -72,6 +72,7 @@ export interface WizardSessionDTOApi {
     error: WizardSessionDTOApiError
     created_at: string
     updated_at: string
+    is_stale: boolean
 }
 
 export interface PaginatedWizardSessionDTOListApi {
