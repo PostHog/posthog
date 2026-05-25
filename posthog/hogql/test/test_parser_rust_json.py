@@ -898,3 +898,46 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_expr(query, backend="rust-json"),
                 msg=query,
             )
+
+    @no_memory_leak_check
+    def test_select_distinct_reread_as_column_when_no_value_follows(self):
+        # `SELECT DISTINCT? columnExprList`: DISTINCT is the modifier only when a
+        # column follows. When the next token ends the column list (comma / EOF)
+        # or opens a clause, cpp re-reads DISTINCT as the sole column Field:
+        # `SELECT DISTINCT` -> `[Field(distinct)]`, `SELECT DISTINCT ORDER BY 1` ->
+        # `[Field(distinct)]` + ORDER BY. rust used to keep DISTINCT a modifier and
+        # then reject on the empty / clause-keyword column slot.
+        for query in (
+            "SELECT DISTINCT",
+            "SELECT DISTINCT, a",
+            "SELECT DISTINCT ORDER BY 1",
+            "SELECT DISTINCT GROUP BY 1",
+            "SELECT DISTINCT WHERE 1",
+            "SELECT DISTINCT HAVING 1",
+            "SELECT DISTINCT LIMIT 1",
+            "SELECT DISTINCT group by 1",
+        ):
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )
+        # DISTINCT stays the modifier before a real column (incl. a bare keyword
+        # column like `group` with no `BY`).
+        for query in (
+            "SELECT DISTINCT a",
+            "SELECT DISTINCT a, b",
+            "SELECT DISTINCT *",
+            "SELECT DISTINCT day",
+            "SELECT DISTINCT group",
+        ):
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )
+        # `SELECT DISTINCT FROM x` keeps DISTINCT a modifier and rejects on both
+        # via the FROM-implicit-alias footgun (DISTINCT is NOT re-read here).
+        for backend in ("cpp-json", "rust-json"):
+            with self.assertRaises(BaseHogQLError):
+                parse_select("SELECT DISTINCT FROM x", backend=backend)

@@ -440,9 +440,27 @@ impl<'a> Parser<'a> {
             ));
         }
         self.bump()?;
+        let cp_after_select = self.checkpoint();
         let distinct = self.eat_kw(Kw::Distinct)?;
         if distinct {
-            obj.insert("distinct".into(), Value::Bool(true));
+            // `SELECT DISTINCT` is the modifier only when a column follows it.
+            // When the next token ends the column list (comma / EOF / `)` / `;`)
+            // or opens a clause (`ORDER BY` / `WHERE` / `GROUP BY` / `LIMIT` /
+            // …), cpp's ALL(*) re-reads DISTINCT as the sole column Field instead
+            // (`SELECT DISTINCT` -> `[Field(distinct)]`, `SELECT DISTINCT ORDER BY
+            // 1` -> `[Field(distinct)]` + ORDER BY). FROM is the exception:
+            // `SELECT DISTINCT FROM x` keeps DISTINCT a modifier and rejects via
+            // the FROM-implicit-alias footgun, matching cpp.
+            let distinct_is_column = matches!(
+                self.peek(),
+                TokenKind::Comma | TokenKind::Eof | TokenKind::RParen | TokenKind::Semicolon
+            ) || (self.peek_is_clause_terminator()
+                && self.peek() != TokenKind::Keyword(Kw::From));
+            if distinct_is_column {
+                self.restore(cp_after_select)?;
+            } else {
+                obj.insert("distinct".into(), Value::Bool(true));
+            }
         }
         // `topClause: TOP DECIMAL_LITERAL (WITH TIES)?` — accepted by
         // the grammar, rejected by the cpp visitor as unsupported. A
