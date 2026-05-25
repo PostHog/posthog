@@ -271,7 +271,7 @@ class ReplaceFilters(CloningVisitor):
             chain_str = ".".join(str(c) for c in node.chain)
             raise QueryError(
                 f"Unsupported filters placeholder `{{{chain_str}}}`. "
-                "Supported filters placeholders are: `{filters}`, `{filters.dateRange.from}`, `{filters.dateRange.to}`."
+                "Supported filters placeholders are: `{filters}`, `{filters.dateRange}`, `{filters.dateRange.from}`, `{filters.dateRange.to}`."
             )
 
         return super().visit_placeholder(node)

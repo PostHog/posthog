@@ -72,7 +72,7 @@ class TestFilters(BaseTest):
 
         with self.assertRaisesMessage(
             QueryError,
-            "Cannot use 'filters.dateRange' placeholder in a SELECT clause that does not select from",
+            "Cannot use 'filters' placeholder in a SELECT clause that does not select from",
         ):
             replace_filters(select, HogQLFilters(dateRange=DateRange(date_from="2020-02-02")), self.team)
 
