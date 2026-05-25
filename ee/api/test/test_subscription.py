@@ -436,8 +436,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert create_response.status_code == status.HTTP_201_CREATED
         subscription_id = create_response.json()["id"]
 
-        # Auto-disable: clear integration and disable the subscription
+        # Auto-disable: clear integration FK and disable the subscription
         Subscription.objects.filter(pk=subscription_id).update(enabled=False, integration=None)
+        integration.delete()
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
@@ -446,6 +447,39 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "enabled"
         assert "Reconnect Slack" in response.json()["detail"]
+
+    def test_patch_enabled_true_backfills_slack_integration_on_re_enable(self):
+        """Re-enable via `{enabled: true}` should work when the subscription lost its
+        integration FK but the team has Slack connected again — mirrors delivery's
+        get_slack_integration_for_team fallback and the edit modal's auto-select."""
+        old_integration = Integration.objects.create(team=self.team, kind="slack", config={})
+        create_response = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=old_integration.id,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        subscription_id = create_response.json()["id"]
+
+        new_integration = Integration.objects.create(team=self.team, kind="slack", config={"reconnected": True})
+        Subscription.objects.filter(pk=subscription_id).update(enabled=False, integration=None)
+        old_integration.delete()
+
+        with patch("ee.api.subscription.sync_connect") as temporal_mock:
+            temporal_mock.return_value.start_workflow = AsyncMock()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+                {"enabled": True},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["enabled"] is True
+        assert response.json()["integration_id"] == new_integration.id
+
+        subscription = Subscription.objects.get(pk=subscription_id)
+        assert subscription.enabled is True
+        assert subscription.integration_id == new_integration.id
+        assert subscription.integration_id == get_slack_integration_for_team(self.team.id).id
 
     def test_patch_enabled_true_rejected_for_webhook_subscription(self):
         """Webhook delivery is not supported, so a webhook subscription auto-disables on

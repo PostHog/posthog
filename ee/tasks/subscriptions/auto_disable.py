@@ -8,6 +8,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
 
 from ee.tasks.subscriptions import SUPPORTED_TARGET_TYPES
+from ee.tasks.subscriptions.slack_subscriptions import resolve_subscription_slack_integration_id
 
 
 class DisableReason(NamedTuple):
@@ -38,20 +39,34 @@ SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
 logger = structlog.get_logger(__name__)
 
 
-def get_subscription_disable_reason(target_type: str | None, integration_id: int | None) -> DisableReason | None:
+def get_subscription_disable_reason(
+    target_type: str | None,
+    integration_id: int | None,
+    *,
+    team_id: int | None = None,
+) -> DisableReason | None:
     """Single source of truth for "what target configuration is permanently broken"."""
     if not target_type:
         return None
     if target_type not in SUPPORTED_TARGET_TYPES:
         return UNSUPPORTED_TARGET_DISABLE_REASON
-    if target_type == Subscription.SubscriptionTarget.SLACK and not integration_id:
-        return SLACK_DISCONNECTED_DISABLE_REASON
+    if target_type == Subscription.SubscriptionTarget.SLACK:
+        effective_integration_id = integration_id
+        if team_id is not None:
+            effective_integration_id = resolve_subscription_slack_integration_id(team_id, target_type, integration_id)
+        if not effective_integration_id:
+            return SLACK_DISCONNECTED_DISABLE_REASON
     return None
 
 
-def validate_re_enable(target_type: str | None, integration_id: int | None) -> str | None:
+def validate_re_enable(
+    target_type: str | None,
+    integration_id: int | None,
+    *,
+    team_id: int | None = None,
+) -> str | None:
     """API-serializer wrapper — returns the user-facing rejection message, or None if re-enable is OK."""
-    reason = get_subscription_disable_reason(target_type, integration_id)
+    reason = get_subscription_disable_reason(target_type, integration_id, team_id=team_id)
     if reason is None:
         return None
     return reason.user_message.format(target_type=target_type)

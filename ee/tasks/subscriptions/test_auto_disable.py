@@ -5,11 +5,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription
 
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
     disable_invalid_subscription,
+    get_subscription_disable_reason,
     send_notifications_for_disabled_subscription,
     validate_re_enable,
 )
@@ -44,6 +46,17 @@ class TestValidateReEnable:
 
 
 class TestDisableInvalidSubscription(APIBaseTest):
+    def test_validate_re_enable_resolves_team_slack_when_integration_id_missing(self):
+        Integration.objects.create(team=self.team, kind="slack", config={})
+        assert validate_re_enable("slack", None, team_id=self.team.id) is None
+
+    def test_get_subscription_disable_reason_resolves_team_slack_when_integration_id_missing(self):
+        Integration.objects.create(team=self.team, kind="slack", config={})
+        assert get_subscription_disable_reason("slack", None, team_id=self.team.id) is None
+
+    def test_get_subscription_disable_reason_still_rejects_without_team_slack(self):
+        assert get_subscription_disable_reason("slack", None, team_id=self.team.id) == SLACK_DISCONNECTED_DISABLE_REASON
+
     def _make_subscription(self, **overrides) -> Subscription:
         defaults = {
             "team": self.team,

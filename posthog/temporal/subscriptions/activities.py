@@ -46,7 +46,7 @@ from ee.tasks.subscriptions.auto_disable import (
 )
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (
-    get_slack_integration_for_team,
+    resolve_subscription_slack_integration,
     send_slack_message_with_integration_async,
 )
 
@@ -127,7 +127,9 @@ async def validate_subscription_for_delivery(subscription_id: int) -> Subscripti
         await LOGGER.ainfo("validate_subscription.already_disabled_skipping", subscription_id=subscription_id)
         return SubscriptionAbortInfo()
 
-    reason = get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
+    reason = get_subscription_disable_reason(
+        subscription.target_type, subscription.integration_id, team_id=subscription.team_id
+    )
     if reason is None:
         return None
 
@@ -431,21 +433,10 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
 
     elif subscription.target_type == "slack":
         try:
-            integration = subscription.integration
-            if integration is None:
-                integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
-                    subscription.team_id
-                )
-            elif integration.kind != "slack":
-                LOGGER.warn(
-                    "deliver_subscription.invalid_integration_kind",
-                    subscription_id=subscription.id,
-                    integration_id=integration.id,
-                    kind=integration.kind,
-                )
-                integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
-                    subscription.team_id
-                )
+            integration = await database_sync_to_async(
+                resolve_subscription_slack_integration,
+                thread_sensitive=False,
+            )(team_id=subscription.team_id, integration=subscription.integration)
 
             if not integration:
                 LOGGER.warning(

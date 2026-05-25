@@ -100,6 +100,39 @@ def get_slack_integration_for_team(team_id: int) -> Integration | None:
     return Integration.objects.filter(team_id=team_id, kind="slack").first()
 
 
+def resolve_subscription_slack_integration(
+    *,
+    team_id: int,
+    integration_id: int | None = None,
+    integration: Integration | None = None,
+) -> Integration | None:
+    """Resolve which Slack integration a subscription should use.
+
+    Prefers the subscription's FK when it points to a Slack integration; otherwise
+    falls back to the team's connected Slack integration (lowest id). Used by delivery,
+    re-enable validation, and serializer backfill so all paths agree.
+    """
+    if integration is not None and integration.kind == "slack":
+        return integration
+    if integration_id is not None:
+        loaded = Integration.objects.filter(pk=integration_id, team_id=team_id, kind="slack").first()
+        if loaded:
+            return loaded
+    return get_slack_integration_for_team(team_id)
+
+
+def resolve_subscription_slack_integration_id(
+    team_id: int,
+    target_type: str | None,
+    integration_id: int | None,
+) -> int | None:
+    """Effective Slack integration_id for subscription checks when only the FK is available."""
+    if target_type != Subscription.SubscriptionTarget.SLACK:
+        return integration_id
+    resolved = resolve_subscription_slack_integration(team_id=team_id, integration_id=integration_id)
+    return resolved.id if resolved else None
+
+
 def send_slack_subscription_report(
     subscription: Subscription,
     assets: list[ExportedAsset],
@@ -107,7 +140,9 @@ def send_slack_subscription_report(
     is_new_subscription: bool = False,
 ) -> None:
     """Send Slack subscription report."""
-    integration = get_slack_integration_for_team(subscription.team_id)
+    integration = resolve_subscription_slack_integration(
+        team_id=subscription.team_id, integration_id=subscription.integration_id
+    )
 
     if not integration:
         # TODO: Write error to subscription...

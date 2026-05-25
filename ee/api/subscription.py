@@ -44,6 +44,7 @@ from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInpu
 from posthog.utils import str_to_bool
 
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
+from ee.tasks.subscriptions.slack_subscriptions import resolve_subscription_slack_integration_id
 from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
@@ -211,12 +212,21 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             else (self.instance.integration_id if self.instance else None)
         )
 
+        is_re_enabling = self.instance is not None and attrs.get("enabled") is True and self.instance.enabled is False
+
+        if is_re_enabling and target_type == Subscription.SubscriptionTarget.SLACK and "integration_id" not in attrs:
+            resolved_id = resolve_subscription_slack_integration_id(
+                self.context["team_id"], target_type, integration_id
+            )
+            if resolved_id and resolved_id != integration_id:
+                integration_id = resolved_id
+                attrs["integration_id"] = resolved_id
+
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
         # them again.
-        is_re_enabling = self.instance is not None and attrs.get("enabled") is True and self.instance.enabled is False
         if is_re_enabling:
-            error_message = validate_re_enable(target_type, integration_id)
+            error_message = validate_re_enable(target_type, integration_id, team_id=self.context["team_id"])
             if error_message:
                 raise ValidationError({"enabled": [error_message]})
 
