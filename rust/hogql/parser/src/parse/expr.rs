@@ -2286,16 +2286,13 @@ impl<'a> Parser<'a> {
             // Alt 2: parens / tuple
             &Self::parse_paren_expr_or_tuple_arm,
         ])?;
-        // Re-wrap ColumnsExpr-with-REPLACE shapes whose grammar rule
-        // (`LPAREN ASTERISK [EXCLUDE(...)]? REPLACE(...) RPAREN`) makes the
-        // outer parens part of the ctx span — the inner wrap missed them.
-        // Exclude-only `(* EXCLUDE (...))` is a regular ColumnExprAsterisk
-        // inside ColumnExprParens (pass-through), so REPLACE is the
-        // distinguishing marker.
-        if is_paren_form_columns_replace(&result) {
-            let end = self.last_consumed_end;
-            return Ok(self.replace_pos_to(result, outer_start, end));
-        }
+        // The bare `LPAREN ASTERISK [EXCLUDE(...)]? REPLACE(...) RPAREN` form —
+        // the only ColumnsExpr-with-REPLACE shape whose ctx includes the outer
+        // parens — is already handled above (the `peek == Asterisk` branch wraps
+        // it at `outer_start`). Any ColumnsExpr reaching here came through a
+        // `columns(...)` call or an extra wrapping paren, where cpp treats the
+        // wrapping parens as a separate `ColumnExprParens` (stripped) — so leave
+        // the inner span untouched rather than over-extending to the parens.
         Ok(result)
     }
 
@@ -6215,25 +6212,4 @@ pub(crate) fn is_bare_field(v: &Value) -> bool {
         return false;
     };
     chain.len() == 1
-}
-
-/// Detect a ColumnsExpr produced by the bare-paren grammar alts
-/// `LPAREN ASTERISK [EXCLUDE(...)]? REPLACE(...) RPAREN`, whose ctx
-/// span includes the outer parens. Exclude-only `(* EXCLUDE(...))` is
-/// a regular `ColumnExprAsterisk` inside `ColumnExprParens` (paren
-/// pass-through), so we key off `replace` presence to identify the
-/// bare-paren form. The COLUMNS-prefixed `COLUMNS(* REPLACE(...))`
-/// variant takes a different parse path (it doesn't go through
-/// `parse_paren_or_tuple`), so this check is safe.
-fn is_paren_form_columns_replace(v: &Value) -> bool {
-    let Some(obj) = v.as_object() else {
-        return false;
-    };
-    if obj.get("node").and_then(Value::as_str) != Some("ColumnsExpr") {
-        return false;
-    }
-    if obj.get("all_columns").and_then(Value::as_bool) != Some(true) {
-        return false;
-    }
-    obj.get("replace").map(|v| !v.is_null()).unwrap_or(false)
 }

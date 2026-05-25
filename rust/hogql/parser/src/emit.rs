@@ -288,20 +288,6 @@ pub fn no_pos(mut value: Value) -> Value {
     value
 }
 
-/// Override existing `start` / `end` keys with new positions, unlike the
-/// idempotent `with_pos`. Used by call sites that know the outer span
-/// must include tokens the inner expression's wrap did not see — e.g.
-/// the `LPAREN ASTERISK REPLACE(...) RPAREN` ColumnsExpr alt where the
-/// inner ColumnsExpr was wrapped at the `*` position but cpp's
-/// grammar-rule ctx includes the outer parens too.
-pub fn replace_pos(mut value: Value, start: Value, end: Value) -> Value {
-    if let Some(obj) = value.as_object_mut() {
-        obj.insert("start".into(), start);
-        obj.insert("end".into(), end);
-    }
-    value
-}
-
 trait ConstantExt {
     fn tagged_constant(self) -> Value;
 }

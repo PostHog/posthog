@@ -223,6 +223,30 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                 parse_expr(query, backend=backend)
 
     @no_memory_leak_check
+    def test_wrapped_columns_replace_span_excludes_outer_parens(self):
+        # Only the BARE `(* [exclude] replace(...))` form has its wrapping parens
+        # in the ColumnsExpr ctx. When the ColumnsExpr instead comes from a
+        # `columns(...)` call or sits inside an EXTRA wrapping paren, cpp treats
+        # those parens as a separate `ColumnExprParens` (stripped) — the
+        # ColumnsExpr span stays inner. rust used to over-extend the span to the
+        # outer parens for every REPLACE-bearing ColumnsExpr; assert full AST
+        # parity (positions included) on both the bare and wrapped shapes.
+        for query in (
+            "(* replace(a as b))",
+            "(* exclude(x) replace(a as b))",
+            "columns(* replace(a as b))",
+            "((* replace(a as b)))",
+            "(((* replace(a as b))))",
+            "(columns(* replace(a as b)))",
+            "((columns(* replace(a as b))))",
+        ):
+            self.assertEqual(
+                parse_expr(query, backend="cpp-json"),
+                parse_expr(query, backend="rust-json"),
+                msg=query,
+            )
+
+    @no_memory_leak_check
     def test_statement_leading_brace_block_vs_call(self):
         # A statement-leading `{...}` is a Block, except when a postfix that
         # cannot itself begin a statement follows the matching `}`: a `.` or an

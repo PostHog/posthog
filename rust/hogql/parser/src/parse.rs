@@ -470,17 +470,6 @@ impl<'a> Parser<'a> {
         emit::with_pos(value, s, e)
     }
 
-    /// Like [`Self::wrap_pos_to`] but overrides any existing `start` /
-    /// `end` on the node. Use when the inner expression's wrap missed
-    /// tokens that the outer grammar rule includes — e.g. cpp's
-    /// `ColumnExprColumnsReplace` ctx covers the outer parens but the
-    /// inner ColumnsExpr was wrapped at the `*` position only.
-    pub(crate) fn replace_pos_to(&self, value: Value, start: usize, end: usize) -> Value {
-        let s = self.pos_obj(start);
-        let e = self.pos_obj(end);
-        emit::replace_pos(value, s, e)
-    }
-
     /// Snapshot the parser cursor + per-call context so a failed
     /// alternative can be rolled back. Carries the byte position of
     /// `peek0`, the end of the last-consumed token, and the CAST/AS
