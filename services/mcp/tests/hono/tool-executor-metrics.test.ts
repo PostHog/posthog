@@ -1,16 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockToolCallsInc, mockToolDurationObserve, mockToolDurationStartTimer, mockToolErrorsInc } = vi.hoisted(
-    () => {
-        const mockStop = vi.fn()
-        return {
-            mockToolCallsInc: vi.fn(),
-            mockToolDurationObserve: vi.fn(),
-            mockToolDurationStartTimer: vi.fn(() => mockStop),
-            mockToolErrorsInc: vi.fn(),
-        }
+const { mockToolCallsInc, mockToolDurationObserve, mockToolDurationStartTimer, mockToolErrorsInc } = vi.hoisted(() => {
+    const mockStop = vi.fn()
+    return {
+        mockToolCallsInc: vi.fn(),
+        mockToolDurationObserve: vi.fn(),
+        mockToolDurationStartTimer: vi.fn(() => mockStop),
+        mockToolErrorsInc: vi.fn(),
     }
-)
+})
 
 vi.mock('@/hono/metrics', () => ({
     toolCallsTotal: { inc: mockToolCallsInc },
@@ -86,7 +84,13 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
     }
 }
 
-function makeFakeTool(name: string, handler: () => Promise<unknown> = async () => 'ok') {
+function makeFakeTool(
+    name: string,
+    handler: () => Promise<unknown> = async () => 'ok'
+): {
+    name: string
+    base: { schema: z.ZodObject<Record<string, never>>; handler: ReturnType<typeof vi.fn>; _meta: undefined }
+} {
     return {
         name,
         base: {
@@ -171,11 +175,7 @@ describe('ToolExecutor metrics', () => {
         })
 
         it('emits error for unknown tool name', async () => {
-            await executor.handleToolCall(
-                { name: 'nonexistent', arguments: {} },
-                makeProps(),
-                makeState([])
-            )
+            await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeProps(), makeState([]))
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'nonexistent', status: 'error' })
         })
@@ -189,20 +189,12 @@ describe('ToolExecutor metrics', () => {
                 { useSingleExec: true, version: 2 }
             )
 
-            await executor.handleToolCall(
-                { name: 'exec', arguments: { command: 'tools' } },
-                makeProps(),
-                state
-            )
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, makeProps(), state)
 
-            const execTimerCalls = mockToolDurationStartTimer.mock.calls.filter(
-                (c: any[]) => c[0]?.tool === 'exec'
-            )
+            const execTimerCalls = mockToolDurationStartTimer.mock.calls.filter((c: any[]) => c[0]?.tool === 'exec')
             expect(execTimerCalls).toHaveLength(0)
 
-            const execCountCalls = mockToolCallsInc.mock.calls.filter(
-                (c: any[]) => c[0]?.tool === 'exec'
-            )
+            const execCountCalls = mockToolCallsInc.mock.calls.filter((c: any[]) => c[0]?.tool === 'exec')
             expect(execCountCalls).toHaveLength(0)
         })
 
@@ -219,9 +211,7 @@ describe('ToolExecutor metrics', () => {
                 state
             )
 
-            const innerCountCalls = mockToolCallsInc.mock.calls.filter(
-                (c: any[]) => c[0]?.tool === 'docs-search'
-            )
+            const innerCountCalls = mockToolCallsInc.mock.calls.filter((c: any[]) => c[0]?.tool === 'docs-search')
             expect(innerCountCalls.length).toBeGreaterThan(0)
             expect(innerCountCalls[0]![0].status).toMatch(/^(success|error)$/)
 
