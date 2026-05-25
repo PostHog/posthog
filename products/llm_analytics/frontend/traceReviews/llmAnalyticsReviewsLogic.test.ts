@@ -39,7 +39,7 @@ const mockLemonToastWarning = lemonToast.warning as jest.MockedFunction<typeof l
 const baseReview: TraceReview = {
     id: 'review-1',
     trace_id: 'trace-abc',
-    trace_url: 'https://us.posthog.com/project/1/llm-analytics/traces/trace-abc',
+    trace_url: 'https://us.posthog.com/project/1/ai-observability/traces/trace-abc',
     comment: 'Looks good',
     created_at: '2026-03-12T00:00:00Z',
     updated_at: '2026-03-12T01:00:00Z',

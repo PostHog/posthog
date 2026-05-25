@@ -23,7 +23,8 @@ from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEven
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 
 from products.actions.backend.models.action import Action
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 def format_query(query: ast.SelectQuery):
@@ -231,7 +232,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select_1 = format_query(funnel_event_query.select_from.table.initial_select_query)  # type: ignore
         expected_1 = dedent("""
             SELECT e.timestamp AS timestamp,
-                   person_id AS aggregation_target,
+                   toString(person_id) AS aggregation_target,
                    if(and(equals(event, '$pageview'), equals(properties.$browser, 'Opera')), 1, 0) AS step_0,
                    0 AS step_1,
                    0 AS step_2,
@@ -244,7 +245,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select_2 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[0].select_query)  # type: ignore
         expected_2 = dedent("""
             SELECT e.created_at AS timestamp,
-                   user_id AS aggregation_target,
+                   toString(user_id) AS aggregation_target,
                    0 AS step_0,
                    if(and(1, equals(some_prop, 'some_value')), 1, 0) AS step_1,
                    0 AS step_2,
@@ -257,7 +258,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         select_3 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[1].select_query)  # type: ignore
         expected_3 = dedent("""
             SELECT e.ts AS timestamp,
-                   some_user_id AS aggregation_target,
+                   toString(some_user_id) AS aggregation_target,
                    0 AS step_0,
                    0 AS step_1,
                    if(and(1, equals(another_prop, 'another_value')), 1, 0) AS step_2,

@@ -87,7 +87,7 @@ export function SettingsTab(): JSX.Element {
                 <h2 className="font-semibold text-lg">Conversion windows</h2>
                 <div className="flex items-center gap-2">
                     <LemonCheckbox
-                        label="Require completed conversion window"
+                        label="Require completed conversion or retention window"
                         checked={experiment.only_count_matured_users ?? false}
                         onChange={(checked) => {
                             updateExperiment({ only_count_matured_users: checked })

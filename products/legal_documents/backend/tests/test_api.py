@@ -568,6 +568,99 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         write_spy.assert_not_called()
         event_spy.assert_not_called()
 
+    def _swap_to_baa_document(self) -> None:
+        """The default fixture is a DPA. For BAA-side-effect tests, retarget it."""
+        self.document.document_type = "BAA"
+        self.document.save(update_fields=["document_type"])
+
+    @contextmanager
+    def _fake_pdf_pipeline(self):
+        @contextmanager
+        def fake_stream_cm(*, document_id):  # noqa: ARG001
+            yield object()
+
+        with (
+            patch(
+                "products.legal_documents.backend.logic.pandadoc_client.PandaDocClient.stream_document",
+                side_effect=fake_stream_cm,
+            ),
+            patch("products.legal_documents.backend.logic.object_storage.write_stream"),
+        ):
+            yield
+
+    def test_signed_baa_opts_organization_out_of_ai_data_processing(self) -> None:
+        self._swap_to_baa_document()
+        # New orgs default to True now — explicitly set so this isn't accidentally testing the default.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with self._override(), self._fake_pdf_pipeline():
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.is_ai_data_processing_approved)
+
+    def test_signed_dpa_does_not_change_ai_flag(self) -> None:
+        # Default fixture is a DPA, so don't swap.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        body = json.dumps(self._completed_payload()).encode("utf-8")
+        with self._override(), self._fake_pdf_pipeline():
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_ai_data_processing_approved)
+
+    def test_signed_baa_emails_org_owners(self) -> None:
+        self._swap_to_baa_document()
+        # Promote the test user to OWNER so the email path has a recipient.
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.OWNER
+        membership.save(update_fields=["level"])
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with (
+            self._override(),
+            self._fake_pdf_pipeline(),
+            patch("products.legal_documents.backend.logic.is_email_available", return_value=True),
+            patch("products.legal_documents.backend.logic.EmailMessage") as email_cls,
+        ):
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        email_cls.assert_called_once()
+        kwargs = email_cls.call_args.kwargs
+        self.assertEqual(kwargs["template_name"], "baa_signed_ai_disabled")
+        self.assertTrue(kwargs["use_http"])
+        self.assertEqual(kwargs["template_context"]["organization_name"], self.organization.name)
+        self.assertIn("organization-ai-consent", kwargs["template_context"]["ai_settings_url"])
+        instance = email_cls.return_value
+        instance.add_user_recipient.assert_called_once_with(self.user)
+        instance.send.assert_called_once_with(send_async=True)
+
+    def test_signed_baa_skips_email_when_no_owner(self) -> None:
+        self._swap_to_baa_document()
+        # Default APIBaseTest membership is MEMBER, not OWNER — so no recipients.
+
+        body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
+        with (
+            self._override(),
+            self._fake_pdf_pipeline(),
+            patch("products.legal_documents.backend.logic.is_email_available", return_value=True),
+            patch("products.legal_documents.backend.logic.EmailMessage") as email_cls,
+        ):
+            response = self._post_raw(body, self._sign(body))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        email_cls.assert_not_called()
+        self.organization.refresh_from_db()
+        # Opt-out still happens even when there are no owners to notify.
+        self.assertFalse(self.organization.is_ai_data_processing_approved)
+
 
 @override_settings(CLOUD_DEPLOYMENT=None, DEBUG=False)
 class TestLegalDocumentsSelfHostedGate(APIBaseTest):

@@ -9,6 +9,7 @@ from django.conf import settings
 
 import structlog
 import redis.exceptions as redis_exceptions
+from opentelemetry import trace
 from prometheus_client import Histogram
 from pydantic import BaseModel, Field
 
@@ -27,6 +28,7 @@ from ee.hogai.utils.types.base import ApprovalPayload, AssistantStreamedMessageU
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
+_tracer = trace.get_tracer(__name__)
 
 REDIS_TO_CLIENT_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_redis_to_client_latency_seconds",
@@ -236,33 +238,43 @@ class ConversationRedisStream:
         timeout = 60.0  # 60 seconds timeout
         start_time = asyncio.get_event_loop().time()
         last_iteration_time = None
+        attempts = 0
 
-        while True:
-            current_time = time.time()
-            if last_iteration_time is not None:
-                iteration_duration = current_time - last_iteration_time
-                REDIS_STREAM_INIT_ITERATION_LATENCY_HISTOGRAM.observe(iteration_duration)
-            last_iteration_time = current_time
+        with _tracer.start_as_current_span(
+            "posthog_ai.redis_stream.wait_for_stream",
+            attributes={"posthog_ai.stream_key": self._stream_key},
+        ) as span:
+            while True:
+                current_time = time.time()
+                if last_iteration_time is not None:
+                    iteration_duration = current_time - last_iteration_time
+                    REDIS_STREAM_INIT_ITERATION_LATENCY_HISTOGRAM.observe(iteration_duration)
+                last_iteration_time = current_time
+                attempts += 1
 
-            elapsed_time = asyncio.get_event_loop().time() - start_time
-            if elapsed_time >= timeout:
+                elapsed_time = asyncio.get_event_loop().time() - start_time
+                if elapsed_time >= timeout:
+                    logger.debug(
+                        f"Stream creation timeout after {elapsed_time:.2f}s",
+                        stream_key=self._stream_key,
+                    )
+                    span.set_attribute("posthog_ai.poll_attempts", attempts)
+                    span.set_attribute("posthog_ai.outcome", "timeout")
+                    return False
+
+                if await self._redis_client.exists(self._stream_key):
+                    span.set_attribute("posthog_ai.poll_attempts", attempts)
+                    span.set_attribute("posthog_ai.outcome", "ready")
+                    return True
+
                 logger.debug(
-                    f"Stream creation timeout after {elapsed_time:.2f}s",
+                    f"Stream not found, retrying in {delay}s (elapsed: {elapsed_time:.2f}s)",
                     stream_key=self._stream_key,
                 )
-                return False
+                await asyncio.sleep(delay)
 
-            if await self._redis_client.exists(self._stream_key):
-                return True
-
-            logger.debug(
-                f"Stream not found, retrying in {delay}s (elapsed: {elapsed_time:.2f}s)",
-                stream_key=self._stream_key,
-            )
-            await asyncio.sleep(delay)
-
-            # Linear backoff
-            delay = min(delay + delay_increment, max_delay)
+                # Linear backoff
+                delay = min(delay + delay_increment, max_delay)
 
     async def read_stream(
         self,

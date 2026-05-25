@@ -39,6 +39,7 @@ from posthog.models import Team
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import get_property_string_expr
+from posthog.models.user import User
 from posthog.queries.util import correct_result_for_sampling
 
 from products.actions.backend.models.action import Action
@@ -102,8 +103,9 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        user: Optional[User] = None,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
         self.actors_query = self.query.source
         self.funnels_query = self.actors_query.source
 
@@ -117,6 +119,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
+            user=user,
             # NOTE: we want to include the latest timestamp of the `target_step`,
             # from this we can deduce if the person reached the end of the funnel,
             # i.e. successful
@@ -229,6 +232,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             query_type="FunnelsQuery",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -765,6 +769,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
             include_timestamp=self.context.includeTimestamp,
             include_preceding_timestamp=self.context.includePrecedingTimestamp,
             include_properties=self.properties_to_include,

@@ -54,6 +54,10 @@
             <profile>default</profile>
         </app>
 
+        <billing>
+            <profile>default</profile>
+        </billing>
+
         <!-- Of course this is only for local dev, but mirrors prod to make tests useful.
              readonly=2 pinned via <constraints> is the load-bearing safety (no writes, no client-side settings changes).
              No resource constraints necessary, as autoresearch gets a dedicated cluster.
@@ -178,6 +182,18 @@
 
             <quota>default</quota>
         </app>
+
+        <billing>
+            <password>billingpass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>billing</profile>
+
+            <quota>default</quota>
+        </billing>
 
         <!-- Of course this is local dev, but mirrors prod to make tests useful.
              - no table-function grants (url / s3 / file / executable / jdbc / ...)

@@ -897,12 +897,12 @@ export const clustersLogic = kea<clustersLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        '/llm-analytics/clusters': () => {
+        [urls.llmAnalyticsClusters()]: () => {
             if (values.selectedRunId !== null) {
                 actions.setSelectedRunId(null)
             }
         },
-        '/llm-analytics/clusters/:runId': ({ runId }: { runId?: string }) => {
+        '/ai-observability/clusters/:runId': ({ runId }: { runId?: string }) => {
             // Decode the URL-encoded runId. Only re-dispatch when the runId actually
             // changed — a filter change updates the URL's search params (?filters=…)
             // but keeps the same path, and re-firing `setSelectedRunId` here would

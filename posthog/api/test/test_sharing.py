@@ -1023,6 +1023,86 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
         response = self.client.get(f"/shared/{access_token}")
         assert response.status_code == 404
 
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_exported_asset_public_url_blocked_when_organization_disallows_public_sharing(
+        self, _patched_exporter_task: Mock, patched_get_presigned_url: Mock
+    ):
+        """
+        Regression test: previously, disabling org-level public sharing only blocked
+        `/shared/<token>` (SharingConfiguration path) but left `/exporter/...?token=<jwt>`
+        (ExportedAsset public token path) returning content. Both surfaces must respect
+        the kill switch.
+        """
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "organization_security_settings"},
+        ]
+        self.organization.save()
+
+        # Enable sharing and create a publicly-accessible ExportedAsset for the dashboard.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            content_location="some object url",
+        )
+        exporter_url = asset.get_public_content_url()
+
+        # Sanity check: public token URL works while public sharing is allowed.
+        response = self.client.get(exporter_url)
+        assert response.status_code == 302
+
+        # Disable public sharing at the org level.
+        self.organization.allow_publicly_shared_resources = False
+        self.organization.save()
+
+        # ExportedAsset public token URL must now be blocked, same as /shared/...
+        response = self.client.get(exporter_url)
+        assert response.status_code == 404
+
+    @patch("posthog.models.exported_asset.object_storage.get_presigned_url")
+    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_exported_asset_public_url_blocked_for_password_protected_share_when_disallowed(
+        self, _patched_exporter_task: Mock, patched_get_presigned_url: Mock
+    ):
+        """
+        A known ExportedAsset public token URL must not bypass the org-level kill switch even
+        when the underlying SharingConfiguration is password-protected.
+        """
+        patched_get_presigned_url.return_value = "https://s3.example.com/presigned-url"
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "organization_security_settings"},
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "access_control"},
+        ]
+        self.organization.save()
+
+        SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            enabled=True,
+            password_required=True,
+        )
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            content_location="some object url",
+        )
+        exporter_url = asset.get_public_content_url()
+
+        self.organization.allow_publicly_shared_resources = False
+        self.organization.save()
+
+        response = self.client.get(exporter_url)
+        assert response.status_code == 404
+
 
 class TestSharePasswordLogging(APIBaseTest):
     """Test the _log_share_password_attempt function for activity logging"""

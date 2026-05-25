@@ -162,18 +162,18 @@ services/mcp/src/tools/generated/llm_analytics.ts @PostHog/team-ai-observability
 services/mcp/src/tools/llmAnalytics/ @PostHog/team-ai-observability
 services/mcp/src/ui-apps/apps/generated/llm-costs.tsx @PostHog/team-ai-observability
 
-# LLM Gateway - owned by @PostHog/team-llm-gateway
-nodejs/src/ingestion/ai/costs/ @PostHog/team-ai-observability @PostHog/team-llm-gateway
-products/llm_analytics/backend/api/proxy.py @PostHog/team-llm-gateway
-products/llm_analytics/backend/api/test/test_proxy.py @PostHog/team-llm-gateway
-products/llm_analytics/frontend/playground/ @PostHog/team-llm-gateway
-services/llm-gateway/ @PostHog/team-llm-gateway
+# LLM Gateway - owned by @PostHog/team-ai-gateway
+nodejs/src/ingestion/ai/costs/ @PostHog/team-ai-observability @PostHog/team-ai-gateway
+products/llm_analytics/backend/api/proxy.py @PostHog/team-ai-gateway
+products/llm_analytics/backend/api/test/test_proxy.py @PostHog/team-ai-gateway
+products/llm_analytics/frontend/playground/ @PostHog/team-ai-gateway
+services/llm-gateway/ @PostHog/team-ai-gateway
 
 # DevEx-adjacent files - owned by @PostHog/team-devex
 .github/workflows/** @PostHog/team-devex
-.github/workflows/ci-llm-gateway.yml @PostHog/team-devex @PostHog/team-llm-gateway
-.github/workflows/llm-gateway-cd.yml @PostHog/team-devex @PostHog/team-llm-gateway
-.github/workflows/update-ai-costs.yml @PostHog/team-devex @PostHog/team-llm-gateway
+.github/workflows/ci-llm-gateway.yml @PostHog/team-devex @PostHog/team-ai-gateway
+.github/workflows/llm-gateway-cd.yml @PostHog/team-devex @PostHog/team-ai-gateway
+.github/workflows/update-ai-costs.yml @PostHog/team-devex @PostHog/team-ai-gateway
 .github/workflows/cd-llm-analytics-image.yml @PostHog/team-devex @PostHog/team-ai-observability
 .github/actions/** @PostHog/team-devex
 .github/dependabot.yml @PostHog/team-devex
@@ -188,7 +188,7 @@ tools/hogli-commands/ @PostHog/team-devex
 hogli.yaml @PostHog/team-devex
 tach.toml @PostHog/team-devex
 bin/ @PostHog/team-devex
-bin/start-llm-gateway @PostHog/team-devex @PostHog/team-llm-gateway
+bin/start-llm-gateway @PostHog/team-devex @PostHog/team-ai-gateway
 CODEOWNERS-soft @PostHog/team-devex
 CODEOWNERS @PostHog/team-devex
 CLAUDE.md @PostHog/team-devex
