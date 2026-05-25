@@ -182,6 +182,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                             serializer.is_valid(raise_exception=True)
                             condition["filters"] = serializer.validated_data
 
+        if data.get("type") == "wait_until_condition":
+            wait_events = data.get("config", {}).get("events") or []
+            for event_config in wait_events:
+                filters = event_config.get("filters")
+                if filters is not None:
+                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    if is_draft:
+                        if serializer.is_valid():
+                            event_config["filters"] = serializer.validated_data
+                    else:
+                        serializer.is_valid(raise_exception=True)
+                        event_config["filters"] = serializer.validated_data
+
         if data.get("type") == "delay":
             delay_duration = data.get("config", {}).get("delay_duration")
             if not isinstance(delay_duration, str) or not DELAY_DURATION_REGEX.match(delay_duration):

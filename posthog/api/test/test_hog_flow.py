@@ -529,6 +529,69 @@ class TestHogFlowAPI(APIBaseTest):
         assert data["code"] == "invalid_input"
         assert data["type"] == "validation_error"
 
+    def test_hog_flow_wait_until_events_filters_bytecode(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "condition": {"filters": None},
+                "max_wait_duration": "5m",
+                "events": [
+                    {
+                        "filters": {
+                            "events": [
+                                {
+                                    "id": "subscription created",
+                                    "name": "subscription created",
+                                    "type": "events",
+                                    "order": 0,
+                                    "properties": [
+                                        {
+                                            "key": "plan",
+                                            "type": "event",
+                                            "value": ["growth"],
+                                            "operator": "exact",
+                                        },
+                                    ],
+                                }
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow Wait Events Bytecode",
+            "status": "active",
+            "actions": [trigger_action, wait_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        events = response.json()["actions"][1]["config"]["events"]
+        assert len(events) == 1
+        filters = events[0]["filters"]
+        assert "bytecode" in filters, filters
+        bytecode = filters["bytecode"]
+        assert "subscription created" in bytecode, bytecode
+        assert "plan" in bytecode, bytecode
+        assert "growth" in bytecode, bytecode
+
     def test_hog_flow_enable_disable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
