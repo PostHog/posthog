@@ -2816,6 +2816,81 @@
             "readOnlyHint": true
         }
     },
+    "llma-prompt-create": {
+        "description": "Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON object).",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Create prompt",
+        "title": "Create prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-prompt-duplicate": {
+        "description": "Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after creation.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Duplicate prompt",
+        "title": "Duplicate prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-prompt-get": {
+        "description": "Get a specific LLM prompt by name. Uses the cached endpoint for fast retrieval.\nThe response always includes `outline`, a flat list of markdown headings parsed from the prompt — useful\nas a lightweight table of contents. Pass `content=none` to get the outline without the prompt payload,\nor `content=preview` for a short `prompt_preview` snippet instead of the full prompt.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get prompt",
+        "title": "Get prompt",
+        "required_scopes": ["llm_prompt:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-prompt-list": {
+        "description": "List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt summaries. By default, only prompt metadata is returned, not full prompt content. Every result also includes `outline`, a flat list of markdown headings parsed from the prompt — use it as a lightweight table of contents, and pair with `content=none` to keep responses small.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List prompts",
+        "title": "List prompts",
+        "required_scopes": ["llm_prompt:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-prompt-update": {
+        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update prompt",
+        "title": "Update prompt",
+        "required_scopes": ["llm_prompt:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-review-queue-create": {
         "description": "Create a review queue for routing traces that still need review. Queue names must be unique among active queues in the current project.",
         "category": "AI observability",
