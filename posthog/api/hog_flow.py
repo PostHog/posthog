@@ -415,6 +415,17 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if "bytecode" not in data["conversion"]:
                 data["conversion"]["bytecode"] = []
 
+            for event_config in conversion.get("events") or []:
+                event_filters = event_config.get("filters")
+                if event_filters is not None:
+                    event_serializer = HogFunctionFiltersSerializer(data=event_filters, context=self.context)
+                    if self.context.get("is_draft"):
+                        if event_serializer.is_valid():
+                            event_config["filters"] = event_serializer.validated_data
+                    else:
+                        event_serializer.is_valid(raise_exception=True)
+                        event_config["filters"] = event_serializer.validated_data
+
         return data
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:

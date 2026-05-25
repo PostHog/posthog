@@ -592,6 +592,62 @@ class TestHogFlowAPI(APIBaseTest):
         assert "plan" in bytecode, bytecode
         assert "growth" in bytecode, bytecode
 
+    def test_hog_flow_conversion_events_filters_bytecode(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow Conversion Events Bytecode",
+            "status": "active",
+            "actions": [trigger_action],
+            "conversion": {
+                "window_minutes": 60,
+                "events": [
+                    {
+                        "filters": {
+                            "events": [
+                                {
+                                    "id": "purchase completed",
+                                    "name": "purchase completed",
+                                    "type": "events",
+                                    "order": 0,
+                                    "properties": [
+                                        {
+                                            "key": "tier",
+                                            "type": "event",
+                                            "value": ["enterprise"],
+                                            "operator": "exact",
+                                        },
+                                    ],
+                                }
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        conversion_events = response.json()["conversion"]["events"]
+        assert len(conversion_events) == 1
+        filters = conversion_events[0]["filters"]
+        assert "bytecode" in filters, filters
+        bytecode = filters["bytecode"]
+        assert "purchase completed" in bytecode, bytecode
+        assert "tier" in bytecode, bytecode
+        assert "enterprise" in bytecode, bytecode
+
     def test_hog_flow_enable_disable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
