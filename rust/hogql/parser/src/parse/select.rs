@@ -255,10 +255,10 @@ impl<'a> Parser<'a> {
             // date-literal check for the duration of this parse; it
             // intentionally leaks into nested selects/calls here, since
             // cpp visits none of that subtree either.
-            let prev_date = self.suppress_date_literal_check;
-            self.suppress_date_literal_check = true;
+            let prev_date = self.suppress_unvisited_clause_checks;
+            self.suppress_unvisited_clause_checks = true;
             let order_by_result = self.parse_order_expr_list();
-            self.suppress_date_literal_check = prev_date;
+            self.suppress_unvisited_clause_checks = prev_date;
             order_by_result?;
             // Optional trailing `INTERPOLATE [(...)]` is part of the
             // orderByClause grammar; consume-and-drop alongside the
@@ -283,12 +283,12 @@ impl<'a> Parser<'a> {
         // body, whose LIMIT / OFFSET ARE kept and visited, stays strict.
         // Restore the flag on every exit (incl. errors an outer `try_alt` may
         // roll back) before propagating.
-        let prev_date = self.suppress_date_literal_check;
+        let prev_date = self.suppress_unvisited_clause_checks;
         if body_is_placeholder {
-            self.suppress_date_literal_check = true;
+            self.suppress_unvisited_clause_checks = true;
         }
         let limit_offset_result = self.parse_set_trailing_limit_offset(&mut out);
-        self.suppress_date_literal_check = prev_date;
+        self.suppress_unvisited_clause_checks = prev_date;
         limit_offset_result?;
         Ok(out)
     }
@@ -1394,10 +1394,10 @@ impl<'a> Parser<'a> {
         // fatal check for the discard. The table-level sample (parsed in
         // `parse_table_atom`) is unaffected and stays strict. Restore on every
         // exit before propagating.
-        let prev_date = self.suppress_date_literal_check;
-        self.suppress_date_literal_check = true;
+        let prev_date = self.suppress_unvisited_clause_checks;
+        self.suppress_unvisited_clause_checks = true;
         let sample_result = self.try_consume_sample();
-        self.suppress_date_literal_check = prev_date;
+        self.suppress_unvisited_clause_checks = prev_date;
         drop(sample_result?);
         Ok(())
     }

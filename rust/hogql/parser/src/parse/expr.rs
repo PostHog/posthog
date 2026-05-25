@@ -830,7 +830,7 @@ impl<'a> Parser<'a> {
             TokenKind::Keyword(Kw::Date | Kw::Timestamp)
                 if self.peek_next() == TokenKind::String =>
             {
-                if self.suppress_date_literal_check {
+                if self.suppress_unvisited_clause_checks {
                     // Inside a clause cpp grammar-parses but never visits (a
                     // selectStmtWithParens trailing ORDER BY): consume `DATE
                     // STRING` into a throwaway Constant so the discarded parse
@@ -1258,6 +1258,21 @@ impl<'a> Parser<'a> {
                     format!("Unsupported interval unit: {unit}"),
                     str_tok.start,
                     str_tok.end,
+                ));
+            }
+            // Reaching here means the string has no internal space (the split
+            // failed) and — per the branch guard — no trailing unit keyword:
+            // cpp's `ColumnExprIntervalString`, which `visitColumnExprIntervalString`
+            // rejects (it isn't `<count> <unit>`). In a clause cpp grammar-parses
+            // but never visits (`suppress_unvisited_clause_checks`), tolerate it
+            // with a throwaway so the discarded parse completes — matching cpp's
+            // accept (`{x} order by interval 'p'`). The node value is moot.
+            if self.suppress_unvisited_clause_checks {
+                let s = unquote_single_string(self.text(str_tok));
+                self.bump()?;
+                return Ok(emit::call(
+                    "toIntervalSecond",
+                    vec![emit::constant(Value::String(s))],
                 ));
             }
             // Fall through to the expr+unit form: parse the string as

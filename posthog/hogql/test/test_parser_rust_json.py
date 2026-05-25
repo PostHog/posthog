@@ -1151,6 +1151,41 @@ class TestParserRustJson(parser_test_factory("rust-json")):  # type: ignore
                     parse_select(query, backend=backend)
 
     @no_memory_leak_check
+    def test_interval_string_without_unit_tolerated_in_unvisited_clause(self):
+        # `INTERVAL <string>` with no `<count> <unit>` content is cpp's
+        # `ColumnExprIntervalString`, which `visitColumnExprIntervalString`
+        # rejects — so it's tolerated in the same clauses cpp grammar-parses but
+        # never visits (discarded ORDER BY, a placeholder body's LIMIT, the
+        # select-level SAMPLE). rust used to fatally require a unit keyword.
+        for query in (
+            "{x} order by interval 'pk'",
+            "{x} order by interval 'pk' collate ''",
+            "{x} order by 1 with fill to interval 'g'",
+            "{x} limit interval 'p'",
+            "select 1 using sample { interval 'pk' }",
+        ):
+            self.assertEqual(
+                parse_select(query, backend="cpp-json"),
+                parse_select(query, backend="rust-json"),
+                msg=query,
+            )
+        # Still strict elsewhere: a KEPT clause visits it, a bare / block form
+        # rejects, and a non-string interval value with no unit is a grammar
+        # error even when discarded (so the suppression is string-gated).
+        strict: list[tuple[str, object]] = [
+            ("select 1 order by interval 'pk'", parse_select),
+            ("select 1 limit interval 'pk'", parse_select),
+            ("interval 'pk'", parse_expr),
+            ("{ interval 'ln' }", parse_program),
+            ("{x} order by interval 1", parse_select),
+            ("{x} order by interval x", parse_select),
+        ]
+        for query, fn in strict:
+            for backend in ("cpp-json", "rust-json"):
+                with self.assertRaises(BaseHogQLError, msg=query):
+                    fn(query, backend=backend)
+
+    @no_memory_leak_check
     def test_stacked_table_alias_span_ends_at_first_alias(self):
         # `TableExprAlias` is left-recursive (`x a b c`): cpp's nested ctxs end
         # the JoinExpr span at the INNERMOST (first) alias, while each outer

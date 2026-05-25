@@ -177,18 +177,20 @@ pub(crate) struct Parser<'a> {
     /// (SELECT 1 ARRAY JOIN 2)) OVER w` is accepted by cpp for
     /// exactly this reason. Saved/restored around the FILTER parse.
     pub(crate) suppress_array_join_checks: bool,
-    /// When set, `parse_primary` parses a `DATE`/`TIMESTAMP` string
-    /// literal into a throwaway node instead of fatally rejecting it.
-    /// Set by `parse_trailing_set_decorators` around the discarded
-    /// `selectStmtWithParens orderByClause?` slot: cpp parses that ORDER
-    /// BY at the grammar level but `VISIT(SelectSetStmt)` never visits
-    /// the subtree, so an unsupported date literal anywhere inside it
-    /// (incl. nested selects / calls) is tolerated — `({x} order by date
-    /// 'd')` accepts. A KEPT order by (a real SelectQuery's) leaves the
-    /// flag unset, so `select 1 order by date 'd'` still rejects on both.
-    /// The flag intentionally leaks into nested parses during that ORDER
-    /// BY — cpp visits none of that subtree either. Saved/restored.
-    pub(crate) suppress_date_literal_check: bool,
+    /// When set, the parser is inside a clause cpp grammar-parses but its
+    /// visitor never visits, so VISITOR-level rejections are downgraded to
+    /// "tolerate-and-throw-away": a `DATE`/`TIMESTAMP` string literal
+    /// (`visitColumnExprDate`) and a unit-less `INTERVAL <string>`
+    /// (`visitColumnExprIntervalString`) parse into a throwaway node instead
+    /// of fatally rejecting. Set around the always-discarded `selectSetStmt`
+    /// `orderByClause?`, a `{placeholder}` body's dropped LIMIT / OFFSET, and
+    /// the discarded select-level `sampleClause`. cpp visits none of those
+    /// subtrees, so the flag intentionally leaks into nested parses there
+    /// (`({x} order by date 'd')`, `{x} limit interval 'p'` accept). A KEPT
+    /// clause (a real SelectQuery's order by / limit, a table-level sample)
+    /// leaves the flag unset, so `select 1 order by date 'd'` still rejects on
+    /// both. Saved/restored at each set site.
+    pub(crate) suppress_unvisited_clause_checks: bool,
     /// When set, the Pratt postfix loop stops before folding a
     /// `(…)`-call onto its LHS if a `:=` follows the matching `)`.
     /// Set by the Hog-program statement parser while parsing a
@@ -287,7 +289,7 @@ impl<'a> Parser<'a> {
             between_body_depth: 0,
             suppress_setstmt_trailing_order_by: false,
             suppress_array_join_checks: false,
-            suppress_date_literal_check: false,
+            suppress_unvisited_clause_checks: false,
             stop_postfix_call_before_colon_equals: false,
             stmt_rhs_recover_on_pratt_rhs_failure: false,
             limit_body_depth: 0,
