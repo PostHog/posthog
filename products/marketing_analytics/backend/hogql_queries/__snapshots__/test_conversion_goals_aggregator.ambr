@@ -37,7 +37,7 @@
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, tuple('019e5ee3-b410-7f1b-aee4-3c27e84609bb')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -90,7 +90,7 @@
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, tuple('019e5ee3-c8d5-7891-a956-ed45a26974a6')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -143,7 +143,7 @@
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, tuple('019e5ee3-dda1-7973-b824-01d60ff652a1')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -196,7 +196,7 @@
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, tuple('019e5ee3-f2b2-750a-b264-9ceb14492841')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -253,7 +253,7 @@
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, tuple('019e5ee5-53a6-7c02-aba2-aa5292904bc2')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -289,7 +289,7 @@
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, tuple('019e5ee5-676e-7bf9-bb32-4421c950bf75')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -325,7 +325,7 @@
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, tuple('019e5ee5-7cc5-7f2f-8b93-0af53fc10c27')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -380,7 +380,7 @@
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, tuple('019e5ee6-1321-7a6e-93b4-d853234dd1e3')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
@@ -415,7 +415,7 @@
               conversion_goal_attributed_preaggregated
           
   WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+              and(in(job_id, tuple('019e5ee6-282c-7412-a8cf-fc0fb2bd0b34')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
       
   GROUP BY
           campaign,
