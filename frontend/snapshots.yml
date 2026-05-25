@@ -517,17 +517,17 @@ snapshots:
     components-hogcharts-linechart--error-boundary--light:
         hash: v1.k794b7964.71c1966fb319e455c7d712cd4a480e99ea73e66b04d72d4d1fe4222b058a5a3e.A2RMx3ED_wk_NM0l603i9XWa8hTv5r9JQgHOT5M7L9U
     components-hogcharts-linechart--hovering-interior--dark:
-        hash: v1.k794b7964.ef98fd77573e2acaf7bf7bfca859813671b738d8ee2877cc5e55e2b34535cf55.aR1BfOgHFXK08TIMw7PMiiz6Ameaz8lRvAjeXo070_Q
+        hash: v1.k794b7964.106a98b78fdf3d33e9945449c237d568674bb73e6cac2824b068d9dde18f8eb8.IiK8CXDqFcxbK38JcDZ2VvsvJC_hMF4CfeOCTALU61M
     components-hogcharts-linechart--hovering-interior--light:
-        hash: v1.k794b7964.a5de82ff7b46d82c52fc0d8ce4b4aba505884feadbc44c02bf216186ce1c8edd.wryTORlIhCWy9Ysreyx0oBnf_PwqdA3XUDWpiwx0uTQ
+        hash: v1.k794b7964.fbdce955d57f7fc414239a7dc502951925a647a510f59307b273a87a68acaa0a.tS4JZrw3ECahuMoFYTO3xoEJ89UQ84lFgvXFTKGwMNA
     components-hogcharts-linechart--hovering-multi-series--dark:
         hash: v1.k794b7964.bc43065d43bc1e1238b514efd6bfbb3d1a2cc53f18c3cdcb59fdac8df9fe259b.zwrzaU3pqo3joC6IzW5dlDzp63ST6fjfuPyou6_72uc
     components-hogcharts-linechart--hovering-multi-series--light:
         hash: v1.k794b7964.fbfe3904fa22e1871488ca2f9ddb30b569100259708a16b6fcb722a450857b1c.-4mxJ92opWKeOvWoHto-KHEH6pTxG56-q0ddN3nxW7Q
     components-hogcharts-linechart--hovering-over-aux-series--dark:
-        hash: v1.k794b7964.6b522e2b58799b5e9dbb17bee0e99b42c2ffc788c88cabe8f44e68ef82388086.7qlPt0jhAFGfLQ1whJLLTmgeJu1SIWk5rh7RVuUnJio
+        hash: v1.k794b7964.1381975ad1f3cd6f0bd026ed40e2cdbb4d2f373af40565d3e04b681767987402.4ZDmXP-Pet9NoUXCH9u5N9IYRT4kiX_tBklnhDqz7TU
     components-hogcharts-linechart--hovering-over-aux-series--light:
-        hash: v1.k794b7964.3c2769b13db2f7447396f79660f704885e2e378a3cfd5968d61e6c72703a2f18.MjtcmlOjrin3pCpNGPJ7awvzw0FGv1x3qF3MkRPA0-Y
+        hash: v1.k794b7964.4c84ad5286c9fcbe5e781d8b33a8d0e7dc60b8f9743b64a5da4d4e01a54f0339.DXXeFCIu41B9QbBUxA8mdzHNLFZLLHQpZHReBIy9xwQ
     components-hogcharts-linechart--in-progress-tail--dark:
         hash: v1.k794b7964.c1f47391f93db83d4d9943cc8dec3bd9fcbbe8084ca3df54a1a74ebdf5afc656.q1YrKA5xq1YQMAYEh27agv4WfGjiWgVU5KaPC5LOLIM
     components-hogcharts-linechart--in-progress-tail--light:
@@ -568,6 +568,34 @@ snapshots:
         hash: v1.k794b7964.4c03eb4162445e32a74dc1ff8083feed9788b930aea5a4ce49e15c5da22d1b0b.OgPSbq_YYg9wIYaUs5jvjS-8YAzzBf5RgZIjtgXuZp8
     components-hogcharts-linechart--with-zeros-and-negatives--light:
         hash: v1.k794b7964.5d0d5d5cf4963ac46b4ed2bfdcedf7b24a63a47b7d84e259882e0606cbf43ce1.UtJNbmKgq3ZFS9AdrrOLJzsEejeh19IDdI9aOwxy9Ps
+    components-hogcharts-piechart--donut--dark:
+        hash: v1.k794b7964.53683ceb5ed88f7d3542094db1fb764fc6a2f8908036b3748ac4504695032427.qQAVMSvoraiafCrTL62wowzgaXHrdULwrGIb8d2VwBk
+    components-hogcharts-piechart--donut--light:
+        hash: v1.k794b7964.acf56c27510ab47148eb147dac441df1fb203c73461fae7d38aed39c9883759b.aGBuBjyBEhAJPjrrC_BepNi2g5zmX73vd2WhSO-tjj0
+    components-hogcharts-piechart--long-label-tooltip--dark:
+        hash: v1.k794b7964.d3bcb578618ec73e343c11fc05ccdad95e303c3973e1af922b0bbfd6e36b5dac.5sDDWcQqlACUZke1N8tCP6-3iPy-NvAREIJwMNDWAgY
+    components-hogcharts-piechart--long-label-tooltip--light:
+        hash: v1.k794b7964.083ff76dc306fc7cd2036b03d9d5545140cd24ba616951831fe210565a0bace7.q90E7qfNvWc7LpMhEVA5Wy8UiRWL8Zj_qK0GvU7aqZA
+    components-hogcharts-piechart--no-hover-offset--dark:
+        hash: v1.k794b7964.36ec7ed69ab9a16b562f6d59643a450c26e48fa07f5630696f38594aa49c610b.1kVPOF_OuCp_r0Hokh0cNZ-K6kSC-9KW-5uhiGl-1OI
+    components-hogcharts-piechart--no-hover-offset--light:
+        hash: v1.k794b7964.4ba748898ca2f36f7100332d96c4f3c51cd8a927253a21f187a2a4f3e93db95e.x_GSJSYhXipQxj4gd12Q4qwF5jiKopceWXXqdER9IzY
+    components-hogcharts-piechart--percent--dark:
+        hash: v1.k794b7964.503efa02ae97c5c60aa9adf056939622179a9864ce03906e86223027db2ce1b8.RWxBXw3OJ9zzy6F2aY-rp3EBJ2-HLfdOx2-E3k7oOsA
+    components-hogcharts-piechart--percent--light:
+        hash: v1.k794b7964.e282bbc15ed4820ca911ef9e676f6819be7c86a62958c6ae8be3dd08fc5c44cf.FIU7hDUrHSgX6UtMev4GBzMyQi1jTrndbEGZOm_nUpg
+    components-hogcharts-piechart--pie-default--dark:
+        hash: v1.k794b7964.36ec7ed69ab9a16b562f6d59643a450c26e48fa07f5630696f38594aa49c610b.n2FYmxpqqzT6_FtrjqvjpdLLhlGH5xSktNBnEyN3xX8
+    components-hogcharts-piechart--pie-default--light:
+        hash: v1.k794b7964.4ba748898ca2f36f7100332d96c4f3c51cd8a927253a21f187a2a4f3e93db95e.Iu2223knt2d5773R-s6_ke_oXweHsnv_nL-CmysPasI
+    components-hogcharts-piechart--single-slice--dark:
+        hash: v1.k794b7964.92bc7531883a5830155772e9df2b63b96baf8611980c1195b66cb75716fe4a79.7zFlXhqZqOTrUg3V38lXuMA6YaGwCA_-s_CsBKtwgtM
+    components-hogcharts-piechart--single-slice--light:
+        hash: v1.k794b7964.1a2540afa90064f951baa69e40405eb36459312978920ba46f2826cab097294a.JFioVV2KSnHa9Y-hREGuuT__I5ShHTvv8TgNVw7F0XU
+    components-hogcharts-piechart--with-breakdown-labels--dark:
+        hash: v1.k794b7964.e8aaf3e63d88d917b6511232aff85b4bf54f4c3b71fc267fde59a1170ba056a9.EL-FQ7Hqbd4FOdgbpZv2ynzzwJt2j6OQZkymgQXMC4U
+    components-hogcharts-piechart--with-breakdown-labels--light:
+        hash: v1.k794b7964.811f8e01cbeeb97d8319a76668d33864b6be08a2b8f270e5980fe951fafbc1bb.UoRHUDWOOnMGSCQcBN8D5TwfE6LL3IG58n0wUC_WOwo
     components-hogcharts-referenceline--fill-sides--dark:
         hash: v1.k794b7964.88be514f5436eb4c62b3db30e81e6d2f2c2b71cc6cf19bca459ed13dc901258a.mhwEtPTUGmbBcNrc9l0arcCL92Fzc-tT6uIfVDkGgpg
     components-hogcharts-referenceline--fill-sides--light:
