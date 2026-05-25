@@ -127,9 +127,10 @@ async def validate_subscription_for_delivery(subscription_id: int) -> Subscripti
         await LOGGER.ainfo("validate_subscription.already_disabled_skipping", subscription_id=subscription_id)
         return SubscriptionAbortInfo()
 
-    reason = get_subscription_disable_reason(
-        subscription.target_type, subscription.integration_id, team_id=subscription.team_id
-    )
+    reason = await database_sync_to_async(
+        get_subscription_disable_reason,
+        thread_sensitive=False,
+    )(subscription.target_type, subscription.integration_id, team_id=subscription.team_id)
     if reason is None:
         return None
 
