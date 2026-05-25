@@ -8,26 +8,32 @@ from posthog.clickhouse.property_values import (
     PROPERTY_VALUES_MV_SQL,
 )
 
-if settings.CLOUD_DEPLOYMENT == "DEV":
+if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
+    _ROLES = [NodeRole.AUX]
+elif settings.CLOUD_DEPLOYMENT == "DEV":
     _ROLES = [NodeRole.DATA]
 else:
-    _ROLES = [NodeRole.AUX]
+    _ROLES = []
 
-operations = [
-    run_sql_with_exceptions(
-        DROP_PROPERTY_VALUES_MV_SQL(),
-        node_roles=_ROLES,
-    ),
-    run_sql_with_exceptions(
-        DROP_KAFKA_PROPERTY_VALUES_TABLE_SQL(),
-        node_roles=_ROLES,
-    ),
-    run_sql_with_exceptions(
-        KAFKA_PROPERTY_VALUES_TABLE_SQL_FN(),
-        node_roles=_ROLES,
-    ),
-    run_sql_with_exceptions(
-        PROPERTY_VALUES_MV_SQL(),
-        node_roles=_ROLES,
-    ),
-]
+operations = (
+    [
+        run_sql_with_exceptions(
+            DROP_PROPERTY_VALUES_MV_SQL(),
+            node_roles=_ROLES,
+        ),
+        run_sql_with_exceptions(
+            DROP_KAFKA_PROPERTY_VALUES_TABLE_SQL(),
+            node_roles=_ROLES,
+        ),
+        run_sql_with_exceptions(
+            KAFKA_PROPERTY_VALUES_TABLE_SQL_FN(),
+            node_roles=_ROLES,
+        ),
+        run_sql_with_exceptions(
+            PROPERTY_VALUES_MV_SQL(),
+            node_roles=_ROLES,
+        ),
+    ]
+    if _ROLES
+    else []
+)
