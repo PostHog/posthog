@@ -4940,3 +4940,7 @@ class TestValidateExperimentParametersExcludedVariants:
     def test_invalid_excluded_variants_raises(self, extra_params: dict[str, Any], match: str):
         with pytest.raises(ValidationError, match=match):
             ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
+
+    def test_excluded_variants_without_feature_flag_variants_raises(self):
+        with pytest.raises(ValidationError, match="requires feature_flag_variants in the same request"):
+            ExperimentService.validate_experiment_parameters({"excluded_variants": ["test-1"]})

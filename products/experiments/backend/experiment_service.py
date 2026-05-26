@@ -200,6 +200,17 @@ class ExperimentService:
         if not excluded_variants:
             return
 
+        # `parameters` is replaced wholesale on update (see update_experiment:
+        # `update_data.get("parameters", experiment.parameters)`), not merged — so a
+        # PATCH that sets `excluded_variants` must also resend `feature_flag_variants`,
+        # otherwise the stored object would have no variants at all. Surface that
+        # explicitly rather than letting every key fall through to "unknown variants".
+        if not variants:
+            raise ValidationError(
+                "excluded_variants requires feature_flag_variants in the same request — "
+                "parameters are replaced as a whole on update, so send the full parameters object"
+            )
+
         variant_keys = {v["key"] for v in variants}
         baseline_key = (parameters.get("stats_config") or {}).get("baseline_variant_key", "control")
 
