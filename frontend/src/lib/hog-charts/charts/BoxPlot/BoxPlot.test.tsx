@@ -1,7 +1,7 @@
 import { waitFor } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
-import { renderHogChart } from '../../testing'
+import { renderHogChart, waitForHogChartTooltip } from '../../testing'
 import { BoxPlot, type BoxPlotClickData } from './BoxPlot'
 import type { BoxPlotDatum, BoxPlotSeries } from './computeBoxLayout'
 
@@ -133,6 +133,97 @@ describe('BoxPlot', () => {
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.label).toBe('Tue')
+        })
+    })
+
+    describe('tooltip rendering', () => {
+        // These tests render the chart's actual BoxPlotTooltip via `nativeTooltip: true` so the
+        // assertions exercise the real DOM — including BoxPlot's `grouped` decision (set by
+        // series count, not passed by hand). The default `renderHogChart` mode would replace
+        // the tooltip prop and bypass BoxPlotTooltip entirely.
+
+        const SINGLE_SERIES: BoxPlotSeries[] = [
+            {
+                key: 'a',
+                label: 'A-label',
+                data: [datum({ min: 1, p25: 2, median: 3, mean: 4, p75: 5, max: 6 }), datum(), datum()],
+            },
+        ]
+
+        it('renders the six stats in the canonical order (Max → p75 → Median → Mean → p25 → Min)', async () => {
+            const { chart } = renderHogChart(
+                <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />,
+                { nativeTooltip: true }
+            )
+            chart.hoverAtIndex(0)
+            const tooltipEl = await waitForHogChartTooltip()
+            const rowLabels = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) =>
+                (tr.firstElementChild as HTMLElement).textContent!.trim()
+            )
+            expect(rowLabels).toEqual(['Max', '75th percentile', 'Median', 'Mean', '25th percentile', 'Min'])
+        })
+
+        it('renders the values in the canonical row order', async () => {
+            const { chart } = renderHogChart(
+                <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />,
+                { nativeTooltip: true }
+            )
+            chart.hoverAtIndex(0)
+            const tooltipEl = await waitForHogChartTooltip()
+            const values = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) =>
+                (tr.lastElementChild as HTMLElement).textContent!.trim()
+            )
+            expect(values).toEqual(['6', '5', '3', '4', '2', '1'])
+        })
+
+        it('shows the x label in the header', async () => {
+            const { chart } = renderHogChart(
+                <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />,
+                { nativeTooltip: true }
+            )
+            chart.hoverAtIndex(0)
+            const tooltipEl = await waitForHogChartTooltip()
+            expect(tooltipEl.textContent).toContain('Mon')
+        })
+
+        it('renders one stat table per visible series when grouped (multi-series)', async () => {
+            const { chart } = renderHogChart(
+                <BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />,
+                { nativeTooltip: true }
+            )
+            chart.hoverAtIndex(0)
+            const tooltipEl = await waitForHogChartTooltip()
+            // Per-series header labels show in grouped mode.
+            expect(tooltipEl.textContent).toContain('A')
+            expect(tooltipEl.textContent).toContain('B')
+            expect(tooltipEl.querySelectorAll('table')).toHaveLength(2)
+        })
+
+        it('hides the per-series label when not grouped (single series)', async () => {
+            const { chart } = renderHogChart(
+                <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />,
+                { nativeTooltip: true }
+            )
+            chart.hoverAtIndex(0)
+            const tooltipEl = await waitForHogChartTooltip()
+            const headers = Array.from(tooltipEl.querySelectorAll('.font-semibold')).map((el) => el.textContent)
+            // The single "Mon" header is the only font-semibold heading in single-series mode.
+            expect(headers).toContain('Mon')
+            expect(headers).not.toContain('A-label')
+        })
+
+        it('passes through to a user-supplied tooltip when provided', async () => {
+            const userTooltip = jest.fn(
+                (): React.ReactElement => <div data-attr="custom-boxplot-user-tooltip">custom</div>
+            )
+            const { chart } = renderHogChart(
+                <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} tooltip={userTooltip} />,
+                { nativeTooltip: true }
+            )
+            chart.hoverAtIndex(0)
+            const tooltipEl = await waitForHogChartTooltip()
+            expect(tooltipEl.querySelector('[data-attr="custom-boxplot-user-tooltip"]')).not.toBeNull()
+            expect(userTooltip).toHaveBeenCalled()
         })
     })
 
