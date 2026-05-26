@@ -38779,6 +38779,10 @@ export namespace Schemas {
 
     export type EnvironmentsEventsRetrieveParams = {
     format?: EnvironmentsEventsRetrieveFormat;
+    /**
+     * Include person details for the event. Default: false.
+     */
+    include_person?: boolean;
     };
 
     export type EnvironmentsEventsRetrieveFormat = typeof EnvironmentsEventsRetrieveFormat[keyof typeof EnvironmentsEventsRetrieveFormat];
@@ -43861,6 +43865,10 @@ export namespace Schemas {
 
     export type EventsRetrieveParams = {
     format?: EventsRetrieveFormat;
+    /**
+     * Include person details for the event. Default: false.
+     */
+    include_person?: boolean;
     };
 
     export type EventsRetrieveFormat = typeof EventsRetrieveFormat[keyof typeof EventsRetrieveFormat];
