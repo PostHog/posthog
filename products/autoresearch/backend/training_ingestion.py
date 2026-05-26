@@ -22,6 +22,8 @@ from django.utils import timezone as django_timezone
 import structlog
 from pydantic import ValidationError
 
+from posthog.api.capture import capture_internal
+
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -31,6 +33,9 @@ from products.autoresearch.backend.models import (
 from products.autoresearch.backend.training import ModelRecipeOutput
 
 logger = structlog.get_logger(__name__)
+
+ITERATION_EVENT_NAME = "autoresearch_iteration"
+ITERATION_EVENT_SOURCE = "autoresearch_training"
 
 
 # ── Public entry point ─────────────────────────────────────────────────────────
@@ -346,6 +351,8 @@ def _ingest_recipe(training_run: AutoresearchTrainingRun, recipe_data: dict, tas
         )
         best_score = max(best_score, iter_score)
 
+    _emit_iteration_events(training_run=training_run, iterations=iterations, pipeline=pipeline)
+
     # Finish the training run
     training_run.iteration_count = max(len(iterations), 1)
     training_run.best_holdout_score = best_score
@@ -365,6 +372,87 @@ def _ingest_recipe(training_run: AutoresearchTrainingRun, recipe_data: dict, tas
         model_id=str(champion.pk),
         holdout_score=holdout_score,
         iteration_count=training_run.iteration_count,
+    )
+
+
+def _emit_iteration_events(
+    training_run: AutoresearchTrainingRun,
+    iterations: list[dict[str, Any]],
+    pipeline: AutoresearchPipeline,
+) -> None:
+    """
+    Emit one autoresearch_iteration event per iteration to PostHog.
+
+    Events are pipeline-scoped (synthetic distinct_id) so they don't create
+    spurious person profiles and can be queried by pipeline in PostHog.
+    Emission failures are logged and swallowed — they must not fail ingestion.
+    """
+    if not iterations:
+        return
+
+    token = pipeline.team.api_token
+    # Synthetic distinct_id groups all pipeline events without creating real persons.
+    distinct_id = f"$autoresearch:pipeline:{pipeline.pk}"
+    now = django_timezone.now()
+
+    emitted = 0
+    errors = 0
+    for record in iterations:
+        iter_score = record.get("holdout_score")
+        train_score = record.get("train_score") or iter_score
+        status_raw = record.get("status", "discarded")
+        model_class = record.get("model_class", "")
+        description = (record.get("agent_description") or record.get("feature_summary") or "")[:500]
+
+        iter_hash = record.get("recipe_hash") or _recipe_hash(
+            {
+                "feature_sql": "",
+                "model_class": model_class,
+                "model_params": record.get("model_params", {}),
+            }
+        )
+
+        props: dict[str, Any] = {
+            "$autoresearch_pipeline_id": str(pipeline.pk),
+            "$autoresearch_training_run_id": str(training_run.pk),
+            "$autoresearch_iteration_number": record.get("iteration_number", 0),
+            "$autoresearch_iteration_status": status_raw,
+            "$autoresearch_holdout_score": float(iter_score) if iter_score is not None else None,
+            "$autoresearch_train_score": float(train_score) if train_score is not None else None,
+            "$autoresearch_model_class": model_class,
+            "$autoresearch_agent_description": description,
+            "$autoresearch_recipe_hash": iter_hash[:16],
+            "$autoresearch_target_event": pipeline.target_event,
+            "$autoresearch_horizon_days": pipeline.horizon_days,
+        }
+
+        try:
+            response = capture_internal(
+                token=token,
+                event_name=ITERATION_EVENT_NAME,
+                event_source=ITERATION_EVENT_SOURCE,
+                distinct_id=distinct_id,
+                timestamp=now,
+                properties=props,
+                process_person_profile=False,
+            )
+            response.raise_for_status()
+            emitted += 1
+        except Exception:
+            errors += 1
+            logger.exception(
+                "autoresearch_iteration_event_emit_failed",
+                pipeline_id=str(pipeline.pk),
+                training_run_id=str(training_run.pk),
+                iteration_number=record.get("iteration_number"),
+            )
+
+    logger.info(
+        "autoresearch_iteration_events_emitted",
+        pipeline_id=str(pipeline.pk),
+        training_run_id=str(training_run.pk),
+        emitted=emitted,
+        errors=errors,
     )
 
 

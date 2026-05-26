@@ -26,7 +26,7 @@ from django.utils import timezone as django_timezone
 import structlog
 from pydantic import BaseModel, Field
 
-from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchTrainingRun
+from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
 
 logger = structlog.get_logger(__name__)
 
@@ -98,6 +98,7 @@ class ModelRecipeOutput(BaseModel):
 def build_agent_description(
     pipeline: AutoresearchPipeline,
     iteration_budget: int,
+    pending_suggestions: list[AutoresearchSuggestion] | None = None,
 ) -> str:
     """Build the Claude Code agent prompt for the autoresearch training loop."""
     pop_clause = ""
@@ -113,7 +114,7 @@ def build_agent_description(
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
 
-    return textwrap.dedent(f"""
+    prompt = textwrap.dedent(f"""
         # PostHog Autoresearch Agent
 
         Your goal is to discover predictive features for a prediction pipeline and output a
@@ -239,6 +240,29 @@ def build_agent_description(
         An AUC of 0.55 that reflects real data beats a fabricated 0.80.
     """).strip()
 
+    if pending_suggestions:  # noqa: SIM102
+        lines = [
+            "",
+            "",
+            "## Pending suggestions",
+            "",
+            "The following suggestions have been queued by users or agents. At the start of your",
+            "first iteration, decide for each:",
+            "- **Translate to a recipe** — spawn one or more iterations. Set status to acted_on.",
+            "- **Apply as a constraint** — use as context across your iterations. Set status to picked_up.",
+            "- **Reject** — violates a guardrail or is irrelevant. Set status to dismissed with rationale.",
+            "",
+            "For each suggestion you act on, include a brief `agent_response` in your recipe output's",
+            "`agent_description` field explaining how you interpreted it.",
+            "",
+        ]
+        for s in pending_suggestions:
+            priority_label = "TRY NEXT" if s.priority == AutoresearchSuggestion.Priority.TRY_NEXT else "Consider"
+            lines.append(f"[{priority_label}] (ID: {s.pk}) {s.prompt}")
+        prompt += "\n" + "\n".join(lines)
+
+    return prompt
+
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
@@ -268,7 +292,17 @@ def run_training(
     )
 
     try:
-        description = build_agent_description(pipeline=pipeline, iteration_budget=iteration_budget)
+        pending_suggestions = list(
+            AutoresearchSuggestion.objects.filter(
+                pipeline=pipeline,
+                status=AutoresearchSuggestion.Status.QUEUED,
+            ).order_by("-priority", "created_at")
+        )
+        description = build_agent_description(
+            pipeline=pipeline,
+            iteration_budget=iteration_budget,
+            pending_suggestions=pending_suggestions or None,
+        )
 
         task = Task.create_and_run(
             team=pipeline.team,

@@ -2,7 +2,7 @@ import json
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone as django_timezone
 
@@ -13,6 +13,7 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.training_ingestion import (
+    ITERATION_EVENT_NAME,
     _extract_json_from_text,
     _extract_last_agent_message,
     handle_task_run_completed,
@@ -164,6 +165,94 @@ class TestHandleTaskRunCompleted(BaseTest):
 
         old_champion.refresh_from_db()
         assert old_champion.role == AutoresearchModel.Role.ARCHIVED
+
+    @patch("products.autoresearch.backend.training_ingestion.capture_internal")
+    def test_ingests_iterations_emits_events(self, mock_capture: MagicMock) -> None:
+        mock_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
+        pipeline = self._make_pipeline()
+        training_run = self._make_training_run(pipeline)
+        recipe = {
+            **MINIMAL_RECIPE,
+            "iterations": [
+                {
+                    "iteration_number": 1,
+                    "recipe_hash": "iter1hash",
+                    "model_class": "sklearn.linear_model.LogisticRegression",
+                    "model_params": {"C": 0.5},
+                    "feature_summary": "basic features",
+                    "holdout_score": 0.65,
+                    "status": "discarded",
+                    "agent_description": "tried C=0.5",
+                },
+                {
+                    "iteration_number": 2,
+                    "recipe_hash": "iter2hash",
+                    "model_class": "sklearn.linear_model.LogisticRegression",
+                    "model_params": {"C": 1.0},
+                    "feature_summary": "basic features",
+                    "holdout_score": 0.72,
+                    "status": "kept",
+                    "agent_description": "C=1.0 better",
+                },
+            ],
+        }
+        tr = _task_run(output=recipe, state={"autoresearch_training_run_id": str(training_run.id)})
+        handle_task_run_completed(tr)
+
+        assert mock_capture.call_count == 2
+
+        first_call_kwargs = mock_capture.call_args_list[0].kwargs
+        assert first_call_kwargs["event_name"] == ITERATION_EVENT_NAME
+        assert first_call_kwargs["distinct_id"] == f"$autoresearch:pipeline:{pipeline.pk}"
+        assert first_call_kwargs["process_person_profile"] is False
+
+        props = first_call_kwargs["properties"]
+        assert props["$autoresearch_pipeline_id"] == str(pipeline.pk)
+        assert props["$autoresearch_training_run_id"] == str(training_run.pk)
+        assert props["$autoresearch_iteration_number"] == 1
+        assert props["$autoresearch_iteration_status"] == "discarded"
+        assert props["$autoresearch_holdout_score"] == pytest.approx(0.65)
+        assert props["$autoresearch_model_class"] == "sklearn.linear_model.LogisticRegression"
+        assert props["$autoresearch_target_event"] == "$pageview"
+        assert props["$autoresearch_horizon_days"] == 7
+
+    @patch("products.autoresearch.backend.training_ingestion.capture_internal")
+    def test_no_events_emitted_when_no_iterations(self, mock_capture: MagicMock) -> None:
+        pipeline = self._make_pipeline()
+        training_run = self._make_training_run(pipeline)
+        tr = _task_run(output=MINIMAL_RECIPE, state={"autoresearch_training_run_id": str(training_run.id)})
+        handle_task_run_completed(tr)
+        mock_capture.assert_not_called()
+
+    @patch("products.autoresearch.backend.training_ingestion.capture_internal")
+    def test_emit_failure_does_not_break_ingestion(self, mock_capture: MagicMock) -> None:
+        mock_capture.side_effect = RuntimeError("network error")
+
+        pipeline = self._make_pipeline()
+        training_run = self._make_training_run(pipeline)
+        recipe = {
+            **MINIMAL_RECIPE,
+            "iterations": [
+                {
+                    "iteration_number": 1,
+                    "recipe_hash": "iter1hash",
+                    "model_class": "sklearn.linear_model.LogisticRegression",
+                    "model_params": {},
+                    "feature_summary": "basic features",
+                    "holdout_score": 0.65,
+                    "status": "discarded",
+                    "agent_description": "first try",
+                },
+            ],
+        }
+        tr = _task_run(output=recipe, state={"autoresearch_training_run_id": str(training_run.id)})
+        handle_task_run_completed(tr)
+
+        # DB records are persisted even when emission fails
+        training_run.refresh_from_db()
+        assert training_run.status == AutoresearchTrainingRun.Status.COMPLETED
+        assert AutoresearchIteration.objects.filter(training_run=training_run).count() == 1
 
     def test_marks_failed_when_no_valid_recipe(self) -> None:
         pipeline = self._make_pipeline()

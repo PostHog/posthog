@@ -10,6 +10,7 @@ from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
+    AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.validation import ValidationResult, ValidationWarning
@@ -253,3 +254,152 @@ class TestAutoresearchPipelineAPI(APIBaseTest):
         resp = self.client.get(f"{self.base_url}/{pipeline_b.id}/models/")
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 0
+
+
+class TestAutoresearchSuggestionAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/autoresearch"
+        self._flag_patcher = patch(
+            "products.autoresearch.backend.access.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self._flag_patcher.start()
+        self.addCleanup(self._flag_patcher.stop)
+
+    def _make_pipeline(self, **kwargs) -> AutoresearchPipeline:
+        defaults = {
+            "team": self.team,
+            "created_by": self.user,
+            "name": "Test Pipeline",
+            "target_event": "$pageview",
+            "horizon_days": 7,
+            "prediction_mode": "adoption",
+            "iteration_budget": 50,
+            "iteration_budget_remaining": 50,
+        }
+        defaults.update(kwargs)
+        return AutoresearchPipeline.objects.create(**defaults)
+
+    def _suggestions_url(self, pipeline_id: object) -> str:
+        return f"{self.base_url}/{pipeline_id}/suggestions/"
+
+    # ──────────────────────────────────────────── create ──────────────────────────────────────────
+
+    def test_create_suggestion(self):
+        pipeline = self._make_pipeline()
+        resp = self.client.post(
+            self._suggestions_url(pipeline.id),
+            {"prompt": "try a gradient boosting model", "priority": "consider"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_201_CREATED
+        data = resp.json()
+        assert data["prompt"] == "try a gradient boosting model"
+        assert data["priority"] == "consider"
+        assert data["status"] == "queued"
+        assert data["source"] == "user"
+        assert AutoresearchSuggestion.objects.filter(pipeline=pipeline).count() == 1
+
+    def test_create_suggestion_try_next_priority(self):
+        pipeline = self._make_pipeline()
+        resp = self.client.post(
+            self._suggestions_url(pipeline.id),
+            {"prompt": "remove recency features", "priority": "try_next"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.json()["priority"] == "try_next"
+
+    def test_create_suggestion_default_priority_is_consider(self):
+        pipeline = self._make_pipeline()
+        resp = self.client.post(
+            self._suggestions_url(pipeline.id),
+            {"prompt": "try a different model"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.json()["priority"] == "consider"
+
+    def test_create_suggestion_archived_pipeline_returns_400(self):
+        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.ARCHIVED)
+        # Archived pipelines are excluded from the queryset; suggestions endpoint
+        # does its own lookup and returns 400 (not 404) so the error is clear.
+        resp = self.client.post(
+            self._suggestions_url(pipeline.id),
+            {"prompt": "try XGBoost"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_suggestion_missing_prompt_returns_400(self):
+        pipeline = self._make_pipeline()
+        resp = self.client.post(self._suggestions_url(pipeline.id), {}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    # ──────────────────────────────────────────── list ────────────────────────────────────────────
+
+    def test_list_suggestions(self):
+        pipeline = self._make_pipeline()
+        AutoresearchSuggestion.objects.create(
+            pipeline=pipeline,
+            created_by=self.user,
+            prompt="first suggestion",
+            priority=AutoresearchSuggestion.Priority.CONSIDER,
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        AutoresearchSuggestion.objects.create(
+            pipeline=pipeline,
+            created_by=self.user,
+            prompt="second suggestion",
+            priority=AutoresearchSuggestion.Priority.TRY_NEXT,
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        resp = self.client.get(self._suggestions_url(pipeline.id))
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert len(data) == 2
+
+    def test_suggestions_not_leaked_across_pipelines(self):
+        pipeline_a = self._make_pipeline(name="Pipeline A")
+        pipeline_b = self._make_pipeline(name="Pipeline B")
+        AutoresearchSuggestion.objects.create(
+            pipeline=pipeline_a,
+            created_by=self.user,
+            prompt="only for A",
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        resp = self.client.get(self._suggestions_url(pipeline_b.id))
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json() == []
+
+    # ──────────────────────────────────────────── retrieve ────────────────────────────────────────
+
+    def test_retrieve_suggestion(self):
+        pipeline = self._make_pipeline()
+        suggestion = AutoresearchSuggestion.objects.create(
+            pipeline=pipeline,
+            created_by=self.user,
+            prompt="use day-of-week features",
+            priority=AutoresearchSuggestion.Priority.TRY_NEXT,
+            status=AutoresearchSuggestion.Status.QUEUED,
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        resp = self.client.get(f"{self._suggestions_url(pipeline.id)}{suggestion.id}/")
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["id"] == str(suggestion.id)
+        assert data["prompt"] == "use day-of-week features"
+        assert data["status"] == "queued"
+
+    def test_retrieve_suggestion_wrong_pipeline_returns_404(self):
+        pipeline_a = self._make_pipeline(name="Pipeline A")
+        pipeline_b = self._make_pipeline(name="Pipeline B")
+        suggestion = AutoresearchSuggestion.objects.create(
+            pipeline=pipeline_a,
+            created_by=self.user,
+            prompt="belongs to A",
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        resp = self.client.get(f"{self._suggestions_url(pipeline_b.id)}{suggestion.id}/")
+        assert resp.status_code == status.HTTP_404_NOT_FOUND

@@ -184,12 +184,71 @@ class AutoresearchIteration(UUIDModel):
     status = models.CharField(max_length=20, choices=Status.choices)
     agent_description = models.TextField(blank=True, default="")
     agent_confidence = models.FloatField(null=True, blank=True, help_text="Agent's self-assessed confidence 0–1")
+    parent_suggestion = models.ForeignKey(
+        "autoresearch.AutoresearchSuggestion",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="iterations",
+        help_text="Suggestion that spawned this iteration, if any",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["iteration_number"]
         unique_together = [("training_run", "iteration_number")]
+
+
+class AutoresearchSuggestion(UUIDModel):
+    """A free-text hypothesis or direction injected into a running pipeline by a user or agent."""
+
+    class Priority(models.TextChoices):
+        TRY_NEXT = "try_next", "Try next"
+        CONSIDER = "consider", "Consider"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        PICKED_UP = "picked_up", "Picked up"
+        ACTED_ON = "acted_on", "Acted on"
+        DISMISSED = "dismissed", "Dismissed"
+
+    class Source(models.TextChoices):
+        USER = "user", "User"
+        AGENT = "agent", "Agent"
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="suggestions")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
+
+    prompt = models.TextField(help_text="Free-text hypothesis or direction for the agent to explore")
+    priority = models.CharField(
+        max_length=20,
+        choices=Priority.choices,
+        default=Priority.CONSIDER,
+        help_text="'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory",
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.QUEUED)
+    source = models.CharField(
+        max_length=20,
+        choices=Source.choices,
+        default=Source.USER,
+        help_text="Whether the suggestion came from a human user or an agent",
+    )
+    agent_response = models.TextField(
+        blank=True,
+        default="",
+        help_text="Agent's note on how the suggestion was interpreted and acted upon",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"[{self.priority}] {self.prompt[:60]} ({self.status})"
 
 
 class AutoresearchRun(UUIDModel):

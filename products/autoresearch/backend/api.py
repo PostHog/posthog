@@ -19,6 +19,7 @@ from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
+    AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.serializers import (
@@ -26,7 +27,9 @@ from products.autoresearch.backend.serializers import (
     AutoresearchPipelineCreateSerializer,
     AutoresearchPipelineSerializer,
     AutoresearchRunSerializer,
+    AutoresearchSuggestionSerializer,
     AutoresearchTrainingRunSerializer,
+    CreateSuggestionSerializer,
     StartTrainingRequestSerializer,
     ValidatePipelineRequestSerializer,
     ValidatePipelineResponseSerializer,
@@ -322,3 +325,93 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyMo
         if pipeline_id:
             qs = qs.filter(pipeline_id=pipeline_id)
         return qs.order_by("-created_at")
+
+
+@extend_schema(tags=["autoresearch"])
+class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    Submit and list steering suggestions for a running pipeline.
+
+    A suggestion is a free-text hypothesis or direction injected by a user or agent.
+    At the start of the next training batch the sandbox agent reads pending suggestions
+    and decides whether to translate each into a concrete iteration, apply it as a
+    search constraint, or dismiss it with rationale.
+    """
+
+    scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["create"]
+    permission_classes = [AutoresearchAccessPermission]
+    serializer_class = AutoresearchSuggestionSerializer
+    queryset = AutoresearchSuggestion.objects.all()
+
+    def _should_skip_parents_filter(self) -> bool:
+        return True
+
+    def safely_get_queryset(self, queryset: Any) -> Any:
+        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
+        qs = queryset.filter(pipeline__team=self.team).select_related("pipeline", "created_by")
+        if pipeline_id:
+            qs = qs.filter(pipeline_id=pipeline_id)
+        return qs.order_by("-created_at")
+
+    @extend_schema(
+        responses={200: AutoresearchSuggestionSerializer(many=True)},
+        summary="List suggestions",
+        description=(
+            "List steering suggestions for a pipeline, ordered most recent first. "
+            "Check 'status' to see which have been picked up or acted on by the agent."
+        ),
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        qs = self.safely_get_queryset(self.get_queryset())
+        serializer = AutoresearchSuggestionSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(
+        responses={200: AutoresearchSuggestionSerializer},
+        summary="Get suggestion",
+        description="Get details for a specific suggestion including its status and agent_response.",
+    )
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        return Response(AutoresearchSuggestionSerializer(instance).data)
+
+    @validated_request(
+        request_serializer=CreateSuggestionSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=AutoresearchSuggestionSerializer,
+                description="The created suggestion. The agent will pick it up at the start of the next training batch.",
+            ),
+        },
+        summary="Submit a suggestion",
+        description=(
+            "Inject a free-text hypothesis or direction into a running pipeline. "
+            "The sandbox agent reads queued suggestions at the start of each iteration batch and decides: "
+            "translate into a concrete iteration ('acted_on'), apply as a search constraint ('picked_up'), "
+            "or reject with rationale ('dismissed'). "
+            "Use priority='try_next' to instruct the agent to act on this before autonomous iterations; "
+            "'consider' is advisory. "
+            "Check 'agent_response' after the next training run to see how the suggestion was interpreted."
+        ),
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
+        try:
+            pipeline = AutoresearchPipeline.objects.get(pk=pipeline_id, team=self.team)
+        except AutoresearchPipeline.DoesNotExist:
+            raise ValidationError("Pipeline not found.")
+
+        if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+            raise ValidationError("Cannot submit suggestions to an archived pipeline.")
+
+        data = request.validated_data  # type: ignore[attr-defined]
+        suggestion = AutoresearchSuggestion.objects.create(
+            pipeline=pipeline,
+            created_by=request.user,
+            prompt=data["prompt"],
+            priority=data.get("priority", AutoresearchSuggestion.Priority.CONSIDER),
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        return Response(AutoresearchSuggestionSerializer(suggestion).data, status=201)

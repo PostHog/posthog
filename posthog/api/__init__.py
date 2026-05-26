@@ -1204,6 +1204,12 @@ autoresearch_router.register(
     "project_autoresearch_training_runs",
     ["project_id", "pipeline_id"],
 )
+autoresearch_router.register(
+    r"suggestions",
+    autoresearch.AutoresearchSuggestionViewSet,
+    "project_autoresearch_suggestions",
+    ["project_id", "pipeline_id"],
+)
 
 projects_router.register(
     r"live_debugger_breakpoints",

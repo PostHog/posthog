@@ -453,6 +453,113 @@ export interface PaginatedAutoresearchRunListApi {
     results: AutoresearchRunApi[]
 }
 
+/**
+ * * `try_next` - Try next
+ * `consider` - Consider
+ */
+export type AutoresearchSuggestionPriorityEnumApi =
+    (typeof AutoresearchSuggestionPriorityEnumApi)[keyof typeof AutoresearchSuggestionPriorityEnumApi]
+
+export const AutoresearchSuggestionPriorityEnumApi = {
+    TryNext: 'try_next',
+    Consider: 'consider',
+} as const
+
+/**
+ * * `queued` - Queued
+ * `picked_up` - Picked up
+ * `acted_on` - Acted on
+ * `dismissed` - Dismissed
+ */
+export type AutoresearchSuggestionStatusEnumApi =
+    (typeof AutoresearchSuggestionStatusEnumApi)[keyof typeof AutoresearchSuggestionStatusEnumApi]
+
+export const AutoresearchSuggestionStatusEnumApi = {
+    Queued: 'queued',
+    PickedUp: 'picked_up',
+    ActedOn: 'acted_on',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * * `user` - User
+ * `agent` - Agent
+ */
+export type AutoresearchSuggestionSourceEnumApi =
+    (typeof AutoresearchSuggestionSourceEnumApi)[keyof typeof AutoresearchSuggestionSourceEnumApi]
+
+export const AutoresearchSuggestionSourceEnumApi = {
+    User: 'user',
+    Agent: 'agent',
+} as const
+
+export interface AutoresearchSuggestionApi {
+    /** Unique UUID of this suggestion. */
+    readonly id: string
+    /** Pipeline this suggestion targets. */
+    pipeline: string
+    /** Free-text hypothesis or direction for the agent to explore. */
+    prompt: string
+    /** 'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory.
+
+  * `try_next` - Try next
+  * `consider` - Consider */
+    priority?: AutoresearchSuggestionPriorityEnumApi
+    /** Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).
+
+  * `queued` - Queued
+  * `picked_up` - Picked up
+  * `acted_on` - Acted on
+  * `dismissed` - Dismissed */
+    readonly status: AutoresearchSuggestionStatusEnumApi
+    /** 'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses.
+
+  * `user` - User
+  * `agent` - Agent */
+    readonly source: AutoresearchSuggestionSourceEnumApi
+    /** Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup. */
+    readonly agent_response: string
+    readonly created_by: UserBasicApi
+    /** UUIDs of iterations spawned from this suggestion. */
+    readonly linked_iteration_ids: readonly string[]
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedAutoresearchSuggestionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AutoresearchSuggestionApi[]
+}
+
+/**
+ * * `try_next` - try_next
+ * `consider` - consider
+ */
+export type CreateSuggestionPriorityEnumApi =
+    (typeof CreateSuggestionPriorityEnumApi)[keyof typeof CreateSuggestionPriorityEnumApi]
+
+export const CreateSuggestionPriorityEnumApi = {
+    TryNext: 'try_next',
+    Consider: 'consider',
+} as const
+
+export interface CreateSuggestionApi {
+    /**
+     * Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'.
+     * @maxLength 2000
+     */
+    prompt: string
+    /** 'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.
+
+  * `try_next` - try_next
+  * `consider` - consider */
+    priority?: CreateSuggestionPriorityEnumApi
+}
+
 export interface AutoresearchTrainingRunApi {
     /** Unique UUID of this training run. */
     readonly id: string
@@ -712,6 +819,17 @@ export type AutoresearchModelsListParams = {
 }
 
 export type AutoresearchRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AutoresearchSuggestionsListParams = {
     /**
      * Number of results to return per page.
      */

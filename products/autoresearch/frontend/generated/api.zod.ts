@@ -98,6 +98,30 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Inject a free-text hypothesis or direction into a running pipeline. The sandbox agent reads queued suggestions at the start of each iteration batch and decides: translate into a concrete iteration ('acted_on'), apply as a search constraint ('picked_up'), or reject with rationale ('dismissed'). Use priority='try_next' to instruct the agent to act on this before autonomous iterations; 'consider' is advisory. Check 'agent_response' after the next training run to see how the suggestion was interpreted.
+ * @summary Submit a suggestion
+ */
+export const autoresearchSuggestionsCreateBodyPromptMax = 2000
+
+export const autoresearchSuggestionsCreateBodyPriorityDefault = `consider`
+
+export const AutoresearchSuggestionsCreateBody = /* @__PURE__ */ zod.object({
+    prompt: zod
+        .string()
+        .max(autoresearchSuggestionsCreateBodyPromptMax)
+        .describe(
+            "Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'."
+        ),
+    priority: zod
+        .enum(['try_next', 'consider'])
+        .describe('\* `try_next` - try_next\n\* `consider` - consider')
+        .default(autoresearchSuggestionsCreateBodyPriorityDefault)
+        .describe(
+            "'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.\n\n\* `try_next` - try_next\n\* `consider` - consider"
+        ),
+})
+
+/**
  * Manage autoresearch prediction pipelines.
 
 A pipeline defines a target event, population, and horizon. The autoresearch

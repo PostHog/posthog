@@ -16,11 +16,15 @@ import type {
     AutoresearchPipelineCreateApi,
     AutoresearchRunApi,
     AutoresearchRunsListParams,
+    AutoresearchSuggestionApi,
+    AutoresearchSuggestionsListParams,
     AutoresearchTrainingRunApi,
     AutoresearchTrainingRunsListParams,
+    CreateSuggestionApi,
     PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
     PaginatedAutoresearchRunListApi,
+    PaginatedAutoresearchSuggestionListApi,
     PaginatedAutoresearchTrainingRunListApi,
     PatchedAutoresearchPipelineCreateApi,
     StartTrainingRequestApi,
@@ -214,6 +218,87 @@ export const autoresearchRunsRetrieve = async (
     options?: RequestInit
 ): Promise<AutoresearchRunApi> => {
     return apiMutator<AutoresearchRunApi>(getAutoresearchRunsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchSuggestionsListUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchSuggestionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/`
+}
+
+/**
+ * List steering suggestions for a pipeline, ordered most recent first. Check 'status' to see which have been picked up or acted on by the agent.
+ * @summary List suggestions
+ */
+export const autoresearchSuggestionsList = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchSuggestionsListParams,
+    options?: RequestInit
+): Promise<PaginatedAutoresearchSuggestionListApi> => {
+    return apiMutator<PaginatedAutoresearchSuggestionListApi>(
+        getAutoresearchSuggestionsListUrl(projectId, pipelineId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAutoresearchSuggestionsCreateUrl = (projectId: string, pipelineId: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/`
+}
+
+/**
+ * Inject a free-text hypothesis or direction into a running pipeline. The sandbox agent reads queued suggestions at the start of each iteration batch and decides: translate into a concrete iteration ('acted_on'), apply as a search constraint ('picked_up'), or reject with rationale ('dismissed'). Use priority='try_next' to instruct the agent to act on this before autonomous iterations; 'consider' is advisory. Check 'agent_response' after the next training run to see how the suggestion was interpreted.
+ * @summary Submit a suggestion
+ */
+export const autoresearchSuggestionsCreate = async (
+    projectId: string,
+    pipelineId: string,
+    createSuggestionApi: CreateSuggestionApi,
+    options?: RequestInit
+): Promise<AutoresearchSuggestionApi> => {
+    return apiMutator<AutoresearchSuggestionApi>(getAutoresearchSuggestionsCreateUrl(projectId, pipelineId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createSuggestionApi),
+    })
+}
+
+export const getAutoresearchSuggestionsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/${id}/`
+}
+
+/**
+ * Get details for a specific suggestion including its status and agent_response.
+ * @summary Get suggestion
+ */
+export const autoresearchSuggestionsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchSuggestionApi> => {
+    return apiMutator<AutoresearchSuggestionApi>(getAutoresearchSuggestionsRetrieveUrl(projectId, pipelineId, id), {
         ...options,
         method: 'GET',
     })

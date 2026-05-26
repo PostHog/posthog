@@ -10,6 +10,7 @@ from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
+    AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
 
@@ -464,4 +465,71 @@ class StartTrainingRequestSerializer(serializers.Serializer):
         min_value=1,
         max_value=500,
         help_text="Override the pipeline iteration budget for this training run.",
+    )
+
+
+# ── Suggestion serializers ─────────────────────────────────────────────────
+
+
+class AutoresearchSuggestionSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    linked_iteration_ids = serializers.SerializerMethodField(
+        help_text="UUIDs of iterations spawned from this suggestion."
+    )
+
+    @extend_schema_field(serializers.ListField(child=serializers.UUIDField()))
+    def get_linked_iteration_ids(self, obj: AutoresearchSuggestion) -> list[str]:
+        return [str(pk) for pk in obj.iterations.values_list("id", flat=True)]
+
+    class Meta:
+        model = AutoresearchSuggestion
+        fields = [
+            "id",
+            "pipeline",
+            "prompt",
+            "priority",
+            "status",
+            "source",
+            "agent_response",
+            "created_by",
+            "linked_iteration_ids",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "status",
+            "source",
+            "agent_response",
+            "created_by",
+            "linked_iteration_ids",
+            "created_at",
+            "updated_at",
+        ]
+        extra_kwargs = {
+            "id": {"help_text": "Unique UUID of this suggestion."},
+            "pipeline": {"help_text": "Pipeline this suggestion targets."},
+            "prompt": {"help_text": "Free-text hypothesis or direction for the agent to explore."},
+            "priority": {
+                "help_text": "'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory."
+            },
+            "status": {
+                "help_text": "Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale)."
+            },
+            "source": {"help_text": "'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses."},
+            "agent_response": {
+                "help_text": "Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup."
+            },
+        }
+
+
+class CreateSuggestionSerializer(serializers.Serializer):
+    prompt = serializers.CharField(
+        max_length=2000,
+        help_text="Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'.",
+    )
+    priority = serializers.ChoiceField(
+        choices=["try_next", "consider"],
+        default="consider",
+        help_text="'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.",
     )

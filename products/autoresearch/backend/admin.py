@@ -5,6 +5,7 @@ from .models import (
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchRun,
+    AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
 
@@ -123,4 +124,20 @@ class AutoresearchRunAdmin(admin.ModelAdmin):
         ("Results", {"fields": ("rows_scored", "metrics")}),
         ("Error", {"fields": ("error",)}),
         ("Dates", {"fields": ("created_at", "started_at", "completed_at")}),
+    )
+
+
+@admin.register(AutoresearchSuggestion)
+class AutoresearchSuggestionAdmin(admin.ModelAdmin):
+    list_display = ("id", "pipeline", "priority", "status", "source", "created_by", "created_at")
+    list_filter = ("priority", "status", "source", "created_at")
+    search_fields = ("pipeline__name", "prompt")
+    readonly_fields = ("id", "created_at", "updated_at")
+    raw_id_fields = ("pipeline", "created_by")
+
+    fieldsets = (
+        (None, {"fields": ("id", "pipeline", "created_by", "source")}),
+        ("Content", {"fields": ("prompt", "priority", "status")}),
+        ("Agent response", {"fields": ("agent_response",)}),
+        ("Dates", {"fields": ("created_at", "updated_at")}),
     )
