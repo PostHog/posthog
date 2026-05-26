@@ -28,6 +28,8 @@ _MYSQL_IMPLEMENTATION = MySQLImplementation()
 
 @SourceRegistry.register
 class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    supports_column_selection: bool = True
+
     @property
     def get_implementation(self) -> MySQLImplementation:
         return _MYSQL_IMPLEMENTATION

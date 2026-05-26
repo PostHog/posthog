@@ -50,6 +50,7 @@ from posthog.temporal.data_imports.sources.common.base import AnySource, Externa
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -96,6 +97,18 @@ from products.warehouse_sources.backend.models.util import postgres_columns_to_d
 logger = structlog.get_logger(__name__)
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
+
+# SQL sources whose `SQLSource.supports_column_selection` is `True`. Used by the create flow at
+# `_create_schemas_for_new_source` to gate `schema_metadata` writes. Kept as a literal set so
+# test mocks of `SourceRegistry.get_source` don't need to satisfy an `isinstance(SQLSource)` check.
+_SQL_SOURCE_TYPES_WITH_COLUMN_SELECTION: set[ExternalDataSourceType] = {
+    ExternalDataSourceType.POSTGRES,
+    ExternalDataSourceType.MYSQL,
+    ExternalDataSourceType.MSSQL,
+    ExternalDataSourceType.BIGQUERY,
+    ExternalDataSourceType.SNOWFLAKE,
+    ExternalDataSourceType.REDSHIFT,
+}
 
 REFRESH_SCHEMAS_EXPECTED_ERROR_MESSAGES = {
     "timeout": "Connection timed out while fetching schemas from the source.",
@@ -1162,25 +1175,34 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             schema_name = schema.get("name")
             source_schema = source_schemas_by_name.get(schema_name)
-            resolved_source_catalog, resolved_source_schema, resolved_source_table_name = (
-                get_postgres_source_table_location(
-                    schema_name=schema_name,
-                    source_schema=source_schema,
-                    default_schema=default_source_schema,
+
+            # Postgres has its own location resolver (dotted-name fallback, `public` default).
+            # Other SQL sources take the driver-discovered values verbatim from `SourceSchema`.
+            if source_type_model == ExternalDataSourceType.POSTGRES:
+                resolved_source_catalog, resolved_source_schema, resolved_source_table_name = (
+                    get_postgres_source_table_location(
+                        schema_name=schema_name,
+                        source_schema=source_schema,
+                        default_schema=default_source_schema,
+                    )
                 )
-            )
-            resolved_source_catalog, resolved_source_schema, resolved_source_table_name = get_postgres_source_location(
-                schema_name=schema_name,
-                schema_metadata={
-                    "source_catalog": source_schema.source_catalog if source_schema else None,
-                    "source_schema": source_schema.source_schema if source_schema else None,
-                    "source_table_name": source_schema.source_table_name if source_schema else None,
-                },
-                default_schema=default_source_schema,
-            )
-            # Postgres writes here so direct-mode `DataWarehouseTable` and the column picker have
-            # data immediately. Non-Postgres sources populate via `reconcile_schema_metadata` on
-            # the next `refresh_schemas` run.
+                resolved_source_catalog, resolved_source_schema, resolved_source_table_name = (
+                    get_postgres_source_location(
+                        schema_name=schema_name,
+                        schema_metadata={
+                            "source_catalog": source_schema.source_catalog if source_schema else None,
+                            "source_schema": source_schema.source_schema if source_schema else None,
+                            "source_table_name": source_schema.source_table_name if source_schema else None,
+                        },
+                        default_schema=default_source_schema,
+                    )
+                )
+            else:
+                resolved_source_catalog = source_schema.source_catalog if source_schema else None
+                resolved_source_schema = source_schema.source_schema if source_schema else None
+                resolved_source_table_name = source_schema.source_table_name if source_schema else None
+
+            # Source-type-gated rather than `isinstance(source, SQLSource)` because tests mock `SourceRegistry.get_source`.
             schema_metadata = (
                 sql_schema_metadata(
                     source_schema.columns if source_schema else [],
@@ -1189,7 +1211,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     source_schema=resolved_source_schema,
                     source_table_name=resolved_source_table_name,
                 )
-                if source_type_model == ExternalDataSourceType.POSTGRES
+                if source_type_model in _SQL_SOURCE_TYPES_WITH_COLUMN_SELECTION
                 else {}
             )
 
@@ -1649,7 +1671,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 descriptions=descriptions,
             )
 
-            # Direct call (not via hook): tests that mock `SourceRegistry` need the real reconcile.
+            # Postgres direct call (not via hook): tests mocking `SourceRegistry` need the real reconcile.
             if instance.source_type == ExternalDataSourceType.POSTGRES:
                 reconciled_deleted_schemas = reconcile_postgres_schemas(
                     source=instance,
@@ -1658,6 +1680,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif ExternalDataSourceType(instance.source_type) in _SQL_SOURCE_TYPES_WITH_COLUMN_SELECTION and isinstance(
+                source, SQLSource
+            ):
+                source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
         logger.debug(
             "refresh_schemas completed",
             source_id=str(instance.id),

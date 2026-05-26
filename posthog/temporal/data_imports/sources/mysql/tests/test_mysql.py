@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import MagicMock
 
 import pymysql
+from parameterized import parameterized
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
@@ -654,6 +655,49 @@ class TestBuildQueryForceIndex:
                 db_incremental_field_last_value="2025-01-01",
                 force_index_name="bad;injection",
             )
+
+
+class TestBuildQueryEnabledColumns:
+    @parameterized.expand(
+        [
+            ("none_keeps_select_star", None, ["id"], "SELECT * FROM"),
+            ("subset_projects_with_pk", ["email"], ["id"], "SELECT `email`, `id` FROM"),
+            ("empty_falls_back_when_no_pk_or_incremental", [], None, "SELECT * FROM"),
+            ("empty_keeps_pk_only", [], ["id"], "SELECT `id` FROM"),
+        ]
+    )
+    def test_full_refresh_projection(
+        self,
+        _name: str,
+        enabled_columns: list[str] | None,
+        primary_keys: list[str] | None,
+        expected_prefix: str,
+    ):
+        query, _ = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            enabled_columns=enabled_columns,
+            primary_keys=primary_keys,
+        )
+        assert query.startswith(expected_prefix)
+
+    def test_incremental_projection_retains_incremental_field(self):
+        query, _ = _build_query(
+            schema="mydb",
+            table_name="message",
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+            enabled_columns=["email"],
+            primary_keys=["id"],
+        )
+        assert query.startswith("SELECT `email`, `id`, `created_at` FROM")
+        assert "WHERE `created_at` > %(incremental_value)s" in query
 
 
 class TestMySQLSourceNonRetryableErrors:

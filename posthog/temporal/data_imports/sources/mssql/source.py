@@ -31,6 +31,8 @@ _MSSQL_IMPLEMENTATION = MSSQLImplementation()
 
 @SourceRegistry.register
 class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    supports_column_selection: bool = True
+
     @property
     def get_implementation(self) -> MSSQLImplementation:
         return _MSSQL_IMPLEMENTATION

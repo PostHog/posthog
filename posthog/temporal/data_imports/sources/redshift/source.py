@@ -38,6 +38,8 @@ RedshiftErrors = {
 
 @SourceRegistry.register
 class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    supports_column_selection: bool = True
+
     def __init__(self, source_name: str = "Redshift"):
         super().__init__()
         self.source_name = source_name

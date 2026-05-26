@@ -67,7 +67,8 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 
     const cleanedSourceId = cleanSourceId(sourceId)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
-    const showColumnsSection = (schema?.available_columns?.length ?? 0) > 0
+    // Fall back to `available_columns` for older API clients without `supports_column_selection`.
+    const showColumnsSection = source?.supports_column_selection ?? (schema?.available_columns?.length ?? 0) > 0
     const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter((key) => key !== 'columns' || showColumnsSection)
 
     useEffect(() => {
