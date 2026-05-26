@@ -185,12 +185,17 @@ class TestAutoresearchPipelineAPI(APIBaseTest):
 
     def test_start_training(self):
         pipeline = self._make_pipeline()
-        resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+        training_run = AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline,
+            status=AutoresearchTrainingRun.Status.RUNNING,
+            iteration_budget=50,
+        )
+        with patch("products.autoresearch.backend.api.run_training", return_value=training_run):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+
         assert resp.status_code == status.HTTP_200_OK
         data = resp.json()
-        assert data["status"] == "completed"
-        assert data["iteration_count"] == 1
-        assert data["best_holdout_score"] == pytest.approx(0.7)
+        assert data["status"] == "running"
 
     # ─────────────────────────────────── nested resources ─────────────────────────────────────────
 

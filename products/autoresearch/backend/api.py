@@ -28,7 +28,7 @@ from products.autoresearch.backend.serializers import (
     ValidatePipelineRequestSerializer,
     ValidatePipelineResponseSerializer,
 )
-from products.autoresearch.backend.stub_training import run_stub_training
+from products.autoresearch.backend.training import run_training
 from products.autoresearch.backend.validation import validate_pipeline_definition
 
 logger = structlog.get_logger(__name__)
@@ -139,7 +139,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         data = request.validated_data  # type: ignore[attr-defined]
         budget = data.get("iteration_budget") or pipeline.iteration_budget
 
-        training_run = run_stub_training(pipeline=pipeline, iteration_budget=budget)
+        training_run = run_training(pipeline=pipeline, iteration_budget=budget, user_id=request.user.id)
         return Response(AutoresearchTrainingRunSerializer(training_run).data)
 
     @validated_request(
