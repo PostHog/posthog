@@ -22,6 +22,7 @@ from products.autoresearch.backend.models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.online_validation import run_online_validation_for_pipeline
 from products.autoresearch.backend.serializers import (
     AutoresearchModelSerializer,
     AutoresearchPipelineCreateSerializer,
@@ -76,6 +77,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         "destroy",
         "start_training",
         "run_inference",
+        "run_validation",
         "archive",
         "pause",
         "resume",
@@ -299,6 +301,36 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
 
         run = run_inference_for_pipeline(pipeline=pipeline, model=champion)
         return Response(AutoresearchRunSerializer(run).data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchRunSerializer(many=True),
+                description=(
+                    "One AutoresearchRun per matured prediction date that was validated. "
+                    "Empty list when no prediction dates have matured yet."
+                ),
+            ),
+            400: OpenApiResponse(description="Pipeline is archived."),
+        },
+        summary="Run online validation",
+        description=(
+            "Validate predictions against realized outcomes for all matured prediction dates. "
+            "A prediction date is matured when today >= prediction_date + horizon_days. "
+            "Computes realized AUC, Brier score, calibration error (ECE), and lift@10/20 per model. "
+            "Updates the model's realized_score, calibration_error, and clears the is_preliminary flag. "
+            "Already-validated dates are skipped. In production this is triggered by the daily "
+            "Temporal validation workflow after inference runs."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="validate-online")
+    def run_validation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        pipeline = self.get_object()
+        if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
+            raise ValidationError("Cannot validate an archived pipeline.")
+
+        runs = run_online_validation_for_pipeline(pipeline=pipeline)
+        return Response(AutoresearchRunSerializer(runs, many=True).data)
 
     @extend_schema(
         responses={

@@ -389,6 +389,26 @@ tools:
             - display_name
             - description
             - notes
+    autoresearch-validate-online-create:
+        operation: autoresearch_validate_online_create
+        enabled: true
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run online validation
+        description: >
+            Validate predictions against realized outcomes for all matured prediction dates. A prediction date
+            is matured when today >= prediction_date + horizon_days — meaning the outcome window has closed
+            and ground-truth labels can be fetched. Computes per-model realized AUC, Brier score, expected
+            calibration error (ECE), and lift@10/20. Updates the model's realized_score and calibration_error
+            in Postgres, and clears the is_preliminary flag after the first successful validation cycle.
+            Already-validated dates are skipped automatically. Returns one run object per prediction date
+            processed; an empty list means no dates have matured yet. In production this is triggered by the
+            daily Temporal validation workflow after inference runs. Call autoresearch-models-list after this
+            to see updated realized_score values on champion/challenger models.
     autoresearch-validate-create:
         operation: autoresearch_validate_create
         enabled: true

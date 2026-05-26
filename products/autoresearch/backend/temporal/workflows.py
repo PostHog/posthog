@@ -1,11 +1,8 @@
 """
-Temporal workflow for autoresearch inference.
+Temporal workflows for autoresearch inference and online validation.
 
-The inference workflow is a regular Temporal workflow (not a TaskRun/agent sandbox)
-because scoring is a deterministic pipeline:
-  load champion recipe → build feature matrix → score users → emit prediction events.
-
-Training still runs through Task/TaskRun sandboxes (see training.py).
+Both workflows are regular Temporal workflows (not TaskRun/agent sandboxes) because
+scoring and validation are deterministic pipelines. Training runs through Task/TaskRun.
 
 Activities are synchronous — Temporal runs them in a thread pool, which is correct
 for Django ORM + HogQL queries. Workflows are async and only orchestrate activities.
@@ -24,6 +21,7 @@ from temporalio.common import RetryPolicy
 with workflow.unsafe.imports_passed_through():
     from products.autoresearch.backend.inference import run_inference_for_pipeline
     from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
+    from products.autoresearch.backend.online_validation import run_online_validation_for_pipeline
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -158,6 +156,109 @@ class AutoresearchInferenceWorkflow(PostHogWorkflow):
         return InferenceWorkflowResult(
             run_id=result.run_id,
             rows_scored=result.rows_scored,
+            status=result.status,
+            error=result.error,
+        )
+
+
+# ── Validation workflow I/O ───────────────────────────────────────────────────
+
+
+@dataclass
+class ValidationWorkflowInput:
+    pipeline_id: str
+
+
+@dataclass
+class ValidationWorkflowResult:
+    dates_validated: int
+    total_rows: int
+    status: str
+    error: Optional[str] = None
+
+
+@dataclass
+class RunValidationInput:
+    pipeline_id: str
+
+
+@dataclass
+class RunValidationResult:
+    dates_validated: int
+    total_rows: int
+    status: str
+    error: Optional[str] = None
+
+
+# ── Validation activities ─────────────────────────────────────────────────────
+
+# Validation does all its work (HogQL + sklearn) inside a single activity to
+# keep the Temporal payload small — we only return summary counts, not raw data.
+_VALIDATION_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
+
+
+@activity.defn(name="autoresearch-validation.run_validation")
+def activity_run_validation(inp: RunValidationInput) -> RunValidationResult:
+    """Find all matured unvalidated prediction dates and validate each one."""
+    pipeline = AutoresearchPipeline.objects.select_related("team").get(pk=inp.pipeline_id)
+    try:
+        runs = run_online_validation_for_pipeline(pipeline)
+        total_rows = sum(r.rows_scored or 0 for r in runs)
+        return RunValidationResult(
+            dates_validated=len(runs),
+            total_rows=total_rows,
+            status="completed",
+        )
+    except Exception as exc:
+        return RunValidationResult(
+            dates_validated=0,
+            total_rows=0,
+            status="failed",
+            error=str(exc),
+        )
+
+
+# ── Validation workflow ───────────────────────────────────────────────────────
+
+
+@workflow.defn(name="autoresearch-validation")
+class AutoresearchValidationWorkflow(PostHogWorkflow):
+    """
+    Temporal workflow that runs online validation for one autoresearch pipeline.
+
+    Triggered daily (same cadence as inference) after inference has emitted
+    predictions. Finds all matured, unvalidated prediction dates and computes
+    realized AUC / Brier / ECE / lift@k per model. Updates AutoresearchModel
+    realized_score, calibration_error, and is_preliminary in Postgres.
+    """
+
+    inputs_cls = ValidationWorkflowInput
+
+    @workflow.run
+    async def run(self, inp: ValidationWorkflowInput) -> ValidationWorkflowResult:
+        workflow.logger.info(
+            "autoresearch_validation_workflow_start",
+            pipeline_id=inp.pipeline_id,
+        )
+
+        result = await workflow.execute_activity(
+            activity_run_validation,
+            RunValidationInput(pipeline_id=inp.pipeline_id),
+            start_to_close_timeout=timedelta(hours=1),
+            retry_policy=_VALIDATION_RETRY,
+        )
+
+        workflow.logger.info(
+            "autoresearch_validation_workflow_complete",
+            pipeline_id=inp.pipeline_id,
+            dates_validated=result.dates_validated,
+            total_rows=result.total_rows,
+            status=result.status,
+        )
+
+        return ValidationWorkflowResult(
+            dates_validated=result.dates_validated,
+            total_rows=result.total_rows,
             status=result.status,
             error=result.error,
         )
