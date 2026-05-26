@@ -56,6 +56,11 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub global_rate_limit_enabled: bool,
 
+    /// When true, the global rate limiter evaluates and emits metrics/logs
+    /// but does not enforce (events pass through as if not limited).
+    #[envconfig(default = "false")]
+    pub global_rate_limit_dry_run: bool,
+
     /// Sliding window interval to apply global rate limiting threshold to
     #[envconfig(default = "60")]
     pub global_rate_limit_window_interval_secs: u64,

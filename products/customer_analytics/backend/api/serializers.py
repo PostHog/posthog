@@ -4,10 +4,12 @@ from drf_spectacular.utils import extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 
+from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountProperties
+from products.notebooks.backend.models import Notebook
 
 _ACCOUNT_ASSIGNMENT_SCHEMA = {
     "type": "object",
@@ -150,6 +152,12 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         required=False,
         help_text="Tag names attached to the account. Pass a list to replace existing tags.",
     )
+    notebooks = serializers.SerializerMethodField(
+        help_text=(
+            "Short IDs of the internal notebooks linked to this account, used to persist investigations, "
+            "call notes, and other free-form context. Empty list if no notebooks have been created for the account."
+        )
+    )
 
     class Meta:
         model = Account
@@ -159,16 +167,22 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "external_id",
             "properties",
             "tags",
+            "notebooks",
             "created_at",
             "created_by",
             "updated_at",
         ]
         read_only_fields = [
             "id",
+            "notebooks",
             "created_at",
             "created_by",
             "updated_at",
         ]
+
+    @extend_schema_field({"type": "array", "items": {"type": "string"}})
+    def get_notebooks(self, obj: Account) -> list[str]:
+        return [link.notebook.short_id for link in obj.notebooks.all()]
 
     def validate_properties(self, value):
         if value is None:
@@ -208,3 +222,48 @@ def _format_pydantic_errors(exc: PydanticValidationError) -> list[str]:
         loc = ".".join(str(part) for part in err["loc"])
         messages.append(f"{loc}: {err['msg']}" if loc else err["msg"])
     return messages
+
+
+class AccountNotebookSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    last_modified_by = UserBasicSerializer(read_only=True)
+    title = serializers.CharField(
+        max_length=256,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Human-readable title of the account notebook.",
+    )
+    content = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Notebook content as a ProseMirror JSON document structure.",
+    )
+    text_content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Plain text representation of the notebook content for search.",
+    )
+
+    class Meta:
+        model = Notebook
+        fields = [
+            "id",
+            "short_id",
+            "title",
+            "content",
+            "text_content",
+            "created_at",
+            "created_by",
+            "last_modified_at",
+            "last_modified_by",
+        ]
+        read_only_fields = [
+            "id",
+            "short_id",
+            "created_at",
+            "created_by",
+            "last_modified_at",
+            "last_modified_by",
+        ]

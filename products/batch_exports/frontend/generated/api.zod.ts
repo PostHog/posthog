@@ -1708,3 +1708,48 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
         })
         .describe('Typed configuration for the sessions model.'),
 ])
+
+/**
+ * Cancel an ongoing file-download batch export.
+ */
+export const fileDownloadBatchExportsCancelCreateBodyFileFormatDefault = `Parquet`
+export const fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin = 0
+
+export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
+    .object({
+        file: zod
+            .object({
+                format: zod
+                    .enum(['JSONLines', 'Parquet'])
+                    .describe('\* `JSONLines` - JSONLines\n\* `Parquet` - Parquet')
+                    .default(fileDownloadBatchExportsCancelCreateBodyFileFormatDefault)
+                    .describe('File format\n\n\* `Parquet` - Parquet\n\* `JSONLines` - JSONLines'),
+                compression: zod
+                    .union([
+                        zod
+                            .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
+                            .describe(
+                                '\* `brotli` - brotli\n\* `gzip` - gzip\n\* `lz4` - lz4\n\* `snappy` - snappy\n\* `zstd` - zstd'
+                            ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Compress the file with a supported compression format\n\n\* `zstd` - zstd\n\* `gzip` - gzip\n\* `brotli` - brotli\n\* `lz4` - lz4\n\* `snappy` - snappy'
+                    ),
+                max_size_mb: zod
+                    .number()
+                    .min(fileDownloadBatchExportsCancelCreateBodyFileMaxSizeMbMin)
+                    .nullish()
+                    .describe('Split download into multiple files of at most this size in MB'),
+            })
+            .describe('Typed configuration for a FileDownload batch-export destination.'),
+        model: zod
+            .enum(['events', 'persons', 'sessions'])
+            .describe('\* `events` - events\n\* `persons` - persons\n\* `sessions` - sessions'),
+        include: zod.array(zod.string()).optional(),
+        exclude: zod.array(zod.string()).optional(),
+        data_interval_start: zod.iso.datetime({ offset: true }),
+        data_interval_end: zod.iso.datetime({ offset: true }),
+    })
+    .describe('Request shape for a FileDownload batch export on demand.')

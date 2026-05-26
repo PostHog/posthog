@@ -245,10 +245,15 @@ describe('TimeSeriesBarChart', () => {
             expect(chart.yTicks().some((t) => /\d+%/.test(t))).toBe(true)
         })
 
-        it('formats value labels as percentages when yAxis.format=percentage_scaled with 0-1 data', () => {
+        it('formats value labels as each segment fraction (0..1) in percent layout', () => {
+            // Two series with totals (10, 100, 1000); a's share is 0.1, 0.2, 0.3 of each band.
+            // The `percentage_scaled` formatter takes 0..1 input so the labels render as "10%, 20%, 30%".
             const { chart } = renderHogChart(
                 <TimeSeriesBarChart
-                    series={[{ key: 'a', label: 'A', data: [0.1, 0.2, 0.3] }]}
+                    series={[
+                        { key: 'a', label: 'A', data: [1, 20, 300] },
+                        { key: 'b', label: 'B', data: [9, 80, 700] },
+                    ]}
                     labels={LABELS}
                     theme={THEME}
                     config={{
@@ -258,7 +263,14 @@ describe('TimeSeriesBarChart', () => {
                     }}
                 />
             )
-            expect(chart.valueLabels().map((l) => l.text)).toEqual(['10%', '20%', '30%'])
+            // a's shares are [0.1, 0.2, 0.3]; b's are [0.9, 0.8, 0.7]. Sort so the assertion
+            // doesn't depend on render order.
+            expect(
+                chart
+                    .valueLabels()
+                    .map((l) => l.text)
+                    .sort()
+            ).toEqual(['10%', '20%', '30%', '70%', '80%', '90%'].sort())
         })
     })
 

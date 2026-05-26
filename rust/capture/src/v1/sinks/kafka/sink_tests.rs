@@ -33,6 +33,7 @@ fn empty_captured_headers() -> CapturedEventHeaders {
         now: None,
         force_disable_person_processing: None,
         historical_migration: None,
+        skip_heatmap_processing: None,
         dlq_reason: None,
         dlq_step: None,
         dlq_timestamp: None,

@@ -479,6 +479,7 @@ pub async fn start_test_router(replica_addr: SocketAddr) -> SocketAddr {
         max_send_message_size: 4 * 1024 * 1024,
         max_recv_message_size: 4 * 1024 * 1024,
         num_channels: 1,
+        num_light_channels: 1,
     });
     let router = PersonHogRouter::new(Arc::new(backend));
     let service = PersonHogRouterService::new(Arc::new(router));
@@ -670,6 +671,7 @@ pub async fn start_test_router_with_leader(
         max_send_message_size: 4 * 1024 * 1024,
         max_recv_message_size: 4 * 1024 * 1024,
         num_channels: 1,
+        num_light_channels: 1,
     });
 
     // Leader backend: all partitions → "leader-0", resolver → leader_addr
@@ -729,6 +731,7 @@ fn make_replica_backend(replica_addr: SocketAddr) -> Arc<ReplicaBackend> {
         max_send_message_size: 4 * 1024 * 1024,
         max_recv_message_size: 4 * 1024 * 1024,
         num_channels: 1,
+        num_light_channels: 1,
     }))
 }
 
