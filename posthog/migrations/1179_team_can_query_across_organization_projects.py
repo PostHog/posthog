@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
             name="can_query_across_organization_projects",
             field=models.BooleanField(
                 default=False,
+                db_default=False,
                 help_text="Whether this project can run HogQL queries against other projects in the same organization.",
             ),
         ),

@@ -413,6 +413,7 @@ class Team(UUIDTClassicModel):
     can_query_across_organization_projects = field_access_control(
         models.BooleanField(
             default=False,
+            db_default=False,
             help_text="Whether this project can run HogQL queries against other projects in the same organization.",
         ),
         "project",
