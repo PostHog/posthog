@@ -27,6 +27,7 @@ import {
 } from '../ingestion/common/config'
 import { ProducerName } from '../ingestion/common/outputs'
 import { createProducerRegistry } from '../ingestion/common/outputs/registry'
+import { newLifecycleBuilder } from '../ingestion/common/service-registry'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
@@ -107,6 +108,7 @@ export class IngestionGeneralServer implements NodeServer {
     private cookielessRedisPool?: RedisPool
     private cookielessManager?: CookielessManager
     private pubsub?: PubSub
+    private stopSharedServices?: () => Promise<void>
 
     constructor(config: Partial<IngestionGeneralServerConfig> = {}) {
         this.config = {
@@ -151,7 +153,14 @@ export class IngestionGeneralServer implements NodeServer {
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
 
+        // Shared services with real lifecycle work go through a server-level
+        // Lifecycle so ownership is explicit: this server starts them and
+        // stops them on shutdown. Consumers receive started, stripped
+        // handles (no start/stop) and never take ownership.
         const teamManager = new TeamManager(this.postgres)
+        const sharedServicesLifecycle = newLifecycleBuilder().register('teamManager', teamManager).build('shared')
+        const sharedServices = await sharedServicesLifecycle.start()
+        this.stopSharedServices = sharedServices.stop
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -258,7 +267,7 @@ export class IngestionGeneralServer implements NodeServer {
                         : this.config
                     const consumer = createClientWarningsConsumer(consumerConfig, {
                         outputs: ingestionOutputs,
-                        teamManager,
+                        teamManager: sharedServices.services.teamManager,
                     })
                     await consumer.start()
                     return consumer.service
@@ -318,6 +327,9 @@ export class IngestionGeneralServer implements NodeServer {
             additionalCleanup: async () => {
                 await this.ingestionProducerRegistry?.disconnectAll()
                 this.cookielessManager?.shutdown()
+                if (this.stopSharedServices) {
+                    await this.stopSharedServices()
+                }
             },
         }
     }
