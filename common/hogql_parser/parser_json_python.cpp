@@ -30,9 +30,15 @@
     HogQLParser::PASCAL_CASE##Context* parse_tree;                                                           \
     try {                                                                                                    \
       parse_tree = parser->CAMEL_CASE();                                                                     \
-    } catch HANDLE_HOGQL_ERROR(                                                                              \
-        SyntaxError, delete error_listener; delete parser; delete stream; delete lexer; delete input_stream; \
-    ) catch (const antlr4::EmptyStackException& e) {                                                         \
+    } catch (const SyntaxError& e) {                                                                         \
+      string err_json = buildJSONError("SyntaxError", e.what(), e.start, e.end).dump();                      \
+      delete error_listener;                                                                                 \
+      delete parser;                                                                                         \
+      delete stream;                                                                                         \
+      delete lexer;                                                                                          \
+      delete input_stream;                                                                                   \
+      return PyUnicode_FromStringAndSize(err_json.data(), err_json.size());                                  \
+    } catch (const antlr4::EmptyStackException& e) {                                                         \
       delete error_listener;                                                                                 \
       delete parser;                                                                                         \
       delete stream;                                                                                         \
