@@ -40,6 +40,7 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import create_base_tags, get_query_tag_value, query_tags, tag_queries
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
@@ -126,6 +127,29 @@ class TestQueryRunner(BaseTest):
         self.assertIn("Validation failed", str(context.exception))
         validation_rule.validate.assert_called_once_with(runner.validation_context)
         mock_calculate.assert_not_called()
+
+    def test_calculate_tags_inner_query_when_not_already_tagged(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query=TheTestQuery(some_attr="bla"), team=self.team)
+        query_tags.set(create_base_tags())
+
+        runner.calculate()
+
+        tagged_query = get_query_tag_value("query")
+        self.assertIsNotNone(tagged_query)
+        self.assertEqual(tagged_query["kind"], "TestQuery")
+        self.assertEqual(tagged_query["some_attr"], "bla")
+
+    def test_calculate_preserves_existing_query_tag(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query=TheTestQuery(some_attr="bla"), team=self.team)
+        query_tags.set(create_base_tags())
+        wrapper_payload = {"kind": "InsightVizNode", "source": {"kind": "TestQuery", "some_attr": "bla"}}
+        tag_queries(query=wrapper_payload)
+
+        runner.calculate()
+
+        self.assertEqual(get_query_tag_value("query"), wrapper_payload)
 
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()
