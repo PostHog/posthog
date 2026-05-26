@@ -1,5 +1,6 @@
 use std::io;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ConnectInfo;
@@ -228,17 +229,29 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         graceful.shutdown().await;
         info!("Hyper accept loop (shutdown): graceful shutdown completed");
 
-        // Legacy sink flush is synchronous (rdkafka); v1 sinks use spawn_blocking
-        // internally (see KafkaSink::flush). Sequential here until legacy is retired.
+        // Flush both sink layers concurrently. Legacy flush is synchronous
+        // (rdkafka), so it runs on the blocking thread pool. V1 sinks already
+        // use spawn_blocking internally (see KafkaSink::flush).
         info!("Flushing sinks...");
-        if let Err(e) = sink.flush() {
-            error!("Sink flush failed: {e:#}");
-        }
-        if let Some(ref v1_router) = v1_sink_router {
-            if let Err(e) = v1_router.flush().await {
-                error!("V1 sink router flush failed: {e:#}");
+        let legacy_flush = {
+            let sink = Arc::clone(&sink);
+            async move {
+                let result = tokio::task::spawn_blocking(move || sink.flush()).await;
+                match result {
+                    Ok(Err(e)) => error!("Sink flush failed: {e:#}"),
+                    Err(e) => error!("Sink flush task panicked: {e}"),
+                    Ok(Ok(())) => {}
+                }
             }
-        }
+        };
+        let v1_flush = async {
+            if let Some(ref v1_router) = v1_sink_router {
+                if let Err(e) = v1_router.flush().await {
+                    error!("V1 sink router flush failed: {e:#}");
+                }
+            }
+        };
+        tokio::join!(legacy_flush, v1_flush);
         info!("Sink flush complete");
 
         // _scope drops here -> ProcessScopeGuard signals WorkCompleted
