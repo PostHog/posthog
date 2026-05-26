@@ -28,10 +28,10 @@ from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from products.data_warehouse.backend.api.test.utils import create_external_data_source_ok
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.external_data_source.webhooks import WebhookHogFunctionCreateResult
-from products.data_warehouse.backend.models import DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 pytestmark = [
     pytest.mark.django_db,
@@ -1411,7 +1411,7 @@ class TestCancelExternalDataSchema(APIBaseTest):
             status=ExternalDataSchema.Status.RUNNING,
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
-        from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+        from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
         job = ExternalDataJob.objects.create(
             team=self.team,

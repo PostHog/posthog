@@ -18,7 +18,7 @@ import structlog
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema_view
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -49,6 +49,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_metadata import generate_insight_metadata
 from posthog.api.insight_suggestions import get_insight_analysis, get_insight_suggestions
 from posthog.api.insight_variable import map_stale_to_latest
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.query_coalescer import QueryCoalescingMixin
@@ -80,7 +81,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
 )
-from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method, hogql_insights_replace_filters
+from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.hogql_queries.query_runner import (
     BLOCKING_EXECUTION_MODES,
@@ -99,7 +100,6 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
-from posthog.models.alert import AlertConfiguration
 from posthog.models.filters.utils import get_filter
 from posthog.models.insight import InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
@@ -130,6 +130,7 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
@@ -368,9 +369,9 @@ class InsightBasicSerializer(
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        if hogql_insights_replace_filters(instance.team) and (
-            instance.query is not None or instance.query_from_filters is not None
-        ):
+        representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
+
+        if instance.query is not None or instance.query_from_filters is not None:
             representation["filters"] = {}
             representation["query"] = instance.query or instance.query_from_filters
         else:
@@ -624,7 +625,9 @@ class InsightSerializer(InsightBasicSerializer):
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
 
-                DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
+                DashboardTile.objects.create(
+                    insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
+                )
                 report_user_action(
                     self.context["request"].user,
                     "dashboard tile added",
@@ -690,6 +693,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         if validated_data.get("deleted", False):
             DashboardTile.objects_including_soft_deleted.filter(insight__id=instance.id).update(deleted=True)
+            for alert in instance.alertconfiguration_set.all():
+                alert.delete()
         else:
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
@@ -697,7 +702,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         updated_insight = super().update(instance, validated_data)
         if not updated_insight.are_alerts_supported:
-            instance.alertconfiguration_set.all().delete()
+            for alert in instance.alertconfiguration_set.all():
+                alert.delete()
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
@@ -901,7 +907,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Use prefetched alerts data
         alerts = getattr(insight, "_prefetched_alerts", [])
-        from posthog.api.alert import AlertSerializer
+        from products.alerts.backend.api.alert import AlertSerializer
 
         return AlertSerializer(alerts, many=True, context=self.context).data
 
@@ -947,9 +953,7 @@ class InsightSerializer(InsightBasicSerializer):
             request, dashboard, list(self.context["insight_variables"])
         )
 
-        if hogql_insights_replace_filters(instance.team) and (
-            instance.query is not None or instance.query_from_filters is not None
-        ):
+        if instance.query is not None or instance.query_from_filters is not None:
             query = instance.query or instance.query_from_filters
             if (
                 dashboard is not None
@@ -1189,6 +1193,20 @@ INSIGHT_ID_PATH_PARAMETER = OpenApiParameter(
     type={"oneOf": [{"type": "integer"}, {"type": "string"}]},
     description="Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.",
 )
+
+
+INSIGHT_VIEWED_MAX_IDS = 2500
+
+
+class InsightViewedRequestSerializer(serializers.Serializer):
+    insight_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False,
+        max_length=INSIGHT_VIEWED_MAX_IDS,
+        help_text=(
+            f"Insight IDs that were just viewed by the current user. At most {INSIGHT_VIEWED_MAX_IDS} ids per request."
+        ),
+    )
 
 
 @extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
@@ -1492,7 +1510,7 @@ class InsightViewSet(
         recently_viewed = []
         for rv in insight_queryset.order_by("-last_viewed_at")[:5]:
             insight = rv.insight
-            insight.last_viewed_at = rv.last_viewed_at  # type: ignore
+            insight.last_viewed_at = rv.last_viewed_at
             recently_viewed.append(insight)
 
         response = InsightBasicSerializer(recently_viewed, many=True)
@@ -1864,6 +1882,7 @@ When set, the specified dashboard's filters and date range override will be appl
             result,
             insight_name=insight.name,
             insight_description=insight.description,
+            insight_id=insight.id,
         )
 
         return Response({"result": analysis})
@@ -2072,30 +2091,47 @@ When set, the specified dashboard's filters and date range override will be appl
     # Creates or updates InsightViewed objects for the user/insight combo(s)
     # Accepts an array of insight_ids
     # ******************************************
+    @validated_request(
+        request_serializer=InsightViewedRequestSerializer,
+        responses={201: OpenApiResponse(description="Views recorded.")},
+        description=(
+            "Record that the current user has just viewed one or more insights. "
+            "Submitted ids that do not belong to the current project or that point at deleted insights "
+            "are silently dropped. Returns 201 on success regardless of how many ids were retained."
+        ),
+    )
     @action(methods=["POST"], detail=False, required_scopes=["insight:read"])
-    def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    def viewed(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         """
-        Update insight view timestamps.
+        Update insight view timestamps in bulk.
         Expects: {"insight_ids": [1, 2, 3, ...]}
         """
-        insight_ids = request.data.get("insight_ids")
+        insight_ids: list[int] = request.validated_data["insight_ids"]
 
-        if not insight_ids or not isinstance(insight_ids, list):
-            raise serializers.ValidationError({"insight_ids": "Must be a non-empty list of insight IDs"})
-
-        insights = Insight.objects.filter(
-            id__in=insight_ids,
-            team__project_id=self.team.project_id,
-            deleted=False,
+        visible_insight_ids = list(
+            Insight.objects.filter(
+                id__in=insight_ids,
+                team__project_id=self.team.project_id,
+                deleted=False,
+            ).values_list("id", flat=True)
         )
 
-        viewed_at = now()
-        for insight in insights:
-            InsightViewed.objects.update_or_create(
-                team=self.team,
-                user=request.user,
-                insight=insight,
-                defaults={"last_viewed_at": viewed_at},
+        if visible_insight_ids:
+            viewed_at = now()
+            user = cast(User, request.user)
+            InsightViewed.objects.bulk_create(
+                [
+                    InsightViewed(
+                        team=self.team,
+                        user=user,
+                        insight_id=insight_id,
+                        last_viewed_at=viewed_at,
+                    )
+                    for insight_id in visible_insight_ids
+                ],
+                update_conflicts=True,
+                unique_fields=["team", "user", "insight"],
+                update_fields=["last_viewed_at"],
             )
 
         return Response(status=status.HTTP_201_CREATED)

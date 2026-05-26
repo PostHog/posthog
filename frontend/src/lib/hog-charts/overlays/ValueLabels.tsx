@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
-import { DEFAULT_Y_AXIS_ID } from '../core/types'
+import { resolveYScaleForSeries } from '../core/scales'
 import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
+import { getTextMeasureCtx } from '../utils/text-measure'
 
 export type ValueLabelsMode = 'per-segment' | 'stack-total'
 
@@ -22,14 +23,6 @@ const LABEL_BORDER = 2
 const LABEL_HORIZONTAL_CHROME = (LABEL_PADDING_X + LABEL_BORDER) * 2
 const STACK_TOTAL_KEY = '__stack_total__'
 
-let measureCtx: CanvasRenderingContext2D | null = null
-function getMeasureCtx(): CanvasRenderingContext2D | null {
-    if (!measureCtx) {
-        measureCtx = document.createElement('canvas').getContext('2d')
-    }
-    return measureCtx
-}
-
 interface Candidate {
     key: string
     seriesIndex: number
@@ -39,11 +32,8 @@ interface Candidate {
     width: number
     color: string
     above: boolean
-}
-
-function resolveYScale(s: { yAxisId?: string }, scales: ChartScales): (value: number) => number {
-    const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-    return scales.yAxes?.[axisId]?.scale ?? scales.y
+    /** Center the label across the value-axis coord instead of anchoring its leading edge there. */
+    centerAnchor: boolean
 }
 
 function defaultLocaleFormatter(v: number): string {
@@ -54,7 +44,7 @@ interface BuildCandidatesArgs {
     series: ResolvedSeries[]
     labels: string[]
     scales: ChartScales
-    resolveValue: ResolveValueFn
+    resolvePositionValue: ResolveValueFn
     valueFormatter: NonNullable<ValueLabelsProps['valueFormatter']>
     isHorizontal: boolean
     mode: ValueLabelsMode
@@ -71,7 +61,8 @@ function pushCandidate(
     text: string,
     categoricalCoord: number,
     valueCoord: number,
-    above: boolean
+    above: boolean,
+    centerAnchor: boolean = false
 ): void {
     const textWidth = ctx ? ctx.measureText(text).width : text.length * 6
     const width = textWidth + LABEL_HORIZONTAL_CHROME
@@ -84,11 +75,12 @@ function pushCandidate(
         width,
         color,
         above,
+        centerAnchor,
     })
 }
 
 function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
-    const ctx = getMeasureCtx()
+    const ctx = getTextMeasureCtx()
     if (ctx) {
         ctx.font = LABEL_FONT
     }
@@ -129,7 +121,7 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
         return out
     }
     const topSeries = visible[visible.length - 1]
-    const yScale = resolveYScale(topSeries, scales)
+    const yScale = resolveYScaleForSeries(scales, topSeries)
     const topColor = topSeries.color
 
     for (let dIdx = 0; dIdx < labels.length; dIdx++) {
@@ -159,25 +151,53 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolveValue, valueFormatter, isHorizontal } = args
+    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent } = args
     const out: Candidate[] = []
+
+    // In percent layout each band sums to 1, so we need the band total to convert each segment's
+    // raw value into the fraction d3 uses for placement (`raw / total`). Match the d3 stack's own
+    // denominator — every non-excluded stacked series — even if some have `valueLabel: false`,
+    // since those still contribute to the visual stack height.
+    const visibleForTotal = isPercent
+        ? series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
+        : []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
         if (s.visibility?.excluded || s.visibility?.valueLabel === false) {
             continue
         }
-        const yScale = resolveYScale(s, scales)
+        const yScale = resolveYScaleForSeries(scales, s)
         for (let dIdx = 0; dIdx < s.data.length && dIdx < labels.length; dIdx++) {
             const rawValue = s.data[dIdx]
             if (typeof rawValue !== 'number' || !isFinite(rawValue) || rawValue === 0) {
                 continue
             }
-            const yValue = resolveValue(s, dIdx)
+            const yValue = resolvePositionValue(s, dIdx)
             if (typeof yValue !== 'number' || !isFinite(yValue)) {
                 continue
             }
-            const categoricalCoord = scales.x(labels[dIdx])
+
+            let displayValue = rawValue
+            // In percent layout we center the label across the segment's stacked top (see
+            // `centerAnchor` below), so `above` is unused — keep it false to be explicit.
+            let above = isPercent ? false : yValue >= 0
+
+            if (isPercent) {
+                const total = bandTotal(visibleForTotal, dIdx)
+                if (total == null || total === 0) {
+                    continue
+                }
+                // Pass the fraction (0..1) so consumers can use the same percentage formatter
+                // (`percentage_scaled`, BarChart's default tick formatter, etc.) they already use
+                // for the value axis.
+                displayValue = rawValue / total
+            }
+
+            // Pass `s.key` so grouped bar charts (compare-against-previous) anchor each
+            // label on its own bar rather than the band center between bars. Other chart
+            // types ignore the second arg and fall back to the band/point center.
+            const categoricalCoord = scales.x(labels[dIdx], s.key)
             const valueCoord = yScale(yValue)
             if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
@@ -189,10 +209,11 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 `${s.key}-${dIdx}`,
                 sIdx,
                 s.color,
-                valueFormatter(rawValue, sIdx, dIdx),
+                valueFormatter(displayValue, sIdx, dIdx),
                 categoricalCoord,
                 valueCoord,
-                yValue >= 0
+                above,
+                isPercent
             )
         }
     }
@@ -209,11 +230,21 @@ interface Rect {
 function labelRect(c: Candidate, isHorizontal: boolean): Rect {
     if (isHorizontal) {
         const halfH = LABEL_HEIGHT / 2
-        const left = c.above ? c.x : c.x - c.width
+        let left: number
+        if (c.centerAnchor) {
+            left = c.x - c.width / 2
+        } else {
+            left = c.above ? c.x : c.x - c.width
+        }
         return { left, right: left + c.width, top: c.y - halfH, bottom: c.y + halfH }
     }
     const halfW = c.width / 2
-    const top = c.above ? c.y - LABEL_HEIGHT : c.y
+    let top: number
+    if (c.centerAnchor) {
+        top = c.y - LABEL_HEIGHT / 2
+    } else {
+        top = c.above ? c.y - LABEL_HEIGHT : c.y
+    }
     return { left: c.x - halfW, right: c.x + halfW, top, bottom: top + LABEL_HEIGHT }
 }
 
@@ -287,6 +318,9 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
 }
 
 function transformFor(c: Candidate, isHorizontal: boolean): string {
+    if (c.centerAnchor) {
+        return 'translate(-50%, -50%)'
+    }
     if (isHorizontal) {
         return c.above ? 'translateY(-50%)' : 'translate(-100%, -50%)'
     }
@@ -298,7 +332,7 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolveValue, axis } = useChartLayout()
+    const { series, scales, labels, theme, resolvePositionValue, axis } = useChartLayout()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
 
@@ -311,7 +345,7 @@ export function ValueLabels({
                     series,
                     labels,
                     scales,
-                    resolveValue,
+                    resolvePositionValue,
                     valueFormatter: formatter,
                     isHorizontal,
                     mode,
@@ -320,7 +354,7 @@ export function ValueLabels({
                 minGap,
                 isHorizontal
             ),
-        [series, labels, scales, resolveValue, formatter, minGap, isHorizontal, mode, isPercent]
+        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent]
     )
 
     if (visible.length === 0) {

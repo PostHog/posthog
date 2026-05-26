@@ -25,6 +25,7 @@ const LazyHeatmapScene = lazy(() => import('./scenes/ExporterHeatmapScene'))
 const LazyInsightScene = lazy(() => import('./scenes/ExporterInsightScene'))
 const LazyNotebookScene = lazy(() => import('./scenes/ExporterNotebookScene'))
 const LazyRecordingScene = lazy(() => import('./scenes/ExporterRecordingScene'))
+const LazyInterviewScene = lazy(() => import('./scenes/ExporterInterviewScene'))
 
 function ExportedSceneSkeleton(): JSX.Element {
     return (
@@ -58,6 +59,7 @@ export function Exporter(props: ExportedData): JSX.Element {
         themes,
         accessToken,
         exportToken,
+        interview,
         ...exportOptions
     } = props
     const { whitelabel, showInspector = false } = exportOptions
@@ -91,6 +93,14 @@ export function Exporter(props: ExportedData): JSX.Element {
 
     if (type === ExportType.Unlock) {
         return <ExporterLogin whitelabel={whitelabel} />
+    }
+
+    if (type === ExportType.Interview && interview) {
+        return (
+            <Suspense fallback={<ExportedSceneSkeleton />}>
+                <LazyInterviewScene interview={interview} accessToken={accessToken} />
+            </Suspense>
+        )
     }
 
     return (

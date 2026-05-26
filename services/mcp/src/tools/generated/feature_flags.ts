@@ -5,16 +5,22 @@ import type { Schemas } from '@/api/generated'
 import {
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsActivityRetrieveQueryParams,
+    FeatureFlagsBulkDeleteCreateBody,
+    FeatureFlagsBulkKeysCreateBody,
+    FeatureFlagsBulkUpdateTagsCreateBody,
     FeatureFlagsCopyFlagsCreateBody,
     FeatureFlagsCreateBody,
     FeatureFlagsDependentFlagsListParams,
     FeatureFlagsDestroyParams,
     FeatureFlagsEvaluationReasonsRetrieveQueryParams,
     FeatureFlagsListQueryParams,
+    FeatureFlagsMyFlagsRetrieveQueryParams,
     FeatureFlagsPartialUpdateBody,
     FeatureFlagsPartialUpdateParams,
     FeatureFlagsRetrieveParams,
     FeatureFlagsStatusRetrieveParams,
+    FeatureFlagsTestEvaluationCreateBody,
+    FeatureFlagsTestEvaluationCreateParams,
     FeatureFlagsUserBlastRadiusCreateBody,
     ScheduledChangesCreateBody,
     ScheduledChangesDestroyParams,
@@ -23,6 +29,8 @@ import {
     ScheduledChangesPartialUpdateParams,
     ScheduledChangesRetrieveParams,
 } from '@/generated/feature_flags/api'
+import { withUiApp } from '@/resources/ui-apps'
+import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -175,6 +183,81 @@ const featureFlagsActivityRetrieve = (): ToolBase<
     },
 })
 
+const FeatureFlagsBulkDeleteCreateSchema = FeatureFlagsBulkDeleteCreateBody
+
+const featureFlagsBulkDeleteCreate = (): ToolBase<
+    typeof FeatureFlagsBulkDeleteCreateSchema,
+    Schemas.BulkDeleteResponse
+> => ({
+    name: 'feature-flags-bulk-delete-create',
+    schema: FeatureFlagsBulkDeleteCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkDeleteCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        const result = await context.api.request<Schemas.BulkDeleteResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_delete/`,
+            body,
+        })
+        return result
+    },
+})
+
+const FeatureFlagsBulkKeysCreateSchema = FeatureFlagsBulkKeysCreateBody
+
+const featureFlagsBulkKeysCreate = (): ToolBase<typeof FeatureFlagsBulkKeysCreateSchema, Schemas.BulkKeysResponse> => ({
+    name: 'feature-flags-bulk-keys-create',
+    schema: FeatureFlagsBulkKeysCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkKeysCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        const result = await context.api.request<Schemas.BulkKeysResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_keys/`,
+            body,
+        })
+        return result
+    },
+})
+
+const FeatureFlagsBulkUpdateTagsCreateSchema = FeatureFlagsBulkUpdateTagsCreateBody
+
+const featureFlagsBulkUpdateTagsCreate = (): ToolBase<
+    typeof FeatureFlagsBulkUpdateTagsCreateSchema,
+    Schemas.BulkUpdateTagsResponse
+> => ({
+    name: 'feature-flags-bulk-update-tags-create',
+    schema: FeatureFlagsBulkUpdateTagsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkUpdateTagsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        if (params.action !== undefined) {
+            body['action'] = params.action
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.BulkUpdateTagsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_update_tags/`,
+            body,
+        })
+        return result
+    },
+})
+
 const FeatureFlagsCopyFlagsCreateSchema = FeatureFlagsCopyFlagsCreateBody
 
 const featureFlagsCopyFlagsCreate = (): ToolBase<
@@ -252,6 +335,27 @@ const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
     },
 })
 
+const FeatureFlagsMyFlagsRetrieveSchema = FeatureFlagsMyFlagsRetrieveQueryParams
+
+const featureFlagsMyFlagsRetrieve = (): ToolBase<
+    typeof FeatureFlagsMyFlagsRetrieveSchema,
+    WithPostHogUrl<Schemas.MyFlagsResponse[]>
+> => ({
+    name: 'feature-flags-my-flags-retrieve',
+    schema: FeatureFlagsMyFlagsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsMyFlagsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.MyFlagsResponse[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/my_flags/`,
+            query: {
+                groups: params.groups,
+            },
+        })
+        return await withPostHogUrl(context, result, '/feature_flags')
+    },
+})
+
 const FeatureFlagsStatusRetrieveSchema = FeatureFlagsStatusRetrieveParams.omit({ project_id: true }).extend({
     id: z.preprocess(castStringToInt, FeatureFlagsStatusRetrieveParams.shape['id']),
 })
@@ -271,6 +375,42 @@ const featureFlagsStatusRetrieve = (): ToolBase<
         return result
     },
 })
+
+const FeatureFlagsTestEvaluationCreateSchema = FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true })
+    .extend(FeatureFlagsTestEvaluationCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, FeatureFlagsTestEvaluationCreateParams.shape['id']) })
+    .superRefine(validateDistinctIdPersonIdExclusive)
+
+const featureFlagsTestEvaluationCreate = (): ToolBase<
+    typeof FeatureFlagsTestEvaluationCreateSchema,
+    Schemas.FeatureFlagTestEvaluationResponse
+> =>
+    withUiApp('feature-flag-testing', {
+        name: 'feature-flags-test-evaluation-create',
+        schema: FeatureFlagsTestEvaluationCreateSchema,
+        handler: async (context: Context, params: z.infer<typeof FeatureFlagsTestEvaluationCreateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.distinct_id !== undefined) {
+                body['distinct_id'] = params.distinct_id
+            }
+            if (params.person_id !== undefined) {
+                body['person_id'] = params.person_id
+            }
+            if (params.timestamp !== undefined) {
+                body['timestamp'] = params.timestamp
+            }
+            if (params.groups !== undefined) {
+                body['groups'] = params.groups
+            }
+            const result = await context.api.request<Schemas.FeatureFlagTestEvaluationResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/test_evaluation/`,
+                body,
+            })
+            return result
+        },
+    })
 
 const FeatureFlagsUserBlastRadiusCreateSchema = FeatureFlagsUserBlastRadiusCreateBody
 
@@ -486,10 +626,15 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flag-get-all': featureFlagGetAll,
     'feature-flag-get-definition': featureFlagGetDefinition,
     'feature-flags-activity-retrieve': featureFlagsActivityRetrieve,
+    'feature-flags-bulk-delete-create': featureFlagsBulkDeleteCreate,
+    'feature-flags-bulk-keys-create': featureFlagsBulkKeysCreate,
+    'feature-flags-bulk-update-tags-create': featureFlagsBulkUpdateTagsCreate,
     'feature-flags-copy-flags-create': featureFlagsCopyFlagsCreate,
     'feature-flags-dependent-flags-retrieve': featureFlagsDependentFlagsRetrieve,
     'feature-flags-evaluation-reasons-retrieve': featureFlagsEvaluationReasonsRetrieve,
+    'feature-flags-my-flags-retrieve': featureFlagsMyFlagsRetrieve,
     'feature-flags-status-retrieve': featureFlagsStatusRetrieve,
+    'feature-flags-test-evaluation-create': featureFlagsTestEvaluationCreate,
     'feature-flags-user-blast-radius-create': featureFlagsUserBlastRadiusCreate,
     'scheduled-changes-create': scheduledChangesCreate,
     'scheduled-changes-delete': scheduledChangesDelete,

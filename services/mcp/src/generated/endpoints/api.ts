@@ -166,7 +166,7 @@ export const EndpointsMaterializationStatusRetrieveParams = /* @__PURE__ */ zod.
 /**
  * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
  */
-export const EndpointsOpenapiJsonRetrieveParams = /* @__PURE__ */ zod.object({
+export const EndpointsOpenapiSpecRetrieveParams = /* @__PURE__ */ zod.object({
     name: zod.string(),
     project_id: zod
         .string()
@@ -175,7 +175,7 @@ export const EndpointsOpenapiJsonRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EndpointsOpenapiJsonRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const EndpointsOpenapiSpecRetrieveQueryParams = /* @__PURE__ */ zod.object({
     version: zod
         .number()
         .optional()

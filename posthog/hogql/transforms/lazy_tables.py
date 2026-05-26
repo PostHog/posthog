@@ -459,16 +459,23 @@ class LazyTableResolver(TraversingVisitor):
                         else:
                             new_table.fields_accessed[field.name] = lazy_chain
                 elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-                    if isinstance(table_type.table_type, ast.LazyJoinType):
-                        from_table = get_long_table_name(select_type, table_type.table_type)
+                    # Widen mypy's view of the inner type: the annotated union is
+                    # `TableType | LazyTableType`, but the LazyJoinType branch below is a
+                    # defensive runtime guard against annotation drift.
+                    inner_table_type = cast(
+                        "ast.TableType | ast.LazyTableType | ast.LazyJoinType",
+                        table_type.table_type,
+                    )
+                    if isinstance(inner_table_type, ast.LazyJoinType):
+                        from_table = get_long_table_name(select_type, inner_table_type)
                         to_table = get_long_table_name(select_type, table_type)
                         if to_table not in joins_to_add:
                             joins_to_add[to_table] = LazyJoinToAdd(
                                 fields_accessed={},  # collect here all fields accessed on this table
-                                lazy_join=table_type.table_type.lazy_join,
+                                lazy_join=inner_table_type.lazy_join,
                                 from_table=from_table,
                                 to_table=to_table,
-                                lazy_join_type=table_type.table_type,
+                                lazy_join_type=inner_table_type,
                             )
                         new_join = joins_to_add[to_table]
                         if table_type == field.table_type or (
@@ -485,12 +492,12 @@ class LazyTableResolver(TraversingVisitor):
                                 new_join.fields_accessed[property.joined_subquery_field_name] = field_chain
                             else:
                                 new_join.fields_accessed[field.name] = field_chain
-                    elif isinstance(table_type.table_type, ast.LazyTableType):
+                    elif isinstance(inner_table_type, ast.LazyTableType):
                         table_name = get_long_table_name(select_type, table_type)
                         if table_name not in tables_to_add:
                             tables_to_add[table_name] = LazyTableToAdd(
                                 fields_accessed={},  # collect here all fields accessed on this table
-                                lazy_table=cast(ast.LazyTable, table_type.table_type.table),
+                                lazy_table=cast(ast.LazyTable, inner_table_type.table),
                             )
                         new_table = tables_to_add[table_name]
                         if table_type == field.table_type or (

@@ -19,6 +19,7 @@ import { containsSearchQuery } from '../searchUtils'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {
     getGeminiInlineData,
+    hasStringContentField,
     isAnthropicDocumentMessage,
     isAnthropicImageMessage,
     isEmptyJSONStructure,
@@ -557,8 +558,8 @@ function extractMinimalPreview(content: string | { type: string; content: string
             })
             .filter(Boolean)
             .join(' ')
-    } else if (typeof content === 'object' && content !== null && 'content' in content) {
-        text = typeof content.content === 'string' ? content.content : JSON.stringify(content)
+    } else if (hasStringContentField(content)) {
+        text = content.content
     } else {
         text = JSON.stringify(content)
     }
@@ -839,7 +840,9 @@ export const LLMMessageDisplay = React.memo(
                                     explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
                                 />
                                 <MessageActionsMenu
-                                    content={typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
+                                    content={
+                                        typeof content === 'string' ? content : (JSON.stringify(content, null, 2) ?? '')
+                                    }
                                     traceId={traceId}
                                 />
                             </>

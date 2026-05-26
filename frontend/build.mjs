@@ -36,6 +36,7 @@ await import('./build-products.mjs')
 const common = {
     absWorkingDir: __dirname,
     bundle: true,
+    writeMetaFile: !isDev,
 }
 
 await buildInParallel(

@@ -16,6 +16,8 @@ from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
+from pydantic import TypeAdapter
+from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -42,6 +44,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import (
@@ -73,6 +76,7 @@ from posthog.session_recordings.data_retention import (
     retention_violates_entitlement,
     validate_retention_period,
 )
+from posthog.types import AnyPropertyFilter
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import (
     get_instance_realm,
@@ -222,6 +226,25 @@ TEAM_CONFIG_FIELDS = (
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
 
+TEAM_CONFIG_MEMBER_FIELDS = (
+    "completed_snippet_onboarding",
+    "has_completed_onboarding_for",
+    "onboarding_tasks",
+    "session_recording_opt_in",
+    "autocapture_exceptions_opt_in",
+    "autocapture_web_vitals_opt_in",
+    "autocapture_web_vitals_allowed_metrics",
+    "surveys_opt_in",
+    "primary_dashboard",
+)
+TEAM_CONFIG_MEMBER_FIELDS_SET = set(TEAM_CONFIG_MEMBER_FIELDS)
+
+TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_MEMBER_FIELDS_SET) | {
+    "is_demo",
+    "app_urls",
+    "access_control",
+}
+
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     events = serializers.JSONField(required=False)
@@ -324,11 +347,23 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
 
 
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
-    activity_event = serializers.JSONField(required=False)
-    signup_pageview_event = serializers.JSONField(required=False)
-    signup_event = serializers.JSONField(required=False)
-    subscription_event = serializers.JSONField(required=False)
-    payment_event = serializers.JSONField(required=False)
+    activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
+    signup_pageview_event = serializers.JSONField(
+        required=False, help_text="Event used to count signup pageviews on dashboards."
+    )
+    signup_event = serializers.JSONField(required=False, help_text="Event used to count signups on dashboards.")
+    subscription_event = serializers.JSONField(
+        required=False, help_text="Event used to count subscriptions on dashboards."
+    )
+    payment_event = serializers.JSONField(required=False, help_text="Event used to count payments on dashboards.")
+    account_group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Index of the group type to treat as an Account in customer analytics. "
+            "Must reference an existing group type configured for the project."
+        ),
+    )
 
     class Meta:
         model = TeamCustomerAnalyticsConfig
@@ -338,7 +373,12 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "signup_event",
             "subscription_event",
             "payment_event",
+            "account_group_type_index",
         ]
+
+    @staticmethod
+    def validate_account_group_type_index(value):
+        return validate_group_type_index("account_group_type_index", value)
 
 
 _VALID_TRIGGER_PROPERTY_OPERATORS = {
@@ -382,6 +422,18 @@ def _validate_trigger_property_filters(properties: object, context: str) -> None
         # All supported operators require a value (is_set/is_not_set are not supported)
         if "value" not in prop:
             raise exceptions.ValidationError(f"{context}: property {prop_idx} must have a 'value' field.")
+
+
+test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
+
+
+def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+    try:
+        test_account_filters_adapter.validate_python(value)
+    except PydanticValidationError as error:
+        raise exceptions.ValidationError(f"Must provide an array of valid property filters. {error}") from error
+
+    return cast(list[dict[str, object]], value)
 
 
 _default_theme_id_cache: int | None = None
@@ -566,7 +618,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     @tracer.start_as_current_span("team_serializer.managed_viewsets")
     def get_managed_viewsets(self, obj):
-        from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+        from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
         from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
@@ -579,6 +631,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     )
     def get_available_setup_task_ids(self, obj) -> list[str]:
         return [e.value for e in SetupTaskId]
+
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return validate_test_account_filters(value)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1087,7 +1143,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         raise exceptions.PermissionDenied("Proactive tasks can only be enabled for authorized teams.")
 
     def validate(self, attrs: Any) -> Any:
-        attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
+        attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
         return super().validate(attrs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
@@ -1287,7 +1343,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
 
         if "events" in validated_data:
-            from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+            from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
             from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
@@ -1342,6 +1398,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "signup_event": instance.customer_analytics_config.signup_event,
             "subscription_event": instance.customer_analytics_config.subscription_event,
             "payment_event": instance.customer_analytics_config.payment_event,
+            "account_group_type_index": instance.customer_analytics_config.account_group_type_index,
         }
 
         serializer = TeamCustomerAnalyticsConfigSerializer(
@@ -1440,8 +1497,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if mixin_result is not None:
             return mixin_result
 
-        # If the request only contains config fields, require read:team scope
-        # Otherwise, require write:team scope (handled by APIScopePermission)
         # NOTE: This downgrade only applies to session-based auth (browser users).
         # All other auth methods (API keys, OAuth tokens, etc.) must have project:write
         # to modify any fields, preserving the semantic meaning of read-only API keys.
@@ -1449,8 +1504,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 request_fields = set(request.data.keys())
-                non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-                if not non_team_config_fields:
+                if request_fields and request_fields.issubset(TEAM_CONFIG_MEMBER_FIELDS_SET):
                     return ["project:read"]
 
         # Team-level config actions that any member should be able to edit via the UI.
@@ -1648,7 +1702,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["GET", "PATCH"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="experiments_config",
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
@@ -1666,6 +1720,9 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "default_experiment_stats_method",
                     "experiment_precomputation_enabled",
                     "default_only_count_matured_users",
+                    "default_cuped_enabled",
+                    "default_cuped_lookback_days",
+                    "default_minimum_detectable_effect",
                 ]
 
         team = self.get_object()
@@ -2000,8 +2057,18 @@ def handle_conversations_token_on_update(
 
 
 def validate_team_attrs(
-    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Team | Project | None
+    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, instance: Team | Project | None
 ) -> dict[str, Any]:
+    if instance is not None:
+        admin_fields_touched = TEAM_CONFIG_ADMIN_FIELDS_SET & attrs.keys()
+        if admin_fields_touched:
+            team_for_check = instance if isinstance(instance, Team) else instance.passthrough_team
+            level = view.user_permissions.team(team_for_check).effective_membership_level
+            if level is None or level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied(
+                    "Only project admins can modify these settings: " + ", ".join(sorted(admin_fields_touched))
+                )
+
     if "primary_dashboard" in attrs:
         if not instance:
             raise exceptions.ValidationError(

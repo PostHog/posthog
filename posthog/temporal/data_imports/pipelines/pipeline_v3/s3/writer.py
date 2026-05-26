@@ -19,11 +19,12 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
     ensure_bucket,
     get_base_folder,
     get_data_folder,
+    get_date_partition,
     strip_s3_protocol,
 )
 
-from products.data_warehouse.backend.models import ExternalDataJob
 from products.data_warehouse.backend.s3 import get_s3_client
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
 ParquetCompression = Literal["gzip", "bz2", "brotli", "lz4", "zstd", "snappy", "none"]
 
@@ -56,7 +57,8 @@ class S3BatchWriter:
         else:
             self._run_uuid = f"generated-{str(uuid.uuid4())}"
             self._logger.warning("S3BatchWriter: No run_uuid provided, using generated UUID", run_uuid=self._run_uuid)
-        self._base_folder = get_base_folder(self._job.team_id, self._schema_id, self._run_uuid)
+        self._date_partition = get_date_partition(self._job.created_at)
+        self._base_folder = get_base_folder(self._job.team_id, self._schema_id, self._run_uuid, self._date_partition)
         self._data_folder = get_data_folder(self._base_folder)
         self._schema = None
         self._s3 = get_s3_client()

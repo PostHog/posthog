@@ -50,7 +50,7 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Action
+from products.actions.backend.models.action import Action
 
 from ee.hogai.chat_agent.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.chat_agent.graph import AssistantGraph

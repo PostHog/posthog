@@ -156,5 +156,6 @@ def mark_signed_by_pandadoc_document_id(
     if not logic.download_and_store_signed_pdf(document):
         raise LegalDocumentDownloadFailed(f"Failed to retrieve signed PDF for legal_document {document.id}")
     document = logic.mark_document_signed(document)
+    logic.apply_baa_signed_side_effects(document)
     logic.fire_legal_document_signed_event(document)
     return _to_dto(document)

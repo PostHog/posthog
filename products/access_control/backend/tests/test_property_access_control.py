@@ -1,13 +1,16 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from posthog.models import PropertyDefinition
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import (
     PropertyAccessLevel,
+    _restriction_cache_var,
     get_default_access_level,
     get_property_access_level,
     get_restricted_properties_for_team,
+    restriction_cache_scope,
 )
 
 
@@ -98,6 +101,55 @@ class TestGetPropertyAccessLevel(BaseTest):
         level = get_property_access_level(property=self.prop_def, user=self.user)
         assert level == PropertyAccessLevel.READ
         assert level.grants_access()
+
+    def test_org_admin_bypasses_default_restriction(self):
+        from posthog.models import OrganizationMembership
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        level = get_property_access_level(property=self.prop_def, user=self.user)
+        assert level == PropertyAccessLevel.READ_WRITE
+
+    def test_org_admin_bypasses_user_specific_restriction(self):
+        from posthog.models import OrganizationMembership
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member=self.organization_membership,
+        )
+        level = get_property_access_level(property=self.prop_def, user=self.user)
+        assert level == PropertyAccessLevel.READ_WRITE
+
+    def test_org_admin_bypasses_role_restriction(self):
+        from posthog.models import OrganizationMembership
+
+        from ee.models.rbac.role import Role, RoleMembership
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        role = Role.objects.create(name="Restricted", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+            role=role,
+        )
+        level = get_property_access_level(property=self.prop_def, user=self.user)
+        assert level == PropertyAccessLevel.READ_WRITE
 
     def test_grants_access_helper(self):
         assert PropertyAccessLevel.READ_WRITE.grants_access() is True
@@ -351,3 +403,66 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
         )
         restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
         assert restricted == set()
+
+
+class TestRestrictionCacheScope(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.event_prop = PropertyDefinition.objects.create(
+            team=self.team,
+            name="secret_event_prop",
+            property_type="String",
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+    def test_outside_scope_does_not_cache(self):
+        assert _restriction_cache_var.get() is None
+
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        with patch(
+            "products.access_control.backend.property_access_control.PropertyAccessControl.objects"
+        ) as mock_manager:
+            mock_manager.filter.return_value.select_related.return_value.exclude.return_value.exists.return_value = (
+                False
+            )
+            get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+            get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+            assert mock_manager.filter.call_count == 2
+
+    def test_inside_scope_memoizes(self):
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        with restriction_cache_scope():
+            first = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+            with patch(
+                "products.access_control.backend.property_access_control.PropertyAccessControl.objects"
+            ) as mock_manager:
+                second = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+                assert mock_manager.filter.call_count == 0
+
+        assert first == second == {("secret_event_prop", PropertyDefinition.Type.EVENT)}
+        assert _restriction_cache_var.get() is None
+
+    def test_model_save_inside_scope_invalidates_cache(self):
+        with restriction_cache_scope():
+            assert get_restricted_properties_for_team(team_id=self.team.pk, user=self.user) == set()
+
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=self.event_prop,
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+
+            # The post_save signal should have cleared the cache so we see the new restriction
+            assert get_restricted_properties_for_team(team_id=self.team.pk, user=self.user) == {
+                ("secret_event_prop", PropertyDefinition.Type.EVENT)
+            }

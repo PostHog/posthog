@@ -9,6 +9,175 @@ feature: customer_analytics
 url_prefix: /customer-analytics
 ui_apps: {}
 tools:
+    accounts-create:
+        operation: accounts_create
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create account
+        description: >
+            Create a new Customer Analytics account. An account is a logical container for assigning ownership across
+            the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional
+            `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system
+            identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional
+            `tags` to categorize the account.
+        param_overrides:
+            properties:
+                description: >
+                    Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each
+                    takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`,
+                    `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All
+                    fields are optional.
+            tags:
+                description: >
+                    Tag names to attach to the account. Tags are created on demand if they do not already exist for the
+                    team.
+        feature_flag: customer-analytics-csp
+    accounts-destroy:
+        operation: accounts_destroy
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete account
+        description: |
+            Permanently delete a Customer Analytics account by id.
+        feature_flag: customer-analytics-csp
+    accounts-list:
+        operation: accounts_list
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List accounts
+        description: >
+            List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the
+            account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive,
+            account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
+            zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g.
+            `["enterprise","priority"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve`
+            for a single account by id.
+        param_overrides:
+            tags:
+                description: >
+                    JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
+                    that have any of the listed tags.
+        mcp_version: 1
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-create:
+        operation: accounts_notebooks_create
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create account notebook
+        description: >
+            Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes,
+            and other free-form context. Provide `title` and optional `content` (ProseMirror JSON document structure).
+            The notebook is created with internal visibility so it does not appear in the global notebooks list.
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-destroy:
+        operation: accounts_notebooks_destroy
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete account notebook
+        description: |
+            Permanently delete an account notebook by its `short_id`.
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-list:
+        operation: accounts_notebooks_list
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List account notebooks
+        description: >
+            List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result
+            includes the notebook `short_id`, `title`, `content`, and authorship metadata.
+        mcp_version: 1
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-retrieve:
+        operation: accounts_notebooks_retrieve
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get account notebook
+        description: >
+            Fetch a single account notebook by its `short_id`. Returns the full notebook including `content`
+            (ProseMirror JSON document structure) and authorship metadata.
+        mcp_version: 1
+        feature_flag: customer-analytics-csp
+    accounts-partial-update:
+        operation: accounts_partial_update
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update account
+        description: >
+            Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are
+            left unchanged. Pass `tags` to replace the full set of tags on the account.
+        param_overrides:
+            properties:
+                description: >
+                    Typed account properties. The server replaces the `properties` object as a whole, so include any
+                    existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner`
+                    (each `{id, email}` of an existing user), plus `stripe_customer_id`, `hubspot_deal_id`,
+                    `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems).
+            tags:
+                description: >
+                    Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a
+                    delta. Tags are created on demand if they do not already exist for the team.
+        feature_flag: customer-analytics-csp
+    accounts-retrieve:
+        operation: accounts_retrieve
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get account
+        description: >
+            Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
+            account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
+            zendesk_id external identifiers) and `tags`.
+        mcp_version: 1
+        feature_flag: customer-analytics-csp
+    accounts-update:
+        operation: accounts_update
+        enabled: false
     customer-journeys-create:
         operation: customer_journeys_create
         enabled: false

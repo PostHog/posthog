@@ -17,3 +17,9 @@ export const counterHogFunctionStateOnEvent = new Counter({
     help: 'Metric the state of a hog function that matched an event',
     labelNames: ['state', 'kind'],
 })
+
+export const counterBatchHogFlowTriggerFailed = new Counter({
+    name: 'cdp_batch_hog_flow_trigger_failed',
+    help: 'A batch hog flow run failed during audience resolution and was skipped',
+    labelNames: ['hog_flow_id', 'reason'],
+})

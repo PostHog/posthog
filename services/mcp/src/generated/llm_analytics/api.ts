@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 56 enabled ops
+ * PostHog API - MCP 61 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1637,6 +1637,17 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
 })
 
+export const llmSkillsNameArchiveCreatePathSkillNameRegExp = new RegExp('^[^/]+$')
+
+export const LlmSkillsNameArchiveCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    skill_name: zod.string().regex(llmSkillsNameArchiveCreatePathSkillNameRegExp),
+})
+
 export const llmSkillsNameDuplicateCreatePathSkillNameRegExp = new RegExp('^[^/]+$')
 
 export const LlmSkillsNameDuplicateCreateParams = /* @__PURE__ */ zod.object({
@@ -1765,4 +1776,261 @@ export const LlmSkillsNameFilesDestroyQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.'
         ),
+})
+
+export const TaggersListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const TaggersListQueryParams = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional().describe('Filter by enabled status'),
+    id__in: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order_by: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Ordering\n\n* `created_at` - Created At\n* `-created_at` - Created At (descending)\n* `updated_at` - Updated At\n* `-updated_at` - Updated At (descending)\n* `name` - Name\n* `-name` - Name (descending)'
+        ),
+    search: zod.string().optional().describe('Search in name or description'),
+})
+
+export const TaggersCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const taggersCreateBodyNameMax = 400
+
+export const taggersCreateBodyTaggerTypeDefault = `llm`
+export const taggersCreateBodyTaggerConfigOneOneTagsItemNameMax = 100
+
+export const taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionDefault = ``
+export const taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionMax = 500
+
+export const taggersCreateBodyTaggerConfigOneOneMinTagsDefault = 0
+export const taggersCreateBodyTaggerConfigOneOneMinTagsMin = 0
+
+export const taggersCreateBodyTaggerConfigOneTwoTagsItemNameMax = 100
+
+export const taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionDefault = ``
+export const taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionMax = 500
+
+export const taggersCreateBodyConditionsItemIdMax = 100
+
+export const taggersCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const taggersCreateBodyConditionsItemRolloutPercentageMin = 0
+export const taggersCreateBodyConditionsItemRolloutPercentageMax = 100
+
+export const taggersCreateBodyModelConfigurationOneModelMax = 100
+
+export const TaggersCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(taggersCreateBodyNameMax),
+    description: zod.string().optional(),
+    enabled: zod.boolean().optional(),
+    tagger_type: zod
+        .enum(['llm', 'hog'])
+        .describe('* `llm` - LLM\n* `hog` - Hog')
+        .default(taggersCreateBodyTaggerTypeDefault),
+    tagger_config: zod
+        .union([
+            zod.object({
+                prompt: zod.string().min(1).describe('Prompt instructing the LLM how to tag generations'),
+                tags: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(taggersCreateBodyTaggerConfigOneOneTagsItemNameMax)
+                                .describe('Tag identifier'),
+                            description: zod
+                                .string()
+                                .max(taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionMax)
+                                .default(taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionDefault)
+                                .describe('Description to help the LLM classify'),
+                        })
+                    )
+                    .describe('Available tags the LLM can assign'),
+                min_tags: zod
+                    .number()
+                    .min(taggersCreateBodyTaggerConfigOneOneMinTagsMin)
+                    .default(taggersCreateBodyTaggerConfigOneOneMinTagsDefault)
+                    .describe('Minimum number of tags to apply'),
+                max_tags: zod.number().min(1).nullish().describe('Maximum number of tags to apply (null = no limit)'),
+            }),
+            zod.object({
+                source: zod.string().min(1).describe('Hog source code to classify a generation into tags.'),
+                tags: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(taggersCreateBodyTaggerConfigOneTwoTagsItemNameMax)
+                                .describe('Tag identifier'),
+                            description: zod
+                                .string()
+                                .max(taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionMax)
+                                .default(taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionDefault)
+                                .describe('Description to help the LLM classify'),
+                        })
+                    )
+                    .optional()
+                    .describe('Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.'),
+            }),
+        ])
+        .describe(
+            "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}."
+        ),
+    conditions: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(taggersCreateBodyConditionsItemIdMax)
+                    .describe('Stable identifier for this condition'),
+                rollout_percentage: zod
+                    .number()
+                    .min(taggersCreateBodyConditionsItemRolloutPercentageMin)
+                    .max(taggersCreateBodyConditionsItemRolloutPercentageMax)
+                    .default(taggersCreateBodyConditionsItemRolloutPercentageDefault)
+                    .describe('Percentage of matching events to apply this condition to'),
+                properties: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .optional()
+                    .describe('Property filters that scope when this condition fires'),
+            })
+        )
+        .optional()
+        .describe('Conditions that scope when the tagger runs'),
+    model_configuration: zod
+        .union([
+            zod.object({
+                provider: zod
+                    .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+                    .describe(
+                        '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                    )
+                    .describe(
+                        'LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                    ),
+                model: zod
+                    .string()
+                    .max(taggersCreateBodyModelConfigurationOneModelMax)
+                    .describe('Provider model identifier to use for this tagger.'),
+                provider_key_id: zod
+                    .uuid()
+                    .nullish()
+                    .describe(
+                        'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional(),
+})
+
+/**
+ * Test Hog tagger code against sample events without saving.
+ */
+export const TaggersTestHogCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const taggersTestHogCreateBodySampleCountDefault = 5
+export const taggersTestHogCreateBodySampleCountMax = 10
+
+export const taggersTestHogCreateBodyTagsItemNameMax = 100
+
+export const taggersTestHogCreateBodyTagsItemDescriptionDefault = ``
+export const taggersTestHogCreateBodyTagsItemDescriptionMax = 500
+
+export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .string()
+        .min(1)
+        .describe('Hog source code to test. Return a tag name string, a list of tag name strings, or null.'),
+    sample_count: zod
+        .number()
+        .min(1)
+        .max(taggersTestHogCreateBodySampleCountMax)
+        .default(taggersTestHogCreateBodySampleCountDefault)
+        .describe('Number of recent $ai_generation events to test against (1-10, default 5).'),
+    tags: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .max(taggersTestHogCreateBodyTagsItemNameMax)
+                    .describe('Tag identifier to allow in Hog test results.'),
+                description: zod
+                    .string()
+                    .max(taggersTestHogCreateBodyTagsItemDescriptionMax)
+                    .default(taggersTestHogCreateBodyTagsItemDescriptionDefault)
+                    .describe('Optional description for the tag.'),
+            })
+        )
+        .optional()
+        .describe('Optional tag whitelist. Returned tags outside this list are filtered out.'),
+})
+
+/**
+ * Return a structured personal LLM spend analysis for the requesting user. Pass `date_from` / `date_to` (absolute like `2026-04-23` or relative like `-7d`) to bound the window — defaults to the last 30 days, max 90 days. The `product=<ai_product>` query param is required and scopes the tool / model / trace breakdowns to a single product; supported values: posthog_code. `by_product` is always returned for cross-product visibility. Use `refresh=true` to bypass the 5-minute response cache.
+ */
+export const llmAnalyticsPersonalSpendListQueryDateFromDefault = `-30d`
+export const llmAnalyticsPersonalSpendListQueryDateFromMax = 32
+
+export const llmAnalyticsPersonalSpendListQueryDateToMax = 32
+
+export const llmAnalyticsPersonalSpendListQueryLimitDefault = 50
+export const llmAnalyticsPersonalSpendListQueryLimitMax = 200
+
+export const llmAnalyticsPersonalSpendListQueryProductMax = 64
+
+export const llmAnalyticsPersonalSpendListQueryRefreshDefault = false
+
+export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .max(llmAnalyticsPersonalSpendListQueryDateFromMax)
+        .default(llmAnalyticsPersonalSpendListQueryDateFromDefault)
+        .describe(
+            'Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.'
+        ),
+    date_to: zod
+        .string()
+        .max(llmAnalyticsPersonalSpendListQueryDateToMax)
+        .nullish()
+        .describe('End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(llmAnalyticsPersonalSpendListQueryLimitMax)
+        .default(llmAnalyticsPersonalSpendListQueryLimitDefault)
+        .describe(
+            'Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.'
+        ),
+    product: zod
+        .string()
+        .min(1)
+        .max(llmAnalyticsPersonalSpendListQueryProductMax)
+        .describe(
+            'Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.'
+        ),
+    refresh: zod
+        .boolean()
+        .default(llmAnalyticsPersonalSpendListQueryRefreshDefault)
+        .describe('If true, bypass the result cache and re-run the underlying queries against ClickHouse.'),
 })

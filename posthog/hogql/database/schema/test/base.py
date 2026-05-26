@@ -19,11 +19,8 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
 
-from products.data_warehouse.backend.models import (
-    DataWarehouseManagedViewSet,
-    DataWarehouseSavedQuery,
-    ExternalDataSchema,
-)
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
@@ -32,6 +29,7 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_INVOICE_COLUMNS,
     STRIPE_SUBSCRIPTION_COLUMNS,
 )
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 TEST_BUCKET_BASE = "test_storage_bucket"
 INVOICES_TEST_BUCKET = f"{TEST_BUCKET_BASE}-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
