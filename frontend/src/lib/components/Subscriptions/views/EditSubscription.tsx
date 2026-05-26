@@ -97,20 +97,28 @@ function FreeTierCreateGate(props: EditSubscriptionProps): JSX.Element {
 
     if (isFreeTierCreateAtLimit(subscriptionCount)) {
         return (
-            <UsageLimitPaywall
-                title="Subscription limit reached"
-                description={
-                    <>
-                        <Link to={urls.subscriptions()}>Delete an existing subscription</Link> or upgrade your plan to
-                        add more.
-                    </>
-                }
-                limit={FREE_LIMIT}
-                currentUsage={subscriptionCount ?? undefined}
-                unit="subscriptions allowed on your plan"
-                background={false}
-                className="py-8 flex-1 min-h-0 justify-center"
-            />
+            <div className="flex flex-1 flex-col min-h-0">
+                <LemonModal.Header>
+                    <div className="flex items-center gap-2">
+                        <LemonButton icon={<IconChevronLeft />} onClick={props.onCancel} size="xsmall" />
+                        <h3>New Subscription</h3>
+                    </div>
+                </LemonModal.Header>
+                <UsageLimitPaywall
+                    title="Subscription limit reached"
+                    description={
+                        <>
+                            <Link to={urls.subscriptions()}>Delete an existing subscription</Link> or upgrade your plan
+                            to add more.
+                        </>
+                    }
+                    limit={FREE_LIMIT}
+                    currentUsage={subscriptionCount ?? undefined}
+                    unit="subscriptions allowed on your plan"
+                    background={false}
+                    className="py-8 flex-1 min-h-0 justify-center"
+                />
+            </div>
         )
     }
     return <EditSubscriptionForm {...props} />
