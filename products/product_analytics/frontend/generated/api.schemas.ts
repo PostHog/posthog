@@ -4410,6 +4410,12 @@ export interface ExperimentFunnelMetricApi {
     version?: number | null
 }
 
+export interface ExperimentMetricOutlierHandlingApi {
+    ignore_zeros?: boolean | null
+    lower_bound_percentile?: number | null
+    upper_bound_percentile?: number | null
+}
+
 export type ExperimentRatioMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentRatioMetricApi {
@@ -4417,6 +4423,7 @@ export interface ExperimentRatioMetricApi {
     conversion_window?: number | null
     conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
     denominator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     fingerprint?: string | null
     goal?: ExperimentMetricGoalApi | null
     isSharedMetric?: boolean | null
@@ -4424,6 +4431,7 @@ export interface ExperimentRatioMetricApi {
     metric_type?: 'ratio'
     name?: string | null
     numerator: EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+    numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     response?: ExperimentRatioMetricApiResponse
     sharedMetricId?: number | null
     uuid?: string | null

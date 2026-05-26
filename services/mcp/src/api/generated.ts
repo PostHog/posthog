@@ -3280,6 +3280,12 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ExperimentMetricOutlierHandling {
+      ignore_zeros?: boolean | null;
+      lower_bound_percentile?: number | null;
+      upper_bound_percentile?: number | null;
+    }
+
     export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentRatioMetric {
@@ -3287,6 +3293,7 @@ export namespace Schemas {
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
       denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      denominator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       fingerprint?: string | null;
       goal?: ExperimentMetricGoal | null;
       isSharedMetric?: boolean | null;
@@ -3294,6 +3301,7 @@ export namespace Schemas {
       metric_type?: 'ratio';
       name?: string | null;
       numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      numerator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       response?: ExperimentRatioMetricResponse;
       sharedMetricId?: number | null;
       uuid?: string | null;
