@@ -376,12 +376,14 @@ function ManagedSchemaTable({
                         return (
                             <SourceEditorAction source={source}>
                                 <LemonSwitch
-                                    disabledReason={
-                                        schema.sync_type === null ? 'Set up the sync method first' : undefined
-                                    }
                                     checked={schema.should_sync}
                                     onChange={(active) => {
-                                        if (!active && schema.sync_type === 'cdc') {
+                                        if (active && schema.sync_type === null) {
+                                            // Newly-discovered tables have no sync method yet. Default to a
+                                            // full refresh so enabling "just works"; users who want
+                                            // incremental can still pick it via Configure.
+                                            updateSchema({ ...schema, should_sync: true, sync_type: 'full_refresh' })
+                                        } else if (!active && schema.sync_type === 'cdc') {
                                             LemonDialog.open({
                                                 title: 'Disable CDC table?',
                                                 content: (

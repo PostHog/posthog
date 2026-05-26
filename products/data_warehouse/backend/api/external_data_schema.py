@@ -459,8 +459,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
 
+        # Newly-discovered tables (e.g. surfaced by "Pull new schemas") are persisted with no
+        # sync_type, which previously blocked enabling them. Default to a full refresh so the
+        # toggle "just works" — users who want incremental can still configure it explicitly.
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
-            raise ValidationError("Sync type must be set up first before enabling schema")
+            sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
+            validated_data["sync_type"] = sync_type
 
         # When re-enabling a webhook schema, force a full refresh to avoid missing data
         if (
