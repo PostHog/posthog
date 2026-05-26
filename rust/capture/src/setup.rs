@@ -32,7 +32,7 @@ pub struct LifecycleHandles {
     pub sink: Option<lifecycle::Handle>,
     pub advisory: Option<lifecycle::Handle>,
     pub event_restrictions: Option<lifecycle::Handle>,
-    pub v1_sink: Option<lifecycle::Handle>,
+    pub v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
     pub readiness: lifecycle::ReadinessHandler,
     pub liveness: lifecycle::LivenessHandler,
 }
@@ -66,11 +66,18 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
             None
         };
 
-    let v1_sink = if !config.capture_v1_sinks.is_empty() {
-        Some(manager.register("v1-sink", sink_opts.clone()))
-    } else {
-        None
-    };
+    let v1_sinks: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle> =
+        if !config.capture_v1_sinks.is_empty() {
+            let mut handles = HashMap::new();
+            for name in parse_v1_sink_names(&config.capture_v1_sinks) {
+                let tag = format!("v1-sink-{name}");
+                let handle = manager.register(&tag, sink_opts.clone());
+                handles.insert(name, handle);
+            }
+            handles
+        } else {
+            HashMap::new()
+        };
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -80,7 +87,7 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         sink,
         advisory,
         event_restrictions,
-        v1_sink,
+        v1_sinks,
         readiness,
         liveness,
     }
@@ -100,7 +107,7 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         sink: sink_handle,
         advisory: advisory_handle,
         event_restrictions: event_restrictions_handle,
-        v1_sink: v1_sink_handle,
+        v1_sinks: v1_sink_handles,
         readiness,
         liveness,
     } = handles;
@@ -271,9 +278,10 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
     };
 
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
-        let handle =
-            v1_sink_handle.expect("v1 sink lifecycle handle required when CAPTURE_V1_SINKS is set");
-        Some(create_v1_sink_router(&config, handle).expect("fatal: v1 sink router creation failed"))
+        Some(
+            create_v1_sink_router(&config, v1_sink_handles)
+                .expect("fatal: v1 sink router creation failed"),
+        )
     } else {
         None
     };
@@ -323,9 +331,17 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
     }
 }
 
+fn parse_v1_sink_names(sinks_csv: &str) -> Vec<crate::v1::sinks::SinkName> {
+    sinks_csv
+        .split(',')
+        .filter(|s| !s.trim().is_empty())
+        .filter_map(|s| s.parse::<crate::v1::sinks::SinkName>().ok())
+        .collect()
+}
+
 fn create_v1_sink_router(
     config: &Config,
-    handle: lifecycle::Handle,
+    handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
 ) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
     let sinks_cfg = crate::v1::sinks::load_sinks(&config.capture_v1_sinks)
         .context("failed to parse CAPTURE_V1_SINKS")?;
@@ -337,6 +353,10 @@ fn create_v1_sink_router(
         HashMap::new();
 
     for (name, cfg) in sinks_cfg.configs {
+        let handle = handles.get(&name).cloned().with_context(|| {
+            format!("missing lifecycle handle for v1 sink '{name}'")
+        })?;
+
         let producer = crate::v1::sinks::kafka::producer::KafkaProducer::new(
             name,
             &cfg.kafka,
@@ -350,7 +370,7 @@ fn create_v1_sink_router(
             Arc::new(producer),
             cfg,
             config.capture_mode,
-            handle.clone(),
+            handle,
         );
         sink_map.insert(name, Box::new(kafka_sink));
     }
@@ -505,9 +525,14 @@ mod tests {
             .with_trap_signals(false)
             .with_prestop_check(false)
             .build();
-        let handle = manager.register("test", lifecycle::ComponentOptions::new());
+        let handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle> = [(
+            crate::v1::sinks::SinkName::Msk,
+            manager.register("v1-sink-msk", lifecycle::ComponentOptions::new()),
+        )]
+        .into_iter()
+        .collect();
 
-        let err = create_v1_sink_router(&config, handle)
+        let err = create_v1_sink_router(&config, handles)
             .err()
             .expect("should fail with invalid config");
         let msg = format!("{err:#}");
