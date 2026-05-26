@@ -28,7 +28,7 @@ from posthog.models import FeatureFlag, Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import CohortType
+from posthog.models.cohort.cohort import CohortType, get_or_create_internal_test_users_cohort
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
@@ -2292,16 +2292,9 @@ email@example.org,
         self.assertEqual(len(response.json()["results"]), 1, response)
 
     def test_internal_test_users_cohort_matches_only_internal_persons(self):
-        # End-to-end regression guard for the bug that took down PR #58703.
-        # The internal/test users cohort is created with `value=[True]` (Python bool in a list,
-        # see posthog/models/cohort/cohort.py). When the cohort calculation path goes through
-        # hogql_cohort_query.convert_property, the list is stringified via str(True) → "True"
-        # (capital T). If property_to_expr's Boolean coercion is case-sensitive on the lowercase
-        # "true" literal, the cohort matches nobody — and "not_in" filters that exclude the
-        # cohort then admit everyone, which is exactly the production symptom we hit.
-        #
-        # This test exercises the same exact filter shape used by the real backfill and asserts
-        # only the internal person ends up in the cohort.
+        # Regression guard: list-wrapped Python `True` (the shape used by
+        # `get_or_create_internal_test_users_cohort`) must resolve to a bool through
+        # `hogql_cohort_query.convert_property`, which stringifies it to `["True"]`.
         _create_person(
             team=self.team,
             distinct_ids=["internal"],
@@ -2320,36 +2313,19 @@ email@example.org,
         _create_person(team=self.team, distinct_ids=["external_unset"], properties={})
         flush_persons_and_events()
 
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="Internal / Test users (regression)",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$internal_or_test_user",
-                                    "type": "person",
-                                    "value": [True],
-                                    "operator": "exact",
-                                }
-                            ],
-                        }
-                    ],
-                }
-            },
-        )
+        cohort = get_or_create_internal_test_users_cohort(team=self.team)
         cohort.calculate_people_ch(pending_version=0)
 
-        # Both Python True and the string "true" should match; False and unset should not.
-        members = sync_execute(
-            "SELECT count() FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s AND sign > 0",
+        matched_distinct_ids = sync_execute(
+            """
+            SELECT arraySort(groupArray(pdi.distinct_id))
+            FROM cohortpeople cp
+            JOIN person_distinct_id2 pdi ON pdi.person_id = cp.person_id AND pdi.team_id = cp.team_id
+            WHERE cp.cohort_id = %(cohort_id)s AND cp.team_id = %(team_id)s AND cp.sign > 0
+            """,
             {"cohort_id": cohort.pk, "team_id": self.team.pk},
         )
-        assert members[0][0] == 2, members
+        assert matched_distinct_ids[0][0] == ["external_true_string", "internal"], matched_distinct_ids
 
     def test_filter_by_static_cohort(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
