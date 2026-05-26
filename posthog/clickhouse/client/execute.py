@@ -98,6 +98,16 @@ _KILL_SWITCH_EXEMPT_USERS = frozenset(
     }
 )
 
+# Users configured with `readonly=2` on the ClickHouse side. Under that profile,
+# certain settings cannot be modified per-query — ClickHouse raises a READONLY
+# error (code 164) if we try. See `_READONLY_INCOMPATIBLE_SETTINGS` below.
+_READONLY_CH_USERS = frozenset({ClickHouseUser.BILLING})
+
+# Settings that ClickHouse refuses to accept per-query under `readonly=2`.
+# `max_query_size` is the size of the buffer used to parse the query, so it has
+# to be set server-side before parsing — see the comment in `default_settings()`.
+_READONLY_INCOMPATIBLE_SETTINGS = frozenset({"max_query_size"})
+
 _KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
     KillSwitchLevel.LIGHT: {
         "max_execution_time": 30,
@@ -411,6 +421,12 @@ def sync_execute(
             tags=",".join(missing),
             stacktrace="".join(traceback.format_stack()),
         )
+
+    # Readonly ClickHouse profiles (`readonly=2`) reject buffer-size settings like
+    # `max_query_size` per-query. Strip them now that the final `ch_user` is known.
+    if ch_user in _READONLY_CH_USERS:
+        for setting_name in _READONLY_INCOMPATIBLE_SETTINGS:
+            core_settings.pop(setting_name, None)
 
     source_file, source_line = get_caller_source()
     query_log_tags = tags.model_copy(deep=True)
