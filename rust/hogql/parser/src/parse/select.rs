@@ -1215,7 +1215,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         let trial = (|p: &mut Self| -> Result<Option<E::Value>, ParseError> {
             p.bump()?; // %
             let rhs = p.parse_expr_bp(BP_MULT + 1)?;
-            let combined = p.emit.arith(lhs.clone(), "%", rhs);
+            // Stamp the modulo node's span before folding any lower-precedence tail, mirroring the Pratt loop's wrap-the-lhs step. Without this the inner `a % b` stays position-less when an outer op (`% 2 + 3` → the `+` node) wraps it (cpp positions the modulo sub-node).
+            let combined = p.wrap_pos(p.emit.arith(lhs.clone(), "%", rhs), lhs_start);
             // Extend the whole columnExpr (BP=0) — cpp parses the
             // LIMIT body greedily, so a lower-precedence tail
             // (`% 2 + 3`, `% 2 AND 3`) stays part of the modulo body.

@@ -123,9 +123,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // `let x := y` + `*(z) := 3`.
             if self.peek() == TokenKind::ColonEquals {
                 self.restore(cp)?;
+                // `parse_prefix` returns the bare node; the Pratt wrapper normally stamps its span, so stamp it here too (cpp positions the shortened primary, e.g. `let x := 1 * 2 := 3` → Constant(1) spanning the `1`).
+                let prefix_start = self.peek0.start;
                 match self.parse_prefix() {
                     Ok(primary) => {
-                        expr_val = primary;
+                        expr_val = self.wrap_pos(primary, prefix_start);
                     }
                     Err(_) => {
                         self.restore(cp)?;
@@ -290,9 +292,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     //    exists; fall back to bare return so `a.b := c`
                     //    opens the next stmt.
                     self.restore(cp)?;
+                    // The shortened head is the single consumed token; stamp its span so the Field carries positions like cpp (e.g. `return return * ('e') := {}` → Field(['return']) spanning the second `return`).
+                    let head_start = self.peek0.start;
                     if self.peek() == TokenKind::Asterisk {
                         self.bump()?;
-                        expr_val = self.emit.field(vec![self.emit.string("*")]);
+                        let f = self.emit.field(vec![self.emit.string("*")]);
+                        expr_val = self.wrap_pos(f, head_start);
                     } else if matches!(
                         self.peek(),
                         TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
@@ -302,7 +307,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     ) {
                         let t = self.bump()?;
                         let name = identifier_text(self.text(t), t.kind);
-                        expr_val = self.emit.field(vec![self.emit.string(&name)]);
+                        let f = self.emit.field(vec![self.emit.string(&name)]);
+                        expr_val = self.wrap_pos(f, head_start);
                     }
                 }
                 Ok(expr) => {
