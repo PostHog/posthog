@@ -93,6 +93,8 @@ class OrganizationManager(models.Manager):
         # Set default_anonymize_ips based on deployment if not explicitly provided
         if "default_anonymize_ips" not in kwargs:
             kwargs["default_anonymize_ips"] = default_anonymize_ips()
+        if "is_ai_training_opted_in" not in kwargs:
+            kwargs["is_ai_training_opted_in"] = default_is_ai_training_opted_in()
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
@@ -109,6 +111,8 @@ class OrganizationManager(models.Manager):
             # Set default_anonymize_ips based on deployment if not explicitly provided
             if "default_anonymize_ips" not in kwargs:
                 kwargs["default_anonymize_ips"] = default_anonymize_ips()
+            if "is_ai_training_opted_in" not in kwargs:
+                kwargs["is_ai_training_opted_in"] = default_is_ai_training_opted_in()
             organization = Organization.objects.create(**kwargs)
             _, team = Project.objects.create_with_team(
                 initiating_user=user, organization=organization, team_fields=team_fields
@@ -132,6 +136,11 @@ class OrganizationManager(models.Manager):
 def default_anonymize_ips():
     """Default to True for EU cloud deployments to comply with stricter privacy requirements"""
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
+
+
+def default_is_ai_training_opted_in():
+    """Default to False (opted out) for EU cloud deployments to comply with stricter privacy requirements"""
+    return getattr(settings, "CLOUD_DEPLOYMENT", None) != "EU"
 
 
 class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manager-missing]
