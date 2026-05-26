@@ -50,10 +50,10 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
 
     const isBarDisplay = retentionFilter?.display === ChartDisplayType.ActionsBar
-    if (isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_BAR]) {
-        return <RetentionBarChart inSharedMode={inSharedMode} />
-    }
-    if (!isBarDisplay && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_LINE]) {
+    if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION]) {
+        if (isBarDisplay) {
+            return <RetentionBarChart inSharedMode={inSharedMode} />
+        }
         return <RetentionLineChart inSharedMode={inSharedMode} />
     }
 

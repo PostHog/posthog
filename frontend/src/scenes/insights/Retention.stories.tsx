@@ -106,7 +106,7 @@ const retentionBarInsight: QueryBasedInsightModel = {
 
 export const RetentionBar: Story = createInsightStory(retentionBarInsight)
 RetentionBar.parameters = {
-    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION_BAR],
+    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION],
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 

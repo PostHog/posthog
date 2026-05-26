@@ -22,6 +22,18 @@ const STATUS_LABEL: Record<HandsFreeStatus, string> = {
     speaking: 'Speaking',
 }
 
+// Emoji per visual state. Reconnecting + error deliberately render no emoji so
+// the label sits alone and stays perfectly centered under the mic.
+const STATUS_EMOJI: Record<HandsFreeStatus | 'reconnecting' | 'error', string> = {
+    off: '',
+    starting: '🎤',
+    listening: '🎤',
+    thinking: '🧠',
+    speaking: '🔊',
+    reconnecting: '',
+    error: '',
+}
+
 const STATUS_HINT: Record<HandsFreeStatus, string> = {
     off: '',
     starting: 'One moment, getting microphone ready',
@@ -109,14 +121,14 @@ export function HandsFreeSurface({ tabId }: HandsFreeSurfaceProps): JSX.Element 
             </button>
 
             <div className="hands-free-surface__bottom">
-                <span
-                    className={cn(
-                        'hands-free-surface__dot',
-                        `hands-free-surface__dot--${visualState}`,
-                        pulseClass && 'hands-free-surface__dot--pulsing'
-                    )}
-                    aria-hidden
-                />
+                {STATUS_EMOJI[visualState] && (
+                    <span
+                        className={cn('hands-free-surface__emoji', pulseClass && 'hands-free-surface__emoji--pulsing')}
+                        aria-hidden
+                    >
+                        {STATUS_EMOJI[visualState]}
+                    </span>
+                )}
                 <span className="hands-free-surface__label">{label}</span>
             </div>
         </div>

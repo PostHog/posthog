@@ -27,6 +27,9 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 ENDPOINT = "/api/llm_analytics/@me/spend/"
+# `product` is required server-side; spell that out once for every happy-path test.
+PRODUCT_QS = "product=posthog_code"
+ENDPOINT_OK = f"{ENDPOINT}?{PRODUCT_QS}"
 
 
 def _by_product(rows: list[dict], product: str | None) -> dict | None:
@@ -109,25 +112,46 @@ class TestPersonalSpendValidation(APIBaseTest):
         ]
     )
     def test_date_from_param_validation(self, _label: str, date_from: str, expected: int) -> None:
-        response = self.client.get(f"{ENDPOINT}?date_from={date_from}")
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from={date_from}")
         assert response.status_code == expected
 
-    def test_date_params_optional_default_to_last_30_days(self) -> None:
-        response = self.client.get(ENDPOINT)
+    def test_date_params_default_to_last_30_days(self) -> None:
+        response = self.client.get(ENDPOINT_OK)
         assert response.status_code == status.HTTP_200_OK
         summary = response.json()["summary"]
-        assert summary["product"] is None
+        assert summary["product"] == "posthog_code"
         # date_from / date_to are returned as ISO strings.
         assert summary["date_from"] is not None
         assert summary["date_to"] is not None
 
     def test_date_to_before_date_from_rejected(self) -> None:
-        response = self.client.get(f"{ENDPOINT}?date_from=-7d&date_to=-30d")
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-7d&date_to=-30d")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_product_too_long_rejected(self) -> None:
         response = self.client.get(f"{ENDPOINT}?product={'x' * 100}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_product_param_required(self) -> None:
+        response = self.client.get(ENDPOINT)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "product"
+        assert body["code"] == "required"
+
+    @parameterized.expand(
+        [
+            ("supported_posthog_code", "posthog_code", status.HTTP_200_OK),
+            ("unsupported_background_agents", "background_agents", status.HTTP_400_BAD_REQUEST),
+            ("unsupported_arbitrary", "wibble", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_product_param_restricted_to_supported_products(self, _label: str, product: str, expected: int) -> None:
+        response = self.client.get(f"{ENDPOINT}?product={product}")
+        assert response.status_code == expected
+        if expected == status.HTTP_400_BAD_REQUEST:
+            body = response.json()
+            assert "is not supported" in str(body)
 
     @parameterized.expand(
         [
@@ -140,7 +164,7 @@ class TestPersonalSpendValidation(APIBaseTest):
         ]
     )
     def test_limit_param_validation(self, _label: str, limit: str, expected: int) -> None:
-        response = self.client.get(f"{ENDPOINT}?limit={limit}")
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&limit={limit}")
         assert response.status_code == expected
 
 
@@ -191,7 +215,7 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_empty_result_when_no_events(self) -> None:
-        response = self.client.get(ENDPOINT)
+        response = self.client.get(ENDPOINT_OK)
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["summary"]["total_cost_usd"] == 0
@@ -203,25 +227,29 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         assert body["by_model"] == {"items": [], "truncated": False}
         assert body["top_traces"] == {"items": [], "truncated": False}
 
-    def test_unfiltered_summary_aggregates_across_products(self) -> None:
+    def test_summary_reports_cross_product_totals_alongside_scoped(self) -> None:
         self._create_generation(ai_product="posthog_code", cost=2.0)
         self._create_generation(ai_product="background_agents", cost=1.0)
         self._create_generation(ai_product="posthog_code", cost=0.5, event_name="$ai_embedding")
         flush_persons_and_events()
 
-        response = self.client.get(ENDPOINT)
+        response = self.client.get(ENDPOINT_OK)
         body = response.json()
         summary = body["summary"]
-        assert summary["product"] is None
+        assert summary["product"] == "posthog_code"
+        # `event_count` / `total_cost_usd` stay cross-product even with the product filter.
         assert summary["event_count"] == 3
         assert summary["total_cost_usd"] == 3.5
-        # Without a product filter, scoped totals match the cross-product totals.
-        assert summary["scoped_event_count"] == 3
-        assert summary["scoped_cost_usd"] == 3.5
-        # by_product carries each slice for the caller to pick out.
+        # `scoped_*` is filtered to posthog_code only.
+        assert summary["scoped_event_count"] == 2
+        assert summary["scoped_cost_usd"] == 2.5
+        # by_product is always cross-product regardless of the filter.
         code_row = _by_product(body["by_product"]["items"], "posthog_code")
         assert code_row is not None
         assert code_row["cost_usd"] == 2.5
+        bg_row = _by_product(body["by_product"]["items"], "background_agents")
+        assert bg_row is not None
+        assert bg_row["cost_usd"] == 1.0
         assert body["by_product"]["truncated"] is False
 
     def test_product_filter_scopes_summary_and_breakdowns(self) -> None:
@@ -275,18 +303,16 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         # Scoped total stays $3.50 — the multi-tool generation is only counted once there.
         assert response.json()["summary"]["scoped_cost_usd"] == 3.5
 
-    def test_top_traces_ordered_by_cost(self) -> None:
+    def test_top_traces_always_empty(self) -> None:
+        # `top_traces` is deprecated — kept in the response shape so existing consumers don't
+        # crash, but always returns empty. Trace IDs are opaque strings that aren't actionable
+        # in the UI.
         self._create_generation(trace_id="cheap", cost=0.5)
         self._create_generation(trace_id="expensive", cost=5.0)
-        self._create_generation(trace_id="expensive", cost=3.0)
         flush_persons_and_events()
 
-        response = self.client.get(ENDPOINT)
-        traces = response.json()["top_traces"]["items"]
-        assert traces[0]["trace_id"] == "expensive"
-        assert traces[0]["cost_usd"] == 8.0
-        assert traces[0]["generation_count"] == 2
-        assert traces[1]["trace_id"] == "cheap"
+        response = self.client.get(ENDPOINT_OK)
+        assert response.json()["top_traces"] == {"items": [], "truncated": False}
 
     def test_other_users_spend_is_not_visible(self) -> None:
         other_email = "other-user@example.com"
@@ -306,66 +332,61 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
         self._create_generation(cost=1.0)
         flush_persons_and_events()
 
-        response = self.client.get(ENDPOINT)
+        response = self.client.get(ENDPOINT_OK)
         assert response.json()["summary"]["total_cost_usd"] == 1.0
 
     def test_date_window_passes_through_to_query_layer(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
-            response = self.client.get(f"{ENDPOINT}?date_from=-7d")
+            response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-7d")
 
         assert response.status_code == status.HTTP_200_OK
-        # All 5 fetchers should run once.
-        assert mock_exec.call_count == 5
+        # 4 fetchers run once (summary, by_product, by_tool, by_model). top_traces is
+        # deprecated and returned empty without a query.
+        assert mock_exec.call_count == 4
 
     def test_second_call_serves_from_cache(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
-            self.client.get(ENDPOINT)
+            self.client.get(ENDPOINT_OK)
             first = mock_exec.call_count
-            self.client.get(ENDPOINT)
+            self.client.get(ENDPOINT_OK)
             assert mock_exec.call_count == first
 
     def test_refresh_bypasses_cache(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
-            self.client.get(ENDPOINT)
+            self.client.get(ENDPOINT_OK)
             first = mock_exec.call_count
-            self.client.get(f"{ENDPOINT}?refresh=true")
+            self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&refresh=true")
             assert mock_exec.call_count == first * 2
 
     def test_cache_key_includes_date_from(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
-            self.client.get(f"{ENDPOINT}?date_from=-7d")
+            self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-7d")
             first = mock_exec.call_count
-            self.client.get(f"{ENDPOINT}?date_from=-30d")
-            assert mock_exec.call_count == first * 2
-
-    def test_cache_key_includes_product(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
-            mock_exec.return_value.results = []
-            self.client.get(ENDPOINT)
-            first = mock_exec.call_count
-            self.client.get(f"{ENDPOINT}?product=posthog_code")
+            self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-30d")
             assert mock_exec.call_count == first * 2
 
     def test_cache_key_includes_limit(self) -> None:
-        with patch("products.llm_analytics.backend.api.personal_spend.execute_with_ai_events_fallback") as mock_exec:
+        with patch("products.llm_analytics.backend.api.personal_spend.execute_hogql_query") as mock_exec:
             mock_exec.return_value.results = []
-            self.client.get(f"{ENDPOINT}?limit=10")
+            self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&limit=10")
             first = mock_exec.call_count
-            self.client.get(f"{ENDPOINT}?limit=50")
+            self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&limit=50")
             assert mock_exec.call_count == first * 2
 
     def test_by_product_truncated_when_more_than_limit_products(self) -> None:
         # Three products, ask for limit=2 → top 2 returned, truncated=True.
+        # by_product is cross-product even when filtered, so the additional
+        # ai_products still show up.
         self._create_generation(ai_product="a", cost=3.0)
         self._create_generation(ai_product="b", cost=2.0)
         self._create_generation(ai_product="c", cost=1.0)
         flush_persons_and_events()
 
-        response = self.client.get(f"{ENDPOINT}?limit=2")
+        response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&limit=2")
         by_product = response.json()["by_product"]
         assert len(by_product["items"]) == 2
         assert by_product["truncated"] is True
@@ -446,7 +467,7 @@ class TestPersonalSpendNonSessionAuth(APIBaseTest):
     )
     def test_personal_api_key_scope_matrix(self, _label: str, scopes: list[str], expected: int) -> None:
         token = self._make_pat(scopes)
-        response = self.client.get(ENDPOINT, headers={"authorization": f"Bearer {token}"})
+        response = self.client.get(ENDPOINT_OK, headers={"authorization": f"Bearer {token}"})
         assert response.status_code == expected, response.content
 
     @parameterized.expand(
@@ -459,5 +480,5 @@ class TestPersonalSpendNonSessionAuth(APIBaseTest):
     )
     def test_oauth_token_scope_matrix(self, _label: str, scope: str, expected: int) -> None:
         token = self._make_oauth_token(scope)
-        response = self.client.get(ENDPOINT, headers={"authorization": f"Bearer {token}"})
+        response = self.client.get(ENDPOINT_OK, headers={"authorization": f"Bearer {token}"})
         assert response.status_code == expected, response.content

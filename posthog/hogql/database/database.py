@@ -62,6 +62,9 @@ from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.conversion_goal_attributed_preaggregated import (
+    ConversionGoalAttributedPreaggregatedTable,
+)
 from posthog.hogql.database.schema.document_embeddings import (
     HOGQL_MODEL_TABLES,
     DocumentEmbeddingsTable,
@@ -134,6 +137,8 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedStatsTable,
 )
 from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
@@ -290,6 +295,16 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     ),
                     "web_overview_preaggregated": TableNode(
                         name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
+                    ),
+                    "conversion_goal_attributed_preaggregated": TableNode(
+                        name="conversion_goal_attributed_preaggregated",
+                        table=ConversionGoalAttributedPreaggregatedTable(),
+                    ),
+                    "web_stats_paths_preaggregated": TableNode(
+                        name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
+                    ),
+                    "web_stats_preaggregated": TableNode(
+                        name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()
                     ),
                 },
             ),

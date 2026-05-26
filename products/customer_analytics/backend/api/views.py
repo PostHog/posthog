@@ -1,9 +1,13 @@
 import json
 
-from django.db.models import Q
+from django.db import transaction
+from django.db.models import Prefetch, Q
+from django.shortcuts import get_object_or_404
 
-from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
-from rest_framework import viewsets
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import mixins, viewsets
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
@@ -11,8 +15,14 @@ from posthog.api.utils import log_activity_from_viewset
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
+from products.notebooks.backend.models import Notebook, ResourceNotebook
 
-from .serializers import AccountSerializer, CustomerJourneySerializer, CustomerProfileConfigSerializer
+from .serializers import (
+    AccountNotebookSerializer,
+    AccountSerializer,
+    CustomerJourneySerializer,
+    CustomerProfileConfigSerializer,
+)
 from .utils import log_customer_profile_config_activity
 
 
@@ -89,7 +99,8 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
                 required=False,
                 description=(
                     'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. '
-                    "Returns accounts that have any of the listed tags."
+                    "Returns accounts that have any of the listed tags. "
+                    "Malformed values (not a JSON-encoded list of strings) return a 400."
                 ),
             ),
             OpenApiParameter(
@@ -136,7 +147,9 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
         return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(team_id=self.team.id)
+        queryset = queryset.filter(team_id=self.team.id).prefetch_related(
+            Prefetch("notebooks", queryset=ResourceNotebook.objects.select_related("notebook"))
+        )
 
         search = self.request.query_params.get("search", "").strip()
         if search:
@@ -146,10 +159,12 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
         if tags_param:
             try:
                 tags_list = json.loads(tags_param)
-                if isinstance(tags_list, list) and tags_list:
-                    queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
             except json.JSONDecodeError:
-                pass
+                raise ValidationError({"tags": "Must be a JSON-encoded list of strings."})
+            if not isinstance(tags_list, list) or not all(isinstance(t, str) for t in tags_list):
+                raise ValidationError({"tags": "Must be a JSON-encoded list of strings."})
+            if tags_list:
+                queryset = queryset.filter(tagged_items__tag__name__in=tags_list).distinct()
 
         # An unset role is serialized as JSON null, which `_properties__role__isnull`
         # does not match; probing the nested `id` matches every unassigned
@@ -206,3 +221,59 @@ class AccountViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContr
     def perform_destroy(self, instance):
         log_activity_from_viewset(self, instance, activity="deleted", name=instance.name)
         super().perform_destroy(instance)
+
+
+@extend_schema(
+    tags=["customer_analytics"],
+    parameters=[
+        OpenApiParameter(
+            name="account_id",
+            type=OpenApiTypes.UUID,
+            location=OpenApiParameter.PATH,
+            description="UUID of the parent account.",
+        ),
+    ],
+)
+class AccountNotebookViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    scope_object = "account"
+    serializer_class = AccountNotebookSerializer
+    queryset = Notebook.objects.all()
+    lookup_field = "short_id"
+    filter_rewrite_rules = {"account_id": "resources__account_id"}
+
+    def _get_account(self) -> Account:
+        queryset = self.user_access_control.filter_queryset_by_access_level(
+            Account.objects.unscoped().filter(team_id=self.team.id),
+        )
+        return get_object_or_404(queryset, id=self.parents_query_dict["account_id"])
+
+    def safely_get_queryset(self, queryset):
+        self._get_account()
+        return (
+            queryset.filter(deleted=False, visibility=Notebook.Visibility.INTERNAL)
+            .select_related("created_by", "last_modified_by")
+            .order_by("-last_modified_at")
+        )
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        account = self._get_account()
+        notebook = serializer.save(
+            team=self.team,
+            created_by=self.request.user,
+            last_modified_by=self.request.user,
+            visibility=Notebook.Visibility.INTERNAL,
+        )
+        ResourceNotebook.objects.create(notebook=notebook, account=account)
+
+    @transaction.atomic
+    def perform_destroy(self, instance: Notebook):
+        instance.delete()

@@ -1,7 +1,12 @@
+import re
 import math
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import ClassVar, Optional, Union
+
+import structlog
 
 from posthog.schema import (
     AttributionMode,
@@ -16,14 +21,17 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr, property_to_expr
 
-from posthog.models import Team
+from posthog.models import PropertyDefinition, Team, User
 
+from products.access_control.backend.property_access_control import get_restricted_property_names
 from products.actions.backend.models.action import Action
 
 from .adapters.factory import MarketingSourceFactory
 from .marketing_analytics_config import MarketingAnalyticsConfig
+from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
 
 DAY_IN_SECONDS = 86400
 LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) * t / half_life)
@@ -31,6 +39,12 @@ LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) *
 # At t = half_life, weight = exp(-ln(2)) = 0.5 (exactly half).
 # This follows the industry standard (Google Analytics, Adobe, Mixpanel all use 7-day half-life).
 TIME_DECAY_HALF_LIFE_DIVISOR = 4
+
+# Sentinel datetimes swapped for {time_window_min/max} placeholders after HogQL printing.
+_PRECOMPUTE_TIME_WINDOW_MIN_SENTINEL = datetime(2099, 12, 31, 23, 59, 58, 123456, tzinfo=UTC)
+_PRECOMPUTE_TIME_WINDOW_MAX_SENTINEL = datetime(2099, 12, 31, 23, 59, 59, 654321, tzinfo=UTC)
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -92,6 +106,8 @@ class ConversionGoalProcessor:
     index: int
     team: Team
     config: MarketingAnalyticsConfig
+    # Requesting user, threaded through to enforce per-user property access on the precompute path.
+    user: Optional[User] = None
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
         MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
@@ -203,14 +219,15 @@ class ConversionGoalProcessor:
             return schema_map.get("timestamp_field", "timestamp")
         return "events.timestamp"
 
-    def generate_cte_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
-        """
-        Generate main CTE query for conversion goal.
-
-        Routes to appropriate query type based on goal configuration.
-        """
+    def generate_cte_query(
+        self,
+        additional_conditions: Sequence[ast.Expr],
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+    ) -> ast.SelectQuery:
+        """Generate main CTE query for conversion goal."""
         if self.goal.kind in ["EventsNode", "ActionsNode"]:
-            return self._generate_array_based_query(additional_conditions)
+            return self._generate_array_based_query(additional_conditions, date_from, date_to)
         return self._generate_direct_query(additional_conditions)
 
     def build_array_collection_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
@@ -240,16 +257,252 @@ class ConversionGoalProcessor:
 
         return self._build_final_aggregation_query(attribution)
 
-    def _generate_array_based_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
+    def _generate_array_based_query(
+        self,
+        additional_conditions: Sequence[ast.Expr],
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+    ) -> ast.SelectQuery:
         """Generate array-based query with attribution logic for Events/Actions"""
         if self.config.attribution_window_days > 0:
-            return self._generate_funnel_query(additional_conditions)
+            return self._generate_funnel_query(additional_conditions, date_from, date_to)
         return self._generate_direct_query(additional_conditions)
 
-    def _generate_funnel_query(self, additional_conditions: Sequence[ast.Expr]) -> ast.SelectQuery:
-        """Generate multi-step funnel query with attribution window"""
+    def get_precompute_hash_inputs(self) -> dict:
+        """Stable cache key for this goal's precomputed output.
+
+        Changing any field here invalidates prior caches — required because the preagg table
+        stores the resolved attribution with scalar UTM columns tied to TRACKED_FIELDS.
+        """
+        return {
+            "team_id": self.team.pk,
+            "goal_kind": self.goal.kind,
+            "goal_event": getattr(self.goal, "event", None),
+            "goal_action_id": getattr(self.goal, "id", None) if self.goal.kind == "ActionsNode" else None,
+            "goal_property_filters": [p.model_dump() for p in (getattr(self.goal, "properties", None) or [])],
+            "schema_map": dict(getattr(self.goal, "schema_map", None) or {}),
+            "attribution_window_days": self.config.attribution_window_days,
+            "attribution_mode": str(self.config.attribution_mode),
+            "tracked_fields": [f.name for f in TRACKED_FIELDS],
+        }
+
+    def _generate_funnel_query(
+        self,
+        additional_conditions: Sequence[ast.Expr],
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+    ) -> ast.SelectQuery:
+        """Generate multi-step funnel query with attribution window.
+
+        Reads the preagg table when eligible, falls back to events scan on any failure.
+        """
+        if self._should_use_precompute(date_from, date_to):
+            # `_should_use_precompute` returns False unless both dates are set; narrow for mypy.
+            assert date_from is not None and date_to is not None
+            try:
+                precomputed_attribution = self._build_attributed_source_from_precompute(date_from, date_to)
+                if precomputed_attribution is not None:
+                    return self._build_final_aggregation_query(precomputed_attribution)
+            except Exception:
+                CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER.inc()
+                logger.exception(
+                    "conversion_goal_precompute_failed",
+                    goal_id=self.goal.conversion_goal_id,
+                    team_id=self.team.pk,
+                )
+
         array_collection = self.build_array_collection_query(additional_conditions)
         return self.build_attribution_pipeline(array_collection)
+
+    def _should_use_precompute(self, date_from: Optional[datetime], date_to: Optional[datetime]) -> bool:
+        """Eligibility check: flag on, explicit date range, Events/Actions goal, no person/cohort filters."""
+        if not self.config.conversion_goal_precomputation_enabled:
+            return False
+        if date_from is None or date_to is None:
+            return False
+        if self.goal.kind not in ("EventsNode", "ActionsNode"):
+            return False
+        if self.goal.kind == "EventsNode" and not self.goal.event:
+            return False
+        # Only ConversionGoalFilter2 (ActionsNode) has `id` — guard with getattr.
+        if self.goal.kind == "ActionsNode" and not getattr(self.goal, "id", None):
+            return False
+        if self.config.attribution_window_days <= 0:
+            return False
+        for prop in self.goal.properties or []:
+            if prop.type in ("person", "cohort"):
+                return False
+        if self._precompute_properties_restricted_for_user():
+            return False
+        return True
+
+    def _precompute_materialized_event_properties(self) -> set[str]:
+        """Event property names the precompute path resolves into scalar columns of the preagg table."""
+        props = {self._resolve_field_name(field) for field in TRACKED_FIELDS}
+        math_property = getattr(self.goal, "math_property", None)
+        if math_property:
+            props.add(math_property)
+        return props
+
+    def _precompute_properties_restricted_for_user(self) -> bool:
+        """True if any property the precompute would materialize is restricted for the requesting user.
+
+        The precompute path resolves these ``events.properties`` reads server-side and stores them as
+        plain scalar columns, which bypasses the per-user property masking HogQL applies to
+        ``events.properties`` at print time. When any such property is restricted, skip precompute so
+        the direct events query — which enforces masking via ``JSONDropKeys`` — is used instead.
+        """
+        restricted = get_restricted_property_names(
+            team_id=self.team.pk,
+            user=self.user,
+            property_type=PropertyDefinition.Type.EVENT,
+        )
+        return bool(restricted) and not restricted.isdisjoint(self._precompute_materialized_event_properties())
+
+    def _build_attributed_source_from_precompute(
+        self, date_from: datetime, date_to: datetime
+    ) -> Optional[ast.SelectQuery]:
+        """Ensure precompute exists and return a SelectQuery reading from the preagg table.
+
+        Returns None if jobs are not ready — caller falls back to direct path.
+        """
+        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+            LazyComputationTable,
+            ensure_precomputed,
+        )
+
+        query_string, placeholders = self.get_attributed_query_for_precomputation()
+
+        result = ensure_precomputed(
+            team=self.team,
+            insert_query=query_string,
+            time_range_start=date_from,
+            time_range_end=date_to,
+            ttl_seconds={
+                "0d": 15 * 60,
+                "1d": 60 * 60,
+                "7d": 24 * 60 * 60,
+                "default": 7 * 24 * 60 * 60,
+            },
+            table=LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
+            placeholders=placeholders,
+        )
+
+        if not result.ready:
+            return None
+
+        return self.build_attributed_source_from_precomputed(
+            job_ids=result.job_ids,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+    def get_attributed_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
+        """Build the INSERT template that materialises one job's pre-attributed rows.
+
+        Uses {time_window_min}/{time_window_max} placeholders resolved by the framework.
+        Single-touch emits weight=1.0; multi-touch emits N rows per conversion with
+        fractional weights that sum to 1.
+        """
+        if self.goal.kind not in ("EventsNode", "ActionsNode"):
+            raise NotImplementedError(f"Precompute is not supported for goal kind {self.goal.kind!r}")
+        if self.goal.kind == "EventsNode" and not self.goal.event:
+            raise NotImplementedError("EventsNode goal requires a specific event for precompute")
+        if self.goal.kind == "ActionsNode" and not getattr(self.goal, "id", None):
+            raise NotImplementedError("ActionsNode goal requires an action id for precompute")
+
+        additional_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Constant(value=_PRECOMPUTE_TIME_WINDOW_MIN_SENTINEL),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Constant(value=_PRECOMPUTE_TIME_WINDOW_MAX_SENTINEL),
+            ),
+        ]
+        array_collection = self.build_array_collection_query(additional_conditions)
+
+        attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
+        if self.config.is_multi_touch:
+            array_join = self._build_multi_touch_array_join_subquery(array_collection, attribution_window_seconds)
+            insert_select = self._build_multi_touch_attribution_subquery(array_join, for_precompute=True)
+        else:
+            array_join = self._build_single_touch_array_join_subquery(array_collection, attribution_window_seconds)
+            insert_select = self._build_single_touch_attribution_subquery(array_join, for_precompute=True)
+
+        printed = to_printed_hogql(insert_select, team=self.team)
+        for sentinel, placeholder in (
+            (_PRECOMPUTE_TIME_WINDOW_MIN_SENTINEL, "{time_window_min}"),
+            (_PRECOMPUTE_TIME_WINDOW_MAX_SENTINEL, "{time_window_max}"),
+        ):
+            printed = _replace_sentinel_datetime(printed, sentinel, placeholder)
+
+        if _PRECOMPUTE_SENTINEL_LITERAL_RE.search(printed):
+            raise RuntimeError(
+                "Failed to substitute precompute time-window sentinels — printer format may have changed"
+            )
+
+        return printed, {}
+
+    def build_attributed_source_from_precomputed(
+        self,
+        job_ids: Sequence[str | uuid.UUID],
+        date_from: datetime,
+        date_to: datetime,
+    ) -> ast.SelectQuery:
+        """Read pre-attributed rows from the preagg table.
+
+        Multiplies ``conversion_value * touchpoint_weight`` at read time so the
+        downstream final aggregation works uniformly for single- and multi-touch
+        (weight=1.0 is a no-op for single-touch).
+        """
+        select_columns: list[ast.Expr] = [ast.Field(chain=["person_id"])]
+        select_columns.extend(ast.Field(chain=[f.attributed_name]) for f in TRACKED_FIELDS)
+        select_columns.append(ast.Alias(alias="campaign_id", expr=ast.Constant(value="-")))
+        select_columns.append(
+            ast.Alias(
+                alias="conversion_value",
+                expr=ast.ArithmeticOperation(
+                    left=ast.Field(chain=["conversion_value"]),
+                    op=ast.ArithmeticOperationOp.Mult,
+                    right=ast.Field(chain=["touchpoint_weight"]),
+                ),
+            )
+        )
+
+        return ast.SelectQuery(
+            select=select_columns,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "conversion_goal_attributed_preaggregated"])),
+            where=ast.And(
+                exprs=[
+                    ast.Call(
+                        name="in",
+                        args=[
+                            ast.Field(chain=["job_id"]),
+                            ast.Tuple(exprs=[ast.Constant(value=str(jid)) for jid in job_ids]),
+                        ],
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["team_id"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=self.team.pk),
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["conversion_timestamp"]),
+                        op=ast.CompareOperationOp.GtEq,
+                        right=ast.Constant(value=date_from),
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["conversion_timestamp"]),
+                        op=ast.CompareOperationOp.LtEq,
+                        right=ast.Constant(value=date_to),
+                    ),
+                ]
+            ),
+        )
 
     def _build_array_collection_subquery(
         self, conversion_event: Optional[str], where_conditions: list[ast.Expr]
@@ -1197,23 +1450,31 @@ class ConversionGoalProcessor:
             ],
         )
 
-    def _build_multi_touch_attribution_subquery(self, array_join_query: ast.SelectQuery) -> ast.SelectQuery:
+    def _build_multi_touch_attribution_subquery(
+        self,
+        array_join_query: ast.SelectQuery,
+        for_precompute: bool = False,
+    ) -> ast.SelectQuery:
         """Build subquery that explodes touchpoints and applies multi-touch weights.
 
-        Takes one row per conversion (from array_join_query) and produces
-        one row per touchpoint, each with weighted conversion value.
+        Takes one row per conversion (from array_join_query) and produces one row
+        per touchpoint, each with the attribution weight for that touchpoint.
+
+        When for_precompute=True, emits raw conversion_value + touchpoint_timestamp
+        + touchpoint_weight as separate columns (the read path multiplies). When
+        False, emits conversion_value = value * weight for direct-path consumption.
         """
         # Inner subquery: ARRAY JOIN on touchpoints to explode them
         touchpoint_select: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
             ast.Field(chain=["conversion_math_value"]),
         ]
+        if for_precompute:
+            touchpoint_select.append(ast.Field(chain=["conversion_time"]))
 
-        # Add conversion fields for each tracked field (for direct attribution)
         for field in TRACKED_FIELDS:
             touchpoint_select.append(ast.Field(chain=[field.conversion_value]))
 
-        # Extract individual touchpoint UTM values via array join index
         for field in TRACKED_FIELDS:
             touchpoint_select.append(
                 ast.Alias(
@@ -1225,7 +1486,6 @@ class ConversionGoalProcessor:
                 )
             )
 
-        # Extract weight for this touchpoint
         touchpoint_select.append(
             ast.Alias(
                 alias="attribution_weight",
@@ -1235,6 +1495,17 @@ class ConversionGoalProcessor:
                 ),
             )
         )
+
+        if for_precompute:
+            touchpoint_select.append(
+                ast.Alias(
+                    alias="touchpoint_time",
+                    expr=ast.ArrayAccess(
+                        array=ast.Field(chain=["filtered_utm_timestamps"]),
+                        property=ast.Field(chain=["tp_idx"]),
+                    ),
+                )
+            )
 
         touchpoint_exploded = ast.SelectQuery(
             select=touchpoint_select,
@@ -1251,9 +1522,10 @@ class ConversionGoalProcessor:
             ],
         )
 
-        # Outer subquery: apply attribution logic (direct vs fallback) and weight
+        # for_precompute: alias person_id so the lazy-computation INSERT builder gets a named column.
+        person_id_field = ast.Field(chain=["person_id"])
         outer_select: list[ast.Expr] = [
-            ast.Field(chain=["person_id"]),
+            ast.Alias(alias="person_id", expr=person_id_field) if for_precompute else person_id_field,
         ]
 
         for field in TRACKED_FIELDS:
@@ -1264,35 +1536,58 @@ class ConversionGoalProcessor:
                 )
             )
 
-        outer_select.extend(
-            [
-                ast.Alias(
-                    alias="campaign_id",
-                    expr=ast.Constant(value="-"),
-                ),
-                ast.Alias(
-                    alias="conversion_value",
-                    expr=ast.ArithmeticOperation(
-                        left=self._get_final_conversion_value_expr(),
-                        op=ast.ArithmeticOperationOp.Mult,
-                        right=ast.Field(chain=["attribution_weight"]),
+        if for_precompute:
+            outer_select.extend(
+                [
+                    ast.Alias(alias="conversion_value", expr=self._get_final_conversion_value_expr()),
+                    ast.Alias(
+                        alias="conversion_timestamp",
+                        expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["conversion_time"])]),
                     ),
-                ),
-            ]
-        )
+                    ast.Alias(
+                        alias="touchpoint_timestamp",
+                        expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["touchpoint_time"])]),
+                    ),
+                    ast.Alias(alias="touchpoint_weight", expr=ast.Field(chain=["attribution_weight"])),
+                ]
+            )
+        else:
+            outer_select.extend(
+                [
+                    ast.Alias(alias="campaign_id", expr=ast.Constant(value="-")),
+                    ast.Alias(
+                        alias="conversion_value",
+                        expr=ast.ArithmeticOperation(
+                            left=self._get_final_conversion_value_expr(),
+                            op=ast.ArithmeticOperationOp.Mult,
+                            right=ast.Field(chain=["attribution_weight"]),
+                        ),
+                    ),
+                ]
+            )
 
         return ast.SelectQuery(
             select=outer_select,
             select_from=ast.JoinExpr(table=touchpoint_exploded),
         )
 
-    def _build_single_touch_attribution_subquery(self, array_join_query: ast.SelectQuery) -> ast.SelectQuery:
-        """Build subquery that applies attribution logic"""
+    def _build_single_touch_attribution_subquery(
+        self,
+        array_join_query: ast.SelectQuery,
+        for_precompute: bool = False,
+    ) -> ast.SelectQuery:
+        """Build subquery that applies attribution logic.
+
+        When for_precompute=True, emits the extra columns that the preagg INSERT
+        stores (conversion_timestamp, touchpoint_timestamp, touchpoint_weight=1.0)
+        and drops the constant campaign_id (the read path re-injects it).
+        """
+        # for_precompute: alias person_id so the lazy-computation INSERT builder gets a named column.
+        person_id_field = ast.Field(chain=["person_id"])
         select_columns: list[ast.Expr] = [
-            ast.Field(chain=["person_id"]),
+            ast.Alias(alias="person_id", expr=person_id_field) if for_precompute else person_id_field,
         ]
 
-        # Add attributed value for each tracked field
         for field in TRACKED_FIELDS:
             select_columns.append(
                 ast.Alias(
@@ -1301,19 +1596,56 @@ class ConversionGoalProcessor:
                 )
             )
 
-        select_columns.extend(
-            [
+        if not for_precompute:
+            select_columns.append(
                 ast.Alias(
                     alias="campaign_id",
                     # Campaign IDs don't exist in event data, only in marketing platform data
                     expr=ast.Constant(value="-"),
-                ),
-                ast.Alias(
-                    alias="conversion_value",
-                    expr=self._get_final_conversion_value_expr(),
-                ),
-            ]
+                )
+            )
+
+        select_columns.append(
+            ast.Alias(
+                alias="conversion_value",
+                expr=self._get_final_conversion_value_expr(),
+            )
         )
+
+        if for_precompute:
+            # fromUnixTimestamp, not toDateTime: timestamps are Int64 here and toDateTime expects String in HogQL.
+            # Organic conversions (no UTM pageview in attribution window) leave last_utm_timestamp=0
+            # via arrayMax over an empty array; fall back to conversion_time so the stored DateTime
+            # is meaningful instead of 1970-01-01.
+            select_columns.extend(
+                [
+                    ast.Alias(
+                        alias="conversion_timestamp",
+                        expr=ast.Call(name="fromUnixTimestamp", args=[ast.Field(chain=["conversion_time"])]),
+                    ),
+                    ast.Alias(
+                        alias="touchpoint_timestamp",
+                        expr=ast.Call(
+                            name="fromUnixTimestamp",
+                            args=[
+                                ast.Call(
+                                    name="if",
+                                    args=[
+                                        ast.CompareOperation(
+                                            left=ast.Field(chain=["last_utm_timestamp"]),
+                                            op=ast.CompareOperationOp.Gt,
+                                            right=ast.Constant(value=0),
+                                        ),
+                                        ast.Field(chain=["last_utm_timestamp"]),
+                                        ast.Field(chain=["conversion_time"]),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ),
+                    ast.Alias(alias="touchpoint_weight", expr=ast.Constant(value=1.0)),
+                ]
+            )
 
         return ast.SelectQuery(
             select=select_columns,
@@ -1754,6 +2086,16 @@ class ConversionGoalProcessor:
                 return event_value == conversion_event or event_value == "$pageview"
 
         return False
+
+
+# Matches both HogQL toDateTime and ClickHouse toDateTime64 forms.
+_PRECOMPUTE_SENTINEL_LITERAL_RE = re.compile(r"toDateTime(?:64)?\(\s*'2099-12-31 23:59:5[89]\.\d+'")
+
+
+def _replace_sentinel_datetime(printed: str, sentinel: datetime, replacement: str) -> str:
+    literal = re.escape(sentinel.strftime("%Y-%m-%d %H:%M:%S.%f"))
+    pattern = re.compile(rf"toDateTime(?:64)?\(\s*'{literal}'(?:\s*,\s*6(?:\s*,\s*'[^']+')?)?\s*\)")
+    return pattern.sub(replacement, printed)
 
 
 def add_conversion_goal_property_filters(

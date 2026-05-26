@@ -40,7 +40,6 @@ from posthog.hogql import (
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.property import _property_definition_is_boolean
 from posthog.hogql.visitor import clone_expr
 
 from posthog import rate_limit, redis
@@ -665,7 +664,6 @@ class PostHogTestCase(SimpleTestCase):
 
     def setUp(self):
         get_instance_setting.cache_clear()
-        _property_definition_is_boolean.cache_clear()
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
