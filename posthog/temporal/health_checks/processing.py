@@ -2,7 +2,7 @@ import time
 
 import structlog
 
-from posthog.temporal.health_checks.db import _resolve_stale_issues, _upsert_issues
+from posthog.temporal.health_checks.db import resolve_stale_issues_with_deltas, upsert_issues_with_deltas
 from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult
 from posthog.temporal.health_checks.validation import _validate_batch_output
 
@@ -40,13 +40,15 @@ def _process_batch_detection(
         return result
 
     start = time.monotonic()
-    result.issues_upserted = _upsert_issues(kind, issues_by_team)
+    newly_active = upsert_issues_with_deltas(kind, issues_by_team)
+    result.issues_upserted = len(newly_active)
     result.db_write_duration = time.monotonic() - start
 
     healthy_team_ids = set(team_ids) - set(issues_by_team.keys())
 
     start = time.monotonic()
-    result.issues_resolved = _resolve_stale_issues(kind, issues_by_team, healthy_team_ids)
+    newly_resolved = resolve_stale_issues_with_deltas(kind, issues_by_team, healthy_team_ids)
+    result.issues_resolved = len(newly_resolved)
     result.resolve_duration = time.monotonic() - start
 
     return result
