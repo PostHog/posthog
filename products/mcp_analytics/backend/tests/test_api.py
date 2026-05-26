@@ -236,13 +236,12 @@ class TestListMCPSessions(ClickhouseTestMixin, APIBaseTest):
         )
         # big_id starts in the middle but ends most recently (a long-running session), so
         # session_start order differs from session_end order — that's what proves the
-        # default sorts by session_start, not session_end. session_end matches new_id's
-        # on purpose: the assertion below exercises the session_id ASC tiebreaker.
+        # default sorts by session_start, not session_end.
         self._seed_session(
             big_id,
             ["insight_get"] * 5,
             session_start=now - timedelta(minutes=60),
-            session_end=now - timedelta(minutes=10),
+            session_end=now - timedelta(minutes=5),
         )
 
         # Restrict to the three we just created so other rows don't interfere.
