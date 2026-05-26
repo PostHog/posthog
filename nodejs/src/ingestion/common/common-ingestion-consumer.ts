@@ -8,9 +8,11 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginS
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { IngestionConsumerConfig } from '../config'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchResult, FeedResult } from '../pipelines/batching-pipeline'
 import { createOkContext } from '../pipelines/helpers'
 import { OkResultWithContext } from '../pipelines/pipeline.interface'
+import { Lifecycle, StartedLifecycle } from './service-registry'
 
 type MessageInput = { message: Message }
 type MessageContext = { message: Message }
@@ -20,12 +22,15 @@ export interface IngestionBatchingPipeline {
     next(): Promise<BatchResult<unknown> | null>
 }
 
-export interface IngestionPipelineLifecycle {
-    onStart?(): Promise<void>
-    onStop?(): Promise<void>
-    healthcheck?(): Promise<HealthCheckResult>
-    getBackgroundWork?(promiseScheduler: PromiseScheduler): Promise<unknown>
+export interface PipelineFactoryContext<S extends Record<string, object>, O extends string> {
+    services: S
+    outputs: IngestionOutputs<O>
+    promiseScheduler: PromiseScheduler
 }
+
+export type PipelineFactory<S extends Record<string, object>, O extends string> = (
+    ctx: PipelineFactoryContext<S, O>
+) => IngestionBatchingPipeline
 
 export type CommonIngestionConsumerConfig = Pick<
     IngestionConsumerConfig,
@@ -43,7 +48,18 @@ const latestOffsetTimestampGauge = new Gauge({
     aggregator: 'max',
 })
 
-export class CommonIngestionConsumer {
+/**
+ * Generic ingestion consumer wired to a service `Lifecycle`, an outputs map,
+ * and a pipeline factory. On `start()`: brings up the lifecycle, verifies
+ * output topics (rolling the lifecycle back on failure), constructs the
+ * pipeline with the started services, then connects the Kafka consumer.
+ * On `stop()`: disconnects Kafka, tears the lifecycle down in reverse, and
+ * drains the background promise scheduler.
+ */
+export class CommonIngestionConsumer<
+    S extends Record<string, object> = Record<never, object>,
+    O extends string = string,
+> {
     private name: string
     private groupId: string
     private topic: string
@@ -51,10 +67,15 @@ export class CommonIngestionConsumer {
     public readonly promiseScheduler = new PromiseScheduler()
     isStopping = false
 
+    private pipeline?: IngestionBatchingPipeline
+    private startedLifecycle?: StartedLifecycle<S>
+
     constructor(
         private config: CommonIngestionConsumerConfig,
-        private pipeline: IngestionBatchingPipeline,
-        private lifecycle: IngestionPipelineLifecycle = {}
+        private lifecycle: Lifecycle<S>,
+        private outputs: IngestionOutputs<O>,
+        private pipelineFactory: PipelineFactory<S, O>,
+        private healthcheckFn?: () => Promise<HealthCheckResult>
     ) {
         this.groupId = config.INGESTION_CONSUMER_GROUP_ID
         this.topic = config.INGESTION_CONSUMER_CONSUME_TOPIC
@@ -75,8 +96,25 @@ export class CommonIngestionConsumer {
     }
 
     async start(): Promise<void> {
-        if (this.lifecycle.onStart) {
-            await this.lifecycle.onStart()
+        this.startedLifecycle = await this.lifecycle.start()
+        try {
+            const failures = await this.outputs.checkTopics()
+            if (failures.length > 0) {
+                throw new Error(`Output topic verification failed for: ${failures.join(', ')}`)
+            }
+            this.pipeline = this.pipelineFactory({
+                services: this.startedLifecycle.services,
+                outputs: this.outputs,
+                promiseScheduler: this.promiseScheduler,
+            })
+        } catch (err) {
+            try {
+                await this.startedLifecycle.stop()
+            } catch {
+                // best-effort cleanup; propagate the original error
+            }
+            this.startedLifecycle = undefined
+            throw err
         }
 
         await this.kafkaConsumer.connect(async (messages: Message[]) => {
@@ -93,9 +131,11 @@ export class CommonIngestionConsumer {
 
         await this.kafkaConsumer?.disconnect()
 
-        if (this.lifecycle.onStop) {
-            await this.lifecycle.onStop()
+        if (this.startedLifecycle) {
+            await this.startedLifecycle.stop()
+            this.startedLifecycle = undefined
         }
+        await this.promiseScheduler.waitForAll()
 
         logger.info('👍', `${this.name} - stopped!`)
     }
@@ -110,8 +150,8 @@ export class CommonIngestionConsumer {
             return consumerHealth
         }
 
-        if (this.lifecycle.healthcheck) {
-            return this.lifecycle.healthcheck()
+        if (this.healthcheckFn) {
+            return this.healthcheckFn()
         }
 
         return new HealthCheckResultOk()
@@ -144,6 +184,9 @@ export class CommonIngestionConsumer {
     }
 
     async handleKafkaBatch(messages: Message[]): Promise<{ backgroundTask?: Promise<unknown> }> {
+        if (!this.pipeline) {
+            throw new Error(`${this.name} - handleKafkaBatch called before start completed`)
+        }
         if (this.config.KAFKA_BATCH_START_LOGGING_ENABLED) {
             this.logBatchStart(messages)
         }
@@ -173,9 +216,6 @@ export class CommonIngestionConsumer {
 
         return {
             backgroundTask: instrumentFn('commonIngestionConsumer.awaitScheduledWork', async () => {
-                if (this.lifecycle.getBackgroundWork) {
-                    await this.lifecycle.getBackgroundWork(this.promiseScheduler)
-                }
                 await this.promiseScheduler.waitForAll()
             }),
         }

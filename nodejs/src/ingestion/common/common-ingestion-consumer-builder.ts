@@ -1,75 +1,23 @@
 import { HealthCheckResult } from '../../types'
-import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
-import {
-    CommonIngestionConsumer,
-    CommonIngestionConsumerConfig,
-    IngestionBatchingPipeline,
-    IngestionPipelineLifecycle,
-} from './common-ingestion-consumer'
+import { CommonIngestionConsumer, CommonIngestionConsumerConfig, PipelineFactory } from './common-ingestion-consumer'
+import { Lifecycle } from './service-registry'
 
-export interface PipelineFactoryContext<O extends string> {
-    outputs: IngestionOutputs<O>
-    promiseScheduler: PromiseScheduler
-}
-
-export type PipelineFactory<O extends string> = (ctx: PipelineFactoryContext<O>) => IngestionBatchingPipeline
-
-export interface CreateCommonIngestionConsumerArgs<O extends string> {
+export interface CreateCommonIngestionConsumerArgs<S extends Record<string, object>, O extends string> {
     config: CommonIngestionConsumerConfig
+    /**
+     * Pre-built (not started) Lifecycle holding the consumer-owned services.
+     * The consumer brings it up on `start()`, hands the started services
+     * to the pipeline factory, and stops it on `stop()`.
+     */
+    lifecycle: Lifecycle<S>
     outputs: IngestionOutputs<O>
-    pipeline: PipelineFactory<O>
+    pipeline: PipelineFactory<S, O>
     healthcheck?: () => Promise<HealthCheckResult>
 }
 
-/**
- * Wire outputs + a pipeline factory into a runnable `CommonIngestionConsumer`.
- * Service lifecycles (shared or per-consumer) live outside this factory —
- * the caller starts services before constructing the consumer and stops them
- * after. On start: verifies output topics. On stop: drains the background
- * promise scheduler.
- */
-export function createCommonIngestionConsumer<O extends string>(
-    args: CreateCommonIngestionConsumerArgs<O>
-): CommonIngestionConsumer {
-    const { config, outputs, pipeline: pipelineFactory, healthcheck } = args
-
-    const promiseScheduler = new PromiseScheduler()
-    const pipeline = pipelineFactory({ outputs, promiseScheduler })
-
-    const consumerLifecycle = composeConsumerLifecycle({
-        outputs,
-        promiseScheduler,
-        healthcheckFn: healthcheck,
-    })
-
-    return new CommonIngestionConsumer(config, pipeline, consumerLifecycle)
-}
-
-interface ComposeConsumerLifecycleArgs<O extends string> {
-    outputs: IngestionOutputs<O>
-    promiseScheduler: PromiseScheduler
-    healthcheckFn: (() => Promise<HealthCheckResult>) | undefined
-}
-
-export function composeConsumerLifecycle<O extends string>({
-    outputs,
-    promiseScheduler,
-    healthcheckFn,
-}: ComposeConsumerLifecycleArgs<O>): IngestionPipelineLifecycle {
-    return {
-        onStart: async () => {
-            const failures = await outputs.checkTopics()
-            if (failures.length > 0) {
-                throw new Error(`Output topic verification failed for: ${failures.join(', ')}`)
-            }
-        },
-        onStop: async () => {
-            await promiseScheduler.waitForAll()
-        },
-        healthcheck: healthcheckFn,
-        getBackgroundWork: async () => {
-            await promiseScheduler.waitForAll()
-        },
-    }
+export function createCommonIngestionConsumer<S extends Record<string, object>, O extends string>(
+    args: CreateCommonIngestionConsumerArgs<S, O>
+): CommonIngestionConsumer<S, O> {
+    return new CommonIngestionConsumer<S, O>(args.config, args.lifecycle, args.outputs, args.pipeline, args.healthcheck)
 }

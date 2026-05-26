@@ -1,8 +1,7 @@
-import { HealthCheckResultOk } from '../../types'
-import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { CommonIngestionConsumer, CommonIngestionConsumerConfig } from './common-ingestion-consumer'
-import { composeConsumerLifecycle, createCommonIngestionConsumer } from './common-ingestion-consumer-builder'
+import { createCommonIngestionConsumer } from './common-ingestion-consumer-builder'
+import { newLifecycleBuilder } from './service-registry'
 
 function makeOutputs(failures: string[] = []): IngestionOutputs<string> {
     return {
@@ -21,97 +20,30 @@ function makeConfig(overrides: Partial<CommonIngestionConsumerConfig> = {}): Com
     }
 }
 
-describe('composeConsumerLifecycle', () => {
-    it('verifies output topics on start', async () => {
-        const outputs = makeOutputs()
-
-        const consumerLifecycle = composeConsumerLifecycle({
-            outputs,
-            promiseScheduler: new PromiseScheduler(),
-            healthcheckFn: undefined,
-        })
-
-        await consumerLifecycle.onStart!()
-        expect(outputs.checkTopics).toHaveBeenCalledTimes(1)
-    })
-
-    it('throws on start when topic verification fails', async () => {
-        const consumerLifecycle = composeConsumerLifecycle({
-            outputs: makeOutputs(['events', 'dlq']),
-            promiseScheduler: new PromiseScheduler(),
-            healthcheckFn: undefined,
-        })
-
-        await expect(consumerLifecycle.onStart!()).rejects.toThrow('Output topic verification failed')
-    })
-
-    it('drains the promise scheduler on stop', async () => {
-        const scheduler = new PromiseScheduler()
-        const drainSpy = jest.spyOn(scheduler, 'waitForAll').mockResolvedValue([])
-
-        const consumerLifecycle = composeConsumerLifecycle({
-            outputs: makeOutputs(),
-            promiseScheduler: scheduler,
-            healthcheckFn: undefined,
-        })
-
-        await consumerLifecycle.onStop!()
-        expect(drainSpy).toHaveBeenCalledTimes(1)
-    })
-
-    it('exposes the supplied healthcheck function', () => {
-        const fn = jest.fn().mockResolvedValue(new HealthCheckResultOk())
-
-        const consumerLifecycle = composeConsumerLifecycle({
-            outputs: makeOutputs(),
-            promiseScheduler: new PromiseScheduler(),
-            healthcheckFn: fn,
-        })
-
-        expect(consumerLifecycle.healthcheck).toBe(fn)
-    })
-
-    it('drains the promise scheduler in getBackgroundWork', async () => {
-        const scheduler = new PromiseScheduler()
-        const drainSpy = jest.spyOn(scheduler, 'waitForAll').mockResolvedValue([])
-
-        const consumerLifecycle = composeConsumerLifecycle({
-            outputs: makeOutputs(),
-            promiseScheduler: scheduler,
-            healthcheckFn: undefined,
-        })
-
-        await consumerLifecycle.getBackgroundWork!(scheduler)
-        expect(drainSpy).toHaveBeenCalledTimes(1)
-    })
-})
-
 describe('createCommonIngestionConsumer', () => {
-    it('returns a CommonIngestionConsumer wired to the supplied pipeline', () => {
-        const pipeline = { feed: jest.fn(), next: jest.fn() }
-
+    it('returns a CommonIngestionConsumer wired to the supplied lifecycle and pipeline factory', () => {
         const consumer = createCommonIngestionConsumer({
             config: makeConfig(),
+            lifecycle: newLifecycleBuilder().build('consumer'),
             outputs: makeOutputs(),
-            pipeline: () => pipeline,
+            pipeline: () => ({ feed: jest.fn(), next: jest.fn() }),
         })
 
         expect(consumer).toBeInstanceOf(CommonIngestionConsumer)
     })
 
-    it('passes outputs and a promise scheduler to the pipeline factory', () => {
-        const outputs = makeOutputs()
+    it('defers pipeline construction until start time', () => {
         const factory = jest.fn().mockReturnValue({ feed: jest.fn(), next: jest.fn() })
 
         createCommonIngestionConsumer({
             config: makeConfig(),
-            outputs,
+            lifecycle: newLifecycleBuilder().build('consumer'),
+            outputs: makeOutputs(),
             pipeline: factory,
         })
 
-        expect(factory).toHaveBeenCalledTimes(1)
-        const ctx = factory.mock.calls[0][0]
-        expect(ctx.outputs).toBe(outputs)
-        expect(ctx.promiseScheduler).toBeDefined()
+        // Construction alone does not invoke the pipeline factory — the
+        // consumer's `start()` does, after the lifecycle has been started.
+        expect(factory).not.toHaveBeenCalled()
     })
 })
