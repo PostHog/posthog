@@ -1134,6 +1134,85 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertIn(internal_notebook.short_id, short_ids)
         self.assertNotIn(default_notebook.short_id, short_ids)
 
+    def test_create_derives_content_from_markdown_text_content(self):
+        from products.notebooks.backend.models import Notebook
+
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Call notes", "text_content": "# Heading\n\nSome **bold** text."},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertEqual(notebook.text_content, "# Heading\n\nSome **bold** text.")
+        self.assertIsInstance(notebook.content, dict)
+        self.assertEqual(notebook.content["type"], "doc")
+        first_node = notebook.content["content"][0]
+        self.assertEqual(first_node["type"], "heading")
+        self.assertEqual(first_node["attrs"]["level"], 1)
+        self.assertEqual(first_node["content"][0]["text"], "Heading")
+
+    def test_create_preserves_caller_supplied_content(self):
+        from products.notebooks.backend.models import Notebook
+
+        explicit_content = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "from caller"}]}],
+        }
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Provided", "content": explicit_content, "text_content": "# ignored"},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertEqual(notebook.content, explicit_content)
+
+    def test_create_with_neither_field_leaves_content_null(self):
+        from products.notebooks.backend.models import Notebook
+
+        response = self.client.post(self.endpoint_base, {"title": "Empty"}, format="json")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertIsNone(notebook.content)
+
+    def test_create_with_empty_text_content_does_not_synthesize_content(self):
+        from products.notebooks.backend.models import Notebook
+
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Empty body", "text_content": ""},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertIsNone(notebook.content)
+
+    def test_create_with_empty_dict_content_falls_back_to_markdown(self):
+        from products.notebooks.backend.models import Notebook
+
+        response = self.client.post(
+            self.endpoint_base,
+            {"title": "Plain", "content": {}, "text_content": "Just a sentence."},
+            format="json",
+        )
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        notebook = Notebook.objects.get(short_id=response.json()["short_id"])
+        self.assertEqual(notebook.content["type"], "doc")
+        first_node = notebook.content["content"][0]
+        self.assertEqual(first_node["type"], "paragraph")
+        self.assertEqual(first_node["content"][0]["text"], "Just a sentence.")
+
 
 @pytest.mark.ee
 class TestCustomerAnalyticsAccessControl(APIBaseTest):
