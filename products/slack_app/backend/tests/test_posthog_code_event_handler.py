@@ -127,8 +127,7 @@ class TestPostHogCodeEventHandler(TestCase):
         }
         payload = {"type": "event_callback", "team_id": "T12345", "event": event}
         response = self._post_event(payload)
-        # 200 (not 202): we explicitly ack-and-drop bot-authored mentions so neither
-        # the local handler nor the secondary region attempts to reply.
+        # 200 (not 202) signals the ack-and-drop path.
         assert response.status_code == 200
         mock_route.assert_not_called()
 
@@ -139,8 +138,7 @@ class TestPostHogCodeEventHandler(TestCase):
         mock_config,
         mock_route,
     ):
-        # Unfurling alert URLs posted by PostHog's notifications integration (a bot)
-        # is the whole point of link_shared — the bot-author filter must not apply.
+        # Unfurling bot-posted alert URLs is the whole point of link_shared.
         mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_route.return_value = "handled_locally"
         payload = {

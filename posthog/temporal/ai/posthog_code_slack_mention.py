@@ -980,11 +980,8 @@ def forward_posthog_code_followup_activity(
 
     log = structlog.get_logger(__name__)
 
-    # Defense in depth: the webhook entry point also drops bot-authored mentions, but
-    # if anything slips through we must still not reply with the "only the original
-    # requester…" message — that's how a foreign bot (e.g. an incident bot that
-    # re-edits its message and keeps text-mentioning @PostHog) turns into a runaway
-    # reply storm on every reassessment.
+    # Defense in depth — the webhook also filters these. Don't post the "only the
+    # original requester…" reply to a foreign bot; that's how the loop starts.
     if _is_bot_authored_app_mention(inputs.event):
         log.info(
             "posthog_code_followup_bot_authored_dropped",

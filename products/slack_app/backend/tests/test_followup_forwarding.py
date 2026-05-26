@@ -603,9 +603,6 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_bot_authored_followup_is_silently_dropped(self, mock_slack_cls):
-        # An incident bot edits its message every N minutes and the message body
-        # contains <@PostHog>. Without this guard we'd post "Only the person who
-        # started this task…" on every reassessment and bury the thread.
         self._create_mapping(mentioning_user="U_ALICE")
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
@@ -625,7 +622,6 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         result = forward_posthog_code_followup_activity(
             inputs, "C123", "1234.5678", "U_INCIDENT_BOT", "<@BOT> incident: ...", "1234.5679"
         )
-        # True = "handled; don't run the new-task flow either".
         assert result is True
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 

@@ -48,14 +48,9 @@ logger = structlog.get_logger(__name__)
 
 HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
-# Slack delivers an `app_mention` event whenever a message body contains <@OurBotID>.
-# Other apps (e.g. incident bots like Mendral, alert reposters, our own notifications
-# integration quoting a PR description that contains "@PostHog/...") will trip this
-# even though no human is asking us anything. Replying to those would create a bot-
-# to-bot loop: the foreign bot re-edits/re-posts the message on every reassessment,
-# Slack fires another app_mention, we reply again, and the thread fills up.
-# Filter such events at the entry point — link_shared is exempt because unfurling
-# bot-posted links (PostHog alert URLs etc.) is the expected behavior.
+# Replying to bot-authored app_mentions creates loops: a foreign bot that re-edits its
+# message containing <@PostHog> retriggers app_mention on every edit. Drop these at the
+# webhook entry point. link_shared from bots stays allowed — that's normal alert unfurl.
 _APP_MENTION_BOT_AUTHOR_KEYS = ("bot_id", "bot_profile", "app_id")
 
 
@@ -1299,8 +1294,7 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
         inner_event_type = event.get("type")
 
         if inner_event_type == "app_mention" and _is_bot_authored_app_mention(event):
-            # Ack and drop. Don't proxy either — the secondary region would just
-            # filter it too, so the proxy hop is pure waste.
+            # Don't proxy — secondary would just drop it too.
             logger.info(
                 "posthog_code_event_bot_authored_app_mention_ignored",
                 slack_team_id=slack_team_id,
