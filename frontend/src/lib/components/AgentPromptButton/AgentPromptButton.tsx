@@ -35,7 +35,10 @@ export interface AgentPromptButtonProps {
     actions: AgentPromptAction[]
     /**
      * Namespace for the localStorage key that persists the remembered combo.
-     * Use a unique value per call-site so different surfaces remember independently.
+     * Pass a unique value per call-site to give that surface its own memory.
+     * When omitted, defaults to a key derived from the sorted action keys, so
+     * surfaces with the same action set share state and surfaces with different
+     * actions stay isolated.
      */
     storageKey?: string
     size?: ButtonSize
@@ -130,12 +133,18 @@ function AgentLogo({ agent }: { agent: AgentDef }): JSX.Element {
 
 export function AgentPromptButton({
     actions,
-    storageKey = 'agent-prompt-button',
+    storageKey,
     size = 'sm',
     defaultOpen = false,
     'data-attr': dataAttr,
 }: AgentPromptButtonProps): JSX.Element | null {
-    const [remembered, setRemembered] = useLocalStorage<RememberedCombo | null>(`${storageKey}:combo`, null)
+    const resolvedStorageKey =
+        storageKey ??
+        `agent-prompt-button:${actions
+            .map((a) => a.key)
+            .sort()
+            .join(',')}`
+    const [remembered, setRemembered] = useLocalStorage<RememberedCombo | null>(`${resolvedStorageKey}:combo`, null)
     const [open, setOpen] = useState(defaultOpen)
 
     if (actions.length === 0) {
@@ -171,8 +180,8 @@ export function AgentPromptButton({
         const actionKey = remembered?.actionKey ?? actions[0].key
         setRemembered({ actionKey, agentKey })
         setOpen(false)
-        // Picking an agent saves it as the favorite AND runs the combo immediately,
-        // so the dropdown doubles as a one-click action picker.
+        // Picking an agent is the action — saves it as the favorite and runs immediately.
+        // The main button just re-runs the saved combo on subsequent clicks.
         runCombo(actionKey, agentKey)
     }
 
