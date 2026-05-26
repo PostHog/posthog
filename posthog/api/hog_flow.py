@@ -155,7 +155,16 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if isinstance(s, dict) and s.get("secret") and "key" in s
                 }
                 stripped_placeholders: dict = {}
-                for key in list(inputs.keys() if isinstance(inputs, dict) else []):
+                if not isinstance(inputs, dict):
+                    inputs = {}
+                # Some clients (notably the workflow editor's test panel) strip secret inputs
+                # from outgoing payloads entirely instead of sending the `{"secret": true}`
+                # placeholder. Inject the placeholder for any secret key missing from the
+                # request so the restore logic below kicks in uniformly.
+                for key in secret_keys:
+                    if key not in inputs and key in existing_inputs:
+                        inputs[key] = {"secret": True}
+                for key in list(inputs.keys()):
                     if key not in secret_keys:
                         continue
                     item = inputs[key]
@@ -171,9 +180,17 @@ class HogFlowActionSerializer(serializers.Serializer):
                         stripped_placeholders[key] = item if is_already_encrypted else existing_inputs.get(key)
                         del inputs[key]
 
+                # Hide secret keys we've already stripped from the inner validator so it doesn't
+                # re-reject them as required. The outer logic below restores them from the stored
+                # ciphertext after the inner serializer returns.
+                inner_inputs_schema = [
+                    s
+                    for s in (input_schema or [])
+                    if not (isinstance(s, dict) and s.get("key") in stripped_placeholders)
+                ]
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
-                        "inputs_schema": input_schema,
+                        "inputs_schema": inner_inputs_schema,
                         "inputs": inputs,
                     },
                     context={"function_type": template.type},
@@ -362,15 +379,19 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     variables = HogFlowVariableSerializer(required=False)
 
     def to_internal_value(self, data):
+        # When this serializer is nested (e.g. inside HogFlowInvocationSerializer), DRF does not
+        # bind `self.instance` automatically. Fall back to the outer view's context, matching the
+        # pattern used by HogFunctionSerializer.
+        instance = self.instance or self.context.get("instance")
+
         status = data.get("status")
-        if status is None and self.instance:
-            status = self.instance.status
+        if status is None and instance:
+            status = instance.status
         if status != "active":
             self.context["is_draft"] = True
 
         # Provide existing actions (keyed by id) to child action serializers so encrypted secret
         # inputs can be preserved when the payload omits or placeholders them.
-        instance = self.instance
         if instance is not None and isinstance(instance.actions, list):
             self.context["existing_actions_by_id"] = {
                 action.get("id"): action for action in instance.actions if isinstance(action, dict) and action.get("id")

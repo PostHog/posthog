@@ -1,7 +1,7 @@
 from typing import Optional
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -311,6 +311,191 @@ class TestHogFlowAPI(APIBaseTest):
 
         refreshed = HogFlow.objects.get(pk=hog_flow_id).actions[1]["config"]["inputs"]["access_token"]
         assert refreshed == first_stored
+
+    def test_hog_flow_secret_input_preserved_when_omitted_on_patch(self):
+        # The workflow editor's test panel strips secret inputs out of the configuration
+        # payload entirely (rather than sending the `{"secret": True}` placeholder). The
+        # validator must still preserve the stored ciphertext in that case.
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-secret-webhook",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                    "access_token": {"value": "original-token"},
+                },
+            }
+        )
+        hog_flow["status"] = "active"
+
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        hog_flow_id = create_response.json()["id"]
+        first_stored = HogFlow.objects.get(pk=hog_flow_id).actions[1]["config"]["inputs"]["access_token"]
+
+        update_payload = dict(hog_flow)
+        update_payload["actions"] = [
+            hog_flow["actions"][0],
+            {
+                **action,
+                "config": {
+                    "template_id": "template-secret-webhook",
+                    "inputs": {
+                        "url": {"value": "https://example.com/changed"},
+                        # access_token deliberately omitted — mirrors the workflow editor
+                        # stripping secrets from outgoing payloads.
+                    },
+                },
+            },
+        ]
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{hog_flow_id}", update_payload, content_type="application/json"
+        )
+        assert patch_response.status_code == 200, patch_response.json()
+        refreshed = HogFlow.objects.get(pk=hog_flow_id).actions[1]["config"]["inputs"]["access_token"]
+        assert refreshed == first_stored
+
+    def test_hog_flow_invocation_test_endpoint_hydrates_secrets_from_context_instance(self):
+        # The invocations endpoint binds `HogFlowSerializer` as a *nested* serializer under
+        # `HogFlowInvocationSerializer`, so DRF does not set `self.instance`. The serializer
+        # must instead resolve the instance from context to populate `existing_actions_by_id`
+        # and hydrate the secret. Mirrors the pattern used by HogFunctionSerializer.
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-secret-webhook",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                    "access_token": {"value": "original-token"},
+                },
+            }
+        )
+        hog_flow["status"] = "active"
+
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        hog_flow_id = create_response.json()["id"]
+
+        # The frontend reads the saved flow back (secrets masked to `{secret: True}`) and
+        # additionally strips them out entirely before POSTing to /invocations/. Simulate
+        # both stripping styles together:
+        configuration_payload = {
+            **hog_flow,
+            "status": "active",
+            "actions": [
+                hog_flow["actions"][0],
+                {
+                    **action,
+                    "config": {
+                        "template_id": "template-secret-webhook",
+                        "inputs": {
+                            "url": {"value": "https://example.com"},
+                            # access_token deliberately absent
+                        },
+                    },
+                },
+            ],
+        }
+
+        with patch("posthog.api.hog_flow.create_hog_flow_invocation_test") as mock_invocation:
+            mock_invocation.return_value = MagicMock(
+                status_code=200, json=lambda: {"status": "success", "logs": [], "variables": {}}
+            )
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{hog_flow_id}/invocations/",
+                data={
+                    "configuration": configuration_payload,
+                    "globals": {
+                        "event": {
+                            "event": "$pageview",
+                            "distinct_id": "test_user",
+                            "uuid": "00000000-0000-0000-0000-000000000000",
+                            "properties": {},
+                            "url": "",
+                            "timestamp": "2024-01-01T00:00:00Z",
+                            "elements_chain": "",
+                        }
+                    },
+                    "mock_async_functions": True,
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        assert mock_invocation.call_count == 1
+        # The downstream Node service must receive the encrypted ciphertext for the secret,
+        # not a placeholder or empty value — proving the hydration round-tripped through
+        # the nested validator.
+        forwarded_inputs = mock_invocation.call_args.kwargs["payload"]["configuration"]["actions"][1]["config"][
+            "inputs"
+        ]
+        assert INLINE_ENCRYPTED_MARKER in forwarded_inputs["access_token"]["value"]
+
+    def test_hog_flow_invocation_test_endpoint_accepts_secret_placeholder(self):
+        # Same as above, but using the `{secret: True}` placeholder form (the alternative
+        # way clients can indicate "leave my secret alone").
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-secret-webhook",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                    "access_token": {"value": "original-token"},
+                },
+            }
+        )
+        hog_flow["status"] = "active"
+
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        hog_flow_id = create_response.json()["id"]
+
+        configuration_payload = {
+            **hog_flow,
+            "status": "active",
+            "actions": [
+                hog_flow["actions"][0],
+                {
+                    **action,
+                    "config": {
+                        "template_id": "template-secret-webhook",
+                        "inputs": {
+                            "url": {"value": "https://example.com"},
+                            "access_token": {"secret": True},
+                        },
+                    },
+                },
+            ],
+        }
+
+        with patch("posthog.api.hog_flow.create_hog_flow_invocation_test") as mock_invocation:
+            mock_invocation.return_value = MagicMock(
+                status_code=200, json=lambda: {"status": "success", "logs": [], "variables": {}}
+            )
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{hog_flow_id}/invocations/",
+                data={
+                    "configuration": configuration_payload,
+                    "globals": {
+                        "event": {
+                            "event": "$pageview",
+                            "distinct_id": "test_user",
+                            "uuid": "00000000-0000-0000-0000-000000000000",
+                            "properties": {},
+                            "url": "",
+                            "timestamp": "2024-01-01T00:00:00Z",
+                            "elements_chain": "",
+                        }
+                    },
+                    "mock_async_functions": True,
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        forwarded_inputs = mock_invocation.call_args.kwargs["payload"]["configuration"]["actions"][1]["config"][
+            "inputs"
+        ]
+        assert INLINE_ENCRYPTED_MARKER in forwarded_inputs["access_token"]["value"]
 
     def test_hog_flow_bytecode_compilation(self):
         hog_flow, action = self._create_hog_flow_with_action(
