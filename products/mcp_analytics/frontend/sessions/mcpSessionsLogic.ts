@@ -108,11 +108,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         toolCalls: [
             [] as MCPToolCallApi[],
             {
-                loadToolCalls: async (sessionId: string) => {
+                loadToolCalls: async (sessionId: string, breakpoint) => {
                     if (!values.currentProjectId || !sessionId) {
                         return []
                     }
                     const response = await mcpAnalyticsSessionsToolCalls(String(values.currentProjectId), sessionId)
+                    breakpoint()
                     return [...(response.results ?? [])]
                 },
             },
