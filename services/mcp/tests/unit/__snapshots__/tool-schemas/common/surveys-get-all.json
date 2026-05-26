@@ -13,7 +13,7 @@
             "type": "number"
         },
         "search": {
-            "description": "A search term.",
+            "description": "Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.",
             "type": "string"
         }
     },

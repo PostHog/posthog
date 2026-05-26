@@ -236,6 +236,9 @@ tools:
             - client_secret
             - account_id
             - job_inputs
+            - created_via
+        inject_body:
+            created_via: mcp
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
@@ -559,10 +562,6 @@ tools:
                 description:
                     Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table
                     names.
-            query:
-                description:
-                    'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example:
-                    {"query": "SELECT * FROM events LIMIT 100"}'
     view-delete:
         operation: warehouse_saved_queries_destroy
         enabled: true
@@ -701,10 +700,6 @@ tools:
                 description:
                     Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table
                     names.
-            query:
-                description:
-                    'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example:
-                    {"query": "SELECT * FROM events LIMIT 100"}'
             edited_history_id:
                 description:
                     Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for

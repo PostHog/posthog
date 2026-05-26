@@ -50,16 +50,15 @@ from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimEvent
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Action, Cohort, FeatureFlag, Insight, InsightViewed
+from posthog.models import Cohort, FeatureFlag, Insight, InsightViewed
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
 from posthog.storage import object_storage
 
+from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.data_warehouse.backend.models.credential import get_or_create_datawarehouse_credential
-from products.data_warehouse.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
@@ -75,6 +74,8 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroupProperty,
 )
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.warehouse_sources.backend.models.credential import get_or_create_datawarehouse_credential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (
@@ -88,6 +89,7 @@ from .taxonomy import (
     EVENT_SIGNED_UP,
     EVENT_UPGRADED_PLAN,
     EVENT_UPLOADED_FILE,
+    FLAG_BIAS_WARNING_DEMO_EXPERIMENT,
     FLAG_FILE_ENGAGEMENT_EXPERIMENT,
     FLAG_FILE_PREVIEWS,
     FLAG_ONBOARDING_EXPERIMENT,
@@ -195,6 +197,8 @@ class HedgeboxMatrix(Matrix):
     upgrade_prompt_experiment_start: dt.datetime
     team_collab_experiment_start: dt.datetime
     team_collab_experiment_end: dt.datetime
+    bias_warning_experiment_start: dt.datetime
+    bias_warning_experiment_flip_time: dt.datetime
     extended_end: dt.datetime
 
     def __init__(self, *args, **kwargs):
@@ -222,6 +226,10 @@ class HedgeboxMatrix(Matrix):
         # Team collaboration boost (stopped early) - 50% to 70%
         self.team_collab_experiment_start = self.start + elapsed * 0.5
         self.team_collab_experiment_end = self.start + elapsed * 0.7
+
+        # Bias warning demo (running) - 60% onward, ~2% of users flip variants halfway through
+        self.bias_warning_experiment_start = self.start + elapsed * 0.6
+        self.bias_warning_experiment_flip_time = self.start + elapsed * 0.8
 
         # Extended simulation for running experiment
         self.extended_end = self.now + dt.timedelta(days=30)
@@ -999,6 +1007,12 @@ class HedgeboxMatrix(Matrix):
                 [("control", 50), ("test", 50)],
                 self.team_collab_experiment_start - dt.timedelta(hours=1),
             )
+            bias_warning_flag = create_experiment_flag(
+                FLAG_BIAS_WARNING_DEMO_EXPERIMENT,
+                "Bias warning demo: uneven split with multi-variant",
+                [("control", 90), ("test", 10)],
+                self.bias_warning_experiment_start - dt.timedelta(hours=1),
+            )
         except IntegrityError:
             # Flags already exist, fetch them
             onboarding_flag = FeatureFlag.objects.get(team=team, key=FLAG_ONBOARDING_EXPERIMENT)
@@ -1008,6 +1022,7 @@ class HedgeboxMatrix(Matrix):
             upgrade_prompt_flag = FeatureFlag.objects.get(team=team, key=FLAG_UPGRADE_PROMPT_EXPERIMENT)
             retention_nudge_flag = FeatureFlag.objects.get(team=team, key=FLAG_RETENTION_NUDGE_EXPERIMENT)
             team_collab_flag = FeatureFlag.objects.get(team=team, key=FLAG_TEAM_COLLAB_EXPERIMENT)
+            bias_warning_flag = FeatureFlag.objects.get(team=team, key=FLAG_BIAS_WARNING_DEMO_EXPERIMENT)
 
         # Experiments and shared metrics
 
@@ -1556,6 +1571,54 @@ class HedgeboxMatrix(Matrix):
             conclusion="stopped_early",
             conclusion_comment="Stopped early due to a bug in the activity feed causing excessive notifications. Need to fix the notification throttling before re-running.",
             created_at=team_collab_flag.created_at,
+        )
+
+        # Bias warning demo (running) — intentionally configured to trigger the
+        # multi-variant exclusion bias warning: 90/10 uneven split, default EXCLUDE
+        # handling, and ~2% of users exposed to multiple variants over time.
+        bias_warning_metric_uuids = [str(uuid.uuid4()) for _ in range(2)]
+        Experiment.objects.create(
+            team=team,
+            name="Bias warning demo: uneven split with multi-variant",
+            description="Demo experiment intentionally configured to trigger the multi-variant exclusion bias warning (90/10 split, ~2% of users exposed to multiple variants).",
+            feature_flag=bias_warning_flag,
+            created_by=user,
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "funnel",
+                    "uuid": bias_warning_metric_uuids[0],
+                    "name": "Pageview to upload",
+                    "series": [
+                        {"kind": "EventsNode", "event": "$pageview"},
+                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                    ],
+                    "goal": "increase",
+                    "conversion_window": 7,
+                    "conversion_window_unit": "day",
+                },
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": bias_warning_metric_uuids[1],
+                    "name": "Pageviews per user",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                    "goal": "increase",
+                },
+            ],
+            metrics_secondary=[],
+            primary_metrics_ordered_uuids=bias_warning_metric_uuids,
+            parameters={
+                "feature_flag_variants": [
+                    {"key": "control", "rollout_percentage": 90},
+                    {"key": "test", "rollout_percentage": 10},
+                ],
+                "recommended_sample_size": int(len(self.clusters) * 0.30),
+                "minimum_detectable_effect": 10,
+            },
+            start_date=self.bias_warning_experiment_start,
+            end_date=None,
+            created_at=bias_warning_flag.created_at,
         )
 
         self._set_up_demo_data_warehouse_tables(team, user)

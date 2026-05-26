@@ -4,13 +4,21 @@ import { IconBalance, IconCheckCircle, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import {
+    SceneMenuBar,
+    SceneMenuBarItem,
+    SceneMenuBarMenu,
+    SceneMenuBarSeparator,
+} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ScenePanel,
@@ -39,6 +47,7 @@ export const scene: SceneExport<SharedMetricLogicProps> = {
 
 export function SharedMetric(): JSX.Element {
     const { sharedMetric, action } = useValues(sharedMetricLogic)
+    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
         useActions(sharedMetricLogic)
 
@@ -104,6 +113,52 @@ export function SharedMetric(): JSX.Element {
                 </div>
             )}
 
+            {sceneMenuBarEnabled && action === 'update' && (
+                <SceneMenuBar>
+                    <SceneMenuBarMenu label="File" dataAttr="shared-metric-menubar-file">
+                        <SceneMenuBarFileItems dataAttrKey="shared-metric" />
+                        <SceneMenuBarSeparator />
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.ExperimentSavedMetric}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={sharedMetric.user_access_level}
+                        >
+                            {({ disabledReason }) => (
+                                <SceneMenuBarItem
+                                    variant="destructive"
+                                    opensFloatingUi
+                                    disabled={!!disabledReason}
+                                    onClick={() => {
+                                        LemonDialog.open({
+                                            title: 'Delete this metric?',
+                                            content: (
+                                                <div className="text-sm text-secondary">
+                                                    This action cannot be undone.
+                                                </div>
+                                            ),
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                type: 'primary',
+                                                onClick: () => deleteSharedMetric(),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
+                                    }}
+                                    data-attr="shared-metric-menubar-delete"
+                                >
+                                    <IconTrash />
+                                    Delete
+                                </SceneMenuBarItem>
+                            )}
+                        </AccessControlAction>
+                    </SceneMenuBarMenu>
+                </SceneMenuBar>
+            )}
             <ScenePanel>
                 <ScenePanelInfoSection>
                     <SceneTags

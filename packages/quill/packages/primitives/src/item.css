@@ -1,13 +1,5 @@
 /* stylelint-disable selector-class-pattern -- escaped Tailwind group classes (.group\/item, .group\/item-group) fall outside strict BEM */
 @layer components {
-    .quill-item-group {
-        /* combined mode collapses gaps */
-    }
-
-    .quill-item-group[data-combined] {
-        gap: 0;
-    }
-
     .quill-item {
         font-size: var(--text-xs, 0.75rem);
         line-height: 1.625;
@@ -27,27 +19,18 @@
         box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
     }
 
-    /* Combined item-group: collapse borders between siblings */
-    [data-combined] > .quill-item {
-        border-radius: 0;
-    }
-
-    [data-combined] > .quill-item:first-child {
-        border-start-start-radius: var(--radius-sm);
-        border-start-end-radius: var(--radius-sm);
-    }
-
-    [data-combined] > .quill-item:last-child {
-        border-end-start-radius: var(--radius-sm);
-        border-end-end-radius: var(--radius-sm);
-    }
-
-    [data-combined] > .quill-item:not(:last-child) {
-        border-bottom: 0;
-    }
-
-    /* Inside combobox items drop the border */
-    [data-slot='combobox-item'].quill-item {
+    /*
+     * Item nested inside a popover-style row (combobox option, select option,
+     * menu/menubar/dropdown/context-menu item, command palette item) should
+     * not paint its own border — the row owns the selection/highlight visual,
+     * and the Item's `--card` border becomes a visible halo as soon as the
+     * row gets `bg-fill-selected` or `bg-fill-hover`.
+     *
+     * Targeting by ARIA role rather than `data-slot` keeps this future-proof:
+     * any primitive that exposes its row as `role=option | menuitem | *` gets
+     * the reset for free, no per-primitive rule needed.
+     */
+    :is([role='option'], [role='menuitem'], [role='menuitemcheckbox'], [role='menuitemradio']) .quill-item {
         border: none;
     }
 
@@ -66,22 +49,20 @@
     }
 
     .quill-item--variant-pressable {
+        border-color: var(--border);
+        box-shadow: var(--shadow-md);
         transition:
             color 0.15s ease,
-            background-color 0.15s ease,
-            border-color 0.15s ease,
-            box-shadow 0.15s ease;
+            background-color 0.15s ease;
     }
 
     .quill-item--variant-pressable:hover {
         z-index: 1;
-        border-color: color-mix(in oklab, var(--secondary) 20%, transparent);
-        box-shadow: var(--shadow-md, 0 1px 2px 0 rgb(0 0 0 / 30%));
     }
 
-    .group\/item-group[data-combined='true'] .quill-item--variant-pressable:hover {
-        border-color: var(--border);
-        box-shadow: none;
+    .quill-item--variant-pressable:not(:disabled):active {
+        box-shadow: var(--shadow-sm);
+        translate: 0 1px;
     }
 
     .quill-item--variant-menu {

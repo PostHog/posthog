@@ -2556,3 +2556,88 @@ async fn test_db_rate_limit_allowlist() {
         .await
         .unwrap();
 }
+
+/// Verifies the synchronous billing path writes (or, when `skip_writes=true`,
+/// suppresses) the FlagDefinitions counter for `/flags/definitions`. The
+/// `/flags` endpoint is covered by tests in `test_flags.rs`; this test is
+/// the equivalent for the FlagDefinitions code path so a regression that
+/// honored `skip_writes` for one endpoint but not the other can't slip
+/// through.
+#[rstest::rstest]
+#[case(true)]
+#[case(false)]
+#[tokio::test]
+async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
+    use feature_flags::config::FlexBool;
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::utils::test_utils::{setup_redis_client, TestContext};
+    use serde_json::json;
+
+    let mut config = feature_flags::config::Config::default_test_config();
+    config.skip_writes = FlexBool(skip_writes);
+
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Seed the HyperCache with a billable flag (a non-survey, non-product-tour
+    // key) so `has_billable_flags` returns true and `record()` actually fires.
+    context
+        .populate_cache_for_team_with_flags(
+            team.id,
+            json!({
+                "flags": [{"key": "billable-flag", "active": true}],
+                "group_type_mapping": {},
+                "cohorts": {},
+            }),
+        )
+        .await
+        .unwrap();
+
+    // Clean billing key so we can assert on a fresh write.
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let billing_key = get_team_request_key(team.id, FlagRequestType::FlagDefinitions);
+    redis.del(billing_key.clone()).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config).await;
+    let http = reqwest::Client::new();
+
+    // Capture before the request — the HTTP roundtrip can cross a 2-minute bucket boundary.
+    let bucket_field = current_bucket().to_string();
+
+    let response = http
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        200,
+        "Response body: {}",
+        response.text().await.unwrap()
+    );
+
+    // Synchronous path writes inline before the response returns, so we can
+    // read back without polling.
+    let counter = redis.hget(billing_key, bucket_field).await;
+
+    if skip_writes {
+        assert!(
+            counter.is_err(),
+            "FlagDefinitions billing counter should NOT be incremented when skip_writes=true"
+        );
+    } else {
+        assert_eq!(
+            counter.unwrap(),
+            "1",
+            "FlagDefinitions billing counter should be incremented once"
+        );
+    }
+}

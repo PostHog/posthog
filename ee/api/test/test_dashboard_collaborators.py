@@ -11,14 +11,14 @@ from ee.models.rbac.access_control import AccessControl
 
 
 class TestDashboardCollaboratorsAPI(APILicensedTest):
-    CONFIG_FORCE_ADVANCED_PERMISSIONS_ON_SETUP = True
+    CONFIG_FORCE_ACCESS_CONTROL_ON_SETUP = True
     test_dashboard: Dashboard
 
     def setUp(self):
         super().setUp()
 
-        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
-            self.skipTest("Dashboard collaborators tests require advanced permissions")
+        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            self.skipTest("Dashboard collaborators tests require access control")
 
         AccessControl.objects.create(
             team=self.team,

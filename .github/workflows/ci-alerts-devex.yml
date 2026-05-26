@@ -28,10 +28,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Restore state
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .alerts-devex
                   key: alerts-devex-${{ github.run_id }}
@@ -39,7 +39,7 @@ jobs:
 
             - name: Check master status
               id: check
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const script = require('./.github/scripts/ci-alerts-devex.js');
@@ -154,7 +154,7 @@ jobs:
             - name: Post commit-failure-streak alert to Slack
               if: steps.check.outputs.commit_failure_streak_action == 'create'
               id: slack_commit_streak
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -189,7 +189,7 @@ jobs:
 
             - name: Update commit-failure-streak Slack message
               if: steps.check.outputs.commit_failure_streak_action == 'update'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.update
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -212,7 +212,7 @@ jobs:
 
             - name: Update commit-failure-streak Slack to resolved
               if: steps.check.outputs.commit_failure_streak_action == 'resolve'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.update
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -243,7 +243,7 @@ jobs:
 
             - name: Save state to cache
               if: steps.check.outputs.save_cache == 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .alerts-devex
                   key: alerts-devex-${{ github.run_id }}

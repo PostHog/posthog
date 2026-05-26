@@ -12,7 +12,7 @@ on:
             - 'package.json'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -25,7 +25,7 @@ jobs:
 
         steps:
             - name: Checkout code
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Install Flox
               uses: flox/install-flox-action@c94e7e1ab56ae14fe98bae4fd84384fd135f0c2a # v2.4.0
@@ -50,6 +50,7 @@ jobs:
 
                     echo "--- Node packages ---"
                     pnpm --filter=@posthog/frontend exec tsc --version
+                    pnpm --filter=@posthog/frontend exec tsgo --version
                   '
 
             - name: Check lockfile consistency

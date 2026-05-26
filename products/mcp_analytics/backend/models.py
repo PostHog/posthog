@@ -1,8 +1,37 @@
 """Django models for mcp_analytics."""
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
+
+
+class MCPIntentClusterSnapshot(TeamScopedRootMixin):
+    class Status(models.TextChoices):
+        IDLE = "idle", "Idle"
+        COMPUTING = "computing", "Computing"
+        ERROR = "error", "Error"
+
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="mcp_intent_cluster_snapshot",
+    )
+    last_computed_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.IDLE)
+    error_message = models.TextField(blank=True, default="")
+    # Full denormalized snapshot: {clusters: [{id, label, intent_count, ...}], computed_with: {...}}
+    clusters = models.JSONField(default=dict)
+    last_computed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_mcp_analytics_intent_cluster_snapshot"
 
 
 class MCPAnalyticsSubmission(UUIDModel):
@@ -45,4 +74,32 @@ class MCPAnalyticsSubmission(UUIDModel):
             models.Index(fields=["team", "attempted_tool"]),
             models.Index(fields=["team", "mcp_session_id"]),
             models.Index(fields=["team", "mcp_trace_id"]),
+        ]
+
+
+class MCPSession(UUIDModel, TeamScopedRootMixin):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    session_id = models.CharField(max_length=64)
+
+    session_start = models.DateTimeField(null=True, blank=True)
+    session_end = models.DateTimeField(null=True, blank=True)
+    duration_seconds = models.IntegerField(null=True, blank=True)
+
+    tools_used = ArrayField(models.CharField(max_length=200), default=list, blank=True)
+    tool_call_count = models.IntegerField(default=0)
+    distinct_id = models.CharField(max_length=400, blank=True, default="")
+    mcp_client_name = models.CharField(max_length=200, blank=True, default="")
+    intent = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_mcp_session"
+        ordering = ["-session_end"]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "session_id"], name="unique_mcp_session"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "-session_end"]),
         ]

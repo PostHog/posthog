@@ -4,6 +4,7 @@ name: Request review for posthog-js updates
 # SECURITY: We never checkout or execute code from the PR branch.
 # We only use the GitHub API to check the diff and request reviewers.
 
+# nosemgrep: semgrep.rules.github-actions-pull-request-target
 on:
     pull_request_target:
         types: [opened, synchronize]

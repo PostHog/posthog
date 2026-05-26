@@ -257,7 +257,7 @@ fn load_static_event(filename: &str) -> AnyEvent {
 }
 
 // Helper to load sourcemap from static files
-fn get_sourcemap(chunk_id: &str) -> Result<Option<Vec<u8>>, UnhandledError> {
+fn get_sourcemap(chunk_id: &str) -> Result<Option<bytes::Bytes>, UnhandledError> {
     let Ok(minified_source) = fs::read_to_string(format!("tests/static/sourcemaps/{chunk_id}.js"))
     else {
         return Ok(None);
@@ -274,7 +274,7 @@ fn get_sourcemap(chunk_id: &str) -> Result<Option<Vec<u8>>, UnhandledError> {
     })
     .map_err(|e| UnhandledError::Other(e.to_string()))?;
 
-    Ok(Some(symbol_data))
+    Ok(Some(bytes::Bytes::from(symbol_data)))
 }
 
 // Helper to insert symbol set records in the database
@@ -299,12 +299,6 @@ fn extract_exception_list(response: &SuccessResponse) -> ExceptionList {
         serde_json::from_value(event.as_ref().unwrap().properties.clone())
             .expect("Should deserialize properties");
     props.exception_list
-}
-
-fn extract_exception_list_raw(response: &SuccessResponse) -> serde_json::Value {
-    let event = response.first_event();
-    let props = event.as_ref().unwrap().properties.clone();
-    props["$exception_list"].clone()
 }
 
 // Tests
@@ -553,10 +547,8 @@ async fn handles_missing_sourcemap(db: PgPool) {
     let (status, body): (_, SuccessResponse) = harness.post_event(&event).await;
 
     assert!(status.is_success());
-    // Use raw JSON extraction to avoid losing resolve_failure during
-    // typed deserialization (Frame's resolve_failure is skip_deserializing).
-    let exception_list = extract_exception_list_raw(&body);
-    assert_json_snapshot!(exception_list, {
+    let exception_list = extract_exception_list(&body);
+    assert_json_snapshot!(exception_list.0, {
         "[].id" => "REDACTED",
     });
 }

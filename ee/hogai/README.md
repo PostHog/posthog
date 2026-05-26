@@ -115,7 +115,7 @@ For an example, see `frontend/src/scenes/session-recordings/filters/RecordingsUn
 
 Once you have an initial version of the tool in place, **test the heck out of it**. Try everything you'd want as a regular user, and tune all aspects of the tool as needed: tool name, tool description, prompt of the context messages (`context_prompt_template`), and context from the frontend.
 
-When developing, get full visibility into what the tool is doing using local PostHog LLM analytics: [http://localhost:8010/llm-analytics/traces](http://localhost:8010/llm-analytics/traces). Each _trace_ represents one human message submitted to Max, and shows the whole sequence of steps taken to answer that message.
+When developing, get full visibility into what the tool is doing using local PostHog AI observability: [http://localhost:8010/ai-observability/traces](http://localhost:8010/ai-observability/traces). Each _trace_ represents one human message submitted to Max, and shows the whole sequence of steps taken to answer that message.
 
 If you've got any requests for Max, including around tools, let us know at #team-posthog-ai in Slack!
 

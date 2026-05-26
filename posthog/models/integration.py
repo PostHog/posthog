@@ -4,10 +4,11 @@ import time
 import base64
 import socket
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Optional
-from urllib.parse import urlencode, urlparse
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
+from urllib.parse import urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
@@ -15,16 +16,18 @@ if TYPE_CHECKING:
     import aiohttp
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.http import HttpRequest
 from django.utils import timezone
 
 import requests
 import structlog
+from anthropic import Anthropic, APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
+from opentelemetry import trace
 from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
 from rest_framework.exceptions import ValidationError
@@ -41,7 +44,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase, GitHub
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.user import User
-from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
+from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
 from posthog.security.url_validation import is_url_allowed
@@ -51,6 +54,7 @@ from posthog.utils import get_instance_region
 from products.workflows.backend.providers import SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 def _decode_jwt_payload(token: str) -> dict | None:
@@ -91,11 +95,59 @@ def dot_get(d: Any, path: str, default: Any = None) -> Any:
     return d
 
 
+def _extract_oauth_error_message(res: requests.Response) -> str | None:
+    """Pull a human-readable error from a failed OAuth token-exchange response.
+
+    Most providers (Stripe, Google, etc.) return JSON of the shape
+    `{"error": "...", "error_description": "..."}`. Fall back to the raw body
+    (truncated) when the JSON has none of those fields, or when the body isn't
+    JSON at all — better to dump a snippet than to swallow the cause silently
+    and let the caller render a status-code-only message.
+    """
+    try:
+        body = res.json()
+    except Exception:
+        text = (res.text or "").strip()
+        return text[:300] if text else None
+
+    if isinstance(body, dict):
+        description = body.get("error_description") or body.get("message")
+        code = body.get("error")
+        if description and code:
+            return f"{code}: {description}"
+        if description:
+            return str(description)
+        if code:
+            return str(code)
+
+    # Unknown shape — surface a serialized snippet so the customer at least sees what came back.
+    try:
+        snippet = json.dumps(body)
+    except (TypeError, ValueError):
+        snippet = (res.text or "").strip()
+    return snippet[:300] if snippet else None
+
+
+def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
+    """Raise a ValidationError describing a failed OAuth token exchange.
+
+    DRF turns ValidationError into a 400 with a populated `detail`, so the frontend toast renders
+    a useful message instead of the generic "Something went wrong" fallback that follows from a
+    bare Exception (which surfaces as a 500 with no detail).
+    """
+    provider_error = _extract_oauth_error_message(res)
+    if provider_error:
+        raise ValidationError(f"{kind} OAuth failed: {provider_error}")
+    raise ValidationError(f"{kind} OAuth failed (status {res.status_code}). Please try again.")
+
+
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
+        ANTHROPIC = "anthropic"
+        APPLE_PUSH = "apns"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
@@ -177,6 +229,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
+        if self.kind == "apns":
+            return self.config.get("bundle_id", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -219,22 +273,16 @@ POSTHOG_SLACK_SCOPE = ",".join(
         "groups:read",
         "chat:write",
         "chat:write.customize",
-        *(
-            [  # New scopes that came with the update adding PostHog AI integration with Slack
-                "app_mentions:read",
-                "channels:history",
-                "groups:history",
-                "links:read",
-                "links:write",
-                "reactions:read",
-                "reactions:write",
-                "team:read",
-                "users:read",
-                "users:read.email",
-            ]
-            if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV"
-            else []
-        ),
+        "app_mentions:read",
+        "channels:history",
+        "groups:history",
+        "links:read",
+        "links:write",
+        "reactions:read",
+        "reactions:write",
+        "team:read",
+        "users:read",
+        "users:read.email",
     ]
 )
 
@@ -556,14 +604,17 @@ class OauthIntegration:
             if not settings.STRIPE_APP_CLIENT_ID or not settings.STRIPE_APP_SECRET_KEY:
                 raise NotImplementedError("Stripe app not configured")
 
-            # Stripe issues separate client_ids for live vs sandbox installs of the
-            # same app. Same authorize endpoint and same client_secret for both.
+            # Stripe issues separate client_id and secret for live vs sandbox installs of the
+            # same app. Sandbox-issued OAuth codes can only be redeemed with the sandbox secret;
+            # using the live secret returns "Authorization code provided does not belong to you".
             if is_sandbox:
-                if not settings.STRIPE_APP_SANDBOX_CLIENT_ID:
-                    raise NotImplementedError("Stripe sandbox client_id not configured")
+                if not settings.STRIPE_APP_SANDBOX_CLIENT_ID or not settings.STRIPE_APP_SANDBOX_SECRET_KEY:
+                    raise NotImplementedError("Stripe sandbox not configured")
                 client_id = settings.STRIPE_APP_SANDBOX_CLIENT_ID
+                client_secret = settings.STRIPE_APP_SANDBOX_SECRET_KEY
             else:
                 client_id = settings.STRIPE_APP_CLIENT_ID
+                client_secret = settings.STRIPE_APP_SECRET_KEY
 
             authorize_url = (
                 settings.STRIPE_APP_OVERRIDE_AUTHORIZE_URL or "https://marketplace.stripe.com/oauth/v2/authorize"
@@ -572,7 +623,7 @@ class OauthIntegration:
                 authorize_url=authorize_url,
                 token_url="https://api.stripe.com/v1/oauth/token",
                 client_id=client_id,
-                client_secret=settings.STRIPE_APP_SECRET_KEY,
+                client_secret=client_secret,
                 scope="",
                 id_path="stripe_user_id",
                 name_path="account_name",
@@ -670,6 +721,37 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
             )
+            # Marketplace-initiated installs land on /integrations/stripe/confirm-install
+            # without any signal indicating live vs sandbox. If the live secret rejected
+            # the code as "does not belong to you", it was minted by the sandbox app -
+            # retry with the sandbox secret. Both sandbox client_id and secret must be
+            # configured: oauth_config_for_kind requires both, so guard on both here to
+            # avoid raising NotImplementedError over the original OAuth error.
+            if (
+                res.status_code == 400
+                and settings.STRIPE_APP_SANDBOX_CLIENT_ID
+                and settings.STRIPE_APP_SANDBOX_SECRET_KEY
+                and "does not belong to you" in (res.text or "")
+            ):
+                sandbox_oauth_config = cls.oauth_config_for_kind("stripe", is_sandbox=True)
+                res = requests.post(
+                    sandbox_oauth_config.token_url,
+                    auth=HTTPBasicAuth(sandbox_oauth_config.client_secret, ""),
+                    data={
+                        "code": params["code"],
+                        "grant_type": "authorization_code",
+                    },
+                )
+                if res.status_code == 200:
+                    # Use the sandbox config for downstream API calls (account name lookup)
+                    # and persist the flag so refresh / write_posthog_secrets / clear_posthog_secrets
+                    # pick the sandbox secret without retrying.
+                    oauth_config = sandbox_oauth_config
+                    stripe_is_sandbox = True
+                else:
+                    stripe_is_sandbox = False
+            else:
+                stripe_is_sandbox = False
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
@@ -683,7 +765,12 @@ class OauthIntegration:
                 },
             )
 
-        config: dict = res.json()
+        try:
+            config: dict = res.json()
+        except ValueError:
+            # Non-JSON body (e.g. an HTML 502 from a proxy). Keep going so the status-code
+            # branch below can surface a structured ValidationError to the frontend.
+            config = {}
 
         access_token = None
         if kind == "tiktok-ads":
@@ -707,11 +794,14 @@ class OauthIntegration:
                     },
                 )
 
-                config = res.json()
+                try:
+                    config = res.json()
+                except ValueError:
+                    config = {}
 
                 if res.status_code != 200 or not config.get("access_token"):
                     logger.error(f"Oauth error for {kind}", response=res.text)
-                    raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
+                    _raise_oauth_validation_error(kind, res)
             else:
                 # Include request context so on-call can compare what we sent against what
                 # the merchant authorized with in Stripe. Code prefix only, full grant is
@@ -724,7 +814,10 @@ class OauthIntegration:
                     redirect_uri=OauthIntegration.redirect_uri(kind),
                     code_prefix=str(params.get("code", ""))[:12],
                 )
-                raise Exception(f"Oauth error. Status code = {res.status_code}")
+                # Surface the provider's error to the frontend toast — without this, DRF turns
+                # the bare Exception into a generic 500 and the user sees "Something went wrong"
+                # with no actionable detail. ValidationError → 400 with `detail` set.
+                _raise_oauth_validation_error(kind, res)
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
@@ -865,6 +958,16 @@ class OauthIntegration:
             # Default to 1 hour for Salesforce if not provided (conservative)
             config["expires_in"] = 3600
 
+        # Stripe Apps OAuth tokens don't include expires_in in the response
+        if not config.get("expires_in") and kind == "stripe":
+            config["expires_in"] = 3600
+
+        if kind == "stripe":
+            # Persisted so downstream Stripe API calls (refresh_access_token,
+            # StripeIntegration.write_posthog_secrets / clear_posthog_secrets)
+            # pick the right developer secret without error-driven retries.
+            config["is_sandbox"] = stripe_is_sandbox
+
         config["refreshed_at"] = int(time.time())
 
         integration, created = Integration.objects.update_or_create(
@@ -898,6 +1001,9 @@ class OauthIntegration:
             # Salesforce tokens typically last 2-4 hours, we'll assume 1 hour (3600 seconds) to be conservative
             expires_in = 3600
 
+        if not expires_in and self.integration.kind == "stripe":
+            expires_in = 3600
+
         if not expires_in or not refreshed_at:
             return False
 
@@ -910,7 +1016,8 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        oauth_config = self.oauth_config_for_kind(self.integration.kind)
+        is_sandbox = _stripe_integration_is_sandbox(self.integration)
+        oauth_config = self.oauth_config_for_kind(self.integration.kind, is_sandbox=is_sandbox)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
@@ -998,10 +1105,11 @@ class OauthIntegration:
             if config.get("refresh_token"):
                 self.integration.sensitive_config["refresh_token"] = config["refresh_token"]
 
-            # Handle case where Salesforce doesn't provide expires_in in refresh response
+            # Handle case where Salesforce/Stripe doesn't provide expires_in in refresh response
             expires_in = config.get("expires_in")
             if not expires_in and self.integration.kind == "salesforce":
-                # Default to 1 hour for Salesforce if not provided (conservative)
+                expires_in = 3600
+            if not expires_in and self.integration.kind == "stripe":
                 expires_in = 3600
 
             self.integration.config["expires_in"] = expires_in
@@ -1016,11 +1124,17 @@ class SlackIntegrationError(Exception):
     pass
 
 
+SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack", "slack-posthog-code")
+
+SLACK_CHANNELS_PAGE_SIZE = 1000
+SLACK_CHANNELS_MAX_PAGES = 10
+
+
 class SlackIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind not in ("slack", "slack-posthog-code"):
+        if integration.kind not in SLACK_INTEGRATION_KINDS:
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration
@@ -1031,6 +1145,14 @@ class SlackIntegration:
 
     def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
         return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
+
+    def granted_scopes(self) -> frozenset[str]:
+        """OAuth scopes Slack granted this install, stored on Integration.config["scope"]."""
+        raw = self.integration.config.get("scope") or ""
+        return frozenset(scope.strip() for scope in raw.split(",") if scope.strip())
+
+    def missing_scopes(self, required: Iterable[str]) -> frozenset[str]:
+        return frozenset(required) - self.granted_scopes()
 
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
@@ -1074,17 +1196,23 @@ class SlackIntegration:
         should_include_private_channels: bool = False,
         authed_user: str | None = None,
     ) -> list[dict]:
-        max_page = 50
+        max_page = SLACK_CHANNELS_MAX_PAGES
         channels = []
         cursor = None
 
         while max_page > 0:
             max_page -= 1
             if type == "public_channel":
-                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+                res = self.client.conversations_list(
+                    exclude_archived=True, types=type, limit=SLACK_CHANNELS_PAGE_SIZE, cursor=cursor
+                )
             else:
                 res = self.client.users_conversations(
-                    exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
+                    exclude_archived=True,
+                    types=type,
+                    limit=SLACK_CHANNELS_PAGE_SIZE,
+                    cursor=cursor,
+                    user=authed_user,
                 )
 
                 for channel in res["channels"]:
@@ -1107,13 +1235,17 @@ class SlackIntegration:
     @classmethod
     @cache_for(timedelta(minutes=5))
     def slack_config(cls):
-        config = get_instance_settings(
-            [
-                "SLACK_APP_CLIENT_ID",
-                "SLACK_APP_CLIENT_SECRET",
-                "SLACK_APP_SIGNING_SECRET",
-            ]
-        )
+        # Span only fires on cache miss (cache_for is process-local in-memory).
+        # If preflight.slack_config_main is fast in production traces, this span
+        # will be absent; if it appears, it tells us the DB hit was slow.
+        with tracer.start_as_current_span("slack_integration.slack_config_db"):
+            config = get_instance_settings(
+                [
+                    "SLACK_APP_CLIENT_ID",
+                    "SLACK_APP_CLIENT_SECRET",
+                    "SLACK_APP_SIGNING_SECRET",
+                ]
+            )
 
         return config
 
@@ -1606,6 +1738,82 @@ class FirebaseIntegration:
         return self.integration.sensitive_config.get("access_token", "")
 
 
+class ApplePushIntegration:
+    """
+    Integration for Apple Push Notification Service (APNS).
+
+    config stores:
+      - team_id: Apple Developer Team ID
+      - bundle_id: App bundle identifier (e.g. com.example.app)
+      - key_id: The Key ID for the .p8 signing key
+
+    sensitive_config stores:
+      - signing_key: The .p8 signing key contents
+    """
+
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "apns":
+            raise Exception("ApplePushIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @classmethod
+    def integration_from_key(
+        cls,
+        signing_key: str,
+        key_id: str,
+        team_id_apple: str,
+        bundle_id: str,
+        team_id: int,
+        created_by: User | None = None,
+    ) -> "Integration":
+        if not all([signing_key, key_id, team_id_apple, bundle_id]):
+            raise ValidationError("All APNS fields are required: signing_key, key_id, team_id_apple, bundle_id")
+
+        integration, created = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind="apns",
+            integration_id=f"{team_id_apple}.{bundle_id}",
+            defaults={
+                "config": {
+                    "team_id": team_id_apple,
+                    "bundle_id": bundle_id,
+                    "key_id": key_id,
+                },
+                "sensitive_config": {
+                    "signing_key": signing_key,
+                },
+            },
+        )
+
+        if created and created_by is not None:
+            integration.created_by = created_by
+            integration.save(update_fields=["created_by"])
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save(update_fields=["errors"])
+
+        return integration
+
+    @property
+    def team_id_apple(self) -> str:
+        return self.integration.config.get("team_id", "")
+
+    @property
+    def bundle_id(self) -> str:
+        return self.integration.config.get("bundle_id", "")
+
+    @property
+    def key_id(self) -> str:
+        return self.integration.config.get("key_id", "")
+
+    @property
+    def signing_key(self) -> str:
+        return self.integration.sensitive_config.get("signing_key", "")
+
+
 class LinkedInAdsIntegration:
     integration: Integration
 
@@ -2071,7 +2279,13 @@ class GitHubRateLimitError(GitHubIntegrationError):
     """GitHub API rate limit exhausted for this installation."""
 
     def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
-        super().__init__(message)
+        # Forward to the base error so backoff filters using `exc.is_rate_limit` /
+        # `exc.retry_after_seconds` continue to work for instances of this subclass.
+        super().__init__(
+            message,
+            is_rate_limit=True,
+            retry_after_seconds=float(retry_after) if retry_after is not None else None,
+        )
         self.reset_at = reset_at
         self.retry_after = retry_after
 
@@ -2177,6 +2391,9 @@ class GitHubIntegration(GitHubIntegrationBase):
     def github_user_from_code(cls, code: str, *, redirect_uri: str | None = None) -> "GitHubUserAuthorization | None":
         """Exchange an OAuth code from the GitHub App user authorization flow.
 
+        Pass ``redirect_uri`` when the user was sent to ``/login/oauth/authorize`` with
+        the same redirect URI (required by GitHub for the token exchange in that flow).
+
         Returns a :class:`GitHubUserAuthorization` with the user's id/login plus the
         user-to-server access/refresh tokens and their expirations, or ``None`` if
         the exchange fails or the response lacks an id/login.
@@ -2187,64 +2404,60 @@ class GitHubIntegration(GitHubIntegrationBase):
             logger.warning("GitHubIntegration: GITHUB_APP_CLIENT_ID/SECRET not configured, cannot exchange code")
             return None
 
-        token_payload: dict[str, str] = {
+        token_body: dict[str, str] = {
             "client_id": client_id,
             "client_secret": client_secret,
             "code": code,
         }
         if redirect_uri is not None:
-            token_payload["redirect_uri"] = redirect_uri
+            token_body["redirect_uri"] = redirect_uri
 
-        try:
-            token_response = requests.post(
-                "https://github.com/login/oauth/access_token",
-                json=token_payload,
-                headers={"Accept": "application/json"},
-                timeout=10,
+        token_response = requests.post(
+            "https://github.com/login/oauth/access_token",
+            json=token_body,
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        token_data = token_response.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            logger.warning(
+                "GitHubIntegration: code exchange returned no access_token",
+                status_code=token_response.status_code,
+                error=token_data.get("error"),
+                error_description=token_data.get("error_description"),
+                error_uri=token_data.get("error_uri"),
             )
-            token_data = token_response.json()
-            access_token = token_data.get("access_token")
-            if not access_token:
-                logger.warning(
-                    "GitHubIntegration: code exchange returned no access_token",
-                    status_code=token_response.status_code,
-                    error=token_data.get("error"),
-                    error_description=token_data.get("error_description"),
-                    error_uri=token_data.get("error_uri"),
-                )
-                return None
-
-            user_response = requests.get(
-                "https://api.github.com/user",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-                timeout=10,
-            )
-            if user_response.status_code != 200:
-                logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
-                return None
-
-            payload = user_response.json()
-            gh_id = payload.get("id")
-            gh_login = payload.get("login")
-            if gh_id is None or not gh_login:
-                return None
-            access_expires_in = token_data.get("expires_in")
-            refresh_expires_in = token_data.get("refresh_token_expires_in")
-            return GitHubUserAuthorization(
-                gh_id=int(gh_id),
-                gh_login=str(gh_login),
-                access_token=str(access_token),
-                refresh_token=token_data.get("refresh_token") or None,
-                access_token_expires_in=int(access_expires_in) if access_expires_in is not None else None,
-                refresh_token_expires_in=int(refresh_expires_in) if refresh_expires_in is not None else None,
-            )
-        except Exception:
-            logger.warning("GitHubIntegration: failed to exchange code for github user", exc_info=True)
             return None
+
+        user_response = requests.get(
+            "https://api.github.com/user",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=10,
+        )
+        if user_response.status_code != 200:
+            logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
+            return None
+
+        payload = user_response.json()
+        gh_id = payload.get("id")
+        gh_login = payload.get("login")
+        if gh_id is None or not gh_login:
+            return None
+        access_expires_in = token_data.get("expires_in")
+        refresh_expires_in = token_data.get("refresh_token_expires_in")
+        return GitHubUserAuthorization(
+            gh_id=int(gh_id),
+            gh_login=str(gh_login),
+            access_token=str(access_token),
+            refresh_token=token_data.get("refresh_token") or None,
+            access_token_expires_in=int(access_expires_in) if access_expires_in is not None else None,
+            refresh_token_expires_in=int(refresh_expires_in) if refresh_expires_in is not None else None,
+        )
 
     @classmethod
     def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
@@ -2266,15 +2479,6 @@ class GitHubIntegration(GitHubIntegrationBase):
         oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
         self.integration.save()
 
-    def get_access_token(self) -> str:
-        """Return a valid installation access token, refreshing it if expired."""
-        if self.access_token_expired():
-            self.refresh_access_token()
-        token = self.integration.sensitive_config.get("access_token")
-        if not token:
-            raise GitHubIntegrationError("Access token unavailable after refresh")
-        return token
-
     def _on_token_refreshed(self) -> None:
         logger.info(f"Refreshed access token for {self}")
         self.integration.errors = ""
@@ -2286,10 +2490,6 @@ class GitHubIntegration(GitHubIntegrationBase):
         self, *, search: str = "", limit: int = 100, offset: int = 0
     ) -> tuple[list[dict], bool]:
         return self.list_cached_repositories(search=search, limit=limit, offset=offset)
-
-    @database_sync_to_async
-    def list_all_cached_repositories_async(self, max_repos: int | None = None) -> list[dict]:
-        return self.list_all_cached_repositories(max_repos=max_repos)
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
@@ -2552,94 +2752,6 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "status_code": response.status_code,
             }
 
-    @staticmethod
-    def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:
-        """Parse a GitHub pull request URL into ``(owner, repo, pr_number)``.
-
-        Returns ``None`` if the URL does not look like a GitHub PR URL.
-        """
-        try:
-            parsed = urlparse(pr_url)
-        except Exception:
-            return None
-        if parsed.netloc not in {"github.com", "www.github.com"}:
-            return None
-        parts = [p for p in parsed.path.split("/") if p]
-        # Expected path: /{owner}/{repo}/pull/{number}[/...]
-        if len(parts) < 4 or parts[2] != "pull":
-            return None
-        owner, repo, _, pr_number_str = parts[:4]
-        try:
-            pr_number = int(pr_number_str)
-        except ValueError:
-            return None
-        return owner, repo, pr_number
-
-    def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
-        """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
-        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-
-        response = self._installation_authenticated_get(
-            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
-            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
-        )
-        if response is None:
-            return {"success": False, "error": "Network error fetching pull request"}
-        if response.status_code != 200:
-            return {
-                "success": False,
-                "error": f"Failed to fetch pull request: {response.text}",
-                "status_code": response.status_code,
-            }
-        try:
-            pr = response.json()
-        except Exception:
-            logger.warning(
-                "GitHubIntegration: get_pull_request non-JSON response",
-                repository=repo_path,
-                pr_number=pr_number,
-            )
-            return {"success": False, "error": "Failed to parse pull request JSON"}
-
-        head = pr.get("head") or {}
-        base = pr.get("base") or {}
-        user = pr.get("user") or {}
-
-        return {
-            "success": True,
-            "number": pr.get("number"),
-            "title": pr.get("title"),
-            "body": pr.get("body"),
-            "url": pr.get("html_url"),
-            "state": pr.get("state"),
-            "merged": pr.get("merged", False),
-            "draft": pr.get("draft", False),
-            "head_branch": head.get("ref"),
-            "base_branch": base.get("ref"),
-            "head_sha": head.get("sha"),
-            "base_sha": base.get("sha"),
-            "repository": repo_path,
-            "author": user.get("login"),
-            "created_at": pr.get("created_at"),
-            "updated_at": pr.get("updated_at"),
-            "merged_at": pr.get("merged_at"),
-            "closed_at": pr.get("closed_at"),
-            "comments": pr.get("comments", 0),
-            "review_comments": pr.get("review_comments", 0),
-            "commits": pr.get("commits", 0),
-            "additions": pr.get("additions", 0),
-            "deletions": pr.get("deletions", 0),
-            "changed_files": pr.get("changed_files", 0),
-        }
-
-    def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
-        """Fetch a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
-        parsed = self.parse_pull_request_url(pr_url)
-        if parsed is None:
-            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
-        owner, repo, pr_number = parsed
-        return self.get_pull_request(f"{owner}/{repo}", pr_number)
-
 
 class GitLabIntegrationError(Exception):
     pass
@@ -2747,11 +2859,11 @@ class MetaAdsIntegration:
     def refresh_access_token(self):
         oauth_config = OauthIntegration.oauth_config_for_kind(self.integration.kind)
 
-        # check if refresh is necessary (less than 7 days)
+        # skip refresh if more than 7 days until expiry
         if self.integration.config.get("expires_in") and self.integration.config.get("refreshed_at"):
             if (
                 time.time()
-                > self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
+                < self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
             ):
                 return
 
@@ -2830,6 +2942,169 @@ class TwilioIntegration:
             integration.save()
 
         return integration
+
+
+ANTHROPIC_MANAGED_AGENTS_BETA_HEADER = "managed-agents-2026-04-01"
+ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX = "workspace-"
+ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH = 100
+ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT = 100
+# 5s connect / 15s read are aggressive enough to keep gunicorn workers from
+# being pinned for ~minutes on a slow Anthropic upstream while still leaving
+# headroom for normal API latency.
+ANTHROPIC_CLIENT_TIMEOUT_SECONDS = 15.0
+
+
+class AnthropicIntegrationError(Exception):
+    """Raised when the AnthropicIntegration is constructed with an invalid Integration row."""
+
+
+def _build_anthropic_client(api_key: str) -> Anthropic:
+    # Tight timeouts and no SDK-side retries: we don't want a slow upstream to
+    # multiply request time by 3 (default `max_retries=2`) inside a Django worker.
+    return Anthropic(api_key=api_key, timeout=ANTHROPIC_CLIENT_TIMEOUT_SECONDS, max_retries=0)
+
+
+class AnthropicIntegration:
+    integration: Integration
+    _client: Anthropic
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.ANTHROPIC.value:
+            # Internal misuse, not a user-input issue.
+            raise AnthropicIntegrationError(
+                f"AnthropicIntegration init called with Integration kind={integration.kind!r}"
+            )
+        self.integration = integration
+        api_key = integration.sensitive_config.get("api_key")
+        if not api_key:
+            raise AnthropicIntegrationError(f"Anthropic integration {integration.id} is missing 'api_key'")
+        self._client = _build_anthropic_client(api_key)
+
+    @staticmethod
+    def validate_key(api_key: str) -> None:
+        # Validate by hitting the actual managed-agents surface so a key without
+        # beta access fails at create time instead of silently failing later.
+        try:
+            client = _build_anthropic_client(api_key)
+            client.get(
+                "/v1/agents",
+                cast_to=dict[str, object],
+                options={
+                    "headers": {"anthropic-beta": ANTHROPIC_MANAGED_AGENTS_BETA_HEADER},
+                    "params": {"limit": 1},
+                },
+            )
+        except AuthenticationError:
+            raise ValidationError({"api_key": "Invalid Anthropic API key"})
+        except PermissionDeniedError:
+            raise ValidationError(
+                {
+                    "api_key": (
+                        "Anthropic API key is missing required permissions. Make sure the key has access to the "
+                        "Managed Agents beta in your Anthropic console."
+                    )
+                }
+            )
+        except APIConnectionError:
+            logger.warning("anthropic_validate_key_connection_error", exc_info=True)
+            raise ValidationError(
+                {"api_key": "Could not reach Anthropic to validate the API key. Check your network and try again."}
+            )
+        except APIStatusError as e:
+            logger.warning("anthropic_validate_key_status_error", status_code=e.status_code, exc_info=True)
+            raise ValidationError(
+                {"api_key": f"Anthropic returned an error validating the API key (HTTP {e.status_code})."}
+            )
+
+    def _managed_agents_get(self, path: str, params: dict[str, Any] | None = None) -> dict:
+        return self._client.get(
+            path,
+            cast_to=dict[str, object],
+            options={
+                "headers": {"anthropic-beta": ANTHROPIC_MANAGED_AGENTS_BETA_HEADER},
+                "params": params or {},
+            },
+        )
+
+    def _list_managed_agents_resource(self, path: str, after: str | None, limit: int) -> tuple[list[dict], str | None]:
+        params: dict[str, Any] = {"limit": min(max(int(limit), 1), ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT)}
+        if after:
+            params["after"] = after
+        response = self._managed_agents_get(path, params=params)
+        raw_data = response.get("data", [])
+        data: list[dict] = [item for item in raw_data if isinstance(item, dict)] if isinstance(raw_data, list) else []
+        next_cursor = response.get("next_cursor")
+        return data, next_cursor if isinstance(next_cursor, str) else None
+
+    def list_managed_agents(
+        self, after: str | None = None, limit: int = ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT
+    ) -> tuple[list[dict], str | None]:
+        return self._list_managed_agents_resource("/v1/agents", after=after, limit=limit)
+
+    def list_managed_agent_environments(
+        self, after: str | None = None, limit: int = ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT
+    ) -> tuple[list[dict], str | None]:
+        return self._list_managed_agents_resource("/v1/environments", after=after, limit=limit)
+
+    def list_managed_agent_vaults(
+        self, after: str | None = None, limit: int = ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT
+    ) -> tuple[list[dict], str | None]:
+        return self._list_managed_agents_resource("/v1/vaults", after=after, limit=limit)
+
+    @classmethod
+    def integration_from_key(
+        cls,
+        api_key: str,
+        team_id: int,
+        created_by: User,
+        workspace_label: str | None = None,
+        force: bool = False,
+    ) -> Integration:
+        cls.validate_key(api_key)
+
+        anthropic_kind: str = Integration.IntegrationKind.ANTHROPIC.value
+        integration_id = workspace_label or f"{ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX}{team_id}"
+        config: dict[str, Any] = {}
+        if workspace_label:
+            config["workspace_label"] = workspace_label
+
+        if force:
+            integration, _ = Integration.objects.update_or_create(
+                team_id=team_id,
+                kind=anthropic_kind,
+                integration_id=integration_id,
+                defaults={
+                    "config": config,
+                    "sensitive_config": {"api_key": api_key},
+                    "created_by": created_by,
+                    "errors": "",
+                },
+            )
+            return integration
+
+        try:
+            # Wrap in a savepoint so the unique-constraint IntegrityError below
+            # aborts only the INSERT, not the surrounding transaction (e.g. the
+            # outer DRF request atomic block, or the test wrapper).
+            with transaction.atomic():
+                return Integration.objects.create(
+                    team_id=team_id,
+                    kind=anthropic_kind,
+                    integration_id=integration_id,
+                    config=config,
+                    sensitive_config={"api_key": api_key},
+                    created_by=created_by,
+                    errors="",
+                )
+        except IntegrityError:
+            raise ValidationError(
+                {
+                    "config": (
+                        f"An integration with id '{integration_id}' already exists for this team. Choose a different "
+                        "workspace label, delete the existing integration and try again, or set 'force' to true to overwrite the existing integration."
+                    )
+                }
+            )
 
 
 class DatabricksIntegrationError(Exception):
@@ -3004,6 +3279,16 @@ class AzureBlobIntegration:
         return None
 
 
+def _stripe_integration_is_sandbox(integration: Integration) -> bool:
+    """True when this is a Stripe integration provisioned via the sandbox channel.
+
+    Strict identity check on the config flag - a malformed string write (e.g. "false")
+    fails closed to live rather than escalating to sandbox-secret usage. Returns
+    False for non-stripe integrations so non-Stripe call sites can pass through.
+    """
+    return integration.kind == "stripe" and integration.config.get("is_sandbox") is True
+
+
 class StripeIntegration:
     integration: Integration
 
@@ -3033,6 +3318,28 @@ class StripeIntegration:
         if integration.kind != "stripe":
             raise ValueError(f"Expected stripe integration, got {integration.kind}")
         self.integration = integration
+
+    @property
+    def is_sandbox(self) -> bool:
+        return _stripe_integration_is_sandbox(self.integration)
+
+    def _stripe_client(self) -> StripeClient | None:
+        # Sandbox accounts are issued by a separate Stripe app (live vs sandbox), so the
+        # Apps Secret Store and account-scoped API calls must authenticate with the matching
+        # developer secret. Returns None when the required env vars are missing so callers
+        # can skip Stripe API calls without raising past their per-secret error handling.
+        try:
+            oauth_config = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=self.is_sandbox)
+        except NotImplementedError as e:
+            capture_exception(
+                e,
+                {
+                    "stripe_user_id": self.integration.integration_id,
+                    "is_sandbox": self.is_sandbox,
+                },
+            )
+            return None
+        return StripeClient(oauth_config.client_secret)
 
     def write_posthog_secrets(self, team_id: int, created_by: "User") -> None:
         """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs."""
@@ -3075,7 +3382,9 @@ class StripeIntegration:
             "posthog_oauth_client_id": oauth_app.client_id,
         }
 
-        client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
+        client = self._stripe_client()
+        if client is None:
+            return
 
         for name, payload in secrets.items():
             try:
@@ -3088,12 +3397,13 @@ class StripeIntegration:
                     options={"stripe_account": stripe_user_id},
                 )
             except Exception as e:
-                capture_exception(e)
-                logger.warning(
-                    "Failed to write secret to Stripe",
-                    secret_name=name,
-                    stripe_user_id=stripe_user_id,
-                    error=str(e),
+                capture_exception(
+                    e,
+                    {
+                        "secret_name": name,
+                        "stripe_user_id": stripe_user_id,
+                        "is_sandbox": self.is_sandbox,
+                    },
                 )
 
     def clear_posthog_secrets(self) -> None:
@@ -3102,7 +3412,10 @@ class StripeIntegration:
         if not stripe_user_id:
             raise ValueError("Missing stripe_user_id on integration")
 
-        client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
+        client = self._stripe_client()
+        if client is None:
+            self._destroy_posthog_oauth_tokens()
+            return
 
         for name in (
             "posthog_region",
@@ -3120,12 +3433,13 @@ class StripeIntegration:
                     options={"stripe_account": stripe_user_id},
                 )
             except Exception as e:
-                capture_exception(e)
-                logger.warning(
-                    "Failed to clear secret from Stripe",
-                    secret_name=name,
-                    stripe_user_id=stripe_user_id,
-                    error=str(e),
+                capture_exception(
+                    e,
+                    {
+                        "secret_name": name,
+                        "stripe_user_id": stripe_user_id,
+                        "is_sandbox": self.is_sandbox,
+                    },
                 )
 
         self._destroy_posthog_oauth_tokens()

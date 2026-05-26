@@ -22,7 +22,6 @@ def _create_running_experiment(team, user, flag_key, metrics=None):
         feature_flag=flag,
         start_date=datetime.datetime.now(ZoneInfo("UTC")) - datetime.timedelta(days=1),
         status=Experiment.Status.RUNNING,
-        scheduling_config={"timeseries": True},
         metrics=metrics
         or [{"metric_type": "mean", "uuid": f"uuid-{flag_key}", "source": {"kind": "EventsNode", "event": "test"}}],
     )

@@ -108,6 +108,9 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/cancel/`,
@@ -168,6 +171,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         }
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
+        }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -238,6 +244,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
+        }
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/`,
@@ -281,6 +290,9 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
         }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/reload/`,
@@ -323,6 +335,9 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         }
         if (params.cdc_table_mode !== undefined) {
             body['cdc_table_mode'] = params.cdc_table_mode
+        }
+        if (params.enabled_columns !== undefined) {
+            body['enabled_columns'] = params.enabled_columns
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -405,6 +420,7 @@ const externalDataSourcesCreate = (): ToolBase<
         if (params.access_method !== undefined) {
             body['access_method'] = params.access_method
         }
+        body['created_via'] = 'mcp'
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/`,
@@ -427,6 +443,9 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCreateWebhookCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }
@@ -464,6 +483,9 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDeleteWebhookCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }
@@ -539,6 +561,9 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesPartialUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }
@@ -572,9 +597,14 @@ const externalDataSourcesRefreshSchemas = (): ToolBase<typeof ExternalDataSource
     schema: ExternalDataSourcesRefreshSchemasSchema,
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesRefreshSchemasSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/refresh_schemas/`,
+            body,
         })
         return result
     },
@@ -589,9 +619,14 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
     schema: ExternalDataSourcesReloadSchema,
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesReloadSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/reload/`,
+            body,
         })
         return result
     },
@@ -628,6 +663,9 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.created_via !== undefined) {
+            body['created_via'] = params.created_via
+        }
         if (params.client_secret !== undefined) {
             body['client_secret'] = params.client_secret
         }
@@ -774,9 +812,6 @@ const sqlVariablesUpdate = (): ToolBase<typeof SqlVariablesUpdateSchema, Schemas
 const ViewCreateSchema = WarehouseSavedQueriesCreateBody.extend({
     name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
         'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
-    ),
-    query: WarehouseSavedQueriesCreateBody.shape['query'].describe(
-        'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
     ),
 })
 
@@ -1027,9 +1062,6 @@ const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project
     .extend({
         name: WarehouseSavedQueriesPartialUpdateBody.shape['name'].describe(
             'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
-        ),
-        query: WarehouseSavedQueriesPartialUpdateBody.shape['query'].describe(
-            'HogQL query definition as a JSON object. Must contain a "query" key with the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
         ),
         edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe(
             'Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.'

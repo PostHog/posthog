@@ -1,0 +1,32 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Mixin for serializers to add user access control fields",
+    "properties": {
+        "description": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Short description of what the metric measures."
+        },
+        "name": {
+            "description": "Name of the shared metric. Must be unique within the project (case-insensitive).",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "query": {
+            "description": "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+        },
+        "tags": {
+            "items": {},
+            "type": "array"
+        }
+    },
+    "required": ["name", "query"],
+    "type": "object"
+}

@@ -61,7 +61,7 @@ ORDER BY cost_usd DESC
 LIMIT 25
 ```
 
-For a richer per-user view with person properties, the `/llm-analytics/users`
+For a richer per-user view with person properties, the `/ai-observability/users`
 page uses the same shape — check there for inspiration before hand-rolling.
 
 ## Cost by trace (top expensive traces)
@@ -178,7 +178,7 @@ names. If a single model mixes both reporting styles across events
 instead of `any()`.
 
 Rank and roll up on `total_cost` — summing only the input/output components
-drops request and web-search fees and can diverge from the `/llm-analytics`
+drops request and web-search fees and can diverge from the `/ai-observability`
 UI. If `request_cost` or `web_search_cost` are a meaningful share of
 `total_cost` for a model, that's a separate optimization lever (e.g. chattier
 provider, tool-heavy generations).

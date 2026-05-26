@@ -545,6 +545,29 @@ class TestEnableBlockingWhenTrialExhausted(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
 
+    def test_allows_enabling_hog_eval_when_limit_reached(self):
+        EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
+        eval_obj = Evaluation.objects.create(
+            team=self.team,
+            name="Hog Eval",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={},
+            enabled=False,
+            created_by=self.user,
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+            {"enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
+
     def test_allows_enabling_byok_eval_when_limit_reached(self):
         EvaluationConfig.objects.create(team=self.team, trial_eval_limit=100, trial_evals_used=100)
         key = LLMProviderKey.objects.create(

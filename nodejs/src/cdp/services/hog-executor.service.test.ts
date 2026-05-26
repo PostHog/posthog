@@ -681,7 +681,6 @@ describe('Hog Executor', () => {
                 },
                 error: undefined,
                 durationMs: 1,
-                waitedForThreadRelief: false,
             })
 
             const res = await executor.execute(createExampleInvocation(fn))
@@ -826,7 +825,6 @@ describe('Hog Executor', () => {
                 },
                 error: undefined,
                 durationMs: 1,
-                waitedForThreadRelief: false,
             })
         }
 

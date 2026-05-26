@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconFilter, IconGlobe, IconPhone, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonSelect, Popover, Tooltip } from '@posthog/lemon-ui'
@@ -21,17 +21,18 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink, IconMonitor, IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import MaxTool from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyMathType, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyMathType } from '~/types'
 
-import { BotTrafficFilter, ProductTab, faviconUrl } from './common'
+import { ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
@@ -45,235 +46,6 @@ import {
     WebPropertyFilters,
     getWebAnalyticsTaxonomicGroupTypes,
 } from './WebPropertyFilters'
-
-const BotTrafficToggle = (): JSX.Element | null => {
-    const { botTrafficFilter, productTab } = useValues(webAnalyticsLogic)
-    const { setBotTrafficFilter } = useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS] || productTab === ProductTab.BOT_ANALYTICS) {
-        return null
-    }
-
-    return (
-        <LemonSegmentedSelect
-            value={botTrafficFilter}
-            onChange={(value) => setBotTrafficFilter(value as BotTrafficFilter)}
-            options={[
-                { value: 'regular', label: 'Regular' },
-                { value: 'bot', label: 'Bot' },
-                { value: 'all', label: 'All' },
-            ]}
-            size="small"
-        />
-    )
-}
-
-interface BotDef {
-    name: string
-    category: string
-}
-
-const BOT_DEFINITIONS_LIST: BotDef[] = [
-    { name: 'Ahrefs', category: 'seo_crawler' },
-    { name: 'Ahrefs Site Audit', category: 'seo_crawler' },
-    { name: 'Amazon', category: 'ai_crawler' },
-    { name: 'Anthropic', category: 'ai_crawler' },
-    { name: 'Apache HTTP', category: 'http_client' },
-    { name: 'Apple AI', category: 'ai_search' },
-    { name: 'Applebot', category: 'ai_search' },
-    { name: 'Axios', category: 'http_client' },
-    { name: 'Baidu', category: 'search_crawler' },
-    { name: 'Barkrowler', category: 'seo_crawler' },
-    { name: 'Bingbot', category: 'search_crawler' },
-    { name: 'Brightbot', category: 'ai_crawler' },
-    { name: 'ByteDance', category: 'ai_crawler' },
-    { name: 'ChatGPT', category: 'ai_assistant' },
-    { name: 'Chrome Prefetch Proxy', category: 'http_client' },
-    { name: 'Claude', category: 'ai_crawler' },
-    { name: 'Claude Search', category: 'ai_search' },
-    { name: 'Claude User', category: 'ai_assistant' },
-    { name: 'Claude Web', category: 'ai_crawler' },
-    { name: 'Cohere', category: 'ai_crawler' },
-    { name: 'Common Crawl', category: 'ai_crawler' },
-    { name: 'curl', category: 'http_client' },
-    { name: 'Datadog', category: 'monitoring' },
-    { name: 'Diffbot', category: 'ai_crawler' },
-    { name: 'DuckDuckGo', category: 'search_crawler' },
-    { name: 'DuckDuckGo AI', category: 'ai_assistant' },
-    { name: 'Facebook', category: 'social_crawler' },
-    { name: 'Facebook Bot', category: 'social_crawler' },
-    { name: 'Go HTTP', category: 'http_client' },
-    { name: 'Google AI', category: 'ai_crawler' },
-    { name: 'Google Ads', category: 'search_crawler' },
-    { name: 'Google Cloud Vertex', category: 'ai_crawler' },
-    { name: 'Google Inspection', category: 'search_crawler' },
-    { name: 'GoogleOther', category: 'ai_crawler' },
-    { name: 'Googlebot', category: 'search_crawler' },
-    { name: 'GPTBot', category: 'ai_crawler' },
-    { name: 'Headless Chrome', category: 'headless_browser' },
-    { name: 'LinkedIn', category: 'social_crawler' },
-    { name: 'LWP', category: 'http_client' },
-    { name: 'Majestic', category: 'seo_crawler' },
-    { name: 'Meta AI', category: 'ai_crawler' },
-    { name: 'Meta Fetcher', category: 'ai_assistant' },
-    { name: 'Mistral AI', category: 'ai_assistant' },
-    { name: 'Moz', category: 'seo_crawler' },
-    { name: 'Mozlila Typo Bot', category: 'headless_browser' },
-    { name: 'Node Fetch', category: 'http_client' },
-    { name: 'OkHttp', category: 'http_client' },
-    { name: 'OpenAI Search', category: 'ai_search' },
-    { name: 'Perplexity', category: 'ai_search' },
-    { name: 'Perplexity User', category: 'ai_assistant' },
-    { name: 'Petal', category: 'ai_crawler' },
-    { name: 'PhantomJS', category: 'headless_browser' },
-    { name: 'Pingdom', category: 'monitoring' },
-    { name: 'Pinterest', category: 'social_crawler' },
-    { name: 'Playwright', category: 'headless_browser' },
-    { name: 'Puppeteer', category: 'headless_browser' },
-    { name: 'Python Requests', category: 'http_client' },
-    { name: 'Scrapy', category: 'http_client' },
-    { name: 'Selenium', category: 'headless_browser' },
-    { name: 'Semrush', category: 'seo_crawler' },
-    { name: 'Site24x7', category: 'monitoring' },
-    { name: 'Slack', category: 'social_crawler' },
-    { name: 'StatusCake', category: 'monitoring' },
-    { name: 'Telegram', category: 'social_crawler' },
-    { name: 'TikTok AI', category: 'ai_crawler' },
-    { name: 'Timpi', category: 'ai_crawler' },
-    { name: 'Twitter', category: 'social_crawler' },
-    { name: 'UptimeRobot', category: 'monitoring' },
-    { name: 'Webz.io', category: 'ai_crawler' },
-    { name: 'Webz.io Extended', category: 'ai_crawler' },
-    { name: 'Wget', category: 'http_client' },
-    { name: 'WhatsApp', category: 'social_crawler' },
-    { name: 'Yahoo', category: 'search_crawler' },
-    { name: 'Yandex', category: 'search_crawler' },
-]
-
-const CATEGORY_LABELS: Record<string, string> = {
-    ai_crawler: 'AI crawler',
-    ai_search: 'AI search',
-    ai_assistant: 'AI assistant',
-    search_crawler: 'Search crawler',
-    seo_crawler: 'SEO crawler',
-    social_crawler: 'Social crawler',
-    monitoring: 'Monitoring',
-    http_client: 'HTTP client',
-    headless_browser: 'Headless browser',
-}
-
-function getFilteredBotOptions(
-    selectedCategory: string | null,
-    selectedCrawler: string | null
-): {
-    categories: { label: string; value: string | null }[]
-    crawlers: { label: string; value: string | null }[]
-} {
-    let filtered = BOT_DEFINITIONS_LIST
-
-    if (selectedCategory) {
-        filtered = filtered.filter((b) => b.category === selectedCategory)
-    }
-    if (selectedCrawler) {
-        filtered = filtered.filter((b) => b.name === selectedCrawler)
-    }
-
-    const categoryValues = [...new Set(filtered.map((b) => b.category))].sort()
-    const crawlerValues = [...new Set(filtered.map((b) => b.name))].sort()
-
-    return {
-        categories: [
-            { label: 'All categories', value: null },
-            ...categoryValues.map((c) => ({ label: CATEGORY_LABELS[c] || c, value: c })),
-        ],
-        crawlers: [{ label: 'All crawlers', value: null }, ...crawlerValues.map((n) => ({ label: n, value: n }))],
-    }
-}
-
-function getBotFilterValue(filters: WebAnalyticsPropertyFilters, key: string): string | null {
-    const filter = filters.find((f) => 'key' in f && f.key === key)
-    return filter && 'value' in filter ? ((filter.value as string[])?.[0] ?? null) : null
-}
-
-const BotPropertySelect = ({
-    propertyKey,
-    placeholder,
-    options,
-}: {
-    propertyKey: string
-    placeholder: string
-    options: { label: string; value: string | null }[]
-}): JSX.Element => {
-    const { rawWebAnalyticsFilters } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
-
-    const currentValue = getBotFilterValue(rawWebAnalyticsFilters, propertyKey)
-
-    const onChange = (value: string | null): void => {
-        const otherFilters = rawWebAnalyticsFilters.filter((f) => !('key' in f && f.key === propertyKey))
-        if (value) {
-            setWebAnalyticsFilters([
-                ...otherFilters,
-                {
-                    key: propertyKey,
-                    value: [value],
-                    operator: PropertyOperator.Exact,
-                    type: PropertyFilterType.Event,
-                },
-            ])
-        } else {
-            setWebAnalyticsFilters(otherFilters)
-        }
-    }
-
-    return (
-        <LemonSelect
-            size="small"
-            value={currentValue}
-            onChange={onChange}
-            options={options}
-            placeholder={placeholder}
-            dropdownMatchSelectWidth={false}
-        />
-    )
-}
-
-export const BotAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
-    const {
-        dateFilter: { dateTo, dateFrom },
-        rawWebAnalyticsFilters,
-    } = useValues(webAnalyticsLogic)
-    const { setDates } = useActions(webAnalyticsLogic)
-
-    const selectedCategory = getBotFilterValue(rawWebAnalyticsFilters, '$virt_traffic_category')
-    const selectedCrawler = getBotFilterValue(rawWebAnalyticsFilters, '$virt_bot_name')
-    const { categories, crawlers } = getFilteredBotOptions(selectedCategory, selectedCrawler)
-
-    return (
-        <FilterBar
-            top={tabs}
-            left={
-                <>
-                    <ReloadAll iconOnly />
-                    <DateFilter
-                        dateOptions={webAnalyticsDateMapping}
-                        allowTimePrecision
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={setDates}
-                    />
-                    <BotPropertySelect
-                        propertyKey="$virt_traffic_category"
-                        placeholder="All categories"
-                        options={categories}
-                    />
-                    <BotPropertySelect propertyKey="$virt_bot_name" placeholder="All crawlers" options={crawlers} />
-                </>
-            }
-        />
-    )
-}
 
 const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     const {
@@ -304,7 +76,6 @@ const CondensedWebAnalyticsFilterBar = ({ tabs }: { tabs: JSX.Element }): JSX.El
                 }
                 right={
                     <>
-                        <BotTrafficToggle />
                         <ShareButton />
                         <WebVitalsPercentileToggle />
                         {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && <FilterPresetsDropdown />}
@@ -360,7 +131,6 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     }
                     right={
                         <>
-                            <BotTrafficToggle />
                             <WebAnalyticsCompareFilter />
 
                             <WebConversionGoal />
@@ -495,6 +265,106 @@ export const WebAnalyticsDomainSelector = (): JSX.Element => {
     )
 }
 
+const DEVICE_TYPE_SELECT_OPTIONS = [
+    {
+        value: 'Desktop' as const,
+        label: (
+            <div>
+                <IconMonitor className="mx-1" /> Desktop
+            </div>
+        ),
+        tooltip: 'Desktop devices include laptops and desktops.',
+    },
+    {
+        value: 'Mobile' as const,
+        label: (
+            <div>
+                <IconPhone className="mx-1" /> Mobile
+            </div>
+        ),
+        tooltip: 'Mobile devices include smartphones and tablets.',
+    },
+]
+
+export const WebAnalyticsLiveDeviceToggle = ({ fullWidth = false }: { fullWidth?: boolean } = {}): JSX.Element => {
+    const { deviceTypeFilter } = useValues(webAnalyticsLogic)
+    const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
+
+    return (
+        <LemonSelect
+            fullWidth={fullWidth}
+            size="small"
+            value={deviceTypeFilter ?? undefined}
+            allowClear={true}
+            placeholder="All devices"
+            onChange={(value) => setDeviceTypeFilter(value ?? null)}
+            options={DEVICE_TYPE_SELECT_OPTIONS}
+        />
+    )
+}
+
+export const WebAnalyticsLiveCountrySelector = (): JSX.Element => {
+    const { countryFilter } = useValues(webAnalyticsLogic)
+    const { setCountryFilter } = useActions(webAnalyticsLogic)
+
+    const options = useMemo<LemonInputSelectOption<string>[]>(
+        () =>
+            Object.entries(COUNTRY_CODE_TO_LONG_NAME)
+                .map(([code, name]) => ({
+                    key: code,
+                    label: `${countryCodeToFlag(code)}  ${name}`,
+                    labelComponent: (
+                        <span>
+                            <span aria-hidden className="mr-2">
+                                {countryCodeToFlag(code)}
+                            </span>
+                            {name}
+                        </span>
+                    ),
+                }))
+                .sort((a, b) => a.label.localeCompare(b.label)),
+        []
+    )
+
+    return (
+        <LemonInputSelect<string>
+            mode="single"
+            size="small"
+            value={countryFilter ? [countryFilter] : []}
+            options={options}
+            placeholder="All countries"
+            onChange={(values) => setCountryFilter(values[0] ?? null)}
+            virtualized
+        />
+    )
+}
+
+export const WebAnalyticsLiveReferrerSelector = ({ suggestions = [] }: { suggestions?: string[] }): JSX.Element => {
+    const { referrerFilter } = useValues(webAnalyticsLogic)
+    const { setReferrerFilter } = useActions(webAnalyticsLogic)
+
+    const options = useMemo<LemonInputSelectOption<string>[]>(
+        () =>
+            // Skip the synthetic '$direct' bucket — it's a display-only label, not a real referrer value.
+            suggestions
+                .filter((domain) => domain && domain !== '$direct')
+                .map((domain) => ({ key: domain, label: domain })),
+        [suggestions]
+    )
+
+    return (
+        <LemonInputSelect<string>
+            mode="single"
+            size="small"
+            value={referrerFilter ? [referrerFilter] : []}
+            options={options}
+            allowCustomValues
+            placeholder="All referrers"
+            onChange={(values) => setReferrerFilter(values[0] ?? null)}
+        />
+    )
+}
+
 const WebAnalyticsDeviceToggle = (): JSX.Element => {
     const { deviceTypeFilter } = useValues(webAnalyticsLogic)
     const { setDeviceTypeFilter } = useActions(webAnalyticsLogic)
@@ -525,26 +395,7 @@ const WebAnalyticsDeviceToggle = (): JSX.Element => {
                 value={deviceTypeFilter ?? undefined}
                 allowClear={true}
                 onChange={(value) => setDeviceTypeFilter(value !== deviceTypeFilter ? value : null)}
-                options={[
-                    {
-                        value: 'Desktop',
-                        label: (
-                            <div>
-                                <IconMonitor className="mx-1" /> Desktop
-                            </div>
-                        ),
-                        tooltip: 'Desktop devices include laptops and desktops.',
-                    },
-                    {
-                        value: 'Mobile',
-                        label: (
-                            <div>
-                                <IconPhone className="mx-1" /> Mobile
-                            </div>
-                        ),
-                        tooltip: 'Mobile devices include smartphones and tablets.',
-                    },
-                ]}
+                options={DEVICE_TYPE_SELECT_OPTIONS}
             />
         )
     }

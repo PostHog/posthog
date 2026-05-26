@@ -126,6 +126,11 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.is_launched and self.end_date is not None
 
     @property
+    def is_paused(self) -> bool:
+        # Pause is not stored on the experiment — it is the running state with the linked flag deactivated.
+        return self.is_running and self.feature_flag_id is not None and not self.feature_flag.active
+
+    @property
     def computed_status(self) -> "Experiment.Status":
         if self.is_stopped:
             return Experiment.Status.STOPPED
@@ -251,7 +256,9 @@ class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
         db_table = "posthog_experimentsavedmetric"
 
 
-class ExperimentToSavedMetric(models.Model):
+class ExperimentToSavedMetric(ModelActivityMixin, models.Model):
+    activity_logging_on_delete = True
+
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     saved_metric = models.ForeignKey("ExperimentSavedMetric", on_delete=models.CASCADE)
 

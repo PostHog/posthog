@@ -97,7 +97,7 @@ export function PlayerInspectorList(): JSX.Element {
                 listRef.current.scrollToRow({ index: playbackIndicatorIndex })
             }
         }
-    }, [playbackIndicatorIndex]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [playbackIndicatorIndex, syncScrollPaused]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleScroll = useCallback(() => {
         // TRICKY: There is no way to know for sure whether the scroll is directly from user input

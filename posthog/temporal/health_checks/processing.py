@@ -2,7 +2,7 @@ import time
 
 import structlog
 
-from posthog.dags.common.health.db import _resolve_stale_issues, _upsert_issues
+from posthog.temporal.health_checks.db import _resolve_stale_issues, _upsert_issues
 from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult
 from posthog.temporal.health_checks.validation import _validate_batch_output
 
