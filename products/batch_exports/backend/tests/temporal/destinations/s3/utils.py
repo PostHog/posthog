@@ -85,7 +85,10 @@ async def check_valid_credentials() -> bool:
     async with session.client("sts") as sts:
         try:
             await sts.get_caller_identity()
-        except botocore.exceptions.ClientError:
+        except (botocore.exceptions.BotoCoreError, botocore.exceptions.ClientError):
+            # No credentials (NoCredentialsError) and connection failures both subclass
+            # BotoCoreError; treat any of them as "no valid credentials" so the skipif guard
+            # skips cleanly instead of crashing collection on runners without AWS access.
             return False
         else:
             return True
