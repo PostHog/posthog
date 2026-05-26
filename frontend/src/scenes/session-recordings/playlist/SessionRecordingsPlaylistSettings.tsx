@@ -191,7 +191,7 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
     )
 }
 
-function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Element {
+export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Element {
     const {
         isAddToCollectionModalOpen,
         selectedRecordingsIds,
