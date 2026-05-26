@@ -178,7 +178,17 @@ tools:
         enabled: false
     file-download-batch-exports-cancel-create:
         operation: file_download_batch_exports_cancel_create
-        enabled: false
+        enabled: true
+        scopes:
+            - batch_export:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Cancel a running file download export
+        description: >
+            Cancel a running or starting on-demand file download export. When the status is not Starting or Running
+            calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.
     file-download-batch-exports-create:
         operation: file_download_batch_exports_create
         enabled: true

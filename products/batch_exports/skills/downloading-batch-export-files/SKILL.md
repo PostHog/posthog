@@ -74,7 +74,15 @@ When `Completed`, the `files` array contains file UUIDs.
 For single-file exports it usually contains one UUID.
 For split exports, download every UUID unless the user asked for a specific part.
 
-### 4. Download files through REST
+### 4. Optionally, cancel a running export
+
+If required by the user, a running export can be cancelled by calling `posthog:file-download-batch-exports-cancel-create` with the returned `id`.
+
+An export that has already finished or has already failed may not be cancelled.
+
+After cancelling an export, the `id` may not be used anymore and the export must start again from the beginning. However, you may still use the `id` to retrieve the export status (which will always be `Cancelled`).
+
+### 5. Download files through REST
 
 Use a direct authenticated HTTP request to the existing endpoint:
 
@@ -96,7 +104,7 @@ GET /api/projects/{project_id}/file_download_batch_exports/{run_id}/download/
 Let the HTTP client follow the redirect, or inspect the `Location` header if you need the temporary signed URL.
 Use the same PostHog authentication context as other API calls.
 
-### 5. Save, do not print, file contents
+### 6. Save, do not print, file contents
 
 Treat the result as a file download, not a chat response.
 Parquet is binary and must be written as bytes.
