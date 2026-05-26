@@ -83,7 +83,7 @@ export function failureKindDescription(kind: FailureKind): string {
 }
 
 export const DEFAULT_PROVIDER = 'google'
-export const DEFAULT_MODEL = 'gemini-3-flash'
+export const DEFAULT_MODEL = 'gemini-3-flash-preview'
 
 export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
     { value: 'enabled', label: 'Enabled' },
@@ -91,8 +91,8 @@ export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
 ]
 
 export const MODEL_OPTIONS: { value: string; label: string }[] = [
-    { value: 'gemini-3-flash', label: 'Gemini 3 Flash' },
-    { value: 'gemini-3-flash-lite', label: 'Gemini 3 Flash Lite' },
+    { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
+    { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3 Flash Lite' },
 ]
 
 export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; description: string }[] = [
