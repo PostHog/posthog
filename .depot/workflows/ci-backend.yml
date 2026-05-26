@@ -32,12 +32,12 @@ env:
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
     TEST: 1
-    # Depot CI runners expose these ambient (OTEL_SERVICE_NAME=ci-worker, plus a GITHUB_TOKEN)
-    # whereas GitHub Actions test steps do not. Left set, they leak into settings.OTEL_SERVICE_NAME
-    # (personhog metric client_name label) and settings.GITHUB_TOKEN (plugin download auth header),
-    # diverging from snapshot/mock assertions. Blank them to match the GHA environment.
+    # Depot CI runners expose OTEL_SERVICE_NAME=ci-worker ambient; GitHub Actions test steps do not.
+    # Left set, it leaks into settings.OTEL_SERVICE_NAME (personhog metric client_name label) and
+    # diverges from test assertions. Blank it to match the GHA environment. (GITHUB_TOKEN is also
+    # injected ambient and leaks into plugin download auth headers, but GITHUB_-prefixed vars are
+    # reserved and cannot be overridden via env: — it is unset inside the test run scripts instead.)
     OTEL_SERVICE_NAME: ''
-    GITHUB_TOKEN: ''
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
     OBJECT_STORAGE_ENABLED: 'True'
@@ -746,6 +746,7 @@ jobs:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
               shell: bash
               run: | # async_migrations covered in ci-async-migrations.yml
+                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
                   pytest -v --tb=short ${{
                       matrix.compat
@@ -810,6 +811,7 @@ jobs:
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
               run: |
+                  unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
                   pytest -v --tb=short --timeout=1200 --timeout-method=thread posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
