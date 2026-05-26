@@ -409,7 +409,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
         "destroy",
         "update",
         "partial_update",
-        "bulk_update_tags",
     ]
     lookup_field = "name"
     queryset = Endpoint.objects.all()
@@ -459,6 +458,17 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
             return
         endpoint.prefetched_tags = set_tags_on_object(tags, endpoint)
         cleanup_orphan_tags(endpoint.team_id)
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False)
+    def bulk_update_tags(self, request: Request, *args, **kwargs) -> Response:
+        # The inherited TaggedItemViewSetMixin.bulk_update_tags assumes integer PKs (its
+        # BulkUpdateTagsRequestSerializer validates ids as IntegerField). Endpoint uses
+        # UUID PKs, so the action is unusable. Return 405 until the mixin gains UUID support.
+        return Response(
+            {"detail": "Bulk tag updates are not supported for endpoints."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
 
     def _build_materialization_info(self, version: EndpointVersion, endpoint_name: str | None = None) -> dict:
         """Build materialization status dict for a version."""
