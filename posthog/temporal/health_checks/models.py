@@ -49,7 +49,7 @@ class BatchResult:
         return (self.teams_failed + self.teams_skipped) / self.batch_size if self.batch_size > 0 else 0
 
     # Adds up all fields from another BatchResult, e.g. totals += batch_result
-    def __iadd__(self, other: "BatchResult") -> "BatchResult":
+    def __iadd__(self, other: BatchResult) -> BatchResult:
         for f in dataclasses.fields(self):
             setattr(self, f.name, getattr(self, f.name) + getattr(other, f.name))
         return self
