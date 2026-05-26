@@ -62,7 +62,6 @@ class RetentionBaseQueryVariantComparisonMixin:
             return True
 
         if retention_filter.get("retentionType") in {
-            "retention_first_time",
             RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
             RETENTION_FIRST_EVER_OCCURRENCE,
         }:
