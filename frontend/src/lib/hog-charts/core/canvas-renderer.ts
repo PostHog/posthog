@@ -347,6 +347,8 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
         ctx.moveTo(dimensions.plotLeft, axisY)
         ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, axisY)
         ctx.stroke()
+        // Far-edge snap uses `- 0.5` (mirror of the `+ 0.5` near edge above) so the
+        // closing stroke lands just inside `plotTop + plotHeight` and stays within the plot rect.
         const closingY = Math.round(dimensions.plotTop + dimensions.plotHeight) - 0.5
         ctx.beginPath()
         ctx.moveTo(dimensions.plotLeft, closingY)
@@ -380,6 +382,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
     ctx.lineTo(axisX, dimensions.plotTop + dimensions.plotHeight)
     ctx.stroke()
 
+    // See the horizontal-mode block for the `- 0.5` snap rationale (mirror of the near-edge `+ 0.5`).
     const closingX = Math.round(dimensions.plotLeft + dimensions.plotWidth) - 0.5
     ctx.beginPath()
     ctx.moveTo(closingX, dimensions.plotTop)
