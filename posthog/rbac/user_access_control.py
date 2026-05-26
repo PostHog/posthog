@@ -882,9 +882,6 @@ class UserAccessControl:
         Used by the HogQL printer guard and the HogQL cache-key fingerprint.
         One query: pulls every per-object row this user is subject to across all resources.
         """
-        org_membership = self._organization_membership
-        if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
-            return {}
         if not EE_AVAILABLE or not self._team:
             return {}
         if not posthoganalytics.feature_enabled(
@@ -897,6 +894,10 @@ class UserAccessControl:
             },
             send_feature_flag_events=False,
         ):
+            return {}
+
+        org_membership = self._organization_membership
+        if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
             return {}
 
         rows = list(

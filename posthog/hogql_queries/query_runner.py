@@ -1871,16 +1871,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _get_object_access_restrictions(self) -> dict[str, list[str]] | None:
         """Returns a sorted {resource: [ids]} mapping of restricted resource IDs for the current user, or None if no restrictions.
 
-        The underlying ``UserAccessControl.blocked_resource_ids_by_scope`` runs one
-        bulk Postgres query against ``ee_accesscontrol`` regardless of how many
-        resources are restricted.
+        Reuses the ``UserAccessControl`` from ``Database.create_for`` when present so
+        HogQL runners don't re-query ``_organization_membership`` and ``ee_accesscontrol``.
+        Non-HogQL runners can't query ``system.*`` tables, so skipping the fingerprint
+        for them avoids needless cache misses.
         """
-        from posthog.rbac.user_access_control import UserAccessControl
-
         if self.user is None:
             return None
-        uac = UserAccessControl(user=self.user, team=self.team)
-        blocked = uac.blocked_resource_ids_by_scope
+        database = getattr(self, "database", None)
+        if database is None or database.user_access_control is None:
+            return None
+        blocked = database.user_access_control.blocked_resource_ids_by_scope
         if not blocked:
             return None
         return {resource: sorted(ids) for resource, ids in sorted(blocked.items())}
