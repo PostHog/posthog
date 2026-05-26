@@ -11,7 +11,7 @@ from django.utils import timezone
 
 import psycopg.errors
 from asgiref.sync import sync_to_async
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.models import Organization, Team
 from posthog.models.exported_asset import ExportedAsset
@@ -38,10 +38,16 @@ from products.replay_vision.backend.temporal.activities.ensure_session_asset imp
 from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
+    mark_observation_ineligible_activity,
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
+from products.replay_vision.backend.temporal.errors import (
+    INELIGIBLE_SESSION_ERROR_TYPE,
+    IneligibleSessionError,
+    IneligibleSessionKind,
+)
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
 from products.replay_vision.backend.temporal.scanners.indexer import IndexerOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
@@ -62,6 +68,7 @@ from products.replay_vision.backend.temporal.types import (
     EventTable,
     FetchSessionEventsInputs,
     MarkObservationFailedInputs,
+    MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
     ScannerCallOutput,
@@ -70,6 +77,7 @@ from products.replay_vision.backend.temporal.types import (
     SessionMetadata,
     UploadedVideo,
 )
+from products.replay_vision.backend.temporal.workflow import _extract_ineligible_kind, _format_failure
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
@@ -277,7 +285,23 @@ class TestObservationStateActivities:
         assert observation.error_reason == "bad output"
         assert observation.completed_at is not None
 
-    @pytest.mark.parametrize("terminal_status", [ObservationStatus.SUCCEEDED, ObservationStatus.FAILED])
+    def test_mark_ineligible_records_kind_reason_and_completed_at(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+
+        mark_observation_ineligible_activity(
+            MarkObservationIneligibleInputs(observation_id=observation.id, error_reason="too_short:only 5s long")
+        )
+
+        observation.refresh_from_db()
+        assert observation.status == ObservationStatus.INELIGIBLE
+        assert observation.error_reason == "too_short:only 5s long"
+        assert observation.completed_at is not None
+
+    @pytest.mark.parametrize(
+        "terminal_status",
+        [ObservationStatus.SUCCEEDED, ObservationStatus.FAILED, ObservationStatus.INELIGIBLE],
+    )
     def test_terminal_status_is_not_overwritten_by_state_activities(self, terminal_status: str) -> None:
         # Bounded UPDATE protects against retries that race past a settled row.
         scanner = _make_scanner()
@@ -520,6 +544,95 @@ class TestFetchSessionEventsActivity:
                     )
                 )
             assert exc_info.value.non_retryable is True
+
+    @pytest.mark.parametrize(
+        "metadata,expected_kind,expected_substring",
+        [
+            (None, "no_recording", "No replay metadata"),
+            (
+                {
+                    "start_time": dt.datetime(2026, 5, 12, tzinfo=dt.UTC),
+                    "end_time": dt.datetime(2026, 5, 12, 0, 0, 5, tzinfo=dt.UTC),
+                    "duration": 5,  # under 15s floor
+                    "active_seconds": 5,
+                },
+                "too_short",
+                "is only 5",
+            ),
+            (
+                {
+                    "start_time": dt.datetime(2026, 5, 12, tzinfo=dt.UTC),
+                    "end_time": dt.datetime(2026, 5, 12, 0, 5, tzinfo=dt.UTC),
+                    "duration": 300,
+                    "active_seconds": 3,  # under 10s floor
+                },
+                "too_inactive",
+                "has only 3",
+            ),
+            (
+                {
+                    "start_time": dt.datetime(2026, 5, 12, tzinfo=dt.UTC),
+                    "end_time": dt.datetime(2026, 5, 12, 2, tzinfo=dt.UTC),
+                    "duration": 7200,
+                    "active_seconds": 5000,  # over 3600 cap
+                },
+                "too_long",
+                "has 5000",
+            ),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_raises_ineligible_session_error_with_kind(
+        self, metadata: dict | None, expected_kind: str, expected_substring: str
+    ) -> None:
+        scanner = await sync_to_async(_make_scanner)()
+        observation_id = uuid.uuid4()
+        mock_obj = self._make_session_replay_events_mock(metadata, [(["event"], [("$pageview",)])])
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            with pytest.raises(IneligibleSessionError) as exc_info:
+                await fetch_session_events_activity(
+                    FetchSessionEventsInputs(
+                        observation_id=observation_id, team_id=scanner.team_id, session_id="sess-x"
+                    )
+                )
+
+        assert exc_info.value.non_retryable is True
+        assert exc_info.value.type == INELIGIBLE_SESSION_ERROR_TYPE
+        assert exc_info.value.kind == expected_kind
+        # Kind is also in `details[0]` so the workflow can read it off the wire-serialized ApplicationError.
+        assert exc_info.value.details == (expected_kind,)
+        assert expected_substring in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_raises_ineligible_no_events_when_session_returns_empty_pages(self) -> None:
+        scanner = await sync_to_async(_make_scanner)()
+        observation_id = uuid.uuid4()
+        metadata = {
+            "start_time": dt.datetime(2026, 5, 12, tzinfo=dt.UTC),
+            "end_time": dt.datetime(2026, 5, 12, 0, 5, tzinfo=dt.UTC),
+            "duration": 300,
+            "active_seconds": 200,
+        }
+        # Empty columns + no rows triggers `_fetch_payload` to return None.
+        mock_obj = self._make_session_replay_events_mock(metadata, [([], [])])
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            with pytest.raises(IneligibleSessionError) as exc_info:
+                await fetch_session_events_activity(
+                    FetchSessionEventsInputs(
+                        observation_id=observation_id, team_id=scanner.team_id, session_id="sess-empty"
+                    )
+                )
+
+        assert exc_info.value.kind == "no_events"
+        assert exc_info.value.details == ("no_events",)
 
     @pytest.mark.asyncio
     async def test_requests_extra_fields_and_event_blocklist(self) -> None:
@@ -1332,3 +1445,41 @@ async def test_apply_scanner_workflow_marks_failed_when_side_effect_raises() -> 
     assert mark_observation_succeeded_activity not in called
     assert mark_observation_failed_activity in called
     assert cleanup_gemini_file_activity in called
+
+
+def _wrap_in_activity_error(cause: ApplicationError) -> ActivityError:
+    """Build a minimal ActivityError shaped like what Temporal raises into a workflow's `except` block."""
+    activity_err = ActivityError.__new__(ActivityError)
+    activity_err.__cause__ = cause
+    return activity_err
+
+
+class TestWorkflowErrorHelpers:
+    """Unit tests for the workflow's exception-classification helpers."""
+
+    def test_extract_ineligible_kind_returns_kind_for_direct_ineligible_session_error(self) -> None:
+        err = IneligibleSessionError("session is too short", kind=IneligibleSessionKind.TOO_SHORT)
+        assert _extract_ineligible_kind(err) == "too_short"
+
+    def test_extract_ineligible_kind_unwraps_activity_error_from_worker(self) -> None:
+        leaf = IneligibleSessionError("no recording", kind=IneligibleSessionKind.NO_RECORDING)
+        wrapped = _wrap_in_activity_error(leaf)
+        assert _extract_ineligible_kind(wrapped) == "no_recording"
+
+    def test_extract_ineligible_kind_returns_none_for_unrelated_application_error(self) -> None:
+        err = ApplicationError("something broke", type="RuntimeError", non_retryable=True)
+        assert _extract_ineligible_kind(err) is None
+
+    def test_format_failure_uses_application_error_type_over_runtime_class(self) -> None:
+        # Temporal sets `ApplicationError.type` to the original Python exception class name, so we
+        # surface that instead of always reading "ApplicationError" from the runtime class.
+        err = ApplicationError("Gemini file processed=FAILED", type="RuntimeError")
+        assert _format_failure(err) == "RuntimeError: Gemini file processed=FAILED"
+
+    def test_format_failure_unwraps_activity_error_wrapper(self) -> None:
+        leaf = ApplicationError("real reason", type="ValueError")
+        wrapped = _wrap_in_activity_error(leaf)
+        assert _format_failure(wrapped) == "ValueError: real reason"
+
+    def test_format_failure_falls_back_to_runtime_class_for_bare_python_exceptions(self) -> None:
+        assert _format_failure(ValueError("bad arg")) == "ValueError: bad arg"

@@ -9,6 +9,9 @@ class ObservationStatus(models.TextChoices):
     RUNNING = "running", "Running"
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
+    # Terminal state for sessions the scanner can't analyze (no recording, too short, too long, etc.).
+    # The reason kind is stored in `error_reason` formatted as `kind:human message`.
+    INELIGIBLE = "ineligible", "Ineligible"
 
 
 class ObservationTrigger(models.TextChoices):
@@ -27,7 +30,11 @@ class ReplayObservation(UUIDModel):
     error_reason = models.TextField(
         blank=True,
         default="",
-        help_text="Populated on `status='failed'`. Includes the malformed model response on validation failure.",
+        help_text=(
+            "Populated on terminal non-success statuses. For `failed`, the unwrapped activity error. "
+            "For `ineligible`, formatted as `kind:human-readable message` where kind is one of "
+            "no_recording / too_short / too_inactive / too_long / no_events."
+        ),
     )
     workflow_id = models.CharField(
         max_length=255,
@@ -70,7 +77,7 @@ class ReplayObservation(UUIDModel):
             models.CheckConstraint(
                 condition=(
                     models.Q(status__in=["pending", "running"], completed_at__isnull=True)
-                    | models.Q(status__in=["succeeded", "failed"], completed_at__isnull=False)
+                    | models.Q(status__in=["succeeded", "failed", "ineligible"], completed_at__isnull=False)
                 ),
                 name="replay_observation_completed_at_matches_status",
             ),

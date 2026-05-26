@@ -8,7 +8,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { replayScannerLogic } from '../replayScannerLogic'
-import { ScannerType, ObservationStatus, ReplayObservation } from '../types'
+import { ScannerType, ObservationStatus, ReplayObservation, parseIneligibleReason } from '../types'
 
 function StatusTag({ status }: { status: ObservationStatus }): JSX.Element {
     if (status === 'succeeded') {
@@ -16,6 +16,9 @@ function StatusTag({ status }: { status: ObservationStatus }): JSX.Element {
     }
     if (status === 'failed') {
         return <LemonTag type="danger">Failed</LemonTag>
+    }
+    if (status === 'ineligible') {
+        return <LemonTag type="muted">Ineligible</LemonTag>
     }
     if (status === 'running') {
         return (
@@ -34,6 +37,16 @@ function ResultPreview({
     scannerType: ScannerType
     observation: ReplayObservation
 }): JSX.Element {
+    if (observation.status === 'ineligible') {
+        const parsed = parseIneligibleReason(observation.error_reason)
+        const label = parsed?.label ?? 'Ineligible'
+        const detail = parsed?.message ?? observation.error_reason
+        return (
+            <Tooltip title={detail || label}>
+                <span className="text-muted text-sm">{label}</span>
+            </Tooltip>
+        )
+    }
     if (observation.status === 'failed') {
         return (
             <Tooltip title={observation.error_reason || 'Unknown error'}>
@@ -127,14 +140,18 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                 acc.succeeded += 1
             } else if (o.status === 'failed') {
                 acc.failed += 1
+            } else if (o.status === 'ineligible') {
+                acc.ineligible += 1
             } else {
                 acc.running += 1
             }
             return acc
         },
-        { total: 0, succeeded: 0, failed: 0, running: 0 }
+        { total: 0, succeeded: 0, failed: 0, ineligible: 0, running: 0 }
     )
-    const successRate = stats.total > 0 ? Math.round((stats.succeeded / stats.total) * 100) : null
+    // Success rate excludes ineligible — those weren't scanner failures, they were skipped at the gate.
+    const scored = stats.total - stats.ineligible
+    const successRate = scored > 0 ? Math.round((stats.succeeded / scored) * 100) : null
 
     const columns: LemonTableColumns<ReplayObservation> = [
         {
@@ -201,6 +218,12 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                                 <div className="text-center">
                                     <div className="font-semibold text-lg text-danger">{stats.failed}</div>
                                     <div className="text-muted">Failed</div>
+                                </div>
+                            )}
+                            {stats.ineligible > 0 && (
+                                <div className="text-center">
+                                    <div className="font-semibold text-lg">{stats.ineligible}</div>
+                                    <div className="text-muted">Ineligible</div>
                                 </div>
                             )}
                             {stats.running > 0 && (

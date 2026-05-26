@@ -6,7 +6,38 @@ export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer' | '
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
-export type ObservationStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+export type ObservationStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'ineligible'
+
+export type IneligibleKind = 'no_recording' | 'too_short' | 'too_inactive' | 'too_long' | 'no_events'
+
+const INELIGIBLE_KIND_LABELS: Record<IneligibleKind, string> = {
+    no_recording: 'No recording',
+    too_short: 'Too short',
+    too_inactive: 'Too inactive',
+    too_long: 'Too long',
+    no_events: 'No events',
+}
+
+const _INELIGIBLE_KINDS = new Set<string>(Object.keys(INELIGIBLE_KIND_LABELS))
+
+export type ParsedIneligibleReason = { kind: IneligibleKind; label: string; message: string }
+
+export function parseIneligibleReason(error_reason: string): ParsedIneligibleReason | null {
+    // The backend formats `error_reason` as `kind:human message`; fall back to a generic label on drift.
+    const idx = error_reason.indexOf(':')
+    if (idx <= 0) {
+        return null
+    }
+    const kind = error_reason.slice(0, idx)
+    if (!_INELIGIBLE_KINDS.has(kind)) {
+        return null
+    }
+    return {
+        kind: kind as IneligibleKind,
+        label: INELIGIBLE_KIND_LABELS[kind as IneligibleKind],
+        message: error_reason.slice(idx + 1).trim(),
+    }
+}
 
 export const DEFAULT_PROVIDER = 'google'
 export const DEFAULT_MODEL = 'gemini-3-flash'
