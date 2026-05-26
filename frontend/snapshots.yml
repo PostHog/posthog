@@ -673,9 +673,9 @@ snapshots:
     components-hogcharts-timeserieslinechart--y-axis-formats--light:
         hash: v1.k794b7964.2bef66aacecd65e45499ee99bf537162c17cb404a4c8d4871b7435fd463e8727.zc_zuF07aw8GGaVPuSnLNC-oWq1W6s78IjNb62kwLjo
     components-hogcharts-valuelabels--cross-series-overlap-removal--dark:
-        hash: v1.k794b7964.b007e0b3d5d267086c7feac666e863bf138c94e442834f38d827d9866bcfdca7.XPNu2APWwr3st71RImwnGyR-XvpLOXXKvqOOIAWV9VM
+        hash: v1.k794b7964.70b992c81df62237e75b4e7ef9e8a0619bf344c47846d5de0150193f06401968.d7cGU5PPTbQg6dU92MqhGDSqgdOn9NbShb64cqPIV_A
     components-hogcharts-valuelabels--cross-series-overlap-removal--light:
-        hash: v1.k794b7964.448986696bb416400c7b45c0cead3c555fb08740a06107d4c67cd6de3eac778a.-CC2KkgSe2QGS72LRQi30FdWUr3HiiDwZMFszFORz50
+        hash: v1.k794b7964.d7079d2593a2c6017ec0b6aaa09dd9e3cf3a06601bee1718c051e89bcbb3abfd.P2mMz7Nwya-iJlmgLAb4SMy8mHSTkzlOiQzvXO6brfA
     components-hogcharts-valuelabels--dual-y-axes--dark:
         hash: v1.k794b7964.70bd72cf9ac044f579156cb4075fb7473451e3ccfa92729d3c671526d78b2a4b.HDMQoBphdAnraD6C-ENB3-7NeEI_0cn5-SmvFtyVuyM
     components-hogcharts-valuelabels--dual-y-axes--light:
@@ -1976,10 +1976,18 @@ snapshots:
         hash: v1.k794b7964.a0b63c471c3939cbe79812a900b8f887ec600442e98d21627b874b5d8832c592.xjKULqFFbTBlaBNOQ-FWvGL_P1LfLzY3V1t-lj-gSy0
     insights-trendslifecyclechart--stacked--light:
         hash: v1.k794b7964.06299a8e05030704231ec0ab4031ff3193330c613a3b7f9688db9ce7e932fe49.-8nYhPa8-aLNwcTVGon6dY_Rn4KRC-l_frb-ikmvk1I
+    insights-trendslifecyclechart--stacked-with-values-on-series--dark:
+        hash: v1.k794b7964.3d8855eeda0bc11cc88bfc605f4f3d98a18389529249a910476eaf630747e421.GLbujlG_2ZYRPBBKvePE2O1axi6sNorKsqGxi3LLYIk
+    insights-trendslifecyclechart--stacked-with-values-on-series--light:
+        hash: v1.k794b7964.b8c4ee6cc4288293871d4c9dc83850e7e0cefa73bdc4a3984042c41953f01d26.PwlFs66ER2t5gbBToQJc2jL7ybJlg0K3h3CzWbUIRug
     insights-trendslifecyclechart--unstacked--dark:
         hash: v1.k794b7964.6b5f1e5ce04e682f39d957a57192db9dc38d29deae409146c45c275d8575341e.1wwEDPbO-jOXRNDOTT81-gPNbyMM2C5QpussoL6iEPA
     insights-trendslifecyclechart--unstacked--light:
         hash: v1.k794b7964.3467d1d62a847176237a5278030dcd296df1283111f6260f86f2d467e2cc457b.xxTvFm43ZodSjCbtbMNLpjn20JZLLK6h4-MElnqQa5I
+    insights-trendslifecyclechart--unstacked-with-values-on-series--dark:
+        hash: v1.k794b7964.51b27e46fb212a16b34a262aa0fd268060bc75f0664158514f7094ba20e3e19b.9e95m03noDYfUybRn95SPOcn1CmTppeZfkLIPxSSUlw
+    insights-trendslifecyclechart--unstacked-with-values-on-series--light:
+        hash: v1.k794b7964.266358bb2f7faba7c50e0b2bd2b4924c2abd746d9c1c6c5f79ce50c04757a26e.ccDgypjgZFpI8NbSzW1piWaUjaREnUunrT5UU6mUH9E
     insights-trendslinechart--breakdown--dark:
         hash: v1.k794b7964.26e070b747cdce14d42696be55405981bf7149f088bd0def208f50cd7f8abedd.VZhMtciuCaFsReKDPdj_svmfFGvxR_TsXGdwIPHd-34
     insights-trendslinechart--breakdown--light:
@@ -4543,9 +4551,9 @@ snapshots:
     scenes-app-feature-flags--new-multivariate-flag-variant-key-error--light:
         hash: v1.k794b7964.b02933f644aee3ce68340c02f2e73068c77b1804d10e10de6b93291f32f38b53.XkrGBrHhNOptEjC2JV5y7umfR7qovViNR_RqM7O6I_E
     scenes-app-feature-flags--new-remote-config-flag-payload-error--dark:
-        hash: v1.k794b7964.41717dc825a37facb7c1fe3bb7cbbcb135f80f69971279a9ffba4a88d2946316.fHerCbJ-eNkDoZmMfgM39T2qWIFZdpxFjcAhPDzBlhQ
+        hash: v1.k794b7964.90a92ae064ece4ef07453aa84d756607fee896b036917d11a95328d127b287b9.jzDNptf_DB_J7g_BZaXKm0vGE0-P4fh2rcVk4wGrdnU
     scenes-app-feature-flags--new-remote-config-flag-payload-error--light:
-        hash: v1.k794b7964.f51fc88581aa9679f0315bdfcc665968a85dc44d3a351b4b558fa10508e1c3b2.TDiDX5REkSVUJtb_HL095q3zzOlFMJHDngWeGy0LNS8
+        hash: v1.k794b7964.540c647b1a47aaf025fc93a19741060517a381178d000593babfe63acd36e0a6.7_UNlNUzOTr0r1pP01YH5aNz4YcqfmAcCJWobszU2rI
     scenes-app-feature-flags-code-examples--code-instructions-node-with-group-multivariate-flag-local-evaluation--dark:
         hash: v1.k794b7964.ac812954f56156e7283a5103f2d7ef66391e452a67c60df53ab7bb23f08231c4.GayyB5gpMu03PVFXWLU0h99-6qG28mNLT2sdqZpb64c
     scenes-app-feature-flags-code-examples--code-instructions-node-with-group-multivariate-flag-local-evaluation--light:
