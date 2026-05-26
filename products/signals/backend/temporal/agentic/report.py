@@ -42,7 +42,10 @@ from products.signals.backend.temporal.agentic import (
 )
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.models import SandboxEnvironment, Task
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
+from products.tasks.backend.services.custom_prompt_internals import (
+    CustomPromptSandboxContext,
+    SandboxRateLimitError,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -468,6 +471,19 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             already_addressed=result.actionability.already_addressed,
             repository=repository,
         )
+    except SandboxRateLimitError as error:
+        logger.warning(
+            "signals agentic report hit upstream rate limit — surfacing as retryable",
+            report_id=input.report_id,
+            team_id=input.team_id,
+            error=str(error),
+        )
+        # Transient upstream provider 429 — let Temporal back off and retry the activity
+        # rather than failing the whole report.
+        raise temporalio.exceptions.ApplicationError(
+            str(error),
+            type="SandboxRateLimitError",
+        ) from error
     except Exception as error:
         logger.exception(
             "signals agentic report failed",

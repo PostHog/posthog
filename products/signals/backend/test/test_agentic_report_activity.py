@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -29,6 +30,7 @@ from products.signals.backend.temporal.agentic.select_repository import (
     select_repository_activity,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.tasks.backend.services.custom_prompt_internals import SandboxRateLimitError
 
 
 @pytest_asyncio.fixture
@@ -312,6 +314,82 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
 
         finding_contents = [json.loads(artefact.content) for artefact in artefacts[3:]]
         assert [finding["signal_id"] for finding in finding_contents] == ["sig-1", "sig-2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_converts_sandbox_rate_limit_to_retryable(monkeypatch, ateam):
+    """A 429 surfacing from the sandbox should become a retryable ApplicationError,
+    not a generic terminal failure — see CODE_DEBUGGING_SESSION around upstream 429s."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=1,
+        total_weight=0.8,
+    )
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
+        lambda team_id: 1,
+    )
+
+    async def fake_run_multi_turn_research(*args, **kwargs):
+        raise SandboxRateLimitError(
+            "custom_prompt - drain_final_log: TaskRun reached terminal status=failed "
+            "(cause: Internal error: API Error: Request rejected (429) · Rate limit exceeded) — no agent message"
+        )
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
+        fake_run_multi_turn_research,
+    )
+
+    with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
+        with pytest.raises(ApplicationError) as exc_info:
+            await run_agentic_report_activity(
+                RunAgenticReportInput(
+                    team_id=ateam.id,
+                    report_id=str(report.id),
+                    signals=_build_signals()[:1],
+                    repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="test"),
+                )
+            )
+
+    assert exc_info.value.type == "SandboxRateLimitError"
+    assert exc_info.value.non_retryable is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_select_repository_activity_converts_sandbox_rate_limit_to_retryable(monkeypatch, ateam):
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        lambda report_id: None,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
+        lambda team_id: 1,
+    )
+
+    async def fake_select_repo(*args, **kwargs):
+        raise SandboxRateLimitError(
+            "custom_prompt - drain_final_log: TaskRun reached terminal status=failed "
+            "(cause: Internal error: API Error: Request rejected (429) · Rate limit exceeded) — no agent message"
+        )
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+        fake_select_repo,
+    )
+
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        with pytest.raises(ApplicationError) as exc_info:
+            await select_repository_activity(
+                SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+            )
+
+    assert exc_info.value.type == "SandboxRateLimitError"
+    assert exc_info.value.non_retryable is False
 
 
 @pytest.mark.asyncio

@@ -219,7 +219,15 @@ class SignalReportSummaryWorkflow:
                 # follower lock wait (≤20m) + agent poll window (≤30m). 45m fits all three.
                 start_to_close_timeout=timedelta(minutes=45),
                 heartbeat_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                # Permit one retry so transient upstream-provider 429s (raised as a
+                # retryable ApplicationError) don't kill repo selection on first hit.
+                # Other terminal errors are wrapped non-retryable upstream.
+                retry_policy=RetryPolicy(
+                    maximum_attempts=2,
+                    initial_interval=timedelta(seconds=30),
+                    maximum_interval=timedelta(minutes=2),
+                    backoff_coefficient=2.0,
+                ),
             )
             if repo_result.repository is None:
                 log.warning(
@@ -244,7 +252,15 @@ class SignalReportSummaryWorkflow:
                     ),
                     start_to_close_timeout=timedelta(hours=4),
                     heartbeat_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    # Permit one retry so transient upstream-provider 429s (raised as a
+                    # retryable ApplicationError) don't kill the whole report on first hit.
+                    # Other terminal errors are wrapped non-retryable upstream.
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(seconds=30),
+                        maximum_interval=timedelta(minutes=2),
+                        backoff_coefficient=2.0,
+                    ),
                 )
                 decision = ReportDecision(
                     title=agentic_result.title,

@@ -25,6 +25,7 @@ from products.signals.backend.temporal.agentic import (
 )
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.models import SandboxEnvironment
+from products.tasks.backend.services.custom_prompt_internals import SandboxRateLimitError
 
 # Repo discovery only runs `gh` CLI commands — limit egress to GitHub hosts.
 GITHUB_ONLY_DOMAINS = [
@@ -191,5 +192,12 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 str(e),
                 type="GitHubIntegrationError",
                 non_retryable=True,
+            ) from e
+        # Transient upstream provider 429 — let Temporal back off and retry the activity
+        # rather than failing the whole report's repo-selection step.
+        if isinstance(e, SandboxRateLimitError):
+            raise temporalio.exceptions.ApplicationError(
+                str(e),
+                type="SandboxRateLimitError",
             ) from e
         raise

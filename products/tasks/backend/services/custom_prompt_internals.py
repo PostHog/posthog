@@ -55,6 +55,32 @@ class EmptyAgentTurnError(RuntimeError):
         self.printed_lines = printed_lines
 
 
+class SandboxRateLimitError(RuntimeError):
+    """Raised when the sandbox-side TaskRun failed because the underlying LLM call hit a
+    transient upstream rate limit (Anthropic/OpenAI 429).
+
+    Subclasses ``RuntimeError`` so existing ``except RuntimeError`` blocks still catch it,
+    but callers that want to retry the activity can match this type and re-raise as a
+    retryable Temporal ``ApplicationError``.
+    """
+
+
+# Heuristic: matches the rate-limit error messages we've seen surface through the sandbox
+# pipeline (Anthropic "Rate limit exceeded", OpenAI "rate_limit_exceeded" /
+# "Limit ... Used ... Requested ... try again in"). Kept broad on purpose — false positives
+# only cost an extra retry; false negatives drop a recoverable failure.
+_RATE_LIMIT_PATTERN = re.compile(
+    r"(429|rate[\s_-]?limit|rate_limit_exceeded|too many requests)",
+    re.IGNORECASE,
+)
+
+
+def _is_rate_limit_error_message(error_message: str | None) -> bool:
+    if not error_message:
+        return False
+    return bool(_RATE_LIMIT_PATTERN.search(error_message))
+
+
 async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
@@ -244,9 +270,14 @@ async def _drain_final_log(
         return final_message, final_log, final_lines, printed_lines
     reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
-    raise RuntimeError(
+    message = (
         f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
     )
+    # Surface upstream provider rate limits as a distinct exception so callers can
+    # convert them into retryable Temporal errors instead of failing the whole flow.
+    if _is_rate_limit_error_message(error_message):
+        raise SandboxRateLimitError(message)
+    raise RuntimeError(message)
 
 
 def _stream_new_lines(

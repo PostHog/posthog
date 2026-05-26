@@ -12,10 +12,11 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
 
-from products.llm_analytics.backend.llm.errors import StructuredOutputParseError
+from products.llm_analytics.backend.llm.errors import RateLimitError, StructuredOutputParseError
 from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.llm_analytics.backend.models.model_configuration import LLMModelConfiguration
+from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
 from .run_evaluation import (
     BooleanEvalResult,
@@ -734,6 +735,55 @@ class TestRunEvaluationWorkflow:
                 await execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
             mock_increment_errors.assert_called_once_with(expected_label, provider="openai")
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_execute_llm_judge_activity_byok_rate_limit_is_retryable(self, setup_data):
+        """Transient TPM throttling on a BYOK key should be retryable so Temporal backs off
+        and retries — the upstream window self-clears within seconds. QuotaExceededError stays
+        non-retryable (covered separately) for permanent quota exhaustion."""
+        team = setup_data["team"]
+        evaluation_obj = setup_data["evaluation"]
+
+        key = await sync_to_async(LLMProviderKey.objects.create)(
+            team=team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+        )
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+            "model_configuration": {
+                "provider": "openai",
+                "model": "gpt-5-nano",
+                "provider_key_id": str(key.id),
+            },
+        }
+        event_data = create_mock_event_data(team.id)
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.complete.side_effect = RateLimitError(
+                "Limit 200000, Used 179996, Requested 27946. Please try again in 2.382s."
+            )
+
+            with pytest.raises(ApplicationError, match="rate limited") as exc_info:
+                await execute_llm_judge_activity(
+                    ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+                )
+
+            assert exc_info.value.non_retryable is False
+            assert exc_info.value.details[0]["error_type"] == "rate_limit"
+            assert exc_info.value.details[0]["key_id"] == str(key.id)
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)

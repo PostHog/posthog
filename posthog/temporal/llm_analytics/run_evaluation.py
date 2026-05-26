@@ -735,10 +735,13 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
     except RateLimitError:
         increment_errors("rate_limit", provider=provider)
         if is_byok:
+            # Transient TPM throttle — the upstream window clears within seconds. Keep
+            # retryable so Temporal's activity retry policy backs off and retries rather
+            # than failing the eval. `QuotaExceededError` above stays non-retryable for
+            # permanent quota exhaustion.
             raise ApplicationError(
                 "API key is being rate limited.",
                 {"error_type": "rate_limit", "key_id": key_id, "provider": provider},
-                non_retryable=True,
             )
         raise
     except ModelNotFoundError:

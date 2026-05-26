@@ -9,6 +9,7 @@ import structlog
 from slack_sdk.errors import SlackApiError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
@@ -26,6 +27,7 @@ from products.tasks.backend.repo_selection import (
 )
 from products.tasks.backend.services.agent_command import send_user_message
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.services.custom_prompt_internals import SandboxRateLimitError
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
 # Imports from `products.slack_app.backend.api` stay inline: that module imports
@@ -499,16 +501,24 @@ async def _execute_posthog_code_activity(activity_fn: Any, *args: Any) -> Any:
 async def _execute_posthog_code_agent_activity(activity_fn: Any, *args: Any) -> Any:
     """Wrapper for the discovery-agent activity.
 
-    No retries: a hung agent shouldn't block the Slack thread for tens of
-    minutes — the activity catches its own exceptions and returns
-    `status='failed'` so the workflow falls through to the picker.
+    Catches its own exceptions and returns `status='failed'` so the workflow
+    falls through to the picker — except for transient upstream-provider 429s,
+    which it re-raises as a retryable ``ApplicationError``. We permit one retry
+    with a short backoff so a Slack request doesn't fall through to the picker
+    purely because the upstream rate window hadn't cleared yet. Other errors
+    still surface as ``status='failed'`` on the first attempt.
     """
     return await workflow.execute_activity(
         activity_fn,
         args=args,
         start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS),
         heartbeat_timeout=timedelta(minutes=5),
-        retry_policy=RetryPolicy(maximum_attempts=1),
+        retry_policy=RetryPolicy(
+            maximum_attempts=2,
+            initial_interval=timedelta(seconds=15),
+            maximum_interval=timedelta(seconds=30),
+            backoff_coefficient=2.0,
+        ),
     )
 
 
@@ -855,6 +865,19 @@ async def discover_posthog_code_repository_via_agent_activity(
             repository=None,
             reason=f"Repo selection unavailable: {exc.reason}",
         )
+    except SandboxRateLimitError as exc:
+        # Transient upstream provider 429 — let Temporal back off and retry the activity
+        # rather than failing the Slack request and falling through to the picker. The
+        # workflow's retry policy gates whether a retry actually happens.
+        logger.warning(
+            "posthog_code_repo_selection_rate_limited",
+            channel=channel,
+            error=str(exc),
+        )
+        raise ApplicationError(
+            str(exc),
+            type="SandboxRateLimitError",
+        ) from exc
     except Exception as exc:
         logger.exception(
             "posthog_code_repo_selection_failed",
