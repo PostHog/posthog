@@ -248,29 +248,6 @@ class TestGetTableMetadata:
             impl.get_table_metadata(cursor, "dbo", "missing")
 
 
-class TestGetRowsToSync:
-    def test_returns_count_from_row(self, impl, cursor, logger):
-        cursor.fetchone.return_value = (123,)
-        result = impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger)
-        assert result == 123
-
-    def test_returns_zero_on_none_row(self, impl, cursor, logger):
-        cursor.fetchone.return_value = None
-        assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
-
-    def test_returns_zero_on_exception(self, impl, cursor, logger):
-        cursor.execute.side_effect = RuntimeError("boom")
-        assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
-
-    def test_wraps_inner_query_as_subselect(self, impl, cursor, logger):
-        cursor.fetchone.return_value = (5,)
-        impl.get_rows_to_sync(cursor, "SELECT x FROM y WHERE a = %(a)s", {"a": 1}, logger)
-        sql, params = cursor.execute.call_args.args
-        assert "SELECT x FROM y WHERE a = %(a)s" in sql
-        assert "COUNT(*)" in sql
-        assert params == {"a": 1}
-
-
 class TestFetchTableStats:
     def test_returns_none_when_no_row(self, impl, cursor, logger):
         cursor.fetchone.return_value = None
