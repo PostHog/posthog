@@ -33,12 +33,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
-from posthog.temporal.data_imports.sources.common.sql import (
-    BracketIdentifierQuoter,
-    Column,
-    InvalidIdentifierError,
-    Table,
-)
+from posthog.temporal.data_imports.sources.common.sql import BracketIdentifierQuoter, Column, Table
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
@@ -48,25 +43,10 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 __all__ = [
     "MSSQLColumn",
     "MSSQLImplementation",
-    "_sanitize_identifier",
     "filter_mssql_incremental_fields",
 ]
 
 _IDENTIFIER_QUOTER = BracketIdentifierQuoter()
-
-
-def _sanitize_identifier(identifier: str) -> str:
-    """Quote a T-SQL identifier with brackets, rejecting unsafe input.
-
-    Wraps `BracketIdentifierQuoter().quote` and re-raises the underlying
-    `InvalidIdentifierError` as a plain `ValueError` with the legacy
-    message shape (`"Invalid SQL identifier: ..."`) so any semgrep or
-    log-matching rule that keys on the old wording continues to work.
-    """
-    try:
-        return _IDENTIFIER_QUOTER.quote(identifier)
-    except InvalidIdentifierError as e:
-        raise ValueError(f"Invalid SQL identifier: {identifier}") from e
 
 
 def filter_mssql_incremental_fields(
