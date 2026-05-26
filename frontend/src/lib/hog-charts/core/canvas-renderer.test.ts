@@ -343,6 +343,46 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    describe('drawArea — gradient fill', () => {
+        it('uses a vertical CanvasGradient as fillStyle when fill.gradient is true', () => {
+            const ctx = mockCanvasContext()
+            const gradient = { addColorStop: jest.fn() } as unknown as CanvasGradient
+            ;(ctx as unknown as { createLinearGradient: jest.Mock }).createLinearGradient = jest
+                .fn()
+                .mockReturnValue(gradient)
+
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's', data: [10, 20, 30], color: '#22d3ee', fill: { gradient: true } })
+
+            const recordedFillStyles: unknown[] = []
+            Object.defineProperty(ctx, 'fillStyle', {
+                get: () => undefined,
+                set: (v) => recordedFillStyles.push(v),
+            })
+
+            drawArea(makeDrawContext(ctx, labels), series)
+
+            expect(ctx.createLinearGradient).toHaveBeenCalledWith(
+                0,
+                dimensions.plotTop,
+                0,
+                dimensions.plotTop + dimensions.plotHeight
+            )
+            expect(gradient.addColorStop).toHaveBeenCalledWith(0, '#22d3ee')
+            expect(gradient.addColorStop).toHaveBeenCalledWith(1, 'transparent')
+            expect(recordedFillStyles).toContain(gradient)
+        })
+
+        it('ignores gradient when lowerData is set (fill-between needs a solid fill)', () => {
+            const ctx = mockCanvasContext()
+            ;(ctx as unknown as { createLinearGradient: jest.Mock }).createLinearGradient = jest.fn()
+            const labels = ['a', 'b']
+            const series = makeSeries({ key: 's', data: [50, 80], color: '#22d3ee', fill: { gradient: true } })
+            drawArea(makeDrawContext(ctx, labels), series, undefined, [10, 20])
+            expect(ctx.createLinearGradient).not.toHaveBeenCalled()
+        })
+    })
+
     describe('drawArea — partial dashing', () => {
         it.each([
             {

@@ -14,6 +14,8 @@ export type {
 export type { ValueLabelsConfig } from './charts/utils/use-value-labels'
 export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
+export { Sparkline } from './charts/Sparkline/Sparkline'
+export type { SparklineProps } from './charts/Sparkline/Sparkline'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'

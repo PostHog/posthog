@@ -116,6 +116,7 @@ export function Chart<Meta = unknown>({
         showCrosshair = false,
         axisOrientation = 'vertical',
         isPercent = false,
+        margins: marginsOverride,
     } = config ?? {}
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
@@ -124,7 +125,7 @@ export function Chart<Meta = unknown>({
         placement: tooltipPlacement = 'follow-data',
     } = tooltipConfig ?? {}
 
-    const margins = useChartMargins({
+    const computedMargins = useChartMargins({
         series,
         labels,
         hideXAxis,
@@ -133,6 +134,11 @@ export function Chart<Meta = unknown>({
         yTickFormatter,
         axisOrientation,
     })
+
+    const margins = useMemo(
+        () => (marginsOverride ? { ...computedMargins, ...marginsOverride } : computedMargins),
+        [computedMargins, marginsOverride]
+    )
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 

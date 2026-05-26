@@ -199,13 +199,23 @@ export function drawArea(
 
     ctx.globalAlpha = opacity
 
+    // Gradient is only applied to the simple (no dashed partial, no lowerData) path —
+    // hatch/dashed fills need a solid fill to stay legible.
+    const useGradient = series.fill?.gradient && !bottomValues
+    let gradient: CanvasGradient | null = null
+    if (useGradient) {
+        gradient = ctx.createLinearGradient(0, dimensions.plotTop, 0, baseline)
+        gradient.addColorStop(0, series.color)
+        gradient.addColorStop(1, 'transparent')
+    }
+
     for (const { top, bottom } of segments) {
         if (top.length < 2) {
             continue
         }
 
         if (dashedFrom === null && dashedTo === null) {
-            ctx.fillStyle = series.color
+            ctx.fillStyle = gradient ?? series.color
             fillAreaPath(ctx, top, bottom)
             continue
         }

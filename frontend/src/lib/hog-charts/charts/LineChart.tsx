@@ -70,17 +70,23 @@ function LineChartInner<Meta = unknown>({
 }: LineChartProps<Meta>): React.ReactElement {
     const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
 
-    const hasAreaFill = useMemo(() => series.some((s) => s.fill !== undefined && !s.fill.lowerData), [series])
+    const fillableSeriesCount = useMemo(
+        () => series.filter((s) => s.fill !== undefined && !s.fill.lowerData).length,
+        [series]
+    )
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (percentStackView) {
             return computePercentStackData(series, labels)
         }
-        if (hasAreaFill) {
+        // Only stack when there are 2+ fillable series — a single area series has nothing to stack
+        // against, and forcing a stacked band would feed a `bottomValues` array into the canvas
+        // renderer, which disables the gradient fill path.
+        if (fillableSeriesCount >= 2) {
             return computeStackData(series, labels)
         }
         return undefined
-    }, [percentStackView, hasAreaFill, series, labels])
+    }, [percentStackView, fillableSeriesCount, series, labels])
 
     const chartConfig = useMemo(() => {
         const base = { ...config, isPercent: percentStackView }
