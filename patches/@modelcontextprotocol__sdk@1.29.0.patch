@@ -1,0 +1,60 @@
+diff --git a/dist/esm/server/index.js b/dist/esm/server/index.js
+index 51d060e59a33efad8cd85c97d74f5c0f4d1e1ba2..370b4406ddbe9cbaf0f2b2ba85471262e36a61a6 100644
+--- a/dist/esm/server/index.js
++++ b/dist/esm/server/index.js
+@@ -268,16 +268,22 @@ export class Server extends Protocol {
+         assertToolsCallTaskCapability(this._capabilities.tasks?.requests, method, 'Server');
+     }
+     async _oninitialize(request) {
++        const __t0 = Date.now();
++        console.info(JSON.stringify({ event: 'patch_sdk_server_oninitialize_begin' }));
+         const requestedVersion = request.params.protocolVersion;
+         this._clientCapabilities = request.params.capabilities;
+         this._clientVersion = request.params.clientInfo;
+         const protocolVersion = SUPPORTED_PROTOCOL_VERSIONS.includes(requestedVersion) ? requestedVersion : LATEST_PROTOCOL_VERSION;
+-        return {
++        const capabilities = this.getCapabilities();
++        console.info(JSON.stringify({ event: 'patch_sdk_server_oninitialize_capabilities_built', elapsedMs: Date.now() - __t0 }));
++        const response = {
+             protocolVersion,
+-            capabilities: this.getCapabilities(),
++            capabilities,
+             serverInfo: this._serverInfo,
+             ...(this._instructions && { instructions: this._instructions })
+         };
++        console.info(JSON.stringify({ event: 'patch_sdk_server_oninitialize_end', elapsedMs: Date.now() - __t0 }));
++        return response;
+     }
+     /**
+      * After initialization has completed, this will be populated with the client's reported capabilities.
+diff --git a/dist/esm/shared/protocol.js b/dist/esm/shared/protocol.js
+index bfa2b7120a0f50c569364ea5264e6f811076f44f..19d9cc27c130ee2bd00eca9dd654c6ecbb700329 100644
+--- a/dist/esm/shared/protocol.js
++++ b/dist/esm/shared/protocol.js
+@@ -213,6 +213,8 @@ export class Protocol {
+      * The Protocol object assumes ownership of the Transport, replacing any callbacks that have already been set, and expects that it is the only user of the Transport instance going forward.
+      */
+     async connect(transport) {
++        const __t0 = Date.now();
++        console.info(JSON.stringify({ event: 'patch_sdk_protocol_connect_begin' }));
+         if (this._transport) {
+             throw new Error('Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.');
+         }
+@@ -243,7 +245,9 @@ export class Protocol {
+                 this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+             }
+         };
++        console.info(JSON.stringify({ event: 'patch_sdk_protocol_connect_handlers_wired', elapsedMs: Date.now() - __t0 }));
+         await this._transport.start();
++        console.info(JSON.stringify({ event: 'patch_sdk_protocol_connect_end', elapsedMs: Date.now() - __t0 }));
+     }
+     _onclose() {
+         const responseHandlers = this._responseHandlers;
+@@ -282,6 +286,7 @@ export class Protocol {
+             .catch(error => this._onerror(new Error(`Uncaught error in notification handler: ${error}`)));
+     }
+     _onrequest(request, extra) {
++        console.info(JSON.stringify({ event: 'patch_sdk_protocol_onrequest_begin', method: request.method }));
+         const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+         // Capture the current transport at request time to ensure responses go to the correct client
+         const capturedTransport = this._transport;

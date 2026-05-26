@@ -1,0 +1,86 @@
+diff --git a/dist/mcp/index.js b/dist/mcp/index.js
+index 542a518d3c2aca37e1d1bda191da8b192a11334f..63bed5c5d5c9d2b41e1a6ead424202b61e6e2409 100644
+--- a/dist/mcp/index.js
++++ b/dist/mcp/index.js
+@@ -1389,19 +1389,36 @@ var McpAgent = class McpAgent extends Agent {
+ 		this.props = props;
+ 	}
+ 	async reinitializeServer() {
++		const __t0 = Date.now();
++		console.info(JSON.stringify({ event: 'patch_agents_reinit_begin' }));
+ 		const initializeRequest = await this.getInitializeRequest();
+-		if (initializeRequest) this._transport?.onmessage?.(initializeRequest);
++		console.info(JSON.stringify({ event: 'patch_agents_reinit_get_request', hasRequest: !!initializeRequest, elapsedMs: Date.now() - __t0 }));
++		if (initializeRequest) {
++			console.info(JSON.stringify({ event: 'patch_agents_reinit_replay_begin', elapsedMs: Date.now() - __t0 }));
++			this._transport?.onmessage?.(initializeRequest);
++			console.info(JSON.stringify({ event: 'patch_agents_reinit_replay_end', elapsedMs: Date.now() - __t0 }));
++		}
++		console.info(JSON.stringify({ event: 'patch_agents_reinit_end', elapsedMs: Date.now() - __t0 }));
+ 	}
+ 	/** Sets up the MCP transport and server every time the Agent is started.*/
+ 	async onStart(props) {
++		const __t0 = Date.now();
++		const __log = (label) => console.info(JSON.stringify({ event: 'patch_agents_onstart', label, elapsedMs: Date.now() - __t0 }));
++		__log('begin');
+ 		if (props) await this.updateProps(props);
+ 		else this.props = await this.ctx.storage.get("props");
++		__log('props_resolved');
+ 		await this.init();
++		__log('init_returned');
+ 		const server = await this.server;
++		__log('server_resolved');
+ 		this._transport = this.initTransport();
++		__log('transport_created');
+ 		if (!this._transport) throw new Error("Failed to initialize transport");
+ 		await server.connect(this._transport);
++		__log('server_connected');
+ 		await this.reinitializeServer();
++		__log('reinit_finished');
+ 	}
+ 	/** Validates new WebSocket connections. */
+ 	async onConnect(conn, { request: req }) {
+diff --git a/dist/src-f7-4oW_C.js b/dist/src-f7-4oW_C.js
+index b728f634d6abcda25f24b4add3e87140eb675268..f934998c69cfef04c8e113c5ca57419600e3de05 100644
+--- a/dist/src-f7-4oW_C.js
++++ b/dist/src-f7-4oW_C.js
+@@ -689,6 +689,9 @@ var Agent = class Agent extends Server {
+ 		};
+ 		const _onStart = this.onStart.bind(this);
+ 		this.onStart = async (props) => {
++			const __t0 = Date.now();
++			const __log = (label) => console.info(JSON.stringify({ event: 'patch_agent_base_onstart', label, elapsedMs: Date.now() - __t0 }));
++			__log('wrapper_begin');
+ 			return __DO_NOT_USE_WILL_BREAK__agentContext.run({
+ 				agent: this,
+ 				connection: void 0,
+@@ -696,20 +699,29 @@ var Agent = class Agent extends Server {
+ 				email: void 0
+ 			}, async () => {
+ 				if (await this.ctx.storage.get("cf_agents_is_facet")) this._isFacet = true;
++				__log('facet_check_done');
+ 				await this._tryCatch(async () => {
+ 					await this.mcp.restoreConnectionsFromStorage(this.name);
++					__log('restore_connections_done');
+ 					await this._restoreRpcMcpServers();
++					__log('restore_rpc_servers_done');
+ 					this.broadcastMcpServers();
++					__log('broadcast_done');
+ 					this._checkOrphanedWorkflows();
++					__log('check_orphaned_workflows_done');
+ 					await this._checkRunFibers();
++					__log('check_run_fibers_done');
+ 					this._insideOnStart = true;
+ 					this._warnedScheduleInOnStart.clear();
+ 					try {
++						__log('calling_user_onstart');
+ 						return await _onStart(props);
+ 					} finally {
+ 						this._insideOnStart = false;
++						__log('user_onstart_returned');
+ 					}
+ 				});
++				__log('wrapper_end');
+ 			});
+ 		};
+ 	}

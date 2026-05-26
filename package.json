@@ -141,7 +141,9 @@
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
             "dayjs@1.11.11": "patches/dayjs@1.11.11.patch",
-            "chartjs-plugin-crosshair@2.0.0": "patches/chartjs-plugin-crosshair@2.0.0.patch"
+            "chartjs-plugin-crosshair@2.0.0": "patches/chartjs-plugin-crosshair@2.0.0.patch",
+            "agents@0.10.2": "patches/agents@0.10.2.patch",
+            "@modelcontextprotocol/sdk@1.29.0": "patches/@modelcontextprotocol__sdk@1.29.0.patch"
         },
         "// Known dependencies that we need preinstall scripts for, add new ones with caution": "",
         "onlyBuiltDependencies": [
