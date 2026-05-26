@@ -1,0 +1,347 @@
+# serializer version: 1
+# name: test_assignment_lhs_is_any_expression[1-f711f0d2]
+  '''
+  {
+    declarations: [
+      {
+        end: 7
+        left: {
+          end: 2
+          items: []
+          start: 0
+        }
+        right: {
+          end: 7
+          start: 6
+          value: 1
+        }
+        start: 0
+      }
+    ]
+    end: 7
+    start: 0
+  }
+  '''
+# ---
+# name: test_assignment_lhs_is_any_expression[1-fc0a5713]
+  '''
+  {
+    declarations: [
+      {
+        end: 7
+        left: {
+          end: 2
+          exprs: []
+          start: 0
+        }
+        right: {
+          end: 7
+          start: 6
+          value: 1
+        }
+        start: 0
+      }
+    ]
+    end: 7
+    start: 0
+  }
+  '''
+# ---
+# name: test_assignment_lhs_is_any_expression[1_1-e28350db]
+  '''
+  {
+    declarations: [
+      {
+        end: 6
+        left: {
+          end: 1
+          start: 0
+          value: 1
+        }
+        right: {
+          end: 6
+          start: 5
+          value: 1
+        }
+        start: 0
+      }
+    ]
+    end: 6
+    start: 0
+  }
+  '''
+# ---
+# name: test_assignment_lhs_is_any_expression[for_let_m_in_488614_1_1-2172d5ea]
+  '''
+  {
+    declarations: [
+      {
+        body: {
+          end: 28
+          left: {
+            end: 23
+            start: 22
+            value: 1
+          }
+          right: {
+            end: 28
+            start: 27
+            value: 1
+          }
+          start: 22
+        }
+        end: 28
+        expr: {
+          end: 20
+          start: 14
+          value: 488614
+        }
+        start: 0
+        valueVar: "m"
+      }
+    ]
+    end: 28
+    start: 0
+  }
+  '''
+# ---
+# name: test_assignment_lhs_is_any_expression[return_1_1-05f9ec5a]
+  '''
+  {
+    declarations: [
+      {
+        end: 6
+        start: 0
+      },
+      {
+        end: 13
+        left: {
+          end: 8
+          start: 7
+          value: 1
+        }
+        right: {
+          end: 13
+          start: 12
+          value: 1
+        }
+        start: 7
+      }
+    ]
+    end: 13
+    start: 0
+  }
+  '''
+# ---
+# name: test_assignment_lhs_is_any_expression[s_1-a8f48ac8]
+  '''
+  {
+    declarations: [
+      {
+        end: 8
+        left: {
+          end: 3
+          start: 0
+          value: "s"
+        }
+        right: {
+          end: 8
+          start: 7
+          value: 1
+        }
+        start: 0
+      }
+    ]
+    end: 8
+    start: 0
+  }
+  '''
+# ---
+# name: test_call_as_assignment_target[a_b_c_d-ff70ecbc]
+  '''
+  {
+    declarations: [
+      {
+        end: 10
+        left: {
+          chain: [
+            "a"
+          ]
+          end: 2
+          from_asterisk: False
+          start: 1
+        }
+        right: {
+          chain: [
+            "b"
+          ]
+          end: 9
+          from_asterisk: False
+          start: 8
+        }
+        start: 0
+      },
+      {
+        end: 21
+        left: {
+          chain: [
+            "c"
+          ]
+          end: 13
+          from_asterisk: False
+          start: 12
+        }
+        right: {
+          chain: [
+            "d"
+          ]
+          end: 20
+          from_asterisk: False
+          start: 19
+        }
+        start: 11
+      }
+    ]
+    end: 21
+    start: 0
+  }
+  '''
+# ---
+# name: test_call_as_assignment_target[f_1-339f38f9]
+  '''
+  {
+    declarations: [
+      {
+        end: 8
+        left: {
+          args: []
+          distinct: False
+          end: 3
+          name: "f"
+          start: 0
+        }
+        right: {
+          end: 8
+          start: 7
+          value: 1
+        }
+        start: 0
+      }
+    ]
+    end: 8
+    start: 0
+  }
+  '''
+# ---
+# name: test_call_as_assignment_target[f_g_h-2a0479a2]
+  '''
+  {
+    declarations: [
+      {
+        end: 11
+        left: {
+          args: [
+            {
+              chain: [
+                "g"
+              ]
+              end: 5
+              from_asterisk: False
+              start: 4
+            }
+          ]
+          distinct: False
+          end: 6
+          name: "f"
+          params: []
+          start: 0
+        }
+        right: {
+          chain: [
+            "h"
+          ]
+          end: 11
+          from_asterisk: False
+          start: 10
+        }
+        start: 0
+      }
+    ]
+    end: 11
+    start: 0
+  }
+  '''
+# ---
+# name: test_call_as_assignment_target[f_x_1-0adf7101]
+  '''
+  {
+    declarations: [
+      {
+        end: 9
+        left: {
+          args: [
+            {
+              chain: [
+                "x"
+              ]
+              end: 3
+              from_asterisk: False
+              start: 2
+            }
+          ]
+          distinct: False
+          end: 4
+          name: "f"
+          start: 0
+        }
+        right: {
+          end: 9
+          start: 8
+          value: 1
+        }
+        start: 0
+      }
+    ]
+    end: 9
+    start: 0
+  }
+  '''
+# ---
+# name: test_call_as_assignment_target[if_x_y-48a54f90]
+  '''
+  {
+    declarations: [
+      {
+        end: 10
+        left: {
+          args: [
+            {
+              chain: [
+                "x"
+              ]
+              end: 4
+              from_asterisk: False
+              start: 3
+            }
+          ]
+          distinct: False
+          end: 5
+          name: "if"
+          start: 0
+        }
+        right: {
+          chain: [
+            "y"
+          ]
+          end: 10
+          from_asterisk: False
+          start: 9
+        }
+        start: 0
+      }
+    ]
+    end: 10
+    start: 0
+  }
+  '''
+# ---

@@ -5,13 +5,17 @@
 # keeps its strictness.
 # mypy: disable-error-code="arg-type, union-attr, attr-defined, assignment"
 
+import hashlib
 import math
-from typing import Optional, cast
+import re
+from typing import Any, Optional, cast
 
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
 from unittest.mock import patch
 
+import pytest
 from parameterized import parameterized
+from syrupy.extensions.amber import AmberSnapshotExtension
 
 from posthog.hogql import ast
 from posthog.hogql.ast import (
@@ -40,7 +44,46 @@ from posthog.hogql.ast import (
 from posthog.hogql.constants import HogQLParserBackend
 from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_program, parse_select, parse_string_template
+from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clear_locations
+
+
+class _SharedParserSnapshotExtension(AmberSnapshotExtension):
+    """One shared `.ambr` across all backend subclasses, keyed by test-method name only.
+
+    Every backend (cpp-json / python / rust-json / rust-py) must construct the identical
+    AST — including source positions — so there is exactly one expected snapshot per
+    assertion, recorded once and asserted by all four. Default syrupy would key by class
+    (`TestParserCppJson` vs `TestParserRustJson`) and write a `.ambr` per test file.
+    """
+
+    @classmethod
+    def _get_file_basename(cls, *, test_location: Any, index: Any) -> str:
+        return "parser_ast"
+
+    @classmethod
+    def get_snapshot_name(cls, *, test_location: Any, index: Any = 0) -> str:
+        if isinstance(index, str):
+            index_suffix = f"[{index}]"
+        elif index:
+            index_suffix = f".{index}"
+        else:
+            index_suffix = ""
+        return f"{test_location.methodname}{index_suffix}"
+
+
+def _snapshot_key(src: str) -> str:
+    """Stable, readable, ambr-safe snapshot key for a source string.
+
+    Keyed purely on `src`, so it is independent of call order: the leak mixin re-runs each
+    test 102x, and a source-derived (rather than auto-incrementing) key means every rerun
+    re-compares the one stable entry instead of accumulating 102 copies. The short hash keeps
+    distinct sources that sanitise to the same prefix from colliding.
+    """
+    collapsed = re.sub(r"\s+", " ", src.strip())
+    safe = re.sub(r"[^0-9A-Za-z]+", "_", collapsed).strip("_")[:60]
+    digest = hashlib.sha1(src.encode("utf-8")).hexdigest()[:8]
+    return f"{safe}-{digest}" if safe else digest
 
 
 def parser_test_factory(backend: HogQLParserBackend):
@@ -53,6 +96,42 @@ def parser_test_factory(backend: HogQLParserBackend):
         MEMORY_LEAK_CHECK_RUNS_N = 100
 
         maxDiff = None
+
+        # syrupy snapshot, injected per test by the `unittest_snapshot` fixture below.
+        snapshot: Any
+        pytestmark = pytest.mark.usefixtures("unittest_snapshot")
+
+        def _assert_ast(self, src: str, rule: str = "select", placeholders: Optional[dict[str, ast.Expr]] = None) -> None:
+            # Parse `src` on this backend and check it against the shared cross-backend snapshot.
+            # cpp-json / rust-json / rust-py assert the FULL positioned AST (one recorded `.ambr`
+            # entry per source — positions verified, cpp regressions caught, no live self-compare).
+            # python is the legacy backend and not a position-parity target, so it only verifies
+            # STRUCTURE against the live cpp parse (clear_locations) — no position-divergence noise.
+            parse_fn = {
+                "expr": parse_expr,
+                "select": parse_select,
+                "program": parse_program,
+                "order": parse_order_expr,
+                "template": parse_string_template,
+            }[rule]
+            kwargs: dict[str, Any] = {"backend": backend}
+            if placeholders is not None:
+                kwargs["placeholders"] = placeholders
+            # Parse on every rerun so the leak mixin still exercises the parser 102x and a real
+            # per-parse leak is caught. Only COMPARE on the first run: syrupy / pretty_dataclasses
+            # / the cpp oracle parse allocate per call, so comparing on every rerun would trip the
+            # leak check with test-machinery growth that isn't a parser leak.
+            parsed = parse_fn(src, **kwargs)
+            # python has no leak mixin (runs once), so the attr is absent → treat as run 0.
+            if getattr(self, "_memory_leak_run_index", 0) != 0:
+                return
+            if backend == "python":
+                oracle_kwargs = {**kwargs, "backend": "cpp-json"}
+                assert clear_locations(parsed) == clear_locations(parse_fn(src, **oracle_kwargs))
+                return
+            if not hasattr(self, "_shared_ast_snapshot"):
+                self._shared_ast_snapshot = self.snapshot.use_extension(_SharedParserSnapshotExtension)
+            assert pretty_dataclasses(parsed) == self._shared_ast_snapshot(name=_snapshot_key(src))
 
         def _string_template(self, template: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.Expr:
             return clear_locations(parse_string_template(template, placeholders=placeholders, backend=backend))
@@ -4684,9 +4763,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "for (let m in 488614) 1 := 1",
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
         def test_call_as_assignment_target(self):
             # `f() := 1` is `Call(f) := 1`; a statement's leading expr folds its postfix `(…)` even with `:=` after.
@@ -4698,9 +4775,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 "(a) := (b) (c) := (d)",  # the postfix-stop guard's real RHS scenario must still hold
             )
             for src in cases:
-                oracle = parse_program(src, backend="cpp-json")
-                got = parse_program(src, backend=backend)
-                self.assertEqual(clear_locations(got), clear_locations(oracle), msg=f"{backend}: {src!r}")
+                self._assert_ast(src, "program")
 
         def test_assignment_statement_consumes_trailing_semicolon(self):
             # `exprStmt: expression (COLONEQUALS expression)? SEMICOLON?` — `:=`-form consumes its trailing `;`.
