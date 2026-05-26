@@ -70,7 +70,11 @@ class RetentionBaseQueryBuilder(ABC):
 
     def entity_timestamp_field(self, entity: RetentionEntity) -> ast.Expr:
         if entity.type == EntityType.DATA_WAREHOUSE:
-            assert entity.table_name and entity.timestamp_field
+            if not entity.table_name or not entity.timestamp_field:
+                raise ValueError(
+                    f"DATA_WAREHOUSE RetentionEntity requires table_name and timestamp_field, "
+                    f"got table_name={entity.table_name!r}, timestamp_field={entity.timestamp_field!r}"
+                )
             return ast.Field(chain=[entity.table_name, entity.timestamp_field])
         return ast.Field(chain=["events", "timestamp"])
 

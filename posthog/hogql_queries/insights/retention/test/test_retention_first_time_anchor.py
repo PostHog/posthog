@@ -1,7 +1,10 @@
+from collections.abc import Callable
 from typing import Any
 
 from unittest import TestCase
 from unittest.mock import MagicMock
+
+from parameterized import parameterized
 
 from posthog.schema import RetentionEntity
 
@@ -10,20 +13,29 @@ from posthog.hogql import ast
 from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
 
 
+def _walk_ast(node: Any, visit: Callable[[Any], None]) -> None:
+    """Recursively visit every value in an AST tree (dataclass fields + list/tuple items)."""
+
+    def walk(value: Any) -> None:
+        visit(value)
+        if hasattr(value, "__dataclass_fields__"):
+            for field_name in value.__dataclass_fields__:
+                walk(getattr(value, field_name))
+        elif isinstance(value, list | tuple):
+            for item in value:
+                walk(item)
+
+    walk(node)
+
+
 def _collect_field_chains(node: Any) -> list[list[str | int]]:
     chains: list[list[str | int]] = []
 
     def visit(value: Any) -> None:
         if isinstance(value, ast.Field):
             chains.append(value.chain)
-        if hasattr(value, "__dataclass_fields__"):
-            for field_name in value.__dataclass_fields__:
-                visit(getattr(value, field_name))
-        elif isinstance(value, list | tuple):
-            for item in value:
-                visit(item)
 
-    visit(node)
+    _walk_ast(node, visit)
     return chains
 
 
@@ -33,14 +45,8 @@ def _collect_constants(node: Any) -> list[Any]:
     def visit(value: Any) -> None:
         if isinstance(value, ast.Constant):
             consts.append(value.value)
-        if hasattr(value, "__dataclass_fields__"):
-            for field_name in value.__dataclass_fields__:
-                visit(getattr(value, field_name))
-        elif isinstance(value, list | tuple):
-            for item in value:
-                visit(item)
 
-    visit(node)
+    _walk_ast(node, visit)
     return consts
 
 
@@ -51,14 +57,8 @@ def _collect_min_if_predicates(node: Any) -> list[ast.Expr]:
     def visit(value: Any) -> None:
         if isinstance(value, ast.Call) and value.name == "minIf" and len(value.args) >= 2:
             predicates.append(value.args[1])
-        if hasattr(value, "__dataclass_fields__"):
-            for field_name in value.__dataclass_fields__:
-                visit(getattr(value, field_name))
-        elif isinstance(value, list | tuple):
-            for item in value:
-                visit(item)
 
-    visit(node)
+    _walk_ast(node, visit)
     return predicates
 
 
@@ -81,87 +81,119 @@ def _make_builder(
     return RetentionFixedIntervalBaseQueryBuilder(runner)
 
 
+_EVENTS_FIRST_EVER_ENTITY = RetentionEntity(id="$user_signed_up", name="$user_signed_up", type="events")
+_EVENTS_FIRST_MATCHING_ENTITY = RetentionEntity(
+    id="$user_signed_up",
+    name="$user_signed_up",
+    type="events",
+    properties=[
+        {"key": "$browser", "value": "Chrome", "operator": "exact", "type": "event"},
+    ],
+)
+_DWH_WITH_PROPS_ENTITY = RetentionEntity(
+    type="data_warehouse",
+    table_name="warehouse_activity",
+    timestamp_field="occurred_at",
+    aggregation_target_field="person_id",
+    id="warehouse_activity",
+    name="warehouse_activity",
+    properties=[
+        {"key": "event_type", "value": "signup", "operator": "exact", "type": "data_warehouse"},
+    ],
+)
+_DWH_NO_PROPS_ENTITY = RetentionEntity(
+    type="data_warehouse",
+    table_name="warehouse_activity",
+    timestamp_field="occurred_at",
+    aggregation_target_field="person_id",
+    id="warehouse_activity",
+    name="warehouse_activity",
+    properties=[],
+)
+
+
 class TestFirstTimeAnchorExpr(TestCase):
-    def test_events_entity_first_ever_references_events_timestamp(self) -> None:
-        entity = RetentionEntity(id="$user_signed_up", name="$user_signed_up", type="events")
-        builder = _make_builder(start_event=entity, is_first_ever=True)
+    @parameterized.expand(
+        [
+            (
+                "events_first_ever_references_events_timestamp",
+                _EVENTS_FIRST_EVER_ENTITY,
+                True,  # is_first_ever
+                False,  # is_first_matching
+                [["events", "timestamp"]],  # expected_chains
+                [],  # unexpected_chains
+                ["$user_signed_up"],  # expected_constants
+                False,  # assert_min_if_predicates_truthy
+            ),
+            (
+                "events_first_time_matching_filters_uses_events_predicate",
+                _EVENTS_FIRST_MATCHING_ENTITY,
+                False,
+                True,
+                [["events", "timestamp"]],
+                [],
+                ["$user_signed_up", "Chrome"],
+                False,
+            ),
+            (
+                "dwh_with_properties_uses_property_filter_predicate",
+                _DWH_WITH_PROPS_ENTITY,
+                False,
+                True,
+                [["warehouse_activity", "occurred_at"]],
+                [["events", "timestamp"]],
+                ["signup"],
+                False,
+            ),
+            (
+                # First-ever so both no-props and with-props minIf predicates are surfaced.
+                "dwh_without_properties_uses_truthy_constant_predicate",
+                _DWH_NO_PROPS_ENTITY,
+                True,
+                False,
+                [["warehouse_activity", "occurred_at"]],
+                [["events", "timestamp"]],
+                [],
+                True,
+            ),
+        ]
+    )
+    def test_get_first_time_anchor_expr(
+        self,
+        _name: str,
+        entity: RetentionEntity,
+        is_first_ever: bool,
+        is_first_matching: bool,
+        expected_chains: list[list[str | int]],
+        unexpected_chains: list[list[str | int]],
+        expected_constants: list[Any],
+        assert_min_if_predicates_truthy: bool,
+    ) -> None:
+        builder = _make_builder(
+            start_event=entity,
+            is_first_ever=is_first_ever,
+            is_first_matching=is_first_matching,
+        )
 
         expr = builder.get_first_time_anchor_expr(entity)
 
         chains = _collect_field_chains(expr)
-        self.assertIn(["events", "timestamp"], chains)
+        for chain in expected_chains:
+            self.assertIn(chain, chains)
+        for chain in unexpected_chains:
+            self.assertNotIn(chain, chains)
 
         constants = _collect_constants(expr)
-        self.assertIn("$user_signed_up", constants)
+        for constant in expected_constants:
+            self.assertIn(constant, constants)
 
-    def test_events_entity_first_time_matching_filters_uses_events_predicate(self) -> None:
-        entity = RetentionEntity(
-            id="$user_signed_up",
-            name="$user_signed_up",
-            type="events",
-            properties=[
-                {"key": "$browser", "value": "Chrome", "operator": "exact", "type": "event"},
-            ],
-        )
-        builder = _make_builder(start_event=entity, is_first_matching=True)
-
-        expr = builder.get_first_time_anchor_expr(entity)
-
-        chains = _collect_field_chains(expr)
-        self.assertIn(["events", "timestamp"], chains)
-
-        constants = _collect_constants(expr)
-        self.assertIn("$user_signed_up", constants)
-        self.assertIn("Chrome", constants)
-
-    def test_dwh_entity_with_properties_uses_property_filter_predicate(self) -> None:
-        entity = RetentionEntity(
-            type="data_warehouse",
-            table_name="warehouse_activity",
-            timestamp_field="occurred_at",
-            aggregation_target_field="person_id",
-            id="warehouse_activity",
-            name="warehouse_activity",
-            properties=[
-                {"key": "event_type", "value": "signup", "operator": "exact", "type": "data_warehouse"},
-            ],
-        )
-        builder = _make_builder(start_event=entity, is_first_matching=True)
-
-        expr = builder.get_first_time_anchor_expr(entity)
-
-        chains = _collect_field_chains(expr)
-        self.assertIn(["warehouse_activity", "occurred_at"], chains)
-        self.assertNotIn(["events", "timestamp"], chains)
-
-        # property filter value should appear in the predicate (built via property_to_expr)
-        constants = _collect_constants(expr)
-        self.assertIn("signup", constants)
-
-    def test_dwh_entity_without_properties_uses_truthy_constant_predicate(self) -> None:
-        entity = RetentionEntity(
-            type="data_warehouse",
-            table_name="warehouse_activity",
-            timestamp_field="occurred_at",
-            aggregation_target_field="person_id",
-            id="warehouse_activity",
-            name="warehouse_activity",
-            properties=[],
-        )
-        # Use first-ever so both no-props and with-props minIf predicates are surfaced.
-        builder = _make_builder(start_event=entity, is_first_ever=True)
-
-        expr = builder.get_first_time_anchor_expr(entity)
-
-        chains = _collect_field_chains(expr)
-        self.assertIn(["warehouse_activity", "occurred_at"], chains)
-        self.assertNotIn(["events", "timestamp"], chains)
-
-        # Every minIf predicate must be a truthy constant — the with-props and no-props branches
-        # both collapse to True for a DWH entity without properties.
-        # (parse_expr substitution shares nodes so the walker can see more than 2.)
-        min_if_predicates = _collect_min_if_predicates(expr)
-        self.assertGreaterEqual(len(min_if_predicates), 2)
-        for pred in min_if_predicates:
-            self.assertIsInstance(pred, ast.Constant)
-            self.assertTrue(pred.value)  # type: ignore[union-attr]
+        if assert_min_if_predicates_truthy:
+            # Every minIf predicate must be a truthy constant — the with-props and no-props branches
+            # both collapse to True for a DWH entity without properties.
+            # (parse_expr substitution shares nodes so the walker can see more than 2.)
+            min_if_predicates = _collect_min_if_predicates(expr)
+            self.assertGreaterEqual(len(min_if_predicates), 2)
+            for pred in min_if_predicates:
+                self.assertIsInstance(pred, ast.Constant)
+                assert isinstance(pred, ast.Constant)  # narrow for mypy
+                self.assertTrue(pred.value)
