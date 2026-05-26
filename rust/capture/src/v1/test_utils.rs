@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use serde_json::value::RawValue;
 use uuid::Uuid;
 
+use crate::v1::analytics::constants::CAPTURE_V1_PATH;
 use crate::v1::analytics::query::Query;
 use crate::v1::analytics::types::{Event, EventResult, Options, WrappedEvent};
 use crate::v1::context::Context;
@@ -38,7 +39,7 @@ pub fn test_context() -> Context {
         client_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
         query: Query::default(),
         method: Method::POST,
-        path: "/i/v1/general/events",
+        path: CAPTURE_V1_PATH,
         server_received_at: Utc::now(),
         created_at: Some("2026-03-19T14:30:00.000Z".to_string()),
         capture_internal: false,
