@@ -69,27 +69,6 @@ async function applyOverflowRedirect<T extends { headers: EventHeaders }>(
 }
 
 /**
- * Rate-limits every input regardless of cookieless mode. Keys on `event.distinct_id`.
- * Use when there is no cookieless step in the pipeline (e.g. error tracking).
- */
-export interface RateLimitToOverflowStepInput {
-    headers: EventHeaders
-    event: PipelineEvent
-}
-
-export function createRateLimitToOverflowStep<T extends RateLimitToOverflowStepInput>(
-    preservePartitionLocality: boolean,
-    overflowRedirectService?: OverflowRedirectService
-) {
-    return async function rateLimitToOverflowStep(inputs: T[]): Promise<PipelineResult<T, OverflowOutput>[]> {
-        return applyOverflowRedirect(inputs, overflowRedirectService, preservePartitionLocality, (input) => ({
-            token: input.headers.token ?? '',
-            distinctId: input.event.distinct_id ?? '',
-        }))
-    }
-}
-
-/**
  * Rate-limits only non-cookieless events using `headers.distinct_id`. Designed to run
  * before the body is parsed — it does not require `event`. Cookieless events
  * (`headers.distinct_id === COOKIELESS_SENTINEL_VALUE`) pass through untouched, to be
