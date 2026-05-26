@@ -134,6 +134,16 @@ export const proxyLogic = kea<proxyLogicType>([
             { persist: true },
             {
                 acknowledgeCloudflareOptIn: () => true,
+                // Existing proxy records imply the org already consented previously — persist that so the
+                // banner doesn't flash on browsers where localStorage was cleared after records were created.
+                loadRecordsSuccess: (state, { proxyRecords }) => state || proxyRecords.length > 0,
+            },
+        ],
+        proxyRecordsLoaded: [
+            false,
+            {
+                loadRecordsSuccess: () => true,
+                loadRecordsFailure: () => true,
             },
         ],
         cloudflareOptInChecked: [
@@ -233,12 +243,17 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         ],
         shouldShowCloudflareOptIn: [
-            (s) => [s.cloudflareOptInAcknowledged, s.proxyRecords, s.user],
-            (acknowledged: boolean, records: ProxyRecord[], user: UserType | null): boolean => {
+            (s) => [s.cloudflareOptInAcknowledged, s.proxyRecordsLoaded, s.proxyRecords, s.user],
+            (acknowledged: boolean, recordsLoaded: boolean, records: ProxyRecord[], user: UserType | null): boolean => {
                 if (acknowledged) {
                     return false
                 }
                 if (user?.is_impersonated) {
+                    return false
+                }
+                // Wait for the initial records fetch — otherwise the banner flashes during the API call
+                // for orgs that already have proxy records, which is the visible symptom of #59549.
+                if (!recordsLoaded) {
                     return false
                 }
                 if (records.length > 0) {

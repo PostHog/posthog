@@ -1542,6 +1542,10 @@ export interface TrendsFilterApi {
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
     smoothingIntervals?: number | null
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: string | null
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: string | null
     yAxisScaleType?: YAxisScaleTypeApi | null
 }
 
@@ -2042,9 +2046,9 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
+export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
 
-export const AggregationPropertyType1Api = {
+export const AggregationPropertyTypeApi = {
     Event: 'event',
     Person: 'person',
     DataWarehouse: 'data_warehouse',
@@ -2168,7 +2172,7 @@ export interface RetentionFilterApi {
     /** The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string | null
     /** The type of property to aggregate on (event, person or data_warehouse). Defaults to event. */
-    aggregationPropertyType?: AggregationPropertyType1Api | null
+    aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** Starting index used when labeling cohort columns (e.g. 0 for D0/D1/D2, 1 for D1/D2/D3). Display-only — does not affect retention calculations. */
@@ -2746,6 +2750,7 @@ export interface WebStatsTableQueryResponseApi {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 
@@ -2790,6 +2795,8 @@ export interface WebStatsTableQueryApi {
     samplingFactor?: number | null
     tags?: QueryLogTagsApi | null
     useSessionsTable?: boolean | null
+    /** Opt this specific query into the web stats table precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. * */
+    useWebAnalyticsPrecompute?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -3100,6 +3107,7 @@ export interface Response5Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    usedLazyPrecompute?: boolean | null
     usedPreAggregatedTables?: boolean | null
 }
 

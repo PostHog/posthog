@@ -213,6 +213,12 @@ class TestFetchUserMcpServerConfigs(TestCase):
         defaults.update(kwargs)
         return ActiveInstallationInfo(**defaults)
 
+    def _expected_user_headers(self, *, consumer: str = "posthog-code") -> list[dict[str, str]]:
+        return [
+            {"name": "Authorization", "value": f"Bearer {self.TOKEN}"},
+            {"name": "x-posthog-mcp-consumer", "value": consumer},
+        ]
+
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
     def test_builds_configs_from_facade_results(self, mock_facade, mock_api_url) -> None:
@@ -228,9 +234,30 @@ class TestFetchUserMcpServerConfigs(TestCase):
                 type="http",
                 name="Linear",
                 url=f"{self.API_BASE}/api/environments/{self.TEAM_ID}/mcp_server_installations/abc-123/proxy/",
-                headers=[{"name": "Authorization", "value": f"Bearer {self.TOKEN}"}],
+                headers=self._expected_user_headers(),
             )
         ]
+
+    @parameterized.expand(
+        [
+            ("slack", "slack"),
+            ("posthog_code", "posthog-code"),
+            (None, "posthog-code"),
+        ]
+    )
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_consumer_header_reflects_interaction_origin(
+        self, interaction_origin: str | None, expected_consumer: str, mock_facade, mock_api_url
+    ) -> None:
+        mock_api_url.return_value = self.API_BASE
+        mock_facade.return_value = [self._make_installation()]
+
+        configs = get_user_mcp_server_configs(
+            self.TOKEN, self.TEAM_ID, self.USER_ID, interaction_origin=interaction_origin
+        )
+
+        assert configs[0].headers == self._expected_user_headers(consumer=expected_consumer)
 
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)

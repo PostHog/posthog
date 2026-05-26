@@ -37,6 +37,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
+    PostgresImplementation,
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
@@ -89,6 +90,18 @@ class TestSafeDateLoader:
     )
     def test_load_dates(self, loader, input_data, expected):
         assert loader.load(input_data) == expected
+
+
+class TestPostgresImplementationWiring:
+    def test_source_exposes_postgres_implementation_singleton(self):
+        source = PostgresSource()
+        assert isinstance(source.get_implementation, PostgresImplementation)
+        # Same instance across two PostgresSource constructions — module-level singleton.
+        assert source.get_implementation is PostgresSource().get_implementation
+
+    def test_get_incremental_filter_returns_filter_postgres_incremental_fields(self):
+        impl = PostgresSource().get_implementation
+        assert impl.get_incremental_filter() is filter_postgres_incremental_fields
 
 
 class TestPostgresSourceNonRetryableErrors:

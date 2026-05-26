@@ -84,7 +84,9 @@ export class ToolCatalog {
 
         for (const [name, preBuilt] of this._preBuilt) {
             const def = preBuilt.definitions.v1 ?? preBuilt.definitions.v2
-            if (!def) {continue}
+            if (!def) {
+                continue
+            }
 
             let jsonSchema: Record<string, unknown>
             try {

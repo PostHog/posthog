@@ -35,6 +35,33 @@ export function stripPinnedContext<T extends Record<string, any>>(item: T): Omit
     return clean
 }
 
+/**
+ * Fields stripped before persisting a pinned item to localStorage. The list covers
+ * the obvious PII / heavy-blob fields that source-group items may carry — Person
+ * `email` and `properties`, Group `group_properties`, etc. Everything else flows
+ * through so source-group `getValue` and `getName` keep working without us having
+ * to enumerate every identifier field they read.
+ */
+const PINNED_ITEM_DENYLIST = new Set<string>(['email', 'properties', 'group_properties', '_pinnedContext'])
+
+export function pickMinimalPinnedItem(item: unknown, fallbackValue: TaxonomicFilterValue): Record<string, any> {
+    if (typeof item !== 'object' || item == null || Array.isArray(item)) {
+        return { name: fallbackValue }
+    }
+    const source = item as Record<string, any>
+    const picked: Record<string, any> = {}
+    for (const [field, fieldValue] of Object.entries(source)) {
+        if (PINNED_ITEM_DENYLIST.has(field) || fieldValue === undefined || typeof fieldValue === 'function') {
+            continue
+        }
+        picked[field] = fieldValue
+    }
+    if (picked.name == null) {
+        picked.name = fallbackValue
+    }
+    return picked
+}
+
 const OLD_PERSIST_KEY = 'scenes.session-recordings.player.playerSettingsLogic.quickFilterProperties'
 
 const teamId = typeof window !== 'undefined' ? window.POSTHOG_APP_CONTEXT?.current_team?.id : undefined
@@ -79,7 +106,7 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
                         groupType,
                         groupName,
                         value,
-                        item: { name: item?.name ?? value },
+                        item: pickMinimalPinnedItem(item, value),
                         timestamp: Date.now(),
                     }
 

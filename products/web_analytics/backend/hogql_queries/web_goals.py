@@ -192,6 +192,7 @@ WHERE {periods_expression}
             query_type="web_goals_query",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
