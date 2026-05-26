@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use cymbal_alerting::ALERTING_STAGE_ID;
 use cymbal_core::routing::{RemoteRoutingConfig, RoutingPolicy};
-use cymbal_domain::RATE_LIMITING_STAGE_ID;
 use cymbal_grouping::GROUPING_STAGE_ID;
 use cymbal_linking::LINKING_STAGE_ID;
 use cymbal_resolution::RESOLUTION_STAGE_ID;
@@ -202,7 +201,6 @@ pub fn default_remote_routing_config() -> RemoteRoutingConfig {
         .with_stage_policy(GROUPING_STAGE_ID, RoutingPolicy::affinity_first())
         .with_stage_policy(LINKING_STAGE_ID, RoutingPolicy::strict_affinity())
         .with_stage_policy(ALERTING_STAGE_ID, RoutingPolicy::strict_affinity())
-        .with_stage_policy(RATE_LIMITING_STAGE_ID, RoutingPolicy::strict_affinity())
 }
 
 pub fn emergency_random_remote_routing_config() -> RemoteRoutingConfig {
@@ -221,10 +219,6 @@ pub fn emergency_random_remote_routing_config() -> RemoteRoutingConfig {
         )
         .with_stage_policy(
             ALERTING_STAGE_ID,
-            RoutingPolicy::random().with_max_fallback_attempts(0),
-        )
-        .with_stage_policy(
-            RATE_LIMITING_STAGE_ID,
             RoutingPolicy::random().with_max_fallback_attempts(0),
         )
         .without_observed_load()
@@ -474,10 +468,6 @@ mod tests {
             routing.policy_for_stage(ALERTING_STAGE_ID),
             RoutingPolicy::strict_affinity()
         );
-        assert_eq!(
-            routing.policy_for_stage(RATE_LIMITING_STAGE_ID),
-            RoutingPolicy::strict_affinity()
-        );
     }
 
     #[test]
@@ -497,10 +487,6 @@ mod tests {
         assert_eq!(routing.policy_for_stage(LINKING_STAGE_ID), emergency_policy);
         assert_eq!(
             routing.policy_for_stage(ALERTING_STAGE_ID),
-            emergency_policy
-        );
-        assert_eq!(
-            routing.policy_for_stage(RATE_LIMITING_STAGE_ID),
             emergency_policy
         );
     }

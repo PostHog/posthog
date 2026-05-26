@@ -6,7 +6,7 @@ use cymbal_api::cymbal::v1::{
 use cymbal_core::{BatchContext, StageError, StageInput};
 use cymbal_domain::{
     recursively_sanitize_properties, EventOutcome, EventResult as DomainEventResult,
-    ExceptionProperties, InputEvent, MISSING_TEAM_ID_DROP_REASON,
+    ExceptionProcessingOptions, ExceptionProperties, InputEvent, MISSING_TEAM_ID_DROP_REASON,
 };
 use serde_json::Value;
 use tonic::Status;
@@ -18,7 +18,8 @@ pub(crate) struct RequestStageInput {
 }
 
 pub(crate) fn request_to_stage_input(request: ProcessExceptionBatchRequest) -> RequestStageInput {
-    let context = request.context.map_or_else(
+    let processing_options = request.options.as_ref().map(public_processing_options);
+    let mut context = request.context.map_or_else(
         || BatchContext {
             batch_id: String::new(),
             metadata: Default::default(),
@@ -28,6 +29,9 @@ pub(crate) fn request_to_stage_input(request: ProcessExceptionBatchRequest) -> R
             metadata: context.metadata,
         },
     );
+    if let Some(processing_options) = processing_options {
+        processing_options.write_to_metadata(&mut context.metadata);
+    }
 
     let mut terminal_results = Vec::new();
     let mut events = Vec::new();
@@ -50,6 +54,16 @@ pub(crate) fn request_to_stage_input(request: ProcessExceptionBatchRequest) -> R
     RequestStageInput {
         input: StageInput::from_items(context, events),
         terminal_results,
+    }
+}
+
+fn public_processing_options(
+    options: &cymbal_api::cymbal::v1::ProcessingOptions,
+) -> ExceptionProcessingOptions {
+    ExceptionProcessingOptions {
+        skip_alerting: options.skip_alerting,
+        emit_internal_events: options.emit_internal_events,
+        emit_signals: options.emit_signals,
     }
 }
 
@@ -287,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn processing_options_are_currently_ignored_at_public_boundary() {
+    fn processing_options_are_written_to_batch_context_metadata() {
         let base_request = ProcessExceptionBatchRequest {
             context: None,
             events: vec![exception_event("event-1", 42, valid_properties_json())],
@@ -305,11 +319,22 @@ mod tests {
         let without_options = request_to_stage_input(base_request);
         let with_options = request_to_stage_input(options_request);
 
-        assert_eq!(without_options.input.context, with_options.input.context);
         assert_eq!(without_options.input.items, with_options.input.items);
         assert_eq!(
             without_options.terminal_results,
             with_options.terminal_results
+        );
+        assert_eq!(
+            ExceptionProcessingOptions::from_metadata(&without_options.input.context.metadata),
+            ExceptionProcessingOptions::default()
+        );
+        assert_eq!(
+            ExceptionProcessingOptions::from_metadata(&with_options.input.context.metadata),
+            ExceptionProcessingOptions {
+                skip_alerting: true,
+                emit_internal_events: false,
+                emit_signals: false,
+            }
         );
     }
 

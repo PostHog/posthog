@@ -15,9 +15,7 @@ use cymbal_core::{
     LinearPipelineSpec, PipelineSpecError, StageEffectMode, StageLinkRule, StagePayload,
     StageProgressMode, StageSpec, StageType, TransientFailurePolicy,
 };
-use cymbal_domain::{
-    EventResult, InputEvent, RateLimitGateOutput, RATE_LIMITING_STAGE_ID, RATE_LIMITING_STAGE_TYPE,
-};
+use cymbal_domain::{EventResult, InputEvent};
 use cymbal_grouping::{GroupedEvent, GROUPING_STAGE_ID, GROUPING_STAGE_TYPE};
 use cymbal_linking::{LINKING_STAGE_ID, LINKING_STAGE_TYPE};
 use cymbal_resolution::{ResolvedEvent, RESOLUTION_STAGE_ID, RESOLUTION_STAGE_TYPE};
@@ -170,7 +168,6 @@ impl From<PipelineSpecError> for StageRegistryError {
 impl StageRegistry {
     pub fn local_default() -> Self {
         Self::new(vec![
-            rate_limiting_contract(),
             resolution_contract(),
             grouping_contract(),
             linking_contract(),
@@ -231,7 +228,6 @@ impl StageRegistry {
 
     pub fn default_pipeline_stage_ids() -> Vec<String> {
         vec![
-            RATE_LIMITING_STAGE_ID.to_string(),
             RESOLUTION_STAGE_ID.to_string(),
             GROUPING_STAGE_ID.to_string(),
             LINKING_STAGE_ID.to_string(),
@@ -240,7 +236,6 @@ impl StageRegistry {
 
     pub fn default_execution_stage_ids() -> Vec<String> {
         vec![
-            RATE_LIMITING_STAGE_ID.to_string(),
             RESOLUTION_STAGE_ID.to_string(),
             GROUPING_STAGE_ID.to_string(),
             LINKING_STAGE_ID.to_string(),
@@ -282,21 +277,13 @@ impl StageRegistry {
             input_type: InputEvent::TYPE,
             terminal_type: EventResult::TYPE,
             stages,
-            allowed_links: vec![
-                StageLinkRule::ExactType,
-                StageLinkRule::FanOutContinue {
-                    stage_output_type: RateLimitGateOutput::TYPE,
-                    next_input_type: InputEvent::TYPE,
-                    terminal_type: EventResult::TYPE,
-                },
-            ],
+            allowed_links: vec![StageLinkRule::ExactType],
         })
     }
 }
 
 fn known_contracts() -> HashMap<String, StageContract> {
     [
-        rate_limiting_contract(),
         resolution_contract(),
         grouping_contract(),
         linking_contract(),
@@ -305,19 +292,6 @@ fn known_contracts() -> HashMap<String, StageContract> {
     .into_iter()
     .map(|contract| (contract.stage_id.clone(), contract))
     .collect()
-}
-
-fn rate_limiting_contract() -> StageContract {
-    StageContract {
-        stage_type: RATE_LIMITING_STAGE_TYPE,
-        stage_id: RATE_LIMITING_STAGE_ID.to_string(),
-        input_type: InputEvent::TYPE,
-        output_type: RateLimitGateOutput::TYPE,
-        progress: StageProgressMode::BatchBarrier,
-        effects: StageEffectMode::IdempotentSideEffects,
-        execution: StageExecution::Local,
-        retryable_on_transient_failure: false,
-    }
 }
 
 fn resolution_contract() -> StageContract {
@@ -406,19 +380,6 @@ mod tests {
     fn default_contracts_have_stable_ids_and_type_ids() {
         let registry = StageRegistry::local_default();
 
-        let rate_limiting = registry.contract(RATE_LIMITING_STAGE_ID).unwrap();
-        assert_eq!(rate_limiting.stage_id, "rate-limiting:v1");
-        assert_eq!(
-            rate_limiting.input_type.to_string(),
-            "cymbal.core.InputEvent@2"
-        );
-        assert_eq!(
-            rate_limiting.output_type.to_string(),
-            "cymbal.core.RateLimitGateOutput@2"
-        );
-        assert_eq!(rate_limiting.execution, StageExecution::Local);
-        assert!(!rate_limiting.retryable_on_transient_failure);
-
         let resolution = registry.contract(RESOLUTION_STAGE_ID).unwrap();
         assert_eq!(resolution.stage_id, "resolution:v1");
         assert_eq!(
@@ -451,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_spec_builds_generic_spec_with_rate_limit_fan_out_rule() {
+    fn pipeline_spec_builds_generic_spec_with_exact_stage_links() {
         let registry = StageRegistry::local_default();
         let spec = registry
             .pipeline_spec(&StageRegistry::default_pipeline_stage_ids())
@@ -464,24 +425,9 @@ mod tests {
                 .iter()
                 .map(|stage| stage.stage_id.as_str())
                 .collect::<Vec<_>>(),
-            vec![
-                RATE_LIMITING_STAGE_ID,
-                RESOLUTION_STAGE_ID,
-                GROUPING_STAGE_ID,
-                LINKING_STAGE_ID,
-            ]
+            vec![RESOLUTION_STAGE_ID, GROUPING_STAGE_ID, LINKING_STAGE_ID]
         );
-        assert_eq!(
-            spec.allowed_links,
-            vec![
-                StageLinkRule::ExactType,
-                StageLinkRule::FanOutContinue {
-                    stage_output_type: RateLimitGateOutput::TYPE,
-                    next_input_type: InputEvent::TYPE,
-                    terminal_type: EventResult::TYPE,
-                },
-            ]
-        );
+        assert_eq!(spec.allowed_links, vec![StageLinkRule::ExactType]);
         spec.validate().unwrap();
     }
 
@@ -511,44 +457,6 @@ mod tests {
             spec.transient_failure_policy,
             TransientFailurePolicy::RetryableIfStageDeclaresSafe
         );
-
-        let rate_limiting = registry
-            .contract(RATE_LIMITING_STAGE_ID)
-            .unwrap()
-            .stage_spec();
-        assert_eq!(
-            rate_limiting.transient_failure_policy,
-            TransientFailurePolicy::NotRetryableAfterDispatch
-        );
-    }
-
-    #[test]
-    fn rate_limiting_gate_can_precede_resolution() {
-        let registry = StageRegistry::local_default();
-
-        registry
-            .validate_pipeline(&[
-                RATE_LIMITING_STAGE_ID.to_string(),
-                RESOLUTION_STAGE_ID.to_string(),
-                GROUPING_STAGE_ID.to_string(),
-                LINKING_STAGE_ID.to_string(),
-            ])
-            .unwrap();
-    }
-
-    #[test]
-    fn rate_limiting_gate_cannot_skip_resolution() {
-        let registry = StageRegistry::local_default();
-        let result = registry.validate_pipeline(&[
-            RATE_LIMITING_STAGE_ID.to_string(),
-            GROUPING_STAGE_ID.to_string(),
-            LINKING_STAGE_ID.to_string(),
-        ]);
-
-        assert!(matches!(
-            result,
-            Err(StageRegistryError::InvalidStageLink { .. })
-        ));
     }
 
     #[test]

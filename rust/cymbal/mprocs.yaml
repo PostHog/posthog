@@ -223,10 +223,8 @@ procs:
     smoke-test:
         shell: |-
             echo 'Running Cymbal process_batch examples: baseline, variants, mixed outcomes, oversized rejection'
-            echo 'For the opt-in team_id limiter smoke, restart pipeline with CYMBAL_RATE_LIMIT_ENABLED=true CYMBAL_RATE_LIMIT_THRESHOLD=1, then run this process with CYMBAL_EXAMPLE_RATE_LIMIT_SMOKE=true.'
             CYMBAL_PIPELINE_ENDPOINT=http://127.0.0.1:50150 \
             CYMBAL_EXAMPLE_VERBOSITY=compact \
-            CYMBAL_EXAMPLE_RATE_LIMIT_SMOKE=${CYMBAL_EXAMPLE_RATE_LIMIT_SMOKE:-false} \
             CYMBAL_EXAMPLE_OVERSIZED_BATCH_EVENTS=1001 \
             cargo run -p cymbal-server --example process_batch
         autostart: false

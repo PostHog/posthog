@@ -3,6 +3,7 @@
 pub mod event;
 pub mod exception;
 pub mod frame;
+pub mod processing;
 pub mod release;
 pub mod sanitize;
 
@@ -16,6 +17,10 @@ pub use exception::{
     OutputErrProps, RawErrProps, Stacktrace,
 };
 pub use frame::{Context, ContextLine, Frame, FrameRecord, RawFrame};
+pub use processing::{
+    ExceptionProcessingOptions, EMIT_INTERNAL_EVENTS_METADATA_KEY, EMIT_SIGNALS_METADATA_KEY,
+    SKIP_ALERTING_METADATA_KEY,
+};
 pub use release::{ReleaseInfo, ReleaseRecord};
 pub use sanitize::{
     needs_sanitization, recursively_sanitize_properties, sanitize_source_line, sanitize_string,

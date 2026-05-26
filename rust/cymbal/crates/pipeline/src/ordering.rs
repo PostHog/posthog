@@ -17,25 +17,9 @@ use std::collections::HashMap;
 
 use cymbal_alerting::AlertingEvent;
 use cymbal_core::StageError;
-use cymbal_domain::{EventResult, InputEvent, RateLimitGateOutput};
+use cymbal_domain::EventResult;
 
 use crate::IntermediateStageOutput;
-
-pub fn split_rate_limit_outputs(
-    outputs: Vec<RateLimitGateOutput>,
-) -> (Vec<InputEvent>, Vec<EventResult>) {
-    let mut allowed_events = Vec::new();
-    let mut terminal_results = Vec::new();
-
-    for output in outputs {
-        match output {
-            RateLimitGateOutput::Allowed(allowed) => allowed_events.push(allowed.event),
-            RateLimitGateOutput::Terminal(result) => terminal_results.push(result),
-        }
-    }
-
-    (allowed_events, terminal_results)
-}
 
 pub fn split_intermediate_outputs<T>(
     outputs: Vec<IntermediateStageOutput<T>>,

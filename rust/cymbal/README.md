@@ -1,7 +1,7 @@
 # Cymbal
 
 Cymbal is PostHog's error-tracking processing service.
-Node ingestion sends `$exception` batches to Cymbal over gRPC; Cymbal runs resolution, grouping, linking, rate limiting, and alerting stages, then streams one final outcome per input event.
+Node ingestion sends `$exception` batches to Cymbal over gRPC; Cymbal runs resolution, grouping, linking, and alerting stages, then streams one final outcome per input event.
 
 Cymbal is a crate workspace area, not a standalone Rust package: run Rust commands through the parent `rust/Cargo.toml` manifest.
 There is no endpoint named `/process`, and public ingestion requests do not expose stage IDs, stage chains, or stage artifacts.

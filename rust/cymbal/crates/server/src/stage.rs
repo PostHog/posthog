@@ -15,10 +15,9 @@ use cymbal_api::cymbal::v1::{
     StageBatch, StageBatchResult, StageItem, StageItemResult, StageStart,
 };
 use cymbal_core::{BatchContext, PipelineStage, StageInput, StagePayload};
-use cymbal_domain::{EventResult, InputEvent, RateLimitGateOutput, RATE_LIMITING_STAGE_TYPE};
+use cymbal_domain::{EventResult, InputEvent};
 use cymbal_grouping::{GroupedEvent, GroupingStage, GROUPING_STAGE_TYPE};
 use cymbal_linking::{LinkingStage, LINKING_STAGE_TYPE};
-use cymbal_rate_limiting::RateLimitingStage;
 use cymbal_resolution::{ResolutionStage, ResolvedEvent, RESOLUTION_STAGE_TYPE};
 use cymbal_runtime::RuntimeStages;
 use tonic::{Request, Response, Status};
@@ -64,7 +63,6 @@ pub struct CymbalStageService {
     limits: StageServiceLimits,
     in_flight: InFlightBatchTracker,
     item_permits: InFlightItemTracker,
-    rate_limiting_stage: RateLimitingStage,
     resolution_stage: ResolutionStage,
     grouping_stage: GroupingStage,
     linking_stage: LinkingStage,
@@ -78,7 +76,6 @@ impl CymbalStageService {
             limits: StageServiceLimits::default(),
             in_flight: InFlightBatchTracker::default(),
             item_permits: InFlightItemTracker::default(),
-            rate_limiting_stage: RateLimitingStage::disabled(),
             resolution_stage: ResolutionStage::new(),
             grouping_stage: GroupingStage::new(),
             linking_stage: LinkingStage::new(),
@@ -97,7 +94,6 @@ impl CymbalStageService {
     }
 
     pub fn with_runtime_stages(mut self, stages: RuntimeStages) -> Self {
-        self.rate_limiting_stage = stages.rate_limiting;
         self.resolution_stage = stages.resolution;
         self.grouping_stage = stages.grouping;
         self.linking_stage = stages.linking;
@@ -203,7 +199,6 @@ impl CymbalStageRuntime for CymbalStageService {
         );
         let input_items = items.len();
         let output = match match contract.stage_type {
-            RATE_LIMITING_STAGE_TYPE => self.process_rate_limiting(context, items).await,
             RESOLUTION_STAGE_TYPE => self.process_resolution(context, items).await,
             GROUPING_STAGE_TYPE => self.process_grouping(context, items).await,
             LINKING_STAGE_TYPE => self.process_linking(context, items).await,
@@ -271,27 +266,6 @@ impl CymbalStageService {
         // only knows v1 and only discovers the mismatch after the decode error.
         load.served_stage_ids = self.registry.registered_stage_ids();
         load
-    }
-
-    async fn process_rate_limiting(
-        &self,
-        context: BatchContext,
-        items: Vec<StageItem>,
-    ) -> Result<Vec<StageItemResult>, Status> {
-        let input_events = items
-            .into_iter()
-            .map(|item| decode_stage_item::<InputEvent>(item, InputEvent::TYPE.to_string()))
-            .collect::<Result<Vec<_>, _>>()?;
-        let outputs: Vec<RateLimitGateOutput> = self
-            .rate_limiting_stage
-            .process(StageInput::from_items(context, input_events))
-            .await
-            .map_err(stage_error_to_status)?;
-
-        outputs
-            .into_iter()
-            .map(encode_stage_item)
-            .collect::<Result<Vec<_>, _>>()
     }
 
     async fn process_resolution(
@@ -430,12 +404,6 @@ impl StageItemId for GroupedEvent {
     }
 }
 
-impl StageItemId for RateLimitGateOutput {
-    fn stage_item_id(&self) -> &str {
-        self.event_id()
-    }
-}
-
 impl StageItemId for EventResult {
     fn stage_item_id(&self) -> &str {
         &self.event_id
@@ -447,7 +415,6 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
 
-    use cymbal_domain::RATE_LIMITING_STAGE_ID;
     use cymbal_resolution::RESOLUTION_STAGE_ID;
 
     use super::*;
@@ -466,13 +433,13 @@ mod tests {
         }
     }
 
-    fn rate_limiting_batch(item_ids: &[&str]) -> StageBatch {
+    fn resolution_batch_with_items(item_ids: &[&str]) -> StageBatch {
         StageBatch {
             start: Some(StageStart {
                 batch_id: "batch-1".to_string(),
-                stage_id: RATE_LIMITING_STAGE_ID.to_string(),
+                stage_id: RESOLUTION_STAGE_ID.to_string(),
                 input_type: InputEvent::TYPE.to_string(),
-                output_type: RateLimitGateOutput::TYPE.to_string(),
+                output_type: ResolvedEvent::TYPE.to_string(),
                 metadata: Default::default(),
             }),
             items: item_ids
@@ -491,8 +458,8 @@ mod tests {
         }
     }
 
-    fn rate_limiting_batch_with_invalid_payload(item_ids: &[&str]) -> StageBatch {
-        let mut batch = rate_limiting_batch(item_ids);
+    fn resolution_batch_with_invalid_payload(item_ids: &[&str]) -> StageBatch {
+        let mut batch = resolution_batch_with_items(item_ids);
         for item in &mut batch.items {
             item.payload = b"not-json".to_vec();
         }
@@ -524,7 +491,7 @@ mod tests {
     #[tokio::test]
     async fn stage_response_releases_item_permits_before_load_signal() {
         let service = CymbalStageService::new(
-            StageRegistry::local_for_stage_ids(&[RATE_LIMITING_STAGE_ID.to_string()]).unwrap(),
+            StageRegistry::local_for_stage_ids(&[RESOLUTION_STAGE_ID.to_string()]).unwrap(),
         )
         .with_limits(StageServiceLimits {
             max_stage_items: 10,
@@ -533,7 +500,7 @@ mod tests {
         });
 
         let response = service
-            .process_stage(Request::new(rate_limiting_batch(&["event-1"])))
+            .process_stage(Request::new(resolution_batch_with_items(&["event-1"])))
             .await
             .unwrap()
             .into_inner();
@@ -548,7 +515,7 @@ mod tests {
     #[tokio::test]
     async fn over_capacity_stage_items_reject_before_work_starts() {
         let service = CymbalStageService::new(
-            StageRegistry::local_for_stage_ids(&[RATE_LIMITING_STAGE_ID.to_string()]).unwrap(),
+            StageRegistry::local_for_stage_ids(&[RESOLUTION_STAGE_ID.to_string()]).unwrap(),
         )
         .with_limits(StageServiceLimits {
             max_stage_items: 10,
@@ -557,7 +524,7 @@ mod tests {
         });
 
         let status = service
-            .process_stage(Request::new(rate_limiting_batch_with_invalid_payload(&[
+            .process_stage(Request::new(resolution_batch_with_invalid_payload(&[
                 "event-1", "event-2",
             ])))
             .await

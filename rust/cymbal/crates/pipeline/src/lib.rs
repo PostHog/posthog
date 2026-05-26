@@ -39,7 +39,7 @@ use std::sync::Arc;
 
 use cymbal_alerting::AlertingEvent;
 use cymbal_core::{BatchContext, PipelineStage, StageError, StageInput};
-use cymbal_domain::{EventResult, InputEvent, RateLimitGateOutput};
+use cymbal_domain::{EventResult, InputEvent};
 use cymbal_grouping::GroupedEvent;
 use cymbal_resolution::ResolvedEvent;
 
@@ -64,7 +64,6 @@ pub type IntermediateStageOutput<T> = cymbal_core::IntermediateStageOutput<T, Ev
 
 pub use ordering::{
     event_result_to_alerting_event, order_event_results, split_intermediate_outputs,
-    split_rate_limit_outputs,
 };
 pub use runner::{ExceptionPipelineItem, ExceptionStageDriver};
 pub use sink::EventResultSink;
@@ -92,9 +91,8 @@ impl ExceptionPipeline {
         Self::from_executors(PipelineExecutors::default())
     }
 
-    pub fn new<RL, R, G, L, A>(stages: PipelineStages<RL, R, G, L, A>) -> Self
+    pub fn new<R, G, L, A>(stages: PipelineStages<R, G, L, A>) -> Self
     where
-        RL: PipelineStage<Input = InputEvent, Output = RateLimitGateOutput> + Send + Sync + 'static,
         R: PipelineStage<Input = InputEvent, Output = ResolvedEvent> + Send + Sync + 'static,
         G: PipelineStage<Input = ResolvedEvent, Output = GroupedEvent> + Send + Sync + 'static,
         L: PipelineStage<Input = GroupedEvent, Output = EventResult> + Send + Sync + 'static,
@@ -131,53 +129,13 @@ mod tests {
     use async_trait::async_trait;
     use cymbal_alerting::AlertingEvent;
     use cymbal_core::{BatchContext, Metadata, PipelineStage, Sink, StageError, StageType};
-    use cymbal_domain::{EventOutcome, ExceptionProperties, RateLimitGateOutput};
+    use cymbal_domain::{EventOutcome, ExceptionProcessingOptions, ExceptionProperties};
     use cymbal_grouping::GroupedEvent;
     use cymbal_resolution::ResolvedEvent;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
 
     use super::*;
-
-    #[derive(Clone, Default)]
-    struct MockRateLimitingStage;
-
-    #[async_trait]
-    impl PipelineStage for MockRateLimitingStage {
-        type Input = InputEvent;
-        type Output = RateLimitGateOutput;
-
-        fn id(&self) -> StageType {
-            StageType {
-                namespace: "cymbal.stage",
-                name: "mock-rate-limiting",
-                version: 1,
-            }
-        }
-
-        async fn process(
-            &self,
-            input: StageInput<Self::Input>,
-        ) -> Result<Vec<Self::Output>, StageError> {
-            Ok(input
-                .items
-                .into_iter()
-                .map(|event| {
-                    if event.event_id == "limited-event" {
-                        RateLimitGateOutput::drop(
-                            event.event_id,
-                            "rate_limited:team_id".to_string(),
-                        )
-                    } else {
-                        RateLimitGateOutput::allowed(
-                            event,
-                            cymbal_domain::RateLimitDecision::Disabled,
-                        )
-                    }
-                })
-                .collect())
-        }
-    }
 
     #[derive(Clone, Default)]
     struct MockResolutionStage;
@@ -334,12 +292,19 @@ mod tests {
         }
     }
 
+    fn test_context_with_processing_options(
+        processing_options: ExceptionProcessingOptions,
+    ) -> BatchContext {
+        let mut context = test_context();
+        processing_options.write_to_metadata(&mut context.metadata);
+        context
+    }
+
     #[tokio::test]
     async fn pipeline_composes_resolution_grouping_linking_and_alerting() {
         let alerting = MockAlertingStage::default();
         let seen_event_ids = alerting.seen_event_ids.clone();
         let pipeline = ExceptionPipeline::new(PipelineStages {
-            rate_limiting: MockRateLimitingStage,
             resolution: MockResolutionStage,
             grouping: MockGroupingStage,
             linking: MockLinkingStage,
@@ -391,7 +356,6 @@ mod tests {
     #[tokio::test]
     async fn pipeline_propagates_stage_errors_without_http_adaptation() {
         let pipeline = ExceptionPipeline::new(PipelineStages {
-            rate_limiting: MockRateLimitingStage,
             resolution: FailingResolutionStage,
             grouping: MockGroupingStage,
             linking: MockLinkingStage,
@@ -413,11 +377,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pipeline_rate_limit_merges_terminal_results_in_input_order() {
+    async fn pipeline_skips_alerting_when_requested() {
         let alerting = MockAlertingStage::default();
         let seen_event_ids = alerting.seen_event_ids.clone();
         let pipeline = ExceptionPipeline::new(PipelineStages {
-            rate_limiting: MockRateLimitingStage,
             resolution: MockResolutionStage,
             grouping: MockGroupingStage,
             linking: MockLinkingStage,
@@ -426,12 +389,11 @@ mod tests {
 
         let results = pipeline
             .process(StageInput::from_items(
-                test_context(),
-                vec![
-                    input_event("event-1"),
-                    input_event("limited-event"),
-                    input_event("event-3"),
-                ],
+                test_context_with_processing_options(ExceptionProcessingOptions {
+                    skip_alerting: true,
+                    ..Default::default()
+                }),
+                vec![input_event("event-1"), input_event("event-2")],
             ))
             .await
             .unwrap();
@@ -441,20 +403,11 @@ mod tests {
                 .iter()
                 .map(|result| result.event_id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["event-1", "limited-event", "event-3"]
+            vec!["event-1", "event-2"]
         );
         assert!(matches!(results[0].outcome, EventOutcome::Next { .. }));
-        assert_eq!(
-            results[1].outcome,
-            EventOutcome::Drop {
-                reason: "rate_limited:team_id".to_string()
-            }
-        );
-        assert!(matches!(results[2].outcome, EventOutcome::Next { .. }));
-        assert_eq!(
-            seen_event_ids.lock().unwrap().as_slice(),
-            ["event-1", "event-3"]
-        );
+        assert!(matches!(results[1].outcome, EventOutcome::Next { .. }));
+        assert!(seen_event_ids.lock().unwrap().is_empty());
     }
 
     struct ChannelSink {
@@ -548,7 +501,6 @@ mod tests {
 
     fn streaming_test_executors(resolution: StreamingResolutionExecutor) -> PipelineExecutors {
         PipelineExecutors {
-            rate_limiting: Arc::new(LocalExecutor::new(MockRateLimitingStage)),
             resolution: Arc::new(resolution),
             grouping: Arc::new(ContinueExecutor::new(LocalExecutor::new(MockGroupingStage))),
             linking: Arc::new(LocalExecutor::new(MockLinkingStage)),

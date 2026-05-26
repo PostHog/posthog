@@ -5,17 +5,12 @@ use cymbal_api::cymbal::v1::{
     process_exception_batch_result, BatchContext, ExceptionEvent, ProcessExceptionBatchRequest,
     ProcessExceptionBatchResult,
 };
-use cymbal_rate_limiting::{RateLimitingConfig, RateLimitingStage};
-use cymbal_runtime::RuntimeStages;
 use cymbal_server::pipeline::CymbalPipelineService;
 use cymbal_server::registry::StageRegistry;
 use cymbal_server::remote::{RemoteStageConnectionManager, RemoteStageTarget};
 use cymbal_server::stage::CymbalStageService;
 use futures::TryStreamExt;
-use limiters::{EvalResult, GlobalRateLimitResponse, GlobalRateLimiter};
 use serde_json::{json, Value};
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::TcpListenerStream;
@@ -30,50 +25,6 @@ impl Drop for TestServer {
     fn drop(&mut self) {
         self.handle.abort();
     }
-}
-
-#[derive(Clone)]
-struct FakeLimiter {
-    results: Arc<Mutex<VecDeque<EvalResult>>>,
-}
-
-impl FakeLimiter {
-    fn new(results: Vec<EvalResult>) -> Self {
-        Self {
-            results: Arc::new(Mutex::new(VecDeque::from(results))),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl GlobalRateLimiter for FakeLimiter {
-    async fn check_limit(
-        &self,
-        _key: &str,
-        _count: u64,
-        _timestamp: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> EvalResult {
-        self.results
-            .lock()
-            .unwrap()
-            .pop_front()
-            .unwrap_or(EvalResult::Allowed)
-    }
-
-    async fn check_custom_limit(
-        &self,
-        _key: &str,
-        _count: u64,
-        _timestamp: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> EvalResult {
-        EvalResult::NotApplicable
-    }
-
-    fn is_custom_key(&self, _key: &str) -> bool {
-        false
-    }
-
-    fn shutdown(&mut self) {}
 }
 
 async fn start_pipeline_server(service: CymbalPipelineService) -> TestServer {
@@ -111,38 +62,6 @@ async fn create_client(server: &TestServer) -> CymbalIngestionClient<Channel> {
     CymbalIngestionClient::connect(format!("http://{}", server.addr))
         .await
         .unwrap()
-}
-
-fn limited_response(key: &str) -> GlobalRateLimitResponse {
-    GlobalRateLimitResponse {
-        key: key.to_string(),
-        current_count: 2.0,
-        threshold: 1,
-        window_interval: std::time::Duration::from_secs(60),
-        sync_interval: std::time::Duration::from_secs(15),
-        is_custom_limited: false,
-    }
-}
-
-fn runtime_stages(rate_limiting: RateLimitingStage) -> RuntimeStages {
-    RuntimeStages {
-        rate_limiting,
-        resolution: cymbal_resolution::ResolutionStage::new(),
-        grouping: cymbal_grouping::GroupingStage::new(),
-        linking: cymbal_linking::LinkingStage::new(),
-        alerting: cymbal_alerting::AlertingStage::new(),
-    }
-}
-
-fn rate_limit_stage(limiter: FakeLimiter) -> RateLimitingStage {
-    RateLimitingStage::with_limiter(
-        RateLimitingConfig {
-            enabled: true,
-            threshold: 1,
-            ..Default::default()
-        },
-        Arc::new(limiter),
-    )
 }
 
 async fn process_exception_batch(
@@ -332,29 +251,6 @@ async fn mixed_drop_error_next_format_matches_snapshot() {
             input_event("next-event", "mixed outcome next"),
             input_event_for_team("drop-event", 0, exception_properties_json("missing team")),
             input_event_for_team("error-event", 1, br#"{"#.to_vec()),
-        ],
-    );
-
-    let results = process_exception_batch(&mut client, request.clone()).await;
-
-    insta::assert_json_snapshot!(snapshot_payload(&request, &results));
-}
-
-#[tokio::test]
-async fn rate_limited_events_format_matches_snapshot() {
-    let limiter = FakeLimiter::new(vec![
-        EvalResult::Allowed,
-        EvalResult::Limited(limited_response("team_id:1")),
-    ]);
-    let service =
-        CymbalPipelineService::new().with_runtime_stages(runtime_stages(rate_limit_stage(limiter)));
-    let server = start_pipeline_server(service).await;
-    let mut client = create_client(&server).await;
-    let request = batch_request(
-        "rate-limited-snapshot",
-        vec![
-            input_event("allowed-event", "allowed through limiter"),
-            input_event("limited-event", "limited by limiter"),
         ],
     );
 

@@ -17,10 +17,7 @@ use cymbal_api::cymbal::v1::{
 };
 use cymbal_core::routing::RoutingKey;
 use cymbal_core::{BatchContext, Sink, StageError, StagePayload};
-use cymbal_domain::{
-    EventOutcome, EventResult as DomainEventResult, InputEvent, RateLimitDecision,
-    RateLimitGateOutput, RATE_LIMITING_STAGE_ID,
-};
+use cymbal_domain::{EventOutcome, EventResult as DomainEventResult, InputEvent};
 use cymbal_grouping::{GroupedEvent, GROUPING_STAGE_ID};
 use cymbal_linking::LINKING_STAGE_ID;
 use cymbal_pipeline::{
@@ -106,7 +103,6 @@ impl CymbalPipelineService {
 
     pub fn with_runtime_stages(mut self, stages: RuntimeStages) -> Self {
         self.stages = PipelineStages {
-            rate_limiting: stages.rate_limiting,
             resolution: stages.resolution,
             grouping: stages.grouping,
             linking: stages.linking,
@@ -117,29 +113,10 @@ impl CymbalPipelineService {
 
     fn build_pipeline_executors(&self) -> Result<PipelineExecutors, Status> {
         Ok(PipelineExecutors {
-            rate_limiting: self.rate_limiting_executor()?,
             resolution: self.resolution_executor()?,
             grouping: self.grouping_executor()?,
             linking: self.linking_executor()?,
             alerting: self.alerting_executor()?,
-        })
-    }
-
-    fn rate_limiting_executor(
-        &self,
-    ) -> Result<Arc<dyn StageExecutor<InputEvent, RateLimitGateOutput>>, Status> {
-        let contract = self.stage_contract(RATE_LIMITING_STAGE_ID)?;
-        Ok(match contract.execution.clone() {
-            StageExecution::Local => Arc::new(MeteredLocalExecutor::new(
-                RATE_LIMITING_STAGE_ID,
-                StageExecutionKind::Local,
-                LocalExecutor::new(self.stages.rate_limiting.clone()),
-                StageItemCounts::from_rate_limit_outputs,
-            )),
-            StageExecution::Remote { target_name } => Arc::new(RemoteRateLimitingExecutor::new(
-                self.remote_connections.clone(),
-                target_name,
-            )),
         })
     }
 
@@ -721,121 +698,6 @@ where
     }
 }
 
-struct RemoteRateLimitingExecutor {
-    remote_connections: Option<RemoteStageConnectionManager>,
-    target_name: String,
-}
-
-impl RemoteRateLimitingExecutor {
-    fn new(remote_connections: Option<RemoteStageConnectionManager>, target_name: String) -> Self {
-        Self {
-            remote_connections,
-            target_name,
-        }
-    }
-}
-
-#[async_trait]
-impl StageExecutor<InputEvent, RateLimitGateOutput> for RemoteRateLimitingExecutor {
-    async fn run(
-        &self,
-        ctx: Arc<BatchContext>,
-        inputs: Vec<InputEvent>,
-    ) -> Result<Vec<RateLimitGateOutput>, StageError> {
-        let batch_id = ctx.batch_id.clone();
-        let input_count = inputs.len();
-        let target_name = self.target_name.clone();
-        let original_events_by_id = inputs
-            .iter()
-            .map(|event| (event.event_id.clone(), event.clone()))
-            .collect::<HashMap<_, _>>();
-        metered_stage(
-            RATE_LIMITING_STAGE_ID,
-            StageExecutionKind::Remote {
-                target: &self.target_name,
-            },
-            &batch_id,
-            input_count,
-            async move {
-                let remote_batch = match process_remote_stage::<InputEvent, RateLimitGateOutput>(
-                    RemoteStageCall {
-                        remote_connections: self.remote_connections.as_ref(),
-                        target_name: &target_name,
-                        stage_id: RATE_LIMITING_STAGE_ID,
-                        input_type: InputEvent::TYPE,
-                        output_type: RateLimitGateOutput::TYPE,
-                        retryable_on_transient_failure: false,
-                    },
-                    (*ctx).clone(),
-                    inputs,
-                )
-                .await
-                {
-                    Ok(batch) => Some(batch),
-                    Err(error) => {
-                        tracing::warn!(
-                            stage_id = RATE_LIMITING_STAGE_ID,
-                            target = %target_name,
-                            error = %error,
-                            "remote rate limiting stage failed open"
-                        );
-                        None
-                    }
-                };
-
-                match remote_batch {
-                    Some(RemoteStageBatch {
-                        mut items,
-                        failures,
-                        outcome,
-                    }) => {
-                        for failure in &failures {
-                            tracing::warn!(
-                                stage_id = RATE_LIMITING_STAGE_ID,
-                                target = %target_name,
-                                event_id = %failure.item_id,
-                                error = %failure.message,
-                                "remote rate limiting item failed open"
-                            );
-                        }
-                        items.extend(recover_rate_limit_outputs(
-                            &failures,
-                            &original_events_by_id,
-                        ));
-                        let counts = StageItemCounts::from_rate_limit_outputs(&items);
-                        Ok(MeteredStageResult {
-                            value: items,
-                            outcome: remote_outcome_label(outcome),
-                            counts,
-                        })
-                    }
-                    None => {
-                        let outputs = original_events_by_id
-                            .into_values()
-                            .map(|event| {
-                                RateLimitGateOutput::allowed(
-                                    event,
-                                    RateLimitDecision::LimiterError {
-                                        message: "remote rate limiting stage failed open"
-                                            .to_string(),
-                                    },
-                                )
-                            })
-                            .collect::<Vec<_>>();
-                        let counts = StageItemCounts::from_rate_limit_outputs(&outputs);
-                        Ok(MeteredStageResult {
-                            value: outputs,
-                            outcome: StageOutcomeLabel::FailOpen,
-                            counts,
-                        })
-                    }
-                }
-            },
-        )
-        .await
-    }
-}
-
 impl RemoteStageInput for InputEvent {
     fn stage_item_id(&self) -> &str {
         &self.event_id
@@ -844,7 +706,6 @@ impl RemoteStageInput for InputEvent {
     fn routing_key(&self, stage_id: &str) -> RoutingKey {
         match stage_id {
             RESOLUTION_STAGE_ID => resolution_routing_key(self),
-            RATE_LIMITING_STAGE_ID => RoutingKey::team_id(self.team_id),
             _ => RoutingKey::team_id(self.team_id),
         }
     }
@@ -895,12 +756,6 @@ impl RemoteStageOutput for GroupedEvent {
     }
 }
 
-impl RemoteStageOutput for RateLimitGateOutput {
-    fn stage_item_id(&self) -> &str {
-        self.event_id()
-    }
-}
-
 impl RemoteStageOutput for DomainEventResult {
     fn stage_item_id(&self) -> &str {
         &self.event_id
@@ -939,28 +794,6 @@ fn intermediate_counts<T>(outputs: &[IntermediateStageOutput<T>]) -> StageItemCo
         }
     }
     counts
-}
-
-fn recover_rate_limit_outputs(
-    failures: &[RemoteStageItemFailure],
-    original_events_by_id: &HashMap<String, InputEvent>,
-) -> Vec<RateLimitGateOutput> {
-    failures
-        .iter()
-        .filter_map(|failure| {
-            original_events_by_id
-                .get(&failure.item_id)
-                .cloned()
-                .map(|event| {
-                    RateLimitGateOutput::allowed(
-                        event,
-                        RateLimitDecision::LimiterError {
-                            message: failure.message.clone(),
-                        },
-                    )
-                })
-        })
-        .collect()
 }
 
 fn failures_to_event_results(failures: Vec<RemoteStageItemFailure>) -> Vec<DomainEventResult> {
@@ -1025,108 +858,18 @@ fn log_sampled_item_failures(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
-    use std::sync::{Arc, Mutex};
-
-    use async_trait::async_trait;
     use cymbal_api::cymbal::v1::{
         process_exception_batch_result, ExceptionEvent, ProcessExceptionBatchRequest,
         ProcessExceptionBatchResult,
     };
     use cymbal_core::Metadata;
     use cymbal_domain::{ExceptionProperties, MISSING_TEAM_ID_DROP_REASON};
-    use cymbal_rate_limiting::{RateLimitingConfig, RateLimitingStage};
     use futures::TryStreamExt;
-    use limiters::{EvalResult, GlobalRateLimitResponse, GlobalRateLimiter};
     use metrics_util::debugging::{DebugValue, DebuggingRecorder};
     use serde_json::{json, Value};
 
     use super::*;
     use cymbal_core::routing::RoutingCacheKeyKind;
-
-    #[derive(Clone)]
-    struct FakeLimiter {
-        results: Arc<Mutex<VecDeque<EvalResult>>>,
-        keys: Arc<Mutex<Vec<String>>>,
-    }
-
-    impl FakeLimiter {
-        fn new(results: Vec<EvalResult>) -> Self {
-            Self {
-                results: Arc::new(Mutex::new(VecDeque::from(results))),
-                keys: Arc::new(Mutex::new(Vec::new())),
-            }
-        }
-
-        fn keys(&self) -> Vec<String> {
-            self.keys.lock().unwrap().clone()
-        }
-    }
-
-    #[async_trait]
-    impl GlobalRateLimiter for FakeLimiter {
-        async fn check_limit(
-            &self,
-            key: &str,
-            count: u64,
-            _timestamp: Option<chrono::DateTime<chrono::Utc>>,
-        ) -> EvalResult {
-            assert_eq!(count, 1);
-            self.keys.lock().unwrap().push(key.to_string());
-            self.results
-                .lock()
-                .unwrap()
-                .pop_front()
-                .unwrap_or(EvalResult::Allowed)
-        }
-
-        async fn check_custom_limit(
-            &self,
-            _key: &str,
-            _count: u64,
-            _timestamp: Option<chrono::DateTime<chrono::Utc>>,
-        ) -> EvalResult {
-            EvalResult::NotApplicable
-        }
-
-        fn is_custom_key(&self, _key: &str) -> bool {
-            false
-        }
-
-        fn shutdown(&mut self) {}
-    }
-
-    fn limited_response(key: &str) -> GlobalRateLimitResponse {
-        GlobalRateLimitResponse {
-            key: key.to_string(),
-            current_count: 2.0,
-            threshold: 1,
-            window_interval: std::time::Duration::from_secs(60),
-            sync_interval: std::time::Duration::from_secs(15),
-            is_custom_limited: false,
-        }
-    }
-
-    fn runtime_stages(rate_limiting: RateLimitingStage) -> RuntimeStages {
-        RuntimeStages {
-            rate_limiting,
-            resolution: cymbal_resolution::ResolutionStage::new(),
-            grouping: cymbal_grouping::GroupingStage::new(),
-            linking: cymbal_linking::LinkingStage::new(),
-            alerting: cymbal_alerting::AlertingStage::new(),
-        }
-    }
-
-    fn rate_limit_stage(limiter: FakeLimiter) -> RateLimitingStage {
-        RateLimitingStage::with_limiter(
-            RateLimitingConfig {
-                enabled: true,
-                threshold: 1,
-                ..Default::default()
-            },
-            Arc::new(limiter),
-        )
-    }
 
     fn request_for_event_ids(event_ids: &[&str]) -> ProcessExceptionBatchRequest {
         ProcessExceptionBatchRequest {
@@ -1213,7 +956,7 @@ mod tests {
     }
 
     #[test]
-    fn non_resolution_remote_stages_default_to_team_id_when_available() {
+    fn remote_stage_inputs_default_to_team_id_when_available() {
         let input = routing_input_event(json!({ "event": "$exception" }));
         let resolved = ResolvedEvent {
             event_id: "event-1".to_string(),
@@ -1229,7 +972,7 @@ mod tests {
         };
 
         assert_eq!(
-            input.routing_key(RATE_LIMITING_STAGE_ID),
+            input.routing_key(RESOLUTION_STAGE_ID),
             RoutingKey::TeamId(2)
         );
         assert_eq!(
@@ -1349,68 +1092,6 @@ mod tests {
         ));
     }
 
-    #[tokio::test]
-    async fn pipeline_rate_limit_disabled_allows_events_locally() {
-        let limiter = FakeLimiter::new(vec![EvalResult::Limited(limited_response("team_id:2"))]);
-        let service = CymbalPipelineService::new().with_runtime_stages(runtime_stages(
-            RateLimitingStage::with_limiter(
-                RateLimitingConfig {
-                    enabled: false,
-                    ..Default::default()
-                },
-                Arc::new(limiter.clone()),
-            ),
-        ));
-
-        let results = process_with_service(&service, request_for_event_ids(&["event-1"])).await;
-
-        assert!(limiter.keys().is_empty());
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].event_id, "event-1");
-        assert!(matches!(
-            results[0].outcome,
-            Some(process_exception_batch_result::Outcome::Next(_))
-        ));
-    }
-
-    #[tokio::test]
-    async fn pipeline_rate_limit_enabled_drops_mixed_batches_locally_in_input_order() {
-        let limiter = FakeLimiter::new(vec![
-            EvalResult::Allowed,
-            EvalResult::Limited(limited_response("team_id:2")),
-            EvalResult::Allowed,
-        ]);
-        let service = CymbalPipelineService::new()
-            .with_runtime_stages(runtime_stages(rate_limit_stage(limiter.clone())));
-
-        let results = process_with_service(
-            &service,
-            request_for_event_ids(&["event-1", "event-2", "event-3"]),
-        )
-        .await;
-
-        assert_eq!(
-            results
-                .iter()
-                .map(|result| result.event_id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["event-1", "event-2", "event-3"]
-        );
-        assert_eq!(limiter.keys(), vec!["team_id:2", "team_id:2", "team_id:2"]);
-        assert!(matches!(
-            results[0].outcome,
-            Some(process_exception_batch_result::Outcome::Next(_))
-        ));
-        assert!(matches!(
-            results[1].outcome,
-            Some(process_exception_batch_result::Outcome::Drop(_))
-        ));
-        assert!(matches!(
-            results[2].outcome,
-            Some(process_exception_batch_result::Outcome::Next(_))
-        ));
-    }
-
     /// Snapshot test that verifies the orchestrator emits each of the
     /// per-stage and per-batch metric names defined in
     /// `crate::observability`. Acts as a regression target so future
@@ -1476,7 +1157,6 @@ mod tests {
             .collect::<std::collections::BTreeSet<_>>();
 
         for expected_stage in [
-            RATE_LIMITING_STAGE_ID,
             RESOLUTION_STAGE_ID,
             GROUPING_STAGE_ID,
             LINKING_STAGE_ID,

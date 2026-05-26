@@ -4,7 +4,6 @@ mod payloads;
 use std::collections::BTreeSet;
 
 use cymbal_api::cymbal::v1::cymbal_ingestion_client::CymbalIngestionClient;
-use cymbal_api::cymbal::v1::process_exception_batch_result::Outcome;
 use cymbal_api::cymbal::v1::{
     ExceptionEvent, ProcessExceptionBatchRequest, ProcessExceptionBatchResult,
 };
@@ -14,15 +13,11 @@ use output::{
     BOLD, CYAN, DIM, RESET, RULE,
 };
 use payloads::{
-    batch_context, default_processing_options, default_team_id, empty_exception_list_properties,
-    exception_without_stacktrace_properties, input_event, input_event_with_team,
-    invalid_exception_list_properties, invalid_json_properties,
-    manual_fingerprint_exception_properties, multi_frame_exception_properties,
-    plain_event_properties, sample_exception_properties,
+    batch_context, default_processing_options, empty_exception_list_properties,
+    exception_without_stacktrace_properties, input_event, invalid_exception_list_properties,
+    invalid_json_properties, manual_fingerprint_exception_properties,
+    multi_frame_exception_properties, plain_event_properties, sample_exception_properties,
 };
-
-const RATE_LIMIT_SMOKE_ENV: &str = "CYMBAL_EXAMPLE_RATE_LIMIT_SMOKE";
-const RATE_LIMIT_DROP_REASON: &str = "rate_limited:team_id";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,19 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut passed = 0;
     let mut failed = 0;
-    let mut skipped = 0;
-
-    if rate_limit_smoke_enabled() {
-        match run_rate_limit_smoke(&mut client, verbosity).await {
-            Ok(()) => passed += 1,
-            Err(error) => {
-                failed += 1;
-                log_failure("team_id rate limit smoke", error.as_ref(), verbosity);
-            }
-        }
-    } else {
-        skipped += 1;
-    }
+    let skipped = 0;
 
     for example in example_cases() {
         let label = example.label;
@@ -94,22 +77,7 @@ struct ExampleCase {
 }
 
 fn example_count() -> usize {
-    example_cases().len() + 2
-}
-
-fn rate_limit_smoke_enabled() -> bool {
-    std::env::var(RATE_LIMIT_SMOKE_ENV)
-        .ok()
-        .as_deref()
-        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false)
-}
-
-fn rate_limit_smoke_team_id() -> i64 {
-    std::env::var("CYMBAL_EXAMPLE_RATE_LIMIT_TEAM_ID")
-        .ok()
-        .and_then(|value| value.parse::<i64>().ok())
-        .unwrap_or_else(default_team_id)
+    example_cases().len() + 1
 }
 
 fn example_cases() -> Vec<ExampleCase> {
@@ -236,51 +204,6 @@ async fn run_example_case(
     Ok(())
 }
 
-async fn run_rate_limit_smoke(
-    client: &mut CymbalIngestionClient<tonic::transport::Channel>,
-    verbosity: Verbosity,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let team_id = rate_limit_smoke_team_id();
-    let request = ProcessExceptionBatchRequest {
-        context: Some(batch_context("team-id-rate-limit-smoke")),
-        events: vec![
-            input_event_with_team(
-                "rate-limit-allowed",
-                team_id,
-                sample_exception_properties("team_id rate limit smoke allowed event"),
-            ),
-            // Invalid JSON would fail during resolution if the limiter did not
-            // short-circuit it. Seeing `rate_limited:team_id` here proves the
-            // public API dropped it before symbolication, grouping, or linking.
-            input_event_with_team(
-                "rate-limit-invalid-json",
-                team_id,
-                invalid_json_properties(),
-            ),
-            input_event_with_team(
-                "rate-limit-invalid-exception-list",
-                team_id,
-                invalid_exception_list_properties(
-                    "team_id rate limit smoke invalid exception list",
-                ),
-            ),
-        ],
-        options: Some(default_processing_options()),
-    };
-
-    log_request("team_id rate limit smoke", &request, verbosity);
-    let results = process_exception_batch(client, request).await?;
-    log_results(&results, verbosity);
-    assert_rate_limit_smoke_results(&results)?;
-    log_success(
-        "team_id rate limit smoke",
-        "tiny threshold allows the first event and drops later same-team events before downstream work",
-        Some(&results),
-        verbosity,
-    );
-    Ok(())
-}
-
 async fn run_oversized_batch(
     client: &mut CymbalIngestionClient<tonic::transport::Channel>,
     verbosity: Verbosity,
@@ -358,52 +281,6 @@ fn assert_result_ids(
     Ok(())
 }
 
-fn assert_rate_limit_smoke_results(
-    results: &[ProcessExceptionBatchResult],
-) -> Result<(), Box<dyn std::error::Error>> {
-    assert_result_ids(
-        results,
-        &[
-            "rate-limit-allowed".to_string(),
-            "rate-limit-invalid-json".to_string(),
-            "rate-limit-invalid-exception-list".to_string(),
-        ],
-    )?;
-
-    let outcome_for = |event_id: &str| {
-        results
-            .iter()
-            .find(|result| result.event_id == event_id)
-            .and_then(|result| result.outcome.as_ref())
-    };
-
-    match outcome_for("rate-limit-allowed") {
-        Some(Outcome::Next(_)) => {}
-        Some(outcome) => {
-            return Err(format!("expected first rate-limit event to pass, got {outcome:?}").into())
-        }
-        None => return Err("missing outcome for first rate-limit event".into()),
-    }
-
-    for event_id in [
-        "rate-limit-invalid-json",
-        "rate-limit-invalid-exception-list",
-    ] {
-        match outcome_for(event_id) {
-            Some(Outcome::Drop(drop)) if drop.reason == RATE_LIMIT_DROP_REASON => {}
-            Some(outcome) => {
-                return Err(format!(
-                    "expected {event_id} to drop with {RATE_LIMIT_DROP_REASON}, got {outcome:?}"
-                )
-                .into())
-            }
-            None => return Err(format!("missing outcome for {event_id}").into()),
-        }
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,42 +305,6 @@ mod tests {
         assert!(
             assert_result_ids(&results, &["event-1".to_string(), "event-3".to_string()]).is_err()
         );
-    }
-
-    #[test]
-    fn assert_rate_limit_smoke_results_requires_allow_then_rate_limit_drops() {
-        let results = vec![
-            ProcessExceptionBatchResult {
-                event_id: "rate-limit-invalid-json".to_string(),
-                outcome: Some(Outcome::Drop(cymbal_api::cymbal::v1::Drop {
-                    reason: RATE_LIMIT_DROP_REASON.to_string(),
-                })),
-            },
-            ProcessExceptionBatchResult {
-                event_id: "rate-limit-allowed".to_string(),
-                outcome: Some(Outcome::Next(
-                    cymbal_api::cymbal::v1::EnrichedExceptionEvent {
-                        properties_json: Vec::new(),
-                        metadata: Default::default(),
-                    },
-                )),
-            },
-            ProcessExceptionBatchResult {
-                event_id: "rate-limit-invalid-exception-list".to_string(),
-                outcome: Some(Outcome::Drop(cymbal_api::cymbal::v1::Drop {
-                    reason: RATE_LIMIT_DROP_REASON.to_string(),
-                })),
-            },
-        ];
-
-        assert!(assert_rate_limit_smoke_results(&results).is_ok());
-
-        let mut wrong_reason = results;
-        wrong_reason[0].outcome = Some(Outcome::Drop(cymbal_api::cymbal::v1::Drop {
-            reason: "suppressed".to_string(),
-        }));
-
-        assert!(assert_rate_limit_smoke_results(&wrong_reason).is_err());
     }
 
     #[test]

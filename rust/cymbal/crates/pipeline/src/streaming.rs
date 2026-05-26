@@ -20,13 +20,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use cymbal_core::{BatchContext, EmissionOrder, OrderedEmitter, StageError, StageProgressMode};
-use cymbal_domain::{EventResult, InputEvent};
+use cymbal_domain::{EventResult, ExceptionProcessingOptions, InputEvent};
 use cymbal_grouping::GroupedEvent;
 use futures::StreamExt;
 
 use crate::ordering::{
     event_result_to_alerting_event, sort_by_input_order, split_intermediate_outputs,
-    split_rate_limit_outputs,
 };
 use crate::sink::EventResultSink;
 use crate::stage_graph::{CymbalStageProgress, PipelineExecutors};
@@ -93,22 +92,16 @@ where
         .enumerate()
         .map(|(index, event_id)| (event_id.clone(), index))
         .collect::<HashMap<_, _>>();
+    let processing_options = ExceptionProcessingOptions::from_metadata(&context.metadata);
     let mut emitter =
         OrderedEmitter::for_identified(input_event_ids, options.output_order.into(), sink);
-
-    let rate_limited = executors
-        .rate_limiting
-        .run(context.clone(), input_events)
-        .await?;
-    let (allowed_events, rate_limit_terminal_results) = split_rate_limit_outputs(rate_limited);
-    emitter.emit_many(rate_limit_terminal_results).await?;
 
     let grouped = if options.stage_progress.resolution == StageProgressMode::ItemProgress
         && options.stage_progress.grouping == StageProgressMode::ItemProgress
     {
         run_item_progress_resolution_and_grouping(
             context.clone(),
-            allowed_events,
+            input_events,
             executors,
             options.item_progress_chunk_size,
             options.max_concurrent_item_progress_chunks,
@@ -118,7 +111,7 @@ where
     } else {
         let resolved = executors
             .resolution
-            .run(context.clone(), allowed_events)
+            .run(context.clone(), input_events)
             .await?;
         let (resolved, resolution_failures) = split_intermediate_outputs(resolved);
         emitter.emit_many(resolution_failures).await?;
@@ -132,6 +125,11 @@ where
     let grouped = sort_by_input_order(grouped, &input_index_by_event_id, |event| &event.event_id);
 
     let linked = executors.linking.run(context.clone(), grouped).await?;
+    if processing_options.skip_alerting {
+        emitter.emit_many(linked).await?;
+        return emitter.finish();
+    }
+
     let alerting_events = linked
         .into_iter()
         .map(event_result_to_alerting_event)

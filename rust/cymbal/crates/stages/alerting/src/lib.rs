@@ -15,7 +15,7 @@ use cymbal_core::{
     run_buffered, PipelineStage, StageConcurrencyLimiter, StageError, StageInput, StagePayload,
     StageType,
 };
-use cymbal_domain::{EventResult, OutputErrProps};
+use cymbal_domain::{EventResult, ExceptionProcessingOptions, OutputErrProps};
 use cymbal_repositories::Issue;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -256,13 +256,14 @@ impl AlertingStage {
     async fn process_events(
         &self,
         events: Vec<AlertingEvent>,
+        processing_options: ExceptionProcessingOptions,
     ) -> Result<Vec<EventResult>, StageError> {
         if let Some(deps) = &self.deps {
             let inputs = events
                 .iter()
                 .filter_map(|event| event.spike_alert_input.clone())
                 .collect();
-            run_spike_detection_for_inputs(deps.clone(), inputs)
+            run_spike_detection_for_inputs(deps.clone(), inputs, processing_options)
                 .await
                 .map_err(alerting_error_to_stage_error)?;
         }
@@ -285,6 +286,7 @@ impl PipelineStage for AlertingStage {
         input: StageInput<Self::Input>,
     ) -> Result<Vec<Self::Output>, StageError> {
         let stage = self.clone();
+        let processing_options = ExceptionProcessingOptions::from_metadata(&input.context.metadata);
         let chunks = input
             .items
             .chunks(self.stage_batch_size.max(1))
@@ -293,7 +295,7 @@ impl PipelineStage for AlertingStage {
 
         let chunk_outputs = run_buffered(&self.stage_concurrency_limiter, chunks, move |events| {
             let stage = stage.clone();
-            async move { stage.process_events(events).await }
+            async move { stage.process_events(events, processing_options).await }
         })
         .await?;
 
@@ -304,6 +306,7 @@ impl PipelineStage for AlertingStage {
 pub async fn run_spike_detection_for_inputs(
     deps: AlertingDeps,
     inputs: Vec<SpikeAlertInput>,
+    processing_options: ExceptionProcessingOptions,
 ) -> Result<(), AlertingError> {
     if inputs.is_empty() {
         return Ok(());
@@ -322,7 +325,14 @@ pub async fn run_spike_detection_for_inputs(
         issues_by_id.insert(issue_id, input.issue);
     }
 
-    do_spike_detection(deps, issues_by_id, issue_props_by_id, issue_counts).await
+    do_spike_detection(
+        deps,
+        issues_by_id,
+        issue_props_by_id,
+        issue_counts,
+        processing_options,
+    )
+    .await
 }
 
 pub async fn do_spike_detection(
@@ -330,6 +340,7 @@ pub async fn do_spike_detection(
     issues_by_id: HashMap<Uuid, Issue>,
     issue_props_by_id: HashMap<Uuid, OutputErrProps>,
     issue_counts: HashMap<Uuid, u32>,
+    processing_options: ExceptionProcessingOptions,
 ) -> Result<(), AlertingError> {
     if issue_counts.is_empty() {
         return Ok(());
@@ -384,7 +395,7 @@ pub async fn do_spike_detection(
     let spiking = spiking?;
 
     metrics::counter!(SPIKE_ISSUES_SPIKING).increment(spiking.len() as u64);
-    emit_spiking_events(&deps, spiking, &team_configs).await;
+    emit_spiking_events(&deps, spiking, &team_configs, processing_options).await;
 
     Ok(())
 }
@@ -521,6 +532,7 @@ async fn emit_spiking_events(
     deps: &AlertingDeps,
     spiking: Vec<SpikingIssue>,
     team_configs: &HashMap<i32, SpikeDetectionConfig>,
+    processing_options: ExceptionProcessingOptions,
 ) {
     if spiking.is_empty() {
         return;
@@ -569,8 +581,13 @@ async fn emit_spiking_events(
             deps.side_effects
                 .persist_spike_event(spike, detected_at)
                 .await?;
-            deps.side_effects.emit_issue_spiking_signal(spike).await?;
-            deps.side_effects.emit_internal_spiking_event(spike).await
+            if processing_options.emit_signals {
+                deps.side_effects.emit_issue_spiking_signal(spike).await?;
+            }
+            if processing_options.emit_internal_events {
+                deps.side_effects.emit_internal_spiking_event(spike).await?;
+            }
+            Result::<(), AlertingError>::Ok(())
         }
         .await;
         if let Err(error) = result {
@@ -1003,6 +1020,7 @@ mod tests {
                 issue: make_issue(issue_id, team_id),
                 props: None,
             }],
+            ExceptionProcessingOptions::default(),
         )
         .await
         .unwrap();
@@ -1013,6 +1031,56 @@ mod tests {
             &*side_effects.internal_events.lock().unwrap(),
             &vec![issue_id]
         );
+    }
+
+    #[tokio::test]
+    async fn processing_options_can_disable_alerting_signals_and_internal_events() {
+        let mut redis = MockRedisClient::new();
+        let issue_id = Uuid::now_v7();
+        let team_id = 1;
+        setup_issue_buckets(&mut redis, issue_id, &[Some(30), Some(1), Some(1)]);
+        setup_team_buckets(
+            &mut redis,
+            team_id,
+            &[Some(30), Some(1), Some(1)],
+            &[1, 1, 1],
+        );
+        redis.batch_incr_by_expire_nx_ret(Ok(()));
+        redis.set_nx_ex_ret(&cooldown_key(&issue_id), Ok(true));
+        let redis = Arc::new(redis);
+
+        let side_effects = Arc::new(RecordingSideEffects::default());
+        let deps = AlertingDeps::new(redis)
+            .with_spike_config_repository(Arc::new(StaticSpikeConfigRepository {
+                configs: HashMap::from([(
+                    team_id,
+                    SpikeDetectionConfig {
+                        multiplier: 2.0,
+                        threshold: 10,
+                        snooze_duration_seconds: 60,
+                    },
+                )]),
+            }))
+            .with_side_effects(side_effects.clone());
+
+        run_spike_detection_for_inputs(
+            deps,
+            vec![SpikeAlertInput {
+                issue: make_issue(issue_id, team_id),
+                props: None,
+            }],
+            ExceptionProcessingOptions {
+                emit_internal_events: false,
+                emit_signals: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(&*side_effects.persisted.lock().unwrap(), &vec![issue_id]);
+        assert!(side_effects.signals.lock().unwrap().is_empty());
+        assert!(side_effects.internal_events.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1123,6 +1191,7 @@ mod tests {
                 issue: make_issue(Uuid::now_v7(), 1),
                 props: None,
             }],
+            ExceptionProcessingOptions::default(),
         )
         .await
         .unwrap();
@@ -1170,6 +1239,7 @@ mod tests {
                 issue: make_issue(issue_id, team_id),
                 props: None,
             }],
+            ExceptionProcessingOptions::default(),
         )
         .await
         .unwrap();
@@ -1263,6 +1333,7 @@ mod tests {
                 issue: make_issue(issue_id, team_id),
                 props: None,
             }],
+            ExceptionProcessingOptions::default(),
         )
         .await
         .unwrap();

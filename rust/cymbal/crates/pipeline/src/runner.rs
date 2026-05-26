@@ -14,16 +14,12 @@ use cymbal_core::{
     StageDriver, StageEffectMode, StageError, StageLinkRule, StagePayload, StageSpec, StageType,
     TerminalItem, TransientFailurePolicy,
 };
-use cymbal_domain::{
-    EventResult, InputEvent, RateLimitGateOutput, RATE_LIMITING_STAGE_ID, RATE_LIMITING_STAGE_TYPE,
-};
+use cymbal_domain::{EventResult, ExceptionProcessingOptions, InputEvent};
 use cymbal_grouping::{GroupedEvent, GROUPING_STAGE_ID, GROUPING_STAGE_TYPE};
 use cymbal_linking::{LINKING_STAGE_ID, LINKING_STAGE_TYPE};
 use cymbal_resolution::{ResolvedEvent, RESOLUTION_STAGE_ID, RESOLUTION_STAGE_TYPE};
 
-use crate::ordering::{
-    event_result_to_alerting_event, split_intermediate_outputs, split_rate_limit_outputs,
-};
+use crate::ordering::{event_result_to_alerting_event, split_intermediate_outputs};
 use crate::stage_graph::{CymbalStageProgress, PipelineExecutors};
 
 /// Product-owned item enum used by the generic runner for Cymbal's exception pipeline.
@@ -83,11 +79,15 @@ impl TerminalItem for ExceptionPipelineTerminal {
 /// Stage driver that adapts Cymbal's typed executor bundle to the generic runner.
 pub struct ExceptionStageDriver<'a> {
     executors: &'a PipelineExecutors,
+    skip_alerting: bool,
 }
 
 impl<'a> ExceptionStageDriver<'a> {
-    pub fn new(executors: &'a PipelineExecutors) -> Self {
-        Self { executors }
+    pub fn new(executors: &'a PipelineExecutors, skip_alerting: bool) -> Self {
+        Self {
+            executors,
+            skip_alerting,
+        }
     }
 }
 
@@ -101,7 +101,6 @@ impl StageDriver<ExceptionPipelineItem, ExceptionPipelineTerminal> for Exception
     ) -> Result<StageBatchOutcome<ExceptionPipelineItem, ExceptionPipelineTerminal>, StageError>
     {
         match stage.stage_id.as_str() {
-            RATE_LIMITING_STAGE_ID => self.run_rate_limiting(context, items).await,
             RESOLUTION_STAGE_ID => self.run_resolution(context, items).await,
             GROUPING_STAGE_ID => self.run_grouping(context, items).await,
             LINKING_STAGE_ID => self.run_linking(context, items).await,
@@ -114,31 +113,6 @@ impl StageDriver<ExceptionPipelineItem, ExceptionPipelineTerminal> for Exception
 }
 
 impl ExceptionStageDriver<'_> {
-    async fn run_rate_limiting(
-        &self,
-        context: Arc<BatchContext>,
-        items: Vec<ExceptionPipelineItem>,
-    ) -> Result<StageBatchOutcome<ExceptionPipelineItem, ExceptionPipelineTerminal>, StageError>
-    {
-        let outputs = self
-            .executors
-            .rate_limiting
-            .run(context, into_input_events(RATE_LIMITING_STAGE_ID, items)?)
-            .await?;
-        let (allowed_events, terminal_results) = split_rate_limit_outputs(outputs);
-
-        Ok(StageBatchOutcome::new(
-            allowed_events
-                .into_iter()
-                .map(ExceptionPipelineItem::Input)
-                .collect(),
-            terminal_results
-                .into_iter()
-                .map(ExceptionPipelineTerminal)
-                .collect(),
-        ))
-    }
-
     async fn run_resolution(
         &self,
         context: Arc<BatchContext>,
@@ -201,6 +175,12 @@ impl ExceptionStageDriver<'_> {
             .run(context, into_grouped_events(LINKING_STAGE_ID, items)?)
             .await?;
 
+        if self.skip_alerting {
+            return Ok(StageBatchOutcome::terminal_only(
+                outputs.into_iter().map(ExceptionPipelineTerminal).collect(),
+            ));
+        }
+
         Ok(StageBatchOutcome::continue_only(
             outputs
                 .into_iter()
@@ -233,13 +213,17 @@ pub(crate) async fn process_exception_pipeline_with_runner(
     input_events: Vec<InputEvent>,
     executors: &PipelineExecutors,
 ) -> Result<Vec<EventResult>, StageError> {
+    let processing_options = ExceptionProcessingOptions::from_metadata(&context.metadata);
     let input_items = input_events
         .into_iter()
         .map(ExceptionPipelineItem::Input)
         .collect::<Vec<_>>();
-    let driver = ExceptionStageDriver::new(executors);
+    let driver = ExceptionStageDriver::new(executors, processing_options.skip_alerting);
     let runner = LinearPipelineRunner::new(
-        exception_pipeline_spec(CymbalStageProgress::default()),
+        exception_pipeline_spec(
+            CymbalStageProgress::default(),
+            processing_options.skip_alerting,
+        ),
         driver,
         LinearPipelineRunnerOptions {
             emission_order: EmissionOrder::InputOrder,
@@ -255,68 +239,61 @@ pub(crate) async fn process_exception_pipeline_with_runner(
     Ok(sink.results)
 }
 
-fn exception_pipeline_spec(stage_progress: CymbalStageProgress) -> LinearPipelineSpec {
+fn exception_pipeline_spec(
+    stage_progress: CymbalStageProgress,
+    skip_alerting: bool,
+) -> LinearPipelineSpec {
+    let mut stages = vec![
+        StageSpec {
+            stage_id: RESOLUTION_STAGE_ID.to_string(),
+            stage_type: RESOLUTION_STAGE_TYPE,
+            input_type: InputEvent::TYPE,
+            output_type: ResolvedEvent::TYPE,
+            progress: stage_progress.resolution,
+            effects: StageEffectMode::IdempotentSideEffects,
+            transient_failure_policy: TransientFailurePolicy::RetryableIfStageDeclaresSafe,
+        },
+        StageSpec {
+            stage_id: GROUPING_STAGE_ID.to_string(),
+            stage_type: GROUPING_STAGE_TYPE,
+            input_type: ResolvedEvent::TYPE,
+            output_type: GroupedEvent::TYPE,
+            progress: stage_progress.grouping,
+            effects: StageEffectMode::Pure,
+            transient_failure_policy: TransientFailurePolicy::RetryableIfStageDeclaresSafe,
+        },
+        StageSpec {
+            stage_id: LINKING_STAGE_ID.to_string(),
+            stage_type: LINKING_STAGE_TYPE,
+            input_type: GroupedEvent::TYPE,
+            output_type: if skip_alerting {
+                EventResult::TYPE
+            } else {
+                AlertingEvent::TYPE
+            },
+            progress: stage_progress.linking,
+            effects: StageEffectMode::OrderedSideEffects,
+            transient_failure_policy: TransientFailurePolicy::RetryableIfStageDeclaresSafe,
+        },
+    ];
+
+    if !skip_alerting {
+        stages.push(StageSpec {
+            stage_id: ALERTING_STAGE_ID.to_string(),
+            stage_type: ALERTING_STAGE_TYPE,
+            input_type: AlertingEvent::TYPE,
+            output_type: EventResult::TYPE,
+            progress: stage_progress.alerting,
+            effects: StageEffectMode::OrderedSideEffects,
+            transient_failure_policy: TransientFailurePolicy::RetryableIfStageDeclaresSafe,
+        });
+    }
+
     LinearPipelineSpec {
         input_type: InputEvent::TYPE,
         terminal_type: EventResult::TYPE,
-        stages: vec![
-            StageSpec {
-                stage_id: RATE_LIMITING_STAGE_ID.to_string(),
-                stage_type: RATE_LIMITING_STAGE_TYPE,
-                input_type: InputEvent::TYPE,
-                output_type: RateLimitGateOutput::TYPE,
-                progress: stage_progress.rate_limiting,
-                effects: StageEffectMode::IdempotentSideEffects,
-                transient_failure_policy: TransientFailurePolicy::NotRetryableAfterDispatch,
-            },
-            StageSpec {
-                stage_id: RESOLUTION_STAGE_ID.to_string(),
-                stage_type: RESOLUTION_STAGE_TYPE,
-                input_type: InputEvent::TYPE,
-                output_type: ResolvedEvent::TYPE,
-                progress: stage_progress.resolution,
-                effects: StageEffectMode::IdempotentSideEffects,
-                transient_failure_policy: TransientFailurePolicy::RetryableIfStageDeclaresSafe,
-            },
-            StageSpec {
-                stage_id: GROUPING_STAGE_ID.to_string(),
-                stage_type: GROUPING_STAGE_TYPE,
-                input_type: ResolvedEvent::TYPE,
-                output_type: GroupedEvent::TYPE,
-                progress: stage_progress.grouping,
-                effects: StageEffectMode::Pure,
-                transient_failure_policy: TransientFailurePolicy::RetryableIfStageDeclaresSafe,
-            },
-            StageSpec {
-                stage_id: LINKING_STAGE_ID.to_string(),
-                stage_type: LINKING_STAGE_TYPE,
-                input_type: GroupedEvent::TYPE,
-                // The linking executor still returns EventResult for remote/local contract
-                // compatibility; the exception driver immediately wraps those results as
-                // AlertingEvent continue items so alerting remains a conservative barrier.
-                output_type: AlertingEvent::TYPE,
-                progress: stage_progress.linking,
-                effects: StageEffectMode::OrderedSideEffects,
-                transient_failure_policy: TransientFailurePolicy::RetryableIfStageDeclaresSafe,
-            },
-            StageSpec {
-                stage_id: ALERTING_STAGE_ID.to_string(),
-                stage_type: ALERTING_STAGE_TYPE,
-                input_type: AlertingEvent::TYPE,
-                output_type: EventResult::TYPE,
-                progress: stage_progress.alerting,
-                effects: StageEffectMode::OrderedSideEffects,
-                transient_failure_policy: TransientFailurePolicy::RetryableIfStageDeclaresSafe,
-            },
-        ],
-        allowed_links: vec![
-            StageLinkRule::ExactType,
-            StageLinkRule::FanOutContinue {
-                stage_output_type: RateLimitGateOutput::TYPE,
-                next_input_type: InputEvent::TYPE,
-                terminal_type: EventResult::TYPE,
-            },
-        ],
+        stages,
+        allowed_links: vec![StageLinkRule::ExactType],
     }
 }
 
@@ -406,7 +383,11 @@ mod tests {
     #[test]
     fn exception_pipeline_spec_validates() {
         assert_eq!(
-            exception_pipeline_spec(CymbalStageProgress::default()).validate(),
+            exception_pipeline_spec(CymbalStageProgress::default(), false).validate(),
+            Ok(())
+        );
+        assert_eq!(
+            exception_pipeline_spec(CymbalStageProgress::default(), true).validate(),
             Ok(())
         );
     }

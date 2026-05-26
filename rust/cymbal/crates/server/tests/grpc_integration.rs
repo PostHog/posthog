@@ -7,7 +7,6 @@
 use cymbal_api::cymbal::v1::cymbal_ingestion_client::CymbalIngestionClient;
 use cymbal_api::cymbal::v1::cymbal_ingestion_server::CymbalIngestionServer;
 use cymbal_api::cymbal::v1::cymbal_stage_runtime_server::CymbalStageRuntimeServer;
-use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use cymbal_alerting::{AlertingEvent, ALERTING_STAGE_ID};
@@ -22,9 +21,7 @@ use cymbal_core::{Metadata, StagePayload};
 use cymbal_domain::ExceptionProperties;
 use cymbal_domain::{EventOutcome, EventResult, InputEvent};
 use cymbal_linking::LINKING_STAGE_ID;
-use cymbal_rate_limiting::{RateLimitingConfig, RateLimitingStage};
 use cymbal_resolution::{ResolvedEvent, RESOLUTION_STAGE_ID};
-use cymbal_runtime::RuntimeStages;
 use cymbal_server::config::default_remote_routing_config;
 use cymbal_server::pipeline::PipelineLimits;
 use cymbal_server::registry::StageRegistry;
@@ -34,7 +31,6 @@ use cymbal_server::remote::{
 use cymbal_server::stage::CymbalStageService;
 use cymbal_server::CymbalPipelineService;
 use futures::TryStreamExt;
-use limiters::{EvalResult, GlobalRateLimitResponse, GlobalRateLimiter};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -100,9 +96,6 @@ struct PartialFailureResolutionStageService;
 #[derive(Debug, Default)]
 struct MetadataAlertingStageService;
 
-#[derive(Debug, Default)]
-struct FailingStageService;
-
 #[derive(Debug, Clone, Copy)]
 enum BadRemoteResultMode {
     Duplicate,
@@ -116,11 +109,6 @@ struct BadRemoteResultResolutionStageService {
 
 #[derive(Debug, Default)]
 struct MixedItemFailureResolutionStageService;
-
-#[derive(Debug, Clone)]
-struct CountingResolutionStageService {
-    seen_event_ids: Arc<Mutex<Vec<String>>>,
-}
 
 #[derive(Debug, Clone)]
 struct RecordingResolutionStageService {
@@ -148,90 +136,6 @@ struct TerminalOrSlowResolutionStageService {
 enum TerminalStageInput {
     Linking,
     Alerting,
-}
-
-#[derive(Clone)]
-struct FakeLimiter {
-    results: Arc<Mutex<VecDeque<EvalResult>>>,
-    keys: Arc<Mutex<Vec<String>>>,
-}
-
-impl FakeLimiter {
-    fn new(results: Vec<EvalResult>) -> Self {
-        Self {
-            results: Arc::new(Mutex::new(VecDeque::from(results))),
-            keys: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    fn keys(&self) -> Vec<String> {
-        self.keys.lock().unwrap().clone()
-    }
-}
-
-#[async_trait::async_trait]
-impl GlobalRateLimiter for FakeLimiter {
-    async fn check_limit(
-        &self,
-        key: &str,
-        count: u64,
-        _timestamp: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> EvalResult {
-        assert_eq!(count, 1);
-        self.keys.lock().unwrap().push(key.to_string());
-        self.results
-            .lock()
-            .unwrap()
-            .pop_front()
-            .unwrap_or(EvalResult::Allowed)
-    }
-
-    async fn check_custom_limit(
-        &self,
-        _key: &str,
-        _count: u64,
-        _timestamp: Option<chrono::DateTime<chrono::Utc>>,
-    ) -> EvalResult {
-        EvalResult::NotApplicable
-    }
-
-    fn is_custom_key(&self, _key: &str) -> bool {
-        false
-    }
-
-    fn shutdown(&mut self) {}
-}
-
-fn limited_response(key: &str) -> GlobalRateLimitResponse {
-    GlobalRateLimitResponse {
-        key: key.to_string(),
-        current_count: 2.0,
-        threshold: 1,
-        window_interval: std::time::Duration::from_secs(60),
-        sync_interval: std::time::Duration::from_secs(15),
-        is_custom_limited: false,
-    }
-}
-
-fn runtime_stages(rate_limiting: RateLimitingStage) -> RuntimeStages {
-    RuntimeStages {
-        rate_limiting,
-        resolution: cymbal_resolution::ResolutionStage::new(),
-        grouping: cymbal_grouping::GroupingStage::new(),
-        linking: cymbal_linking::LinkingStage::new(),
-        alerting: cymbal_alerting::AlertingStage::new(),
-    }
-}
-
-fn rate_limit_stage(limiter: FakeLimiter) -> RateLimitingStage {
-    RateLimitingStage::with_limiter(
-        RateLimitingConfig {
-            enabled: true,
-            threshold: 1,
-            ..Default::default()
-        },
-        Arc::new(limiter),
-    )
 }
 
 #[tonic::async_trait]
@@ -306,16 +210,6 @@ impl CymbalStageRuntime for MetadataAlertingStageService {
 }
 
 #[tonic::async_trait]
-impl CymbalStageRuntime for FailingStageService {
-    async fn process_stage(
-        &self,
-        _request: Request<StageBatch>,
-    ) -> Result<Response<StageBatchResult>, Status> {
-        Err(Status::unavailable("remote limiter unavailable"))
-    }
-}
-
-#[tonic::async_trait]
 impl CymbalStageRuntime for BadRemoteResultResolutionStageService {
     async fn process_stage(
         &self,
@@ -384,48 +278,6 @@ impl CymbalStageRuntime for MixedItemFailureResolutionStageService {
         Ok(Response::new(StageBatchResult {
             results,
             errors,
-            load: None,
-        }))
-    }
-}
-
-#[tonic::async_trait]
-impl CymbalStageRuntime for CountingResolutionStageService {
-    async fn process_stage(
-        &self,
-        request: Request<StageBatch>,
-    ) -> Result<Response<StageBatchResult>, Status> {
-        let results = request
-            .into_inner()
-            .items
-            .into_iter()
-            .map(|item| {
-                self.seen_event_ids
-                    .lock()
-                    .unwrap()
-                    .push(item.item_id.clone());
-                let event: InputEvent = serde_json::from_slice(&item.payload)
-                    .map_err(|error| Status::invalid_argument(error.to_string()))?;
-                let resolved_event = ResolvedEvent {
-                    event_id: event.event_id,
-                    team_id: event.team_id,
-                    properties: event.properties,
-                    metadata: Metadata::new(),
-                };
-                let payload = serde_json::to_vec(&resolved_event)
-                    .map_err(|error| Status::internal(error.to_string()))?;
-
-                Ok(StageItemResult {
-                    item_id: resolved_event.event_id,
-                    r#type: ResolvedEvent::TYPE.to_string(),
-                    payload,
-                })
-            })
-            .collect::<Result<Vec<_>, Status>>()?;
-
-        Ok(Response::new(StageBatchResult {
-            results,
-            errors: Vec::new(),
             load: None,
         }))
     }
@@ -1495,112 +1347,4 @@ async fn process_exception_batch_can_run_alerting_remotely() {
         next.metadata.get("remote_alerting"),
         Some(&"ran".to_string())
     );
-}
-
-#[tokio::test]
-async fn grpc_integration_rate_limit_can_run_remotely_and_skips_dropped_events_downstream() {
-    let limiter = FakeLimiter::new(vec![
-        EvalResult::Allowed,
-        EvalResult::Limited(limited_response("team_id:1")),
-        EvalResult::Allowed,
-    ]);
-    let limiter_server = start_cymbal_stage_server(
-        CymbalStageService::new(StageRegistry::local_default())
-            .with_runtime_stages(runtime_stages(rate_limit_stage(limiter.clone()))),
-    )
-    .await;
-    let seen_by_resolution = Arc::new(Mutex::new(Vec::new()));
-    let resolution_server = start_cymbal_stage_server(CountingResolutionStageService {
-        seen_event_ids: seen_by_resolution.clone(),
-    })
-    .await;
-    let remote_connections = RemoteStageConnectionManager::new();
-    remote_connections
-        .refresh_targets(&[
-            RemoteStageTarget::new("rate-limiter", "127.0.0.1", limiter_server.addr.port()),
-            RemoteStageTarget::new(
-                "resolution-stage",
-                "127.0.0.1",
-                resolution_server.addr.port(),
-            ),
-        ])
-        .await
-        .unwrap();
-    let mut registry = StageRegistry::local_default();
-    registry
-        .set_remote_stage("rate-limiting:v1", "rate-limiter")
-        .unwrap();
-    registry
-        .set_remote_stage("resolution:v1", "resolution-stage")
-        .unwrap();
-    let service =
-        CymbalPipelineService::with_registry(registry).with_remote_connections(remote_connections);
-    let server = start_pipeline_server(service).await;
-    let mut client = create_client(&server).await;
-    let request = batch_request(vec![
-        exception_event("event-1", br#"{"event":"$exception","index":1}"#.to_vec()),
-        exception_event("event-2", br#"{"event":"$exception","index":2}"#.to_vec()),
-        exception_event("event-3", br#"{"event":"$exception","index":3}"#.to_vec()),
-    ]);
-
-    let results = process_batch(&mut client, request).await;
-
-    assert_eq!(
-        results
-            .iter()
-            .map(|result| result.event_id.as_str())
-            .collect::<Vec<_>>(),
-        vec!["event-1", "event-2", "event-3"]
-    );
-    assert_eq!(limiter.keys(), vec!["team_id:1", "team_id:1", "team_id:1"]);
-    assert!(matches!(
-        results[0].outcome,
-        Some(process_exception_batch_result::Outcome::Next(_))
-    ));
-    let Some(process_exception_batch_result::Outcome::Drop(drop)) = &results[1].outcome else {
-        panic!("expected dropped rate-limited event");
-    };
-    assert_eq!(drop.reason, "rate_limited:team_id");
-    assert!(matches!(
-        results[2].outcome,
-        Some(process_exception_batch_result::Outcome::Next(_))
-    ));
-    assert_eq!(
-        seen_by_resolution.lock().unwrap().as_slice(),
-        ["event-1", "event-3"]
-    );
-}
-
-#[tokio::test]
-async fn grpc_integration_rate_limit_remote_failures_fail_open_per_event() {
-    let limiter_server = start_cymbal_stage_server(FailingStageService).await;
-    let remote_connections = RemoteStageConnectionManager::new();
-    remote_connections
-        .refresh_target(&RemoteStageTarget::new(
-            "rate-limiter",
-            "127.0.0.1",
-            limiter_server.addr.port(),
-        ))
-        .await
-        .unwrap();
-    let mut registry = StageRegistry::local_default();
-    registry
-        .set_remote_stage("rate-limiting:v1", "rate-limiter")
-        .unwrap();
-    let service =
-        CymbalPipelineService::with_registry(registry).with_remote_connections(remote_connections);
-    let server = start_pipeline_server(service).await;
-    let mut client = create_client(&server).await;
-    let request = batch_request(vec![
-        exception_event("event-1", br#"{"event":"$exception","index":1}"#.to_vec()),
-        exception_event("event-2", br#"{"event":"$exception","index":2}"#.to_vec()),
-    ]);
-
-    let results = process_batch(&mut client, request).await;
-
-    assert_eq!(results.len(), 2);
-    assert!(results.iter().all(|result| matches!(
-        result.outcome,
-        Some(process_exception_batch_result::Outcome::Next(_))
-    )));
 }

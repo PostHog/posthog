@@ -34,8 +34,8 @@ When a target repeatedly fails, Cymbal opens the circuit and immediately returns
 
 Remote stage endpoint selection is affinity-first by default for `resolution:v1` and `grouping:v1`.
 Resolution prefers symbol-cache locality keys from `$debug_images`, sourcemap/chunk identifiers, or release/source references before falling back to `team_id`.
-Grouping, linking, and rate limiting use `team_id` when the typed stage input carries it.
-The default linking, alerting, and rate-limiting policy is strict affinity because these stages can contain side effects or locality-sensitive limiter state.
+Grouping and linking use `team_id` when the typed stage input carries it.
+The default linking and alerting policy is strict affinity because these stages can contain side effects.
 
 Override policies with `CYMBAL_REMOTE_ROUTING_POLICIES`, formatted as comma-separated `stage_id=mode[:max_fallback_attempts]` entries.
 Supported modes are `affinity-first`, `random`, and `strict-affinity`:
@@ -73,7 +73,7 @@ Cymbal emits a startup warning when the configured Postgres pool is below `symbo
 Stage-level concurrency knobs cap in-flight work across the whole stage on a pod — concurrent stage batches share the same permit pool, so the configured number is the actual ceiling regardless of how many batches the pipeline fans out.
 Per-item stages cap concurrent item work.
 Alerting is a batch-fold stage: `ALERTING_STAGE_BATCH_SIZE` (default `500`) defines the ideal number of events per spike-detection fold, and `ALERTING_STAGE_CONCURRENCY` caps concurrent folds rather than individual items.
-Defaults are intentionally moderate: `RESOLUTION_STAGE_CONCURRENCY=64`, `GROUPING_STAGE_CONCURRENCY=16`, `LINKING_STAGE_CONCURRENCY=8`, `RATE_LIMITING_STAGE_CONCURRENCY=32`, and `ALERTING_STAGE_CONCURRENCY=4`.
+Defaults are intentionally moderate: `RESOLUTION_STAGE_CONCURRENCY=64`, `GROUPING_STAGE_CONCURRENCY=16`, `LINKING_STAGE_CONCURRENCY=8`, and `ALERTING_STAGE_CONCURRENCY=4`.
 
 ## Readiness and graceful drain
 
@@ -139,19 +139,11 @@ To debug stale load or underutilized capacity:
 
 ## Team rate limiting
 
-Cymbal owns an internal team-level limiter as a pre-resolution gate.
-It runs before symbolication, grouping, linking, and alerting, so events over the limit return a public `drop` outcome without doing downstream work.
-The stable drop reason is `rate_limited:team_id`.
-
-The limiter is disabled by default.
-Enable it with `CYMBAL_RATE_LIMIT_ENABLED=true`.
-Use `CYMBAL_RATE_LIMIT_REPORTING_ONLY=true` to record allow/drop decisions without dropping events.
-The main sizing knobs are `CYMBAL_RATE_LIMIT_THRESHOLD` and `CYMBAL_RATE_LIMIT_WINDOW_SECONDS`.
-Redis keys use `CYMBAL_RATE_LIMIT_REDIS_KEY_PREFIX` (default `@ph/grl/cymbal/error_tracking/team_id`) plus the sanitized stage key `team_id:<id>`, so raw event payload values are never included in limiter keys.
+The Rust Cymbal exception pipeline does not currently run its internal team-level limiter.
+The old limiter code and environment knobs remain in the repo for possible future reuse, but they are not part of the active public stage chain.
 
 Node ingestion still has its older pre-Cymbal `KeyedRateLimiterStep`, controlled by `ERROR_TRACKING_RATE_LIMITER_ENABLED`.
-Keep that disabled when enforcing the Cymbal limiter for the same teams, or run one side in reporting mode, to avoid double-limiting.
-Both are disabled by default in local development.
+Treat that as a separate compatibility path.
 
 ## Shadow lane
 
@@ -205,14 +197,7 @@ The smoke uses the same `CymbalClient` and `createCymbalProcessingStep` as Node 
 By default it uses the first row in `posthog_team`; set `CYMBAL_SMOKE_TEAM_ID=<id>` to force a specific local team.
 It bypasses Kafka and the final event-emission steps intentionally, so use it as the fast local check for the Node → Cymbal boundary.
 
-To smoke-test the Cymbal limiter locally, restart the stack with a tiny threshold and then run the same smoke in rate-limit mode:
-
-```sh
-CYMBAL_RATE_LIMIT_ENABLED=true CYMBAL_RATE_LIMIT_THRESHOLD=1 CYMBAL_RATE_LIMIT_WINDOW_SECONDS=60 hogli start
-CYMBAL_EXAMPLE_RATE_LIMIT_SMOKE=true pnpm --filter=@posthog/nodejs run smoke:cymbal-main-stack
-```
-
-Use a fresh Redis key/window for this opt-in smoke; otherwise earlier local events for the same team can consume the tiny threshold before the smoke runs.
+There is no Rust Cymbal rate-limit smoke while the limiter is out of the active pipeline.
 
 ## Local Cymbal-only playground
 
@@ -232,6 +217,4 @@ Only resolution is remote in the local config; grouping, linking, and alerting r
 After the services are ready, start the `smoke-test` process in mprocs.
 It runs `cargo run -p cymbal-server --example process_batch` and exercises baseline, variant, mixed-outcome, and oversized-batch requests through the mixed local/remote stage chain.
 
-For the limiter smoke, start `mprocs` with `CYMBAL_RATE_LIMIT_ENABLED=true CYMBAL_RATE_LIMIT_THRESHOLD=1`, then run `smoke-test` with `CYMBAL_EXAMPLE_RATE_LIMIT_SMOKE=true`.
-The rate-limit example sends a mixed same-team batch through `CymbalIngestion.ProcessExceptionBatch` and expects invalid payloads to drop with `rate_limited:team_id`, proving they were stopped before resolution/linking.
-This Rust-only smoke is a lower-level Cymbal diagnostic; it does not prove the Node error-tracking ingestion path.
+The Rust-only smoke is a lower-level Cymbal diagnostic; it does not prove the Node error-tracking ingestion path.

@@ -23,7 +23,6 @@ The public pipeline processes exception events through these logical stages:
 
 ```text
 public batch
-  -> team rate-limiting gate when enabled
   -> resolution
   -> grouping
   -> linking
@@ -31,7 +30,6 @@ public batch
   -> final event outcomes
 ```
 
-Rate limiting is an internal pre-resolution gate keyed by numeric `team_id`.
 Resolution and grouping are item-progress stages that can safely make independent progress.
 Linking and alerting can perform side effects, so the pipeline treats them conservatively and preserves deterministic final ordering at the public boundary.
 
