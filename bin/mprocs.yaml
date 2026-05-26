@@ -71,7 +71,7 @@ procs:
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
 
     ingestion-errortracking:
-        shell: 'bin/wait-for-docker && ERROR_TRACKING_CYMBAL_BASE_URL=http://localhost:3302 PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node'
+        shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node'
         capability: nodejs_error_tracking
         ready_pattern: 'All systems go'
         groups:
