@@ -56,6 +56,10 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
+    # `None` means sync all columns (`SELECT *`). `[]` means project to only the always-retained
+    # primary keys + incremental field. A non-empty list is the explicit user selection. Threaded
+    # through `SQLSource.source_for_pipeline` so every SQL source projects at the source side.
+    enabled_columns: Optional[list[str]] = None
 
 
 class PipelineResult(TypedDict):

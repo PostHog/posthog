@@ -812,6 +812,8 @@ export interface ExternalDataSourceSerializersApi {
      */
     readonly user_access_level: string | null
     readonly supports_webhooks: boolean
+    /** Whether the source supports selecting a subset of columns to sync. True for SQL sources that honor `enabled_columns`; false otherwise. */
+    readonly supports_column_selection: boolean
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -1053,6 +1055,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     readonly user_access_level?: string | null
     readonly supports_webhooks?: boolean
+    /** Whether the source supports selecting a subset of columns to sync. True for SQL sources that honor `enabled_columns`; false otherwise. */
+    readonly supports_column_selection?: boolean
 }
 
 export interface ExternalDataSourceBulkUpdateSchemaApi {

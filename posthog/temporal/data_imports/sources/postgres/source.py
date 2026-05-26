@@ -62,6 +62,8 @@ _POSTGRES_IMPLEMENTATION = PostgresImplementation()
 
 @SourceRegistry.register
 class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    supports_column_selection: bool = True
+
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
         self.source_name = source_name
@@ -189,6 +191,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Postgres-specific reconcile.
+
+        Delegates to `reconcile_postgres_schemas` which already merges
+        `schema_metadata` per row, prunes `enabled_columns` to the new
+        column set (via the `_prune_enabled_columns_to_metadata` hook on
+        that helper), and — in direct-query mode — rebuilds the
+        `DataWarehouseTable` projection so HogQL stays in sync.
+        """
+        from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
+
+        return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Drop the Temporal schedule + PostHog-managed slot/publication.
@@ -541,7 +561,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             team_id=inputs.team_id,
             require_ssl=require_ssl,
             is_initial_sync=not schema.initial_sync_complete,
-            enabled_columns=schema.enabled_columns,
+            enabled_columns=inputs.enabled_columns,
         )
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.

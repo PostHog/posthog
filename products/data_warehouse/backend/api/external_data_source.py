@@ -49,6 +49,7 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -75,12 +76,7 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
     get_webhook_url,
 )
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
-from products.data_warehouse.backend.postgres_helpers import (
-    filter_dwh_columns_by_enabled_columns,
-    get_postgres_source_location,
-    postgres_schema_metadata,
-    reconcile_postgres_schemas,
-)
+from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location
 from products.data_warehouse.backend.postgres_warehouse_migration import (
     apply_on_schema_clear as apply_postgres_warehouse_schema_clear_migration,
     detect_schema_clear_transition as detect_postgres_schema_clear_transition,
@@ -470,6 +466,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     )
     access_method = serializers.ChoiceField(choices=ExternalDataSource.AccessMethod.choices, read_only=True)
     supports_webhooks = serializers.SerializerMethodField(read_only=True)
+    supports_column_selection = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether the source supports selecting a subset of columns to sync. "
+            "True for SQL sources that honor `enabled_columns`; false otherwise."
+        ),
+    )
     # Optional on both create and update. On create, missing values default to `api`
     # in the viewset to preserve backward compatibility with direct API callers that
     # predate this field; the in-app UI and MCP tool always send it explicitly.
@@ -509,6 +512,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "revenue_analytics_config",
             "user_access_level",
             "supports_webhooks",
+            "supports_column_selection",
         ]
         read_only_fields = [
             "id",
@@ -524,6 +528,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "user_access_level",
             "access_method",
             "supports_webhooks",
+            "supports_column_selection",
         ]
 
     def to_representation(self, instance):
@@ -575,6 +580,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         except Exception as e:
             capture_exception(e)
             return False
+
+    def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
+        try:
+            source = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+        except Exception as e:
+            capture_exception(e)
+            return False
+        # Coerce explicitly so a test that mocks `SourceRegistry.get_source` doesn't return a Mock
+        # attribute access that orjson can't serialize.
+        return bool(getattr(source, "supports_column_selection", False))
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -793,6 +808,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     team_id=instance.team_id,
                     descriptions=descriptions,
                 )
+                # Direct-postgres-only update flow — keep the direct `reconcile_postgres_schemas`
+                # call so existing tests that mock `SourceRegistry.get_source` still exercise the
+                # real direct-query DataWarehouseTable rebuild.
+                from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
+
                 reconcile_postgres_schemas(
                     source=updated_source,
                     source_schemas=discovered_schemas,
@@ -1165,8 +1185,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 },
                 default_schema=default_source_schema,
             )
+            # Postgres writes `schema_metadata` on create so direct-mode `DataWarehouseTable` rows
+            # and the column picker have data immediately. Non-Postgres SQL sources get their
+            # `schema_metadata` populated on the next `refresh_schemas` run via
+            # `SQLSource.reconcile_schema_metadata` — that's the only API path that has the
+            # discovered `SourceSchema`s in hand by then. See PR1 plan §2.
             schema_metadata = (
-                postgres_schema_metadata(
+                sql_schema_metadata(
                     source_schema.columns if source_schema else [],
                     source_schema.foreign_keys if source_schema else [],
                     source_catalog=resolved_source_catalog,
@@ -1634,7 +1659,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
             # Persist schema_metadata for per-row routing + (direct mode) rebuild DataWarehouseTable.
+            # Postgres keeps its direct-call path (a) so existing tests that mock `SourceRegistry`
+            # still exercise the real reconcile logic, and (b) so direct-query DataWarehouseTable
+            # rebuild remains identical bit-for-bit to today. PR2 broadens reconcile to every SQL
+            # source via the `SQLSource.reconcile_schema_metadata` hook once driver-specific tests
+            # are wired up.
             if instance.source_type == ExternalDataSourceType.POSTGRES:
+                from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
+
                 reconciled_deleted_schemas = reconcile_postgres_schemas(
                     source=instance,
                     source_schemas=schemas,

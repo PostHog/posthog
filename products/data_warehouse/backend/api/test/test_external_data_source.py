@@ -1129,6 +1129,7 @@ class TestExternalDataSource(APIBaseTest):
                 "revenue_analytics_config",
                 "user_access_level",
                 "supports_webhooks",
+                "supports_column_selection",
             ],
         )
         self.assertIsNone(payload["engine"])

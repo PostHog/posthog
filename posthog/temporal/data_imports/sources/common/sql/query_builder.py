@@ -30,6 +30,10 @@ from posthog.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_operator,
 )
 from posthog.temporal.data_imports.sources.common.sql.identifiers import IdentifierQuoter
+from posthog.temporal.data_imports.sources.common.sql.projection import (
+    compute_projected_columns,
+    format_projected_select_clause,
+)
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
@@ -78,8 +82,10 @@ class SelectQueryBuilder:
         incremental_last_value: Any | None = None,
         extra_table_hint: str | None = None,
         order_by_incremental: bool = True,
+        enabled_columns: list[str] | None = None,
+        primary_keys: list[str] | None = None,
     ) -> SafeSQL:
-        """Build a full `SELECT * FROM schema.table` with optional incremental predicate.
+        """Build a `SELECT … FROM schema.table` with optional incremental predicate.
 
         When `incremental_field` is provided, appends
         `WHERE <incremental_field> <op> :last_value [ORDER BY <incremental_field> ASC]`.
@@ -87,6 +93,12 @@ class SelectQueryBuilder:
         every other type — same semantics as `incremental_type_to_operator`.
         `incremental_last_value` falls back to the type's initial value so
         the semantics match today's `_build_query` implementations.
+
+        `enabled_columns` projects the SELECT clause to a subset of the
+        source columns; primary keys + the active incremental field are
+        always retained. `None` (the default) emits `SELECT *`. See
+        `common/sql/projection.compute_projected_columns` for the
+        retention/order rules.
 
         `extra_table_hint` is appended verbatim after the table reference
         (e.g. MySQL `FORCE INDEX (...)`). Callers who use it must have
@@ -96,8 +108,11 @@ class SelectQueryBuilder:
         table_ref = self.quoter.quote_qualified(schema, table_name)
         hint = f" {extra_table_hint}" if extra_table_hint else ""
 
+        projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+        select_clause = format_projected_select_clause(projected, self.quoter)
+
         if incremental_field is None:
-            return SafeSQL(sql=f"SELECT * FROM {table_ref}{hint}", params=self._empty_params())
+            return SafeSQL(sql=f"SELECT {select_clause} FROM {table_ref}{hint}", params=self._empty_params())
 
         if incremental_field_type is None:
             raise ValueError("incremental_field_type is required when incremental_field is set")
@@ -111,7 +126,10 @@ class SelectQueryBuilder:
         placeholder, params = self._single_param("incremental_value", value)
         operator = incremental_type_to_operator(incremental_field_type)
 
-        parts = [f"SELECT * FROM {table_ref}{hint}", f"WHERE {quoted_field} {operator} {placeholder}"]
+        parts = [
+            f"SELECT {select_clause} FROM {table_ref}{hint}",
+            f"WHERE {quoted_field} {operator} {placeholder}",
+        ]
         if order_by_incremental:
             parts.append(f"ORDER BY {quoted_field} ASC")
 
