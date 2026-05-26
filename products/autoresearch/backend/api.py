@@ -5,12 +5,15 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.autoresearch.backend.access import has_autoresearch_access
 from products.autoresearch.backend.inference import run_inference_for_pipeline
 from products.autoresearch.backend.models import (
     AutoresearchModel,
@@ -34,6 +37,16 @@ from products.autoresearch.backend.validation import validate_pipeline_definitio
 logger = structlog.get_logger(__name__)
 
 
+class AutoresearchAccessPermission(BasePermission):
+    """Gate the autoresearch product behind the `autoresearch` feature flag."""
+
+    message = "Autoresearch is not enabled for this team."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        team_id = getattr(view, "team_id", None)
+        return has_autoresearch_access(request.user, team_id=team_id)
+
+
 @extend_schema(tags=["autoresearch"])
 class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
@@ -44,7 +57,20 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     users daily and emits autoresearch_prediction events.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "autoresearch"
+    scope_object_read_actions = ["list", "retrieve", "validate_definition"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "start_training",
+        "run_inference",
+        "archive",
+        "pause",
+        "resume",
+    ]
+    permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchPipelineSerializer
     queryset = AutoresearchPipeline.objects.all()
 
@@ -238,7 +264,8 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelVie
     the daily inference workflow compiles to score users.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "autoresearch"
+    permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchModelSerializer
     queryset = AutoresearchModel.objects.all()
 
@@ -259,7 +286,8 @@ class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     List and retrieve inference, validation, and notebook runs for a pipeline.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "autoresearch"
+    permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchRunSerializer
     queryset = AutoresearchRun.objects.all()
 
@@ -280,7 +308,8 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyMo
     List and retrieve training runs for a pipeline.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "autoresearch"
+    permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
     queryset = AutoresearchTrainingRun.objects.all()
 

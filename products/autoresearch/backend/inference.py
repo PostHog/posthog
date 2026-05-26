@@ -22,6 +22,7 @@ Event shape:
         $autoresearch_features_hash:   str (SHA-256 of feature row)
 """
 
+import re
 import json
 import math
 import hashlib
@@ -37,6 +38,7 @@ import structlog
 from posthog.schema import HogQLQuery
 
 from posthog.api.capture import capture_internal
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
@@ -50,6 +52,9 @@ PREDICTION_EVENT_NAME = "autoresearch_prediction"
 
 # Batch size for ClickHouse feature queries — keeps memory bounded
 FEATURE_QUERY_LIMIT = 10_000
+
+# Only property keys matching this pattern are safe to interpolate into HogQL field paths
+_SAFE_PROPERTY_KEY = re.compile(r"^[\w.\- ]+$")
 
 
 def run_inference_for_pipeline(
@@ -223,6 +228,7 @@ def _fetch_feature_rows(
     bounded_sql = feature_sql.rstrip().rstrip(";") + f"\nLIMIT {FEATURE_QUERY_LIMIT}"
 
     try:
+        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
         runner = HogQLQueryRunner(
             query=HogQLQuery(query=bounded_sql),
             team=team,
@@ -233,7 +239,7 @@ def _fetch_feature_rows(
             return []
 
         columns = result.columns
-        return [dict(zip(columns, row)) for row in result.results]
+        rows = [dict(zip(columns, row)) for row in result.results]
 
     except Exception:
         logger.exception(
@@ -242,6 +248,157 @@ def _fetch_feature_rows(
             model_id=str(model.pk),
         )
         return []
+
+    # Apply inference population filter — restrict to users matching the pipeline's
+    # defined scoring population (e.g. identified users, signed up in last 30 days).
+    # Skip the population query entirely when no filter is defined (empty dict = all users).
+    allowed_ids: frozenset[str] | None = None
+    if pipeline.inference_population:
+        lookback_days = max(30, pipeline.horizon_days * 4)
+        allowed_ids = _fetch_population_distinct_ids(
+            team=team,
+            population=pipeline.inference_population,
+            lookback_days=lookback_days,
+        )
+    if allowed_ids is not None:
+        before = len(rows)
+        rows = [r for r in rows if r.get("distinct_id") in allowed_ids]
+        logger.info(
+            "autoresearch_population_filter_applied",
+            pipeline_id=str(pipeline.pk),
+            before=before,
+            after=len(rows),
+        )
+
+    return rows
+
+
+def _fetch_population_distinct_ids(
+    team: Team,
+    population: dict[str, Any],
+    lookback_days: int,
+) -> frozenset[str] | None:
+    """
+    Return the set of distinct_ids that match the inference_population filter.
+    Returns None when no filter applies (empty dict = score all users).
+
+    Queries the events table using person property conditions so the eligible set
+    is consistent with the feature SQL lookback window — users with no recent
+    events have no feature rows and wouldn't be scored anyway.
+
+    On query failure, returns None (fail open) rather than silently scoring zero.
+
+    Supports person and event property types with common operators (exact, is_not,
+    icontains, not_icontains, gt/gte/lt/lte, is_set, is_not_set).
+    """
+    if not population:
+        return None
+
+    properties = population.get("properties", [])
+    if not properties:
+        return None
+
+    parts, values = _build_population_conditions(properties)
+    if not parts:
+        return None
+
+    values["_lookback"] = lookback_days
+    where_clause = " AND ".join(parts)
+    sql = (
+        f"SELECT DISTINCT distinct_id FROM events"
+        f" WHERE timestamp >= now() - toIntervalDay({{_lookback}})"
+        f" AND {where_clause}"
+    )
+
+    try:
+        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
+        runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values=values), team=team)
+        result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        if not result.results:
+            return frozenset()
+        return frozenset(str(row[0]) for row in result.results if row[0])
+    except Exception:
+        logger.exception("autoresearch_population_query_failed", team_id=team.pk)
+        return None
+
+
+def _build_population_conditions(
+    properties: list[dict[str, Any]],
+) -> tuple[list[str], dict[str, Any]]:
+    """
+    Translate a list of PostHog property filter dicts into HogQL WHERE condition
+    strings and a values dict for parameterized binding.
+
+    Property types:
+    - "person"  → person.properties.<key>  (events table context)
+    - "event"   → properties.<key>
+
+    Operators: exact, is_not, icontains, not_icontains, gt, gte, lt, lte,
+               is_set, is_not_set.
+
+    Unsupported types/operators are skipped with a warning rather than raising.
+    """
+    parts: list[str] = []
+    values: dict[str, Any] = {}
+
+    for i, prop in enumerate(properties):
+        key = prop.get("key")
+        prop_type = prop.get("type", "person")
+        operator = prop.get("operator", "exact")
+        value = prop.get("value")
+
+        if not key or not _SAFE_PROPERTY_KEY.match(str(key)):
+            logger.warning("autoresearch_population_unsafe_key", key=key)
+            continue
+
+        if prop_type == "person":
+            field = f"person.properties.{key}"
+        elif prop_type == "event":
+            field = f"properties.{key}"
+        else:
+            logger.warning("autoresearch_population_unsupported_prop_type", prop_type=prop_type)
+            continue
+
+        param = f"pop_{i}"
+
+        if operator == "is_set":
+            parts.append(f"isNotNull({field}) AND {field} != ''")
+        elif operator == "is_not_set":
+            parts.append(f"(isNull({field}) OR {field} = '')")
+        elif operator == "exact":
+            if isinstance(value, list):
+                in_params = [f"pop_{i}_{j}" for j in range(len(value))]
+                for j, v in enumerate(value):
+                    values[f"pop_{i}_{j}"] = v
+                in_refs = ", ".join("{" + p + "}" for p in in_params)
+                parts.append(f"{field} IN ({in_refs})")
+            else:
+                values[param] = value
+                parts.append(f"{field} = {{{param}}}")
+        elif operator == "is_not":
+            if isinstance(value, list):
+                in_params = [f"pop_{i}_{j}" for j in range(len(value))]
+                for j, v in enumerate(value):
+                    values[f"pop_{i}_{j}"] = v
+                in_refs = ", ".join("{" + p + "}" for p in in_params)
+                parts.append(f"{field} NOT IN ({in_refs})")
+            else:
+                values[param] = value
+                parts.append(f"{field} != {{{param}}}")
+        elif operator == "icontains":
+            values[param] = f"%{value}%"
+            parts.append(f"{field} ILIKE {{{param}}}")
+        elif operator == "not_icontains":
+            values[param] = f"%{value}%"
+            parts.append(f"{field} NOT ILIKE {{{param}}}")
+        elif operator in ("gt", "gte", "lt", "lte"):
+            op_sql = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[operator]
+            values[param] = value
+            parts.append(f"toFloat64OrNull({field}) {op_sql} {{{param}}}")
+        else:
+            logger.warning("autoresearch_population_unsupported_operator", operator=operator)
+
+    return parts, values
 
 
 def _fetch_label_distinct_ids(
@@ -258,6 +415,7 @@ def _fetch_label_distinct_ids(
         f" AND timestamp >= now() - toIntervalDay({pipeline.horizon_days})"
     )
     try:
+        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
         runner = HogQLQueryRunner(query=HogQLQuery(query=label_sql), team=team)
         result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         if not result.results:

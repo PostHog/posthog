@@ -169,6 +169,10 @@ from posthog.temporal.weekly_digest import (
     WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
 )
 
+from products.autoresearch.backend.temporal import (
+    ACTIVITIES as AUTORESEARCH_ACTIVITIES,
+    WORKFLOWS as AUTORESEARCH_WORKFLOWS,
+)
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
@@ -365,6 +369,11 @@ _task_queue_specs = [
         settings.DEPLOYMENTS_TASK_QUEUE,
         DEPLOYMENTS_WORKFLOWS,
         DEPLOYMENTS_ACTIVITIES,
+    ),
+    (
+        settings.AUTORESEARCH_TASK_QUEUE,
+        AUTORESEARCH_WORKFLOWS,
+        AUTORESEARCH_ACTIVITIES,
     ),
 ]
 

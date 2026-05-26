@@ -5,6 +5,7 @@ import structlog
 
 from posthog.schema import HogQLQuery
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team.team import Team
@@ -99,6 +100,7 @@ def _run_validation(
         values={"target": target_event, "lookback": lookback_days},
     )
 
+    tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
     runner = HogQLQueryRunner(query=count_query, team=team)
     result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
