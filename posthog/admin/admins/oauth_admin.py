@@ -139,10 +139,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                     {"fields": ("authorization_grant_type", "redirect_uris", "algorithm")},
                 ),
                 ("Ownership", {"fields": ("user", "organization")}),
-                (
-                    "Status",
-                    {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")},
-                ),
+                ("Status", {"fields": ("is_verified", "is_first_party", "is_dcr_client", "is_cimd_client")}),
                 (
                     "Provisioning",
                     {
