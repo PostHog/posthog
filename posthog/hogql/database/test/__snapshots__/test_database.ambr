@@ -3407,6 +3407,124 @@
           "row_count": null,
           "type": "system"
       },
+      "system.dashboard_tiles": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "dashboard_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dashboard_id",
+                  "id": null,
+                  "name": "dashboard_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "insight_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "insight_id",
+                  "id": null,
+                  "name": "insight_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "text_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "text_id",
+                  "id": null,
+                  "name": "text_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "button_tile_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "button_tile_id",
+                  "id": null,
+                  "name": "button_tile_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "layouts": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "layouts",
+                  "id": null,
+                  "name": "layouts",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "color": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "color",
+                  "id": null,
+                  "name": "color",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "show_description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "show_description",
+                  "id": null,
+                  "name": "show_description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "transparent_background": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "transparent_background",
+                  "id": null,
+                  "name": "transparent_background",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "filters_overrides": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters_overrides",
+                  "id": null,
+                  "name": "filters_overrides",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              }
+          },
+          "id": "system.dashboard_tiles",
+          "name": "system.dashboard_tiles",
+          "row_count": null,
+          "type": "system"
+      },
       "system.data_modeling_jobs": {
           "fields": {
               "id": {
@@ -10795,6 +10913,124 @@
           },
           "id": "system.dashboards",
           "name": "system.dashboards",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.dashboard_tiles": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "dashboard_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dashboard_id",
+                  "id": null,
+                  "name": "dashboard_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "insight_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "insight_id",
+                  "id": null,
+                  "name": "insight_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "text_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "text_id",
+                  "id": null,
+                  "name": "text_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "button_tile_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "button_tile_id",
+                  "id": null,
+                  "name": "button_tile_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "layouts": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "layouts",
+                  "id": null,
+                  "name": "layouts",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "color": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "color",
+                  "id": null,
+                  "name": "color",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "show_description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "show_description",
+                  "id": null,
+                  "name": "show_description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "transparent_background": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "transparent_background",
+                  "id": null,
+                  "name": "transparent_background",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "filters_overrides": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters_overrides",
+                  "id": null,
+                  "name": "filters_overrides",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              }
+          },
+          "id": "system.dashboard_tiles",
+          "name": "system.dashboard_tiles",
           "row_count": null,
           "type": "system"
       },
