@@ -643,14 +643,31 @@ function verifyUiHostReachability(
         signal: AbortSignal.timeout(5000),
     })
         .then((response) => {
+            const duration_ms = Date.now() - checkStart
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`)
+                // The probe responded but with a non-2xx status (commonly 403 from a
+                // misconfigured reverse proxy). That's a recoverable configuration
+                // signal, not an exception — emit an analytics event and bail out so
+                // we don't pollute error tracking with expected reachability failures.
+                actions.setAuthStatus('error')
+                toolbarPosthogJS.capture('toolbar ui host check', {
+                    ...checkBaseProps,
+                    status: 'error',
+                    error_type: 'http_status',
+                    http_status: response.status,
+                    duration_ms,
+                })
+
+                if (authParams) {
+                    actions.openUiHostConfigModal()
+                }
+                return
             }
             actions.setAuthStatus('idle')
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'ok',
-                duration_ms: Date.now() - checkStart,
+                duration_ms,
             })
 
             if (authParams) {
