@@ -260,6 +260,11 @@ class EventViewSet(
                 deprecated=True,
             ),
             PropertiesSerializer(required=False),
+            OpenApiParameter(
+                "include_person",
+                OpenApiTypes.BOOL,
+                description="Include person details for each event. Default: false.",
+            ),
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -388,13 +393,14 @@ class EventViewSet(
                         action_id=request.GET.get("action_id"),
                     )
 
+            context = {**restricted_context}
+            if request.query_params.get("include_person", False):
+                context["people"] = self._get_people(query_result, team)
+
             result = ClickhouseEventSerializer(
                 query_result[0:limit],
                 many=True,
-                context={
-                    "people": self._get_people(query_result, team),
-                    **restricted_context,
-                },
+                context=context,
             ).data
 
             next_url: Optional[str] = None
