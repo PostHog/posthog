@@ -80,6 +80,53 @@ FROM (
 ) as query
 """
 
+# Session-start-attribution variant of `templateUniqueUsers`, opt-in via
+# `CalendarHeatmapFilter.bucketBySessionStart`. Each session contributes exactly once,
+# bucketed by the (day-of-week, hour) of its first event — matching the web overview
+# semantic where a session's metrics are attributed to its start hour. Brought back
+# from the pre-#57296 implementation so web analytics' Active Hours tile lines up with
+# the visitor counts the overview computes for the same window.
+templateUniqueUsersBySession = """
+WITH uniqueSessionEvents AS (
+    SELECT
+        person_id,
+        $session_id,
+        timestamp
+    FROM events
+    WHERE and(
+        {event_expr},
+        {all_properties},
+        {test_account_filters}
+    )
+),
+uniqueSessionEventsGrouped AS (
+    SELECT
+        any(person_id) as person_id,
+        $session_id as session_id,
+        min(timestamp) as timestamp
+    FROM uniqueSessionEvents
+    GROUP BY $session_id
+),
+query AS (
+    SELECT
+        uniqMap(map(concatWithSeparator({separator},toString(toDayOfWeek(uniqueSessionEventsGrouped.timestamp)),toString(toHour(uniqueSessionEventsGrouped.timestamp))), uniqueSessionEventsGrouped.person_id)) as hoursAndDays,
+        uniqMap(map(toHour(uniqueSessionEventsGrouped.timestamp), uniqueSessionEventsGrouped.person_id)) as hours,
+        uniqMap(map(toDayOfWeek(uniqueSessionEventsGrouped.timestamp), uniqueSessionEventsGrouped.person_id)) as days,
+        uniq(person_id) as total
+    FROM uniqueSessionEventsGrouped
+    WHERE {current_period}
+)
+SELECT
+    mapKeys(query.hoursAndDays) as hoursAndDaysKeys,
+    mapValues(query.hoursAndDays) as hoursAndDaysValues,
+    mapKeys(query.hours) as hoursKeys,
+    mapValues(query.hours) as hoursValues,
+    mapKeys(query.days) as daysKeys,
+    mapValues(query.days) as daysValues,
+    query.total
+FROM query
+"""
+
 templateAllUsers = """
 SELECT
     mapKeys(query.hoursAndDays) as hoursAndDaysKeys,
@@ -146,7 +193,14 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
 
     def to_query(self) -> ast.SelectQuery:
         # Use the heatmap query logic
-        template = templateUniqueUsers if self.query.series[0].math == "dau" else templateAllUsers
+        is_unique_users = self.query.series[0].math == "dau"
+        bucket_by_session = bool(
+            self.query.calendarHeatmapFilter and self.query.calendarHeatmapFilter.bucketBySessionStart
+        )
+        if is_unique_users:
+            template = templateUniqueUsersBySession if bucket_by_session else templateUniqueUsers
+        else:
+            template = templateAllUsers
         query = parse_select(
             template,
             placeholders={

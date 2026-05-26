@@ -2051,6 +2051,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         trendsFilter: {
                                             display: ChartDisplayType.CalendarHeatmap,
                                         },
+                                        // Web overview attributes session metrics to the session's start hour;
+                                        // mirror that here so visitor counts line up across the dashboard.
+                                        calendarHeatmapFilter: {
+                                            bucketBySessionStart: true,
+                                        },
                                     },
                                 },
                                 docs: {

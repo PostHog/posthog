@@ -1452,8 +1452,14 @@ export type TrendsFilter = {
 }
 
 export type CalendarHeatmapFilter = {
-    // Reserved for future filter properties
-    dummy?: string
+    /**
+     * When true and the series math is `dau`/`unique_users`, each user contributes to the
+     * (day-of-week, hour) bucket of their session's first event only — matching the web overview
+     * session-start attribution. When false (default), the user contributes to every bucket
+     * they have any event in. No effect on `total` math (event counts are unchanged either way).
+     * @default false
+     */
+    bucketBySessionStart?: boolean
 }
 
 export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
@@ -1525,6 +1531,11 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
+    /**
+     * Properties specific to the calendar heatmap display variant. Only consulted when
+     * `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise.
+     */
+    calendarHeatmapFilter?: CalendarHeatmapFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
     /** Compare to date range */
