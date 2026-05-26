@@ -10,14 +10,10 @@ type RawTeam = Omit<Team, 'available_features'> & {
 }
 
 /**
- * The `TeamManager` surface visible to callers that should not have access to
- * its lifecycle methods (e.g. ingestion pipeline steps that receive the
- * service from a `Lifecycle`'s stripped service map). Same shape as
- * `TeamManager` minus `start`/`stop`. A full `TeamManager` instance is
- * structurally assignable to this type.
+ * Looks up Teams by id or token, backed by a Postgres-loaded lazy cache.
+ * Pure business surface — no `start` / `stop`. Callers that need to manage
+ * its lifetime as part of a `Lifecycle` use `TeamManagerLifecycle`.
  */
-export type TeamManagerHandle = Omit<TeamManager, 'start' | 'stop'>
-
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
 
@@ -30,14 +26,6 @@ export class TeamManager {
                 return await this.fetchTeams(teamIdOrTokens)
             },
         })
-    }
-
-    public async start(): Promise<void> {
-        // No startup work — the lazy loader hydrates on first access.
-    }
-
-    public async stop(): Promise<void> {
-        // No shutdown work — the lazy loader's caches are GC'd with the instance.
     }
 
     public async getTeam(teamId: number): Promise<Team | null> {
@@ -170,6 +158,23 @@ export class TeamManager {
             resultRecord[row.api_token] = team
         })
 
-        return resultRecord as Record<string, Team | null>
+        return resultRecord
+    }
+}
+
+/**
+ * Lifecycle owner for `TeamManager`. `start()` constructs a fresh
+ * `TeamManager` and hands it back along with a no-op stop callback. The
+ * resulting `TeamManager` has no `start`/`stop` of its own — its lifetime
+ * is fully controlled through this Manager.
+ */
+export class TeamManagerLifecycle {
+    constructor(private postgres: PostgresRouter) {}
+
+    start(): Promise<{ service: TeamManager; stop: () => Promise<void> }> {
+        return Promise.resolve({
+            service: new TeamManager(this.postgres),
+            stop: () => Promise.resolve(),
+        })
     }
 }

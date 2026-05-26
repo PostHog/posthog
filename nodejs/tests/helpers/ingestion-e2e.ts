@@ -2,13 +2,31 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
+import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
+import { defaultConfig } from '../../src/config/config'
 import { KAFKA_INGESTION_WARNINGS } from '../../src/config/kafka-topics'
+import {
+    createCookielessRedisConnectionConfig,
+    createIngestionRedisConnectionConfig,
+} from '../../src/config/redis-pools'
+import { CookielessManager } from '../../src/ingestion/cookieless/cookieless-manager'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../../src/ingestion/personhog'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
-import { Hub, PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, RedisPool, Team } from '../../src/types'
+import { PostgresRouter } from '../../src/utils/db/postgres'
+import { createRedisPoolFromConfig } from '../../src/utils/db/redis'
 import { parseRawClickHouseEvent } from '../../src/utils/event'
+import { GeoIPService } from '../../src/utils/geoip'
 import { parseJSON } from '../../src/utils/json-parse'
+import { PubSub } from '../../src/utils/pubsub'
+import { TeamManager } from '../../src/utils/team-manager'
 import { UUIDT } from '../../src/utils/utils'
+import { GroupTypeManager } from '../../src/worker/ingestion/group-type-manager'
+import { GroupRepository } from '../../src/worker/ingestion/groups/repositories/group-repository.interface'
+import { PostgresGroupRepository } from '../../src/worker/ingestion/groups/repositories/postgres-group-repository'
+import { PersonRepository } from '../../src/worker/ingestion/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { Clickhouse } from './clickhouse'
 import { waitForExpect } from './expectations'
 import { createUserTeamAndOrganization } from './sql'
@@ -284,8 +302,27 @@ export interface IngesterLike {
     stop(): Promise<void>
 }
 
+/**
+ * Set of primitives the test harness exposes to an ingester builder. Built
+ * directly from primitive Manager/factory calls — no hub involved.
+ */
+export interface IngestionTestInfra {
+    config: PluginsServerConfig
+    postgres: PostgresRouter
+    redisPool: RedisPool
+    teamManager: TeamManager
+    groupRepository: GroupRepository
+    personRepository: PersonRepository
+    cookielessManager: CookielessManager
+    pubSub: PubSub
+    geoipService: GeoIPService
+    encryptedFields: EncryptedFields
+    integrationManager: IntegrationManagerService
+    groupTypeManager: GroupTypeManager
+}
+
 export interface TeamIngesterTestContext<T extends IngesterLike> {
-    hub: Hub
+    infra: IngestionTestInfra
     team: Team
     kafkaProducer: KafkaProducerWrapper
     ingester: T
@@ -297,7 +334,10 @@ export interface TeamIngesterTestConfig {
     pluginServerConfig?: Partial<PluginsServerConfig>
 }
 
-export type BuildIngester<T extends IngesterLike> = (hub: Hub, kafkaProducer: KafkaProducerWrapper) => T
+export type BuildIngester<T extends IngesterLike> = (
+    infra: IngestionTestInfra,
+    kafkaProducer: KafkaProducerWrapper
+) => T
 
 /**
  * Builds a `test` factory that spins up an isolated team + hub + consumer per
@@ -314,11 +354,57 @@ export function createTestWithTeamIngester<T extends IngesterLike>(
         testFn: (ctx: TeamIngesterTestContext<T>) => Promise<void>
     ) => {
         test(name, async () => {
-            const hub = await createHub({
+            const serverConfig: PluginsServerConfig = {
+                ...defaultConfig,
                 ...baseConfig,
                 ...config.pluginServerConfig,
+            }
+
+            const postgres = new PostgresRouter(serverConfig, serverConfig.PLUGIN_SERVER_MODE ?? undefined)
+            const redisPool = createRedisPoolFromConfig({
+                connection: createIngestionRedisConnectionConfig(serverConfig),
+                poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
             })
-            const kafkaProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+            const cookielessRedisPool = createRedisPoolFromConfig({
+                connection: createCookielessRedisConnectionConfig(serverConfig),
+                poolMinSize: serverConfig.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: serverConfig.REDIS_POOL_MAX_SIZE,
+            })
+
+            const teamManager = new TeamManager(postgres)
+            const pubSub = new PubSub(redisPool)
+            await pubSub.start()
+
+            const personhogClient = createPersonHogClient(serverConfig)
+            const clientLabel = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
+
+            const postgresGroupRepository = new PostgresGroupRepository(postgres)
+            const postgresPersonRepository = new PostgresPersonRepository(postgres, {
+                calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+            })
+            const personRepository = buildPersonRepository(
+                personhogClient,
+                postgresPersonRepository,
+                serverConfig.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+                serverConfig.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
+                clientLabel
+            )
+            const groupRepository = buildGroupRepository(
+                personhogClient,
+                postgresGroupRepository,
+                serverConfig.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+                serverConfig.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
+                clientLabel
+            )
+            const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
+            const cookielessManager = new CookielessManager(serverConfig, cookielessRedisPool)
+            const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
+            await geoipService.get()
+            const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
+            const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+
+            const kafkaProducer = await KafkaProducerWrapper.create(serverConfig.KAFKA_CLIENT_RACK)
 
             const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
             const userId = teamId
@@ -337,7 +423,7 @@ export function createTestWithTeamIngester<T extends IngesterLike>(
             const organizationMembershipId = new UUIDT().toString()
 
             await createUserTeamAndOrganization(
-                hub.postgres,
+                postgres,
                 newTeam.id,
                 userId,
                 userUuid,
@@ -346,12 +432,27 @@ export function createTestWithTeamIngester<T extends IngesterLike>(
                 config.teamOverrides
             )
 
-            const fetchedTeam = await hub.teamManager.getTeam(newTeam.id)
+            const fetchedTeam = await teamManager.getTeam(newTeam.id)
             if (!fetchedTeam) {
                 throw new Error(`Failed to fetch team ${newTeam.id} from database`)
             }
 
-            const ingester = buildIngester(hub, kafkaProducer)
+            const infra: IngestionTestInfra = {
+                config: serverConfig,
+                postgres,
+                redisPool,
+                teamManager,
+                groupRepository,
+                personRepository,
+                cookielessManager,
+                pubSub,
+                geoipService,
+                encryptedFields,
+                integrationManager,
+                groupTypeManager,
+            }
+
+            const ingester = buildIngester(infra, kafkaProducer)
             // We don't actually use kafka so we skip instantiation for faster tests
             ;(ingester as unknown as { kafkaConsumer: unknown }).kafkaConsumer = {
                 connect: jest.fn(),
@@ -361,11 +462,15 @@ export function createTestWithTeamIngester<T extends IngesterLike>(
 
             await ingester.start()
             try {
-                await testFn({ hub, team: fetchedTeam, kafkaProducer, ingester, token: fetchedTeam.api_token })
+                await testFn({ infra, team: fetchedTeam, kafkaProducer, ingester, token: fetchedTeam.api_token })
             } finally {
                 await ingester.stop()
                 await kafkaProducer.disconnect()
-                await closeHub(hub)
+                await pubSub.stop()
+                await Promise.allSettled([redisPool.drain(), cookielessRedisPool.drain(), postgres.end()])
+                await redisPool.clear()
+                await cookielessRedisPool.clear()
+                cookielessManager.shutdown()
             }
         })
     }

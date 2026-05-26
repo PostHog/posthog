@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { TeamManagerHandle } from '../../utils/team-manager'
+import { TeamManager } from '../../utils/team-manager'
 import { EventFilterManager } from '../common/event-filters'
 import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput } from '../common/outputs'
 import {
@@ -29,7 +29,7 @@ import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 
 export interface ClientWarningsPipelineConfig {
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | AppMetricsOutput>
-    teamManager: TeamManagerHandle
+    teamManager: TeamManager
     // The managers come from a started `Lifecycle`'s service map, where
     // `start` and `stop` are stripped from the type — the pipeline only
     // needs their business methods.

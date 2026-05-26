@@ -38,21 +38,32 @@ jest.mock('../utils/logger')
 describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: true }])(
     'Event Pipeline E2E tests (prefetch=$PERSONS_PREFETCH_ENABLED)',
     (prefetchConfig) => {
-        const testWithTeamIngester = createTestWithTeamIngester(prefetchConfig, (hub, kafkaProducer) => {
+        const testWithTeamIngester = createTestWithTeamIngester(prefetchConfig, (infra, kafkaProducer) => {
             const outputs = createTestIngestionOutputs(kafkaProducer)
-            const ingester = new IngestionConsumer(hub, {
-                ...hub,
-                hogTransformer: createHogTransformerService(hub, {
-                    ...hub,
-                    monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),
-                }),
+            const ingester = new IngestionConsumer(infra.config, {
+                postgres: infra.postgres,
+                redisPool: infra.redisPool,
+                teamManager: infra.teamManager,
+                groupTypeManager: infra.groupTypeManager,
+                groupRepository: infra.groupRepository,
+                personRepository: infra.personRepository,
+                cookielessManager: infra.cookielessManager,
                 outputs,
                 clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
+                hogTransformer: createHogTransformerService(infra.config, {
+                    geoipService: infra.geoipService,
+                    postgres: infra.postgres,
+                    pubSub: infra.pubSub,
+                    encryptedFields: infra.encryptedFields,
+                    integrationManager: infra.integrationManager,
+                    monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),
+                    teamManager: infra.teamManager,
+                }),
             })
-            jest.spyOn(hub.groupRepository, 'fetchGroup')
-            jest.spyOn(hub.groupRepository, 'insertGroup')
-            jest.spyOn(hub.groupRepository, 'updateGroup')
-            jest.spyOn(hub.groupRepository, 'updateGroupOptimistically')
+            jest.spyOn(infra.groupRepository, 'fetchGroup')
+            jest.spyOn(infra.groupRepository, 'insertGroup')
+            jest.spyOn(infra.groupRepository, 'updateGroup')
+            jest.spyOn(infra.groupRepository, 'updateGroupOptimistically')
             return ingester
         })
         let clickhouse: Clickhouse
@@ -93,7 +104,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'can set and update group properties with $groupidentify events',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const groupKey = 'group_key'
                 const distinctId = new UUIDT().toString()
 
@@ -108,7 +119,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 await waitForKafkaMessages(kafkaProducer)
                 await waitForExpect(async () => {
-                    const group = await hub.groupRepository.fetchGroup(team.id, 0, groupKey)
+                    const group = await infra.groupRepository.fetchGroup(team.id, 0, groupKey)
                     expect(group).toEqual(
                         expect.objectContaining({
                             team_id: team.id,
@@ -132,7 +143,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const group = await hub.groupRepository.fetchGroup(team.id, 0, groupKey)
+                    const group = await infra.groupRepository.fetchGroup(team.id, 0, groupKey)
                     expect(group).toEqual(
                         expect.objectContaining({
                             team_id: team.id,
@@ -155,14 +166,14 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Should have fetched the group 4 times:
                 // 1 for each event and 2 in test check
-                expect(hub.groupRepository.fetchGroup).toHaveBeenCalledTimes(4)
+                expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(4)
             }
         )
 
         testWithTeamIngester(
             'can handle high amount of $groupidentify in same batch',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const n = 150
                 const distinctId = new UUIDT().toString()
                 const events = []
@@ -186,17 +197,17 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     expect(events.length).toEqual(n)
                 })
 
-                expect(hub.groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
-                expect(hub.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
-                expect(hub.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
-                expect(hub.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
+                expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
             }
         )
 
         testWithTeamIngester(
             'can handle multiple $groupidentify in same batch',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const timestamp = DateTime.now().toMillis()
                 const distinctId = new UUIDT().toString()
                 const groupKey = 'group_key'
@@ -233,13 +244,13 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     expect(events[2].properties.$group_set).toEqual({ k2: 'v3', k4: 'v3' })
                 })
 
-                expect(hub.groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
-                expect(hub.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
-                expect(hub.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
-                expect(hub.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.insertGroup).toHaveBeenCalledTimes(1)
+                expect(infra.groupRepository.updateGroup).toHaveBeenCalledTimes(0)
+                expect(infra.groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
 
                 await waitForExpect(async () => {
-                    const group = await hub.groupRepository.fetchGroup(team.id, 0, groupKey)
+                    const group = await infra.groupRepository.fetchGroup(team.id, 0, groupKey)
                     expect(group).toEqual(
                         expect.objectContaining({
                             team_id: team.id,
@@ -276,7 +287,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'can handle multiple $groupidentify for different distinct ids',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const n = 50
                 const distinctIds = []
                 for (let i = 0; i < n; i++) {
@@ -311,7 +322,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 for (const distinctId of distinctIds) {
                     await waitForExpect(async () => {
-                        const group = await hub.groupRepository.fetchGroup(team.id, 0, distinctId)
+                        const group = await infra.groupRepository.fetchGroup(team.id, 0, distinctId)
                         expect(group).toEqual(
                             expect.objectContaining({
                                 team_id: team.id,
@@ -328,7 +339,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'can handle multiple $groupidentify for different distinct ids',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const n = 50
                 const distinctIds = []
                 for (let i = 0; i < n; i++) {
@@ -363,7 +374,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 for (const distinctId of distinctIds) {
                     await waitForExpect(async () => {
-                        const group = await hub.groupRepository.fetchGroup(team.id, 0, distinctId)
+                        const group = await infra.groupRepository.fetchGroup(team.id, 0, distinctId)
                         expect(group).toEqual(
                             expect.objectContaining({
                                 team_id: team.id,
@@ -430,7 +441,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$identify and $set events force person property updates even for filtered properties',
             {},
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -495,7 +506,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     })
 
                     // Verify the final state of the person in the database
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual({
                         $browser: 'Safari',
@@ -514,7 +525,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$set events force person property updates even for filtered properties',
             {},
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -562,7 +573,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     })
 
                     // Verify the final state of the person in the database
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual({
                         $browser: 'Chrome',
@@ -581,7 +592,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'PERSON_PROPERTIES_UPDATE_ALL flag enables updates for normally filtered properties',
             { pluginServerConfig: { PERSON_PROPERTIES_UPDATE_ALL: true } },
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -632,7 +643,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     })
 
                     // Verify the final state of the person in the database reflects the updates
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual({
                         $browser: 'Safari',
@@ -646,7 +657,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'allowed geoip properties ($geoip_country_name, $geoip_city_name) trigger person updates alongside blocked geoip properties',
             {},
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -711,7 +722,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     })
 
                     // Verify the final state of the person in the database reflects the updates
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual({
                         $creator_event_uuid: events[0].uuid,
@@ -1439,7 +1450,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         }
 
         // TODO: Re-enable after re-adding FK constraints to posthog_persondistinctid
-        // testWithTeamIngester('alias events ordering scenario 1: original order', {}, async ({ ingester, hub, team, kafkaProducer, token }) => {
+        // testWithTeamIngester('alias events ordering scenario 1: original order', {}, async ({ ingester, infra, team, kafkaProducer, token }) => {
         //     const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
         //     const user1DistinctId = 'user1-distinct-id'
         //     const user2DistinctId = 'user2-distinct-id'
@@ -1519,7 +1530,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
         //     // fetch the person properties
         //     await waitForExpect(async () => {
-        //         const persons = await fetchPostgresPersons(hub.postgres, team.id)
+        //         const persons = await fetchPostgresPersons(infra.postgres, team.id)
         //         expect(persons.length).toBe(1)
         //         const personsClickhouse = await fetchPersons(team.id)
         //         expect(personsClickhouse.length).toBe(1)
@@ -1541,7 +1552,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         //                 test_name: testName,
         //             })
         //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.postgres, {
+        //         const distinctIdsPersons = await fetchDistinctIds(infra.postgres, {
         //             id: persons[0].id,
         //             team_id: team.id,
         //         } as InternalPerson)
@@ -1554,7 +1565,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         // })
 
         // TODO: Re-enable after re-adding FK constraints to posthog_persondistinctid
-        // testWithTeamIngester('alias events ordering scenario 2: alias first', {}, async ({ ingester, hub, team, kafkaProducer, token }) => {
+        // testWithTeamIngester('alias events ordering scenario 2: alias first', {}, async ({ ingester, infra, team, kafkaProducer, token }) => {
         //     const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
         //     const user1DistinctId = 'user1-distinct-id'
         //     const user2DistinctId = 'user2-distinct-id'
@@ -1635,7 +1646,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
         //     // fetch the person properties
         //     await waitForExpect(async () => {
-        //         const persons = await fetchPostgresPersons(hub.postgres, team.id)
+        //         const persons = await fetchPostgresPersons(infra.postgres, team.id)
         //         expect(persons.length).toBe(1)
         //         const personsClickhouse = await fetchPersons(team.id)
         //         expect(personsClickhouse.length).toBe(1)
@@ -1657,7 +1668,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         //                 test_name: testName,
         //             })
         //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.postgres, {
+        //         const distinctIdsPersons = await fetchDistinctIds(infra.postgres, {
         //             id: persons[0].id,
         //             team_id: team.id,
         //         } as InternalPerson)
@@ -1670,7 +1681,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         // })
 
         // TODO: Re-enable after re-adding FK constraints to posthog_persondistinctid
-        // testWithTeamIngester('alias events ordering scenario 2: user 2 first', {}, async ({ ingester, hub, team, kafkaProducer, token }) => {
+        // testWithTeamIngester('alias events ordering scenario 2: user 2 first', {}, async ({ ingester, infra, team, kafkaProducer, token }) => {
         //     const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
         //     const user1DistinctId = 'user1-distinct-id'
         //     const user2DistinctId = 'user2-distinct-id'
@@ -1752,7 +1763,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
         //     // fetch the person properties
         //     await waitForExpect(async () => {
-        //         const persons = await fetchPostgresPersons(hub.postgres, team.id)
+        //         const persons = await fetchPostgresPersons(infra.postgres, team.id)
         //         expect(persons.length).toBe(1)
         //         const personsClickhouse = await fetchPersons(team.id)
         //         expect(personsClickhouse.length).toBe(1)
@@ -1774,7 +1785,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         //                 test_name: testName,
         //             })
         //         )
-        //         const distinctIdsPersons = await fetchDistinctIds(hub.postgres, {
+        //         const distinctIdsPersons = await fetchDistinctIds(infra.postgres, {
         //             id: persons[0].id,
         //             team_id: team.id,
         //         } as InternalPerson)
@@ -1789,7 +1800,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'alias events ordering scenario 2: user 2 first, separate batch',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const testName = DateTime.now().toFormat('yyyy-MM-dd-HH-mm-ss')
                 const user1DistinctId = 'user1-distinct-id'
                 const user2DistinctId = 'user2-distinct-id'
@@ -1876,7 +1887,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // fetch the person properties
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(2)
                     const personsClickhouse = await fetchPersons(team.id)
                     expect(personsClickhouse.length).toBe(2)
@@ -1918,7 +1929,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     )
                     const person1 = persons.find((person) => person.properties.name === 'User 1')!
                     const person2 = persons.find((person) => person.properties.name === 'User 2')!
-                    const distinctIdsPersons1 = await fetchDistinctIds(hub.postgres, {
+                    const distinctIdsPersons1 = await fetchDistinctIds(infra.postgres, {
                         id: person1.id,
                         team_id: team.id,
                     } as InternalPerson)
@@ -1927,7 +1938,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     expect(distinctIdsPersons1.map((distinctId) => distinctId.distinct_id)).toEqual(
                         expect.arrayContaining([user1DistinctId])
                     )
-                    const distinctIdsPersons2 = await fetchDistinctIds(hub.postgres, {
+                    const distinctIdsPersons2 = await fetchDistinctIds(infra.postgres, {
                         id: person2.id,
                         team_id: team.id,
                     } as InternalPerson)
@@ -1943,7 +1954,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'Should set and $unset person properties, different batches',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const user1DistinctId = 'user1-distinct-id'
 
                 const events = [
@@ -1962,7 +1973,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     const personsClickhouse = await fetchPersons(team.id)
                     expect(personsClickhouse.length).toBe(1)
@@ -1993,7 +2004,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     const personsClickhouse = await fetchPersons(team.id)
                     expect(personsClickhouse.length).toBe(1)
@@ -2016,7 +2027,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'Should set and $unset person properties, same batch',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const user1DistinctId = 'user1-distinct-id'
 
                 const events = [
@@ -2041,7 +2052,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     const personsClickhouse = await fetchPersons(team.id)
                     expect(personsClickhouse.length).toBe(1)
@@ -2286,7 +2297,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'we do not alias users if distinct id changes but we are already identified, with no anonymous event',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 // This test is similar to the previous one, except it does not include an initial anonymous event.
 
                 const anonymousId = 'anonymous_id'
@@ -2320,7 +2331,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(2)
 
                     // Both persons should be identified
@@ -2353,7 +2364,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'we do not leave things in inconsistent state if $identify is run concurrently',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 // There are a few places where we have the pattern of:
                 //
                 //  1. fetch from postgres
@@ -2386,7 +2397,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(2)
                     expect(persons.map((person) => person.is_identified)).toEqual([true, true])
                 })
@@ -2396,7 +2407,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'we can alias an anonymous person to an anonymous person',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const anonymous1 = 'anonymous-1'
                 const anonymous2 = 'anonymous-2'
 
@@ -2414,7 +2425,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
                     // Make sure there is one identified person
@@ -2437,7 +2448,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'we can alias two non-existent persons',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const anonymous1 = 'anonymous-1'
                 const anonymous2 = 'anonymous-2'
 
@@ -2452,11 +2463,11 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     expect(persons[0].is_identified).toBe(true)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual([anonymous1, anonymous2])
 
                     const events = await fetchEvents(clickhouse, team.id)
@@ -2469,7 +2480,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$merge_dangerously merges two persons into one',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const oldDistinctId = 'old_distinct_id'
                 const newDistinctId = 'new_distinct_id'
 
@@ -2483,7 +2494,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                 })
 
@@ -2502,10 +2513,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual([newDistinctId, oldDistinctId])
                 })
             }
@@ -2514,7 +2525,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$create_alias links existing person to new distinct id',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const oldDistinctId = 'old_distinct_id'
                 const newDistinctId = 'new_distinct_id'
 
@@ -2528,7 +2539,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                 })
 
@@ -2547,10 +2558,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual([newDistinctId, oldDistinctId])
                 })
             }
@@ -2559,7 +2570,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'alias works in reverse direction',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const oldDistinctId = 'old_distinct_id'
                 const newDistinctId = 'new_distinct_id'
 
@@ -2587,10 +2598,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual([newDistinctId, oldDistinctId])
                 })
             }
@@ -2599,7 +2610,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'chained alias merges three persons into one',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const oldDistinctId = 'old_distinct_id'
                 const newDistinctId = 'new_distinct_id'
                 const oldDistinctId2 = 'old_distinct_id_2'
@@ -2628,7 +2639,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                 })
 
@@ -2642,7 +2653,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(2)
                 })
 
@@ -2661,10 +2672,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual([
                         newDistinctId,
                         oldDistinctId,
@@ -2677,7 +2688,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$create_alias before any person exists creates one person with both distinct ids',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 await ingester.handleKafkaBatch(
                     createKafkaMessages(
                         [
@@ -2692,10 +2703,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual(['new_distinct_id', 'old_distinct_id'])
                 })
             }
@@ -2704,7 +2715,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$create_alias merges two existing persons into one',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 // Create two separate persons
                 await ingester.handleKafkaBatch(
                     createKafkaMessages(
@@ -2718,7 +2729,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(2)
                 })
 
@@ -2737,10 +2748,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual(['new_distinct_id', 'old_distinct_id'])
                 })
             }
@@ -2749,7 +2760,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'alias merges person properties correctly',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const newDistinctId = 'new_distinct_id'
                 const oldDistinctId = 'old_distinct_id'
 
@@ -2785,7 +2796,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(2)
                     expect(persons.map((p) => p.is_identified)).toEqual([false, false])
                 })
@@ -2805,10 +2816,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual([newDistinctId, oldDistinctId])
 
                     expect(persons[0].properties).toEqual(
@@ -2825,7 +2836,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$identify with illegal distinct ids does not merge persons',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const anonymousId = 'im-an-anonymous-id'
 
                 // Create a person for the anonymous ID
@@ -2838,7 +2849,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                 })
 
@@ -2860,7 +2871,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 }
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     // 1 original + 5 illegal IDs each created their own person (merges failed)
                     expect(persons.length).toBe(1 + illegalIds.length)
                 })
@@ -2880,7 +2891,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     // No extra person created because 'Nan' merged with the anonymous person
                     expect(persons.length).toBe(1 + illegalIds.length)
                 })
@@ -2890,7 +2901,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$create_alias with illegal distinct id does not merge persons',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const legalId = 'user123'
                 const illegalId = 'null'
 
@@ -2918,7 +2929,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     // Person with illegal ID got created but not merged
                     expect(persons.length).toBe(2)
                 })
@@ -2933,7 +2944,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$identify merges anonymous person into existing person preserving properties',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 // Create two persons: one anonymous, one with properties
                 await ingester.handleKafkaBatch(
                     createKafkaMessages([new EventBuilder(team, 'anonymous_id').withEvent('anon event').build()], token)
@@ -2954,7 +2965,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(2)
                 })
 
@@ -2973,10 +2984,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual(['anonymous_id', 'new_distinct_id'])
                     expect(persons[0].properties).toEqual(expect.objectContaining({ email: 'someone@gmail.com' }))
                     expect(persons[0].is_identified).toBe(true)
@@ -2987,7 +2998,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$identify where distinct_id equals $anon_distinct_id is a no-op',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const anonymousId = 'anonymous_id'
 
                 // Create a person for anonymous_id
@@ -3014,10 +3025,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id)).toEqual([anonymousId])
 
                     // Person should NOT be marked as identified (self-identify is a no-op)
@@ -3029,7 +3040,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$identify merges multiple anonymous persons sequentially preserving properties',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 // Create anonymous person and identified person with properties
                 await ingester.handleKafkaBatch(
                     createKafkaMessages([new EventBuilder(team, 'anonymous_id').withEvent('anon event').build()], token)
@@ -3064,7 +3075,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     expect(persons[0].properties).toEqual(expect.objectContaining({ email: 'someone@gmail.com' }))
                     expect(persons[0].is_identified).toBe(true)
@@ -3094,10 +3105,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual([
                         'anonymous_id',
                         'anonymous_id_2',
@@ -3112,18 +3123,18 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$identify does not merge persons across teams',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 // Create a second team
                 const team2Id = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
                 await createUserTeamAndOrganization(
-                    hub.postgres,
+                    infra.postgres,
                     team2Id,
                     team2Id,
                     new UUIDT().toString(),
                     new UUIDT().toString(),
                     new UUIDT().toString()
                 )
-                const team2 = (await hub.teamManager.getTeam(team2Id))!
+                const team2 = (await infra.teamManager.getTeam(team2Id))!
 
                 // Create a person for team2 with distinct_id '2'
                 await ingester.handleKafkaBatch(
@@ -3167,18 +3178,18 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Verify team1 merged correctly
                 await waitForExpect(async () => {
-                    const team1Persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const team1Persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(team1Persons.length).toBe(1)
-                    const distinctIds = await fetchDistinctIds(hub.postgres, team1Persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, team1Persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual(['1', '2'])
                 })
 
                 // Verify team2's person is untouched
                 await waitForExpect(async () => {
-                    const team2Persons = await fetchPostgresPersons(hub.postgres, team2Id)
+                    const team2Persons = await fetchPostgresPersons(infra.postgres, team2Id)
                     expect(team2Persons.length).toBe(1)
                     expect(team2Persons[0].properties).toEqual(expect.objectContaining({ email: 'team2@gmail.com' }))
-                    const distinctIds = await fetchDistinctIds(hub.postgres, team2Persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, team2Persons[0])
                     expect(distinctIds.map((d) => d.distinct_id)).toEqual(['2'])
                 })
             }
@@ -3187,7 +3198,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'we do not alias users if distinct id changes but we are already identified',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 // This test is in reference to
                 // https://github.com/PostHog/posthog/issues/5527 , where we were
                 // correctly identifying that an anonymous user before login should be
@@ -3221,7 +3232,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(2)
                     expect(persons.every((p) => p.is_identified)).toBe(true)
                 })
@@ -3241,7 +3252,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     // Still 2 separate persons — merge was rejected because both are identified
                     expect(persons.length).toBe(2)
                     expect(persons.every((p) => p.is_identified)).toBe(true)
@@ -3252,7 +3263,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'we do not alias already identified users with no anonymous event',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 // This test is in reference to
                 // https://github.com/PostHog/posthog/issues/5527 , where we were
                 // correctly identifying that an anonymous user before login should be
@@ -3291,7 +3302,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(2)
                     expect(persons.map((p) => p.is_identified)).toEqual([true, true])
 
@@ -3320,7 +3331,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$create_alias merges anonymous person into identified person',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const someAnonId = 'some_anon_id'
                 const identifiedId = 'identified_id'
                 const anonymousId = 'anonymous_id'
@@ -3340,7 +3351,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     expect(persons[0].is_identified).toBe(true)
                 })
@@ -3355,7 +3366,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(2)
                 })
 
@@ -3374,10 +3385,10 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
-                    const distinctIds = await fetchDistinctIds(hub.postgres, persons[0])
+                    const distinctIds = await fetchDistinctIds(infra.postgres, persons[0])
                     expect(distinctIds.map((d) => d.distinct_id).sort()).toEqual(
                         [someAnonId, anonymousId, identifiedId].sort()
                     )
@@ -3389,7 +3400,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$create_alias does not merge when alias person is already identified',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const someAnonId = 'some_anon_id'
                 const identifiedId = 'identified_id'
                 const anonymousId = 'anonymous_id'
@@ -3418,7 +3429,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(2)
                 })
 
@@ -3437,7 +3448,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     // Merge blocked: alias person (identifiedId) has is_identified=true
                     expect(persons.length).toBe(2)
                 })
@@ -3531,7 +3542,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$set wins over $set_once on the same key',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 await ingester.handleKafkaBatch(
                     createKafkaMessages(
                         [
@@ -3554,7 +3565,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     expect(events[0].properties['$set']).toEqual({ a_prop: 'test-set' })
                     expect(events[0].properties['$set_once']).toEqual({ a_prop: 'test-set_once' })
 
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     expect(persons[0].properties).toEqual(expect.objectContaining({ a_prop: 'test-set' }))
                 })
@@ -3564,7 +3575,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$unset removes person properties',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 // Create person with properties
                 await ingester.handleKafkaBatch(
                     createKafkaMessages(
@@ -3580,7 +3591,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     expect(persons[0].properties).toEqual(expect.objectContaining({ a: 1, b: 2, c: 3 }))
                 })
@@ -3605,7 +3616,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     expect(unsetEvent).toBeDefined()
                     expect(unsetEvent!.properties['$unset']).toEqual(['a', 'c'])
 
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     expect(persons[0].properties).toEqual(expect.objectContaining({ b: 2 }))
                     expect(persons[0].properties).not.toHaveProperty('a')
@@ -3617,7 +3628,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             '$set and $set_once apply correctly across sequential events',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 // key encodes when the value is updated, e.g. s0 means only set call for the 0th event
                 // s03o23 means via a set in events 0 and 3 plus via set_once on 2nd and 3rd event
                 const set0 = { s0123o0123: 's0a', s02o13: 's0b', s013: 's0e' }
@@ -3653,7 +3664,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 }
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
 
                     // $set wins: last write for each key
@@ -3676,7 +3687,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'Should not share cached person data between batches',
             {},
-            async ({ ingester, hub, team, kafkaProducer, token }) => {
+            async ({ ingester, infra, team, kafkaProducer, token }) => {
                 const distinctId = 'user-across-batches'
 
                 // First batch: Create a person with initial properties
@@ -3694,7 +3705,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Verify batch 1 wrote correctly
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     expect(persons[0].properties).toMatchObject({
                         batch1_prop: 'value1',
@@ -3718,7 +3729,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Verify batch 2 wrote correctly and merged with existing properties
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     // Should have properties from both batches, with batch2 overwriting shared_prop
                     expect(persons[0].properties).toMatchObject({
@@ -3742,7 +3753,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 await waitForKafkaMessages(kafkaProducer)
 
                 await waitForExpect(async () => {
-                    const persons = await fetchPostgresPersons(hub.postgres, team.id)
+                    const persons = await fetchPostgresPersons(infra.postgres, team.id)
                     expect(persons.length).toBe(1)
                     // Should have properties from all three batches
                     expect(persons[0].properties).toMatchObject({
@@ -3758,7 +3769,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'ASSERT_VERSION mode should correctly apply properties_to_set when updating person',
             { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -3780,7 +3791,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Wait for person to be created
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -3810,7 +3821,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 // BUG: With ASSERT_VERSION mode, properties_to_set is not merged into properties
                 // before writing to database, so only the original properties are written
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     // This assertion will FAIL with the bug - email and name won't be set
                     expect(person!.properties).toEqual(
@@ -3841,7 +3852,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'ASSERT_VERSION mode should correctly apply $set_once for new properties',
             { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -3862,7 +3873,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 )
 
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -3889,7 +3900,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Verify the $set_once property was added
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -3904,7 +3915,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'ASSERT_VERSION mode should preserve $set_once semantics across multiple events',
             { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -3925,7 +3936,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 )
 
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -3952,7 +3963,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Verify prop1 retains first value, prop2 is added
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -3980,7 +3991,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Final verification
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -3996,7 +4007,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'ASSERT_VERSION mode should correctly apply $unset operations',
             { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -4021,7 +4032,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 )
 
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -4050,7 +4061,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Verify the property was removed
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -4066,7 +4077,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'ASSERT_VERSION mode should correctly apply properties after person merge',
             { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const anonDistinctId = new UUIDT().toString()
                 const identifiedDistinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
@@ -4088,7 +4099,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 )
 
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, anonDistinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, anonDistinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -4116,7 +4127,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Verify merged person has all properties
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, identifiedDistinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, identifiedDistinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -4132,7 +4143,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'ASSERT_VERSION mode should correctly apply properties from multiple events in same batch',
             { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -4153,7 +4164,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 )
 
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                 })
 
@@ -4189,7 +4200,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Verify all properties from the batch were applied
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -4206,7 +4217,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'ASSERT_VERSION mode should handle combined $set and $unset in same event',
             { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -4227,7 +4238,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 )
 
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -4256,7 +4267,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Verify the new property was added and the old one was removed
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -4272,7 +4283,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'ASSERT_VERSION mode should handle $unset overlaps within a batch',
             { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -4293,7 +4304,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 )
 
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -4341,7 +4352,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
 
                 // Verify all unsets were applied correctly despite overlaps
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -4359,7 +4370,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'ASSERT_VERSION mode should preserve $set_once semantics within same batch',
             { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -4398,7 +4409,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 )
 
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({
@@ -4415,7 +4426,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
         testWithTeamIngester(
             'ASSERT_VERSION mode should handle combined $set and $unset within same batch',
             { pluginServerConfig: { PERSON_BATCH_WRITING_DB_WRITE_MODE: 'ASSERT_VERSION' } },
-            async ({ ingester, hub, team, token }) => {
+            async ({ ingester, infra, team, token }) => {
                 const distinctId = new UUIDT().toString()
                 const timestamp = DateTime.now().toMillis()
 
@@ -4455,7 +4466,7 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                 )
 
                 await waitForExpect(async () => {
-                    const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                    const person = await infra.personRepository.fetchPerson(team.id, distinctId)
                     expect(person).toBeDefined()
                     expect(person!.properties).toEqual(
                         expect.objectContaining({

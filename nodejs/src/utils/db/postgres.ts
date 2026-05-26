@@ -224,6 +224,27 @@ export class PostgresRouter {
     }
 }
 
+/**
+ * Lifecycle owner for a `PostgresRouter`. `start` constructs the router
+ * (which opens connection pools eagerly), `stop` ends every pool. Plumb
+ * this into a `Lifecycle` so the router's lifetime is tied to the
+ * lifecycle that owns it.
+ */
+export class PostgresRouterManager {
+    constructor(
+        private readonly config: PostgresRouterConfig,
+        private readonly appName?: string
+    ) {}
+
+    start(): Promise<{ service: PostgresRouter; stop: () => Promise<void> }> {
+        const router = new PostgresRouter(this.config, this.appName)
+        return Promise.resolve({
+            service: router,
+            stop: () => router.end(),
+        })
+    }
+}
+
 function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     // Un-exported, use PostgresRouter to run PG queries
     client: Client | Pool | PoolClient,

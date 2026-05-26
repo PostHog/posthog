@@ -1,53 +1,76 @@
 /**
- * Lifecycle contract honored by every registered service: start before the
- * dependents that use it, stop after the dependents that use it. No-op
- * implementations are encouraged for services with nothing real to do at
- * those boundaries — explicit beats silent skipping.
+ * Owns a service's lifecycle. `start()` produces the service instance plus
+ * a `stop` callback that tears it down. Anyone holding the service only
+ * sees the business interface — the start/stop pair stays with the
+ * Manager. This lets the lifecycle plumb dependencies (services, pools,
+ * config) through a single services map without each entry needing to wear
+ * a start/stop hat.
+ */
+export interface Manager<T> {
+    start(): Promise<{ service: T; stop: () => Promise<void> }>
+}
+
+type ServiceOf<M> = M extends Manager<infer T> ? T : never
+
+/** Internal entry captured at registration time. */
+interface RegisteredManager {
+    name: string
+    manager: Manager<unknown>
+}
+
+/**
+ * Per-lifecycle accumulator. `register` records a `Manager` for each entry;
+ * the corresponding service value lands in the services map only after the
+ * lifecycle starts. Until then, the builder is just a typed recipe.
+ */
+export class LifecycleBuilder<S extends Record<string, object> = Record<never, object>> {
+    private constructor(readonly managers: ReadonlyArray<RegisteredManager>) {}
+
+    static empty(): LifecycleBuilder<Record<never, object>> {
+        return new LifecycleBuilder<Record<never, object>>([])
+    }
+
+    register<Name extends string, M extends Manager<object>>(
+        name: Name & (Name extends keyof S ? never : Name),
+        manager: M
+    ): LifecycleBuilder<S & Record<Name, ServiceOf<M>>> {
+        return new LifecycleBuilder<S & Record<Name, ServiceOf<M>>>([
+            ...this.managers,
+            { name, manager: manager as Manager<unknown> },
+        ])
+    }
+
+    build(name: string): Lifecycle<S> {
+        const runner = new ManagerRunner(this.managers)
+        return new Lifecycle<S>(name, () => runner.getServices() as S, runner)
+    }
+}
+
+/**
+ * Legacy service shape — exposes `start()/stop()` directly on the
+ * business object. Prefer the `Manager<T>` shape for new code; this is
+ * kept for adapter use so existing services can be wired into a lifecycle
+ * without refactoring their interface.
  */
 export interface ConsumerManagedService {
     start(): Promise<void>
     stop(): Promise<void>
 }
 
-/** Bound (start, stop) pair captured at registration time. Used internally to
- * sequence service startup and shutdown without re-exposing the underlying
- * service objects. */
-interface ServiceLifecycle {
-    start: () => Promise<void>
-    stop: () => Promise<void>
-}
-
 /**
- * Per-lifecycle accumulator. Each `register` stores the service in the
- * builder's `services` map (typed without `start`/`stop`) and pushes the
- * matching `(start, stop)` pair into the ordered `lifecycle` list. The two
- * views grow in lockstep but stay separate so the public services map never
- * exposes per-service start/stop.
+ * Adapts a legacy service to the `Manager` shape. The adapted service is
+ * exposed in the lifecycle's services map without its `start`/`stop`
+ * methods.
  */
-export class LifecycleBuilder<S extends Record<string, object> = Record<never, object>> {
-    private constructor(
-        readonly services: S,
-        readonly lifecycle: ReadonlyArray<ServiceLifecycle>
-    ) {}
-
-    static empty(): LifecycleBuilder<Record<never, object>> {
-        return new LifecycleBuilder<Record<never, object>>({}, [])
-    }
-
-    register<Name extends string, T extends ConsumerManagedService>(
-        name: Name & (Name extends keyof S ? never : Name),
-        service: T
-    ): LifecycleBuilder<S & Record<Name, Omit<T, 'start' | 'stop'>>> {
-        return new LifecycleBuilder<S & Record<Name, Omit<T, 'start' | 'stop'>>>(
-            { ...this.services, [name]: service },
-            [...this.lifecycle, { start: () => service.start(), stop: () => service.stop() }]
-        )
-    }
-
-    build(name: string): Lifecycle<S> {
-        const services = this.services
-        const runner = new ServiceRunner(this.lifecycle)
-        return new Lifecycle<S>(name, () => services, runner)
+export function adaptManagedService<T extends ConsumerManagedService>(svc: T): Manager<Omit<T, 'start' | 'stop'>> {
+    return {
+        async start() {
+            await svc.start()
+            return {
+                service: svc as Omit<T, 'start' | 'stop'>,
+                stop: () => svc.stop(),
+            }
+        },
     }
 }
 
@@ -71,25 +94,27 @@ interface Runner {
 }
 
 /**
- * Boots and tears down the ordered list of services. Tracks which services
- * successfully started so `stop` only tears those down.
+ * Boots and tears down the ordered list of managers. Tracks which managers
+ * successfully started so `stop` only tears those down. The started
+ * services map is populated incrementally during start and torn down in
+ * reverse on stop.
  */
-class ServiceRunner implements Runner {
-    private started: ServiceLifecycle[] = []
+class ManagerRunner implements Runner {
+    private started: Array<{ name: string; service: object; stop: () => Promise<void> }> = []
+    private servicesCache?: Record<string, object>
 
-    constructor(private readonly services: ReadonlyArray<ServiceLifecycle>) {}
+    constructor(private readonly entries: ReadonlyArray<RegisteredManager>) {}
 
     async start(): Promise<void> {
-        const started: ServiceLifecycle[] = []
+        const started: Array<{ name: string; service: object; stop: () => Promise<void> }> = []
         try {
-            for (const svc of this.services) {
-                await svc.start()
-                started.push(svc)
+            for (const entry of this.entries) {
+                const { service, stop } = await entry.manager.start()
+                started.push({ name: entry.name, service: service as object, stop })
             }
             this.started = started
+            this.servicesCache = Object.fromEntries(started.map((s) => [s.name, s.service]))
         } catch (err) {
-            // Roll back successfully-started services in reverse so we don't
-            // leak resources from a partial start; then rethrow.
             for (let i = started.length - 1; i >= 0; i--) {
                 try {
                     await started[i].stop()
@@ -104,9 +129,17 @@ class ServiceRunner implements Runner {
     async stop(): Promise<void> {
         const svcs = this.started
         this.started = []
+        this.servicesCache = undefined
         for (let i = svcs.length - 1; i >= 0; i--) {
             await svcs[i].stop()
         }
+    }
+
+    getServices(): Record<string, object> {
+        if (!this.servicesCache) {
+            throw new Error('lifecycle not started')
+        }
+        return this.servicesCache
     }
 }
 
@@ -120,6 +153,7 @@ class ServiceRunner implements Runner {
 class ChainedRunner<SParent extends Record<string, object>, SChild extends Record<string, object>> implements Runner {
     private parentHandle?: StartedLifecycle<SParent>
     private childHandle?: StartedLifecycle<SChild>
+    private servicesCache?: SParent & SChild
 
     constructor(
         private readonly parent: Lifecycle<SParent>,
@@ -134,11 +168,11 @@ class ChainedRunner<SParent extends Record<string, object>, SChild extends Recor
         const parentHandle = await this.parent.start()
         try {
             const childLifecycle = this.configure(parentHandle.services, LifecycleBuilder.empty()).build(this.childName)
-            this.childHandle = await childLifecycle.start()
+            const childHandle = await childLifecycle.start()
             this.parentHandle = parentHandle
+            this.childHandle = childHandle
+            this.servicesCache = { ...parentHandle.services, ...childHandle.services }
         } catch (err) {
-            // Child construction or start failed; release the parent reference
-            // we just acquired so we don't leak it.
             try {
                 await parentHandle.stop()
             } catch {
@@ -153,6 +187,7 @@ class ChainedRunner<SParent extends Record<string, object>, SChild extends Recor
         const parentHandle = this.parentHandle
         this.childHandle = undefined
         this.parentHandle = undefined
+        this.servicesCache = undefined
         try {
             if (childHandle) {
                 await childHandle.stop()
@@ -165,10 +200,10 @@ class ChainedRunner<SParent extends Record<string, object>, SChild extends Recor
     }
 
     getServices(): SParent & SChild {
-        if (!this.parentHandle || !this.childHandle) {
+        if (!this.servicesCache) {
             throw new Error(`chained lifecycle "${this.childName}" is not started`)
         }
-        return { ...this.parentHandle.services, ...this.childHandle.services }
+        return this.servicesCache
     }
 }
 

@@ -46,12 +46,12 @@ import { buildGroupRepository, buildPersonRepository, createPersonHogClient } fr
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { PluginServerService, RedisPool } from '../types'
 import { ServerCommands } from '../utils/commands'
-import { PostgresRouter } from '../utils/db/postgres'
-import { createRedisPoolFromConfig } from '../utils/db/redis'
+import { PostgresRouter, PostgresRouterManager } from '../utils/db/postgres'
+import { RedisPoolManager, createRedisPoolFromConfig } from '../utils/db/redis'
 import { GeoIPService } from '../utils/geoip'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
-import { TeamManager } from '../utils/team-manager'
+import { TeamManagerLifecycle } from '../utils/team-manager'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '../worker/ingestion/groups/repositories/postgres-group-repository'
@@ -136,31 +136,42 @@ export class IngestionGeneralServer implements NodeServer {
     private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
-        // 1. Shared infrastructure
+        // 1. Shared infrastructure — postgres + redis lifetimes are owned
+        //    by a server-level Lifecycle so consumers can chain off it via
+        //    `Lifecycle.chain` to get them as handles without taking
+        //    ownership.
         logger.info('ℹ️', 'Connecting to shared infrastructure...')
 
-        this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE!)
-        logger.info('👍', 'Postgres Router ready')
+        const sharedInfraLifecycle = newLifecycleBuilder()
+            .register('postgres', new PostgresRouterManager(this.config, this.config.PLUGIN_SERVER_MODE!))
+            .register(
+                'redisPool',
+                new RedisPoolManager({
+                    connection: createIngestionRedisConnectionConfig(this.config),
+                    poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+                    poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+                })
+            )
+            .build('shared-infra')
 
-        logger.info('🤔', 'Connecting to ingestion Redis...')
-        this.redisPool = createRedisPoolFromConfig({
-            connection: createIngestionRedisConnectionConfig(this.config),
-            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
-        })
+        // `teamManager` is built inside the chain via its Manager so it
+        // picks up `postgres` from the started infra lifecycle's services
+        // and is owned by the lifecycle. The server extracts it from the
+        // started services map to pass on to CDP services etc.
+        const sharedServicesLifecycle = sharedInfraLifecycle.chain('shared', (services, builder) =>
+            builder.register('teamManager', new TeamManagerLifecycle(services.postgres))
+        )
+
+        const sharedServices = await sharedServicesLifecycle.start()
+        this.postgres = sharedServices.services.postgres
+        this.redisPool = sharedServices.services.redisPool
+        const teamManager = sharedServices.services.teamManager
+        this.stopSharedServices = sharedServices.stop
+        logger.info('👍', 'Postgres Router ready')
         logger.info('👍', 'Ingestion Redis ready')
 
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
-
-        // Shared services with real lifecycle work go through a server-level
-        // Lifecycle so ownership is explicit: this server starts them and
-        // stops them on shutdown. Consumers receive started, stripped
-        // handles (no start/stop) and never take ownership.
-        const teamManager = new TeamManager(this.postgres)
-        const sharedServicesLifecycle = newLifecycleBuilder().register('teamManager', teamManager).build('shared')
-        const sharedServices = await sharedServicesLifecycle.start()
-        this.stopSharedServices = sharedServices.stop
 
         // 2. Ingestion + CDP shared services (geoip, repos, encryption)
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
@@ -267,9 +278,7 @@ export class IngestionGeneralServer implements NodeServer {
                         : this.config
                     const consumer = createClientWarningsConsumer(consumerConfig, {
                         outputs: ingestionOutputs,
-                        teamManager: sharedServices.services.teamManager,
-                        postgres: this.postgres!,
-                        redisPool: this.redisPool!,
+                        sharedLifecycle: sharedServicesLifecycle,
                         staticDropEventTokens: this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter(
                             (x) => !!x
                         ),

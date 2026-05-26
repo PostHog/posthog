@@ -11,9 +11,8 @@ import { EventFilterRowSchema, EventFilterRule } from './schema'
  */
 /**
  * The `EventFilterManager` surface visible to callers that should not have
- * access to its lifecycle methods (e.g. pipeline steps that receive the
- * service from a `Lifecycle`'s stripped service map). Same shape as
- * `EventFilterManager` minus `start`/`stop`.
+ * access to its lifecycle methods. Same shape as `EventFilterManager`
+ * minus `start`/`stop`.
  */
 export type EventFilterManagerHandle = Omit<EventFilterManager, 'start' | 'stop'>
 
@@ -22,19 +21,21 @@ export class EventFilterManager {
 
     constructor(private postgres: PostgresRouter) {}
 
-    public async start(): Promise<void> {
+    async start(): Promise<{ service: EventFilterManagerHandle; stop: () => Promise<void> }> {
         this.refresher = new BackgroundRefresher(async () => this.fetchAllFilters(), 60_000)
         // Prime the filter cache. Failures are logged but don't block start —
         // `tryGet` will retry in the background on subsequent reads.
         await this.refresher.get().catch((error) => {
             logger.error('Failed to initialize event filter config', { error })
         })
+        return { service: this, stop: () => this.stop() }
     }
 
-    public stop(): Promise<void> {
+    stop(): Promise<void> {
         // Drop the refresher. Once the reference is gone, no further
-        // refreshes happen and the cache is GC'd. Subsequent `getFilter`
-        // calls return null (no filter applied).
+        // refreshes happen and the cache is GC'd. Kept as a method for
+        // legacy callers that own the manager directly and call `start()`
+        // / `stop()` in sequence.
         this.refresher = undefined
         return Promise.resolve()
     }
