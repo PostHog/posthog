@@ -45,9 +45,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     CI=1 pnpm --filter=@posthog/frontend... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24
 
 COPY frontend/ frontend/
-# Cap the V8 heap: the esbuild build also runs Tailwind/PostCSS in-process, and an
-# uncapped heap lets it grow until the Depot builder OOM-kills the build under load.
-RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/frontend build
+RUN bin/turbo --filter=@posthog/frontend build
 
 
 #
