@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSearch } from '@posthog/icons'
+import { IconGear, IconSearch, IconTarget, IconX } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -31,12 +31,25 @@ const ANALYTICS_TILES = [
 ]
 
 export const WebAnalyticsMenu = (): JSX.Element => {
-    const { shouldFilterTestAccounts, useWebAnalyticsPrecompute, hiddenTiles, productTab } =
-        useValues(webAnalyticsLogic)
+    const {
+        hasSavedFocusMode,
+        hiddenTiles,
+        isFocusModeActive,
+        productTab,
+        shouldFilterTestAccounts,
+        showFocusMode,
+        useWebAnalyticsPrecompute,
+    } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { setShouldFilterTestAccounts, setUseWebAnalyticsPrecompute, setTileVisibility } =
-        useActions(webAnalyticsLogic)
+    const {
+        enterFocusMode,
+        exitFocusMode,
+        openFocusModeModal,
+        setShouldFilterTestAccounts,
+        setUseWebAnalyticsPrecompute,
+        setTileVisibility,
+    } = useActions(webAnalyticsLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
     const availableTiles = productTab === ProductTab.ANALYTICS ? ANALYTICS_TILES : []
@@ -47,6 +60,24 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                 <Link to={urls.sessionAttributionExplorer()} buttonProps={{ menuItem: true }}>
                     <IconSearch /> Session Attribution Explorer
                 </Link>
+                {showFocusMode && (
+                    <ButtonPrimitive menuItem onClick={openFocusModeModal}>
+                        <IconGear />
+                        Focus mode settings...
+                    </ButtonPrimitive>
+                )}
+                {showFocusMode &&
+                    (isFocusModeActive ? (
+                        <ButtonPrimitive menuItem onClick={exitFocusMode}>
+                            <IconX />
+                            Exit focus mode
+                        </ButtonPrimitive>
+                    ) : hasSavedFocusMode ? (
+                        <ButtonPrimitive menuItem onClick={enterFocusMode}>
+                            <IconTarget />
+                            Enter focus mode
+                        </ButtonPrimitive>
+                    ) : null)}
             </ScenePanelActionsSection>
             <ScenePanelDivider />
             <ScenePanelActionsSection>
