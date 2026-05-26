@@ -21,8 +21,9 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import BatchExportDestination, BatchExportFileDownload, BatchExportOnDemand, BatchExportRun
+from posthog.temporal.common.client import sync_connect
 
-from products.batch_exports.backend.service import start_file_download_batch_export
+from products.batch_exports.backend.service import cancel_running_batch_export_run, start_file_download_batch_export
 
 SESSION = boto3.Session()
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
@@ -346,6 +347,26 @@ class FileDownloadBatchExportOnDemandViewSet(
         response["Cache-Control"] = "no-store"
 
         return response
+
+    @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
+    def cancel(self, request, *args, **kwargs) -> response.Response:
+        """Cancel an ongoing file-download batch export."""
+        batch_export_run: BatchExportRun = self.get_object()
+
+        if batch_export_run.status not in (BatchExportRun.Status.RUNNING, BatchExportRun.Status.STARTING):
+            raise ValidationError(f"Cannot cancel a run that is in '{batch_export_run.status}' status")
+
+        temporal = sync_connect()
+        try:
+            cancel_running_batch_export_run(temporal, batch_export_run)
+        except Exception as e:
+            # It could be the case that the run is already cancelled but our database hasn't been updated yet. In
+            # this case, we can just ignore the error but log it for visibility (in case there is an actual issue).
+            LOGGER.warning("file_download_batch_export.cancel.failed", exc_info=e)
+
+        batch_export_run.refresh_from_db()
+
+        return response.Response({"status": batch_export_run.status})
 
 
 def _generate_s3_pre_signed_url(
