@@ -467,6 +467,11 @@ export interface TicketApi {
     readonly slack_thread_ts: string | null
     /** @nullable */
     readonly slack_team_id: string | null
+    /**
+     * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com), used to build the canonical Slack thread permalink. Null for non-Slack tickets or when the workspace domain has not been fetched yet.
+     * @nullable
+     */
+    readonly slack_team_domain: string | null
     /** @nullable */
     readonly email_subject: string | null
     /** @nullable */
@@ -545,6 +550,11 @@ export interface PatchedTicketApi {
     readonly slack_thread_ts?: string | null
     /** @nullable */
     readonly slack_team_id?: string | null
+    /**
+     * Slack workspace subdomain (e.g. 'posthog' for posthog.slack.com), used to build the canonical Slack thread permalink. Null for non-Slack tickets or when the workspace domain has not been fetched yet.
+     * @nullable
+     */
+    readonly slack_team_domain?: string | null
     /** @nullable */
     readonly email_subject?: string | null
     /** @nullable */
