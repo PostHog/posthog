@@ -5,7 +5,7 @@ import pytest
 from unittest import mock
 
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, WORKFLOW_RUNS
+from posthog.temporal.tests.data_imports.github.data import COMMITS, ISSUES, PULL_REQUESTS, WORKFLOW_JOBS, WORKFLOW_RUNS
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -92,6 +92,17 @@ def external_data_schema_workflow_runs_incremental(external_data_source, team):
         source_id=external_data_source.pk,
         sync_type="incremental",
         sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
+    )
+
+
+@pytest.fixture
+def external_data_schema_workflow_jobs_full_refresh(external_data_source, team):
+    return ExternalDataSchema.objects.create(
+        name="workflow_jobs",
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="full_refresh",
+        sync_type_config={},
     )
 
 
@@ -284,3 +295,40 @@ async def test_github_workflow_runs_incremental(
     assert "sort" not in first_call_params
     assert "direction" not in first_call_params
     assert "state" not in first_call_params
+
+
+@mock.patch("posthog.temporal.data_imports.pipelines.pipeline.batcher.DEFAULT_CHUNK_SIZE", 1)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_github_workflow_jobs_full_refresh(
+    team, mock_github_api, external_data_source, external_data_schema_workflow_jobs_full_refresh
+):
+    # workflow_jobs fans out over workflow_runs: one parent runs request, then one
+    # jobs request per run. Single sync only — cross-sync merge is the pipeline's
+    # job and is flaky to exercise in-harness, so the desc early-stop overlap is
+    # covered deterministically in test_github_source.py instead.
+    expected_num_rows = len(WORKFLOW_JOBS)
+
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_workflow_jobs_full_refresh,
+        table_name="github_workflow_jobs",
+        expected_rows_synced=expected_num_rows,
+        expected_total_rows=expected_num_rows,
+    )
+
+    api_calls = mock_github_api.get_all_api_calls()
+    # 1 parent runs page + 1 jobs request per run (3 runs).
+    assert len(api_calls) == 1 + len({job["run_id"] for job in WORKFLOW_JOBS})
+    parent_calls = [c for c in api_calls if c.url.rstrip("/").endswith("/actions/runs") or "/actions/runs?" in c.url]
+    jobs_calls = [c for c in api_calls if "/jobs" in c.url]
+    assert len(parent_calls) == 1
+    assert len(jobs_calls) == 3
+    # Every job request carries filter=all (jobs across all run_attempts) and no
+    # search-cap-tripping filters.
+    for call in jobs_calls:
+        params = parse_qs(urlparse(call.url).query)
+        assert params["filter"] == ["all"]
+        assert "created" not in params
+        assert "since" not in params
