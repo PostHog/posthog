@@ -2599,6 +2599,7 @@ class MaterializedColumnsOptimizationMode(StrEnum):
 class ParserMode(StrEnum):
     CPP_ONLY = "cpp_only"
     CPP_WITH_RUST_SHADOW = "cpp_with_rust_shadow"
+    CPP_WITH_RUST_PY_SHADOW = "cpp_with_rust_py_shadow"
     RUST_WITH_CPP_SHADOW = "rust_with_cpp_shadow"
     RUST_ONLY = "rust_only"
     RUST_PY_ONLY = "rust_py_only"
@@ -7320,10 +7321,11 @@ class HogQLQueryModifiers(BaseModel):
     parserMode: ParserMode | None = Field(
         default=None,
         description=(
-            "HogQL parser backend; absent → `cpp_only`. `*_shadow` modes return the"
-            " primary result and sample-compare against the other parser, reporting"
-            " divergences without failing the request. The `rust_py_*` modes drive the"
-            " same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast`"
+            "HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary,"
+            " rust-py runs as a sampled shadow). `*_shadow` modes return the primary"
+            " result and sample-compare against the other parser, reporting divergences"
+            " without failing the request. The `rust_py_*` modes drive the same"
+            " hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast`"
             " dataclass instances directly via PyO3, skipping the JSON round-trip."
         ),
     )

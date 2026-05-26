@@ -12,13 +12,15 @@ from posthog.hogql.parser import HogQLParserShadowMismatch, _resolve_parser_mode
 class TestParserMode(BaseTest):
     @parameterized.expand(
         [
-            # An absent modifier in TEST defaults to CPP_WITH_RUST_SHADOW so
-            # every test-suite parse exercises both backends and raises on
-            # divergence (see `_run_shadow_comparison`).
-            (None, ("cpp-json", "rust-json")),
+            # An absent modifier defaults to CPP_WITH_RUST_PY_SHADOW (cpp
+            # primary, rust-py shadow) in both test and prod, so every parse
+            # exercises both backends; divergence raises in TEST and reports
+            # in prod (see `_run_shadow_comparison`).
+            (None, ("cpp-json", "rust-py")),
             (ParserMode.CPP_ONLY, ("cpp-json", None)),
             (ParserMode.RUST_ONLY, ("rust-json", None)),
             (ParserMode.CPP_WITH_RUST_SHADOW, ("cpp-json", "rust-json")),
+            (ParserMode.CPP_WITH_RUST_PY_SHADOW, ("cpp-json", "rust-py")),
             (ParserMode.RUST_WITH_CPP_SHADOW, ("rust-json", "cpp-json")),
             (ParserMode.RUST_PY_ONLY, ("rust-py", None)),
             (ParserMode.RUST_PY_WITH_CPP_SHADOW, ("rust-py", "cpp-json")),
@@ -33,11 +35,18 @@ class TestParserMode(BaseTest):
         # explicit non-default backend disables the auto-shadow.
         self.assertEqual(_resolve_parser_mode(None, "rust-json"), ("rust-json", None))
 
-    def test_resolve_parser_mode_prod_absent_modifier_no_shadow(self):
-        # The TEST-only auto-shadow is gated on `settings.TEST`; with that
-        # flag off (i.e. production) an absent modifier means "no shadow".
+    def test_resolve_parser_mode_shadows_in_prod_too(self):
+        # The default shadow is no longer gated on `settings.TEST`: prod also
+        # resolves an absent modifier to cpp + rust-py shadow (sampling is 100%
+        # everywhere now; prod only reports divergences, never raises).
         with patch("posthog.hogql.parser.settings") as mock_settings:
             mock_settings.TEST = False
+            self.assertEqual(_resolve_parser_mode(None, "cpp-json"), ("cpp-json", "rust-py"))
+
+    def test_resolve_parser_mode_drops_shadow_when_rust_unavailable(self):
+        # If the rust wheel failed to import, the default drops the shadow and
+        # runs cpp-only, so a broken wheel can't spam the parse path or throw.
+        with patch("posthog.hogql.parser._RUST_PARSER_AVAILABLE", False):
             self.assertEqual(_resolve_parser_mode(None, "cpp-json"), ("cpp-json", None))
 
     def test_shadow_silent_when_backends_agree(self):
@@ -141,3 +150,49 @@ class TestParserMode(BaseTest):
         self.assertIsInstance(node, ast.SelectQuery)
         captured.assert_called_once()
         self.assertIsInstance(captured.call_args.args[0], ImportError)
+
+    def test_shadow_counts_agreement(self):
+        # Every shadowed parse increments the comparison counter; a match lands
+        # under result="agree" and logs no divergence.
+        with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
+            with patch("posthog.hogql.parser.logger") as mock_logger:
+                parse_select("select 1 from events", parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW)
+        results = [c.kwargs.get("result") for c in counter.labels.call_args_list]
+        self.assertEqual(results, ["agree"])
+        divergences = [
+            c for c in mock_logger.warning.call_args_list if c.args and c.args[0] == "hogql_parser_shadow_divergence"
+        ]
+        self.assertEqual(divergences, [])
+
+    def test_shadow_divergence_counts_disagree_and_logs_sql(self):
+        # On a divergence: counter result="disagree", plus a warning log carrying
+        # the raw query so it can be reproduced. Prod mode, so it never raises.
+        from posthog.hogql import parser as parser_module
+
+        decoy = ast.SelectQuery(select=[ast.Constant(value=999)])
+        real_invoke = parser_module._invoke_parser
+
+        def only_shadow_diverges(backend, rule, statement, start):
+            if backend == "rust-py":
+                return decoy
+            return real_invoke(backend, rule, statement, start)
+
+        with patch("posthog.hogql.parser.settings") as mock_settings:
+            mock_settings.TEST = False
+            with patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):
+                with patch("posthog.hogql.parser._invoke_parser", side_effect=only_shadow_diverges):
+                    with patch("posthog.hogql.parser.capture_exception"):
+                        with patch("posthog.hogql.parser._SHADOW_COMPARISONS") as counter:
+                            with patch("posthog.hogql.parser.logger") as mock_logger:
+                                parse_select(
+                                    "select sql_attach_probe from events",
+                                    parser_mode=ParserMode.CPP_WITH_RUST_PY_SHADOW,
+                                )
+        results = [c.kwargs.get("result") for c in counter.labels.call_args_list]
+        self.assertIn("disagree", results)
+        warns = [
+            c for c in mock_logger.warning.call_args_list if c.args and c.args[0] == "hogql_parser_shadow_divergence"
+        ]
+        self.assertTrue(warns)
+        self.assertEqual(warns[-1].kwargs["result"], "disagree")
+        self.assertIn("sql_attach_probe", warns[-1].kwargs["sql"])
