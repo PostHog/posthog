@@ -6198,6 +6198,13 @@ export enum DashboardAutoRefreshInterval {
     SECONDS = 1800,
 }
 
+/** Subscriptions a free-tier team may create. Shared by the frontend create gate and the backend
+ * limit check via generated schema so the two cannot drift. Kept equal to the alerts free-tier
+ * allowance (asserted in posthog/models/test/test_subscription_model.py). */
+export enum SubscriptionFreeTierLimit {
+    COUNT = 5,
+}
+
 export type UsageMetricFormat = 'numeric' | 'currency'
 
 export type UsageMetricDisplay = 'number' | 'sparkline'

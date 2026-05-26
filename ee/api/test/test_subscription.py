@@ -17,11 +17,10 @@ from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.subscription import Subscription, SubscriptionDelivery
+from posthog.models.subscription import SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER, Subscription, SubscriptionDelivery
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 
-from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.api.test.base import APILicensedTest
@@ -75,7 +74,6 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @pytest.mark.skip_on_multitenancy
     def test_free_org_can_list_subscriptions_without_license(self):
-        # listing subscriptions is allowed on the free tier — the premium gate has been removed.
         self.organization.available_product_features = []
         self.organization.save()
         response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/")
@@ -1448,11 +1446,6 @@ class TestSubscriptionFreeTierLimit(APILicensedTest):
     # edits and deletes are always allowed; paid orgs are never blocked.
     insight: Insight = None  # type: ignore
 
-    insight_filter_dict = {
-        "events": [{"id": "$pageview"}],
-        "properties": [{"key": "$browser", "value": "Mac OS X"}],
-    }
-
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
@@ -1522,8 +1515,7 @@ class TestSubscriptionFreeTierLimit(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         data = response.json()
         assert data.get("attr") == "subscription", data
-        # Assert against the live alert constant (lockstep) so the test can't go stale.
-        assert str(AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER) in data.get("detail", ""), (
+        assert str(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER) in data.get("detail", ""), (
             f"Expected limit number in error message, got: {data}"
         )
 
@@ -1725,7 +1717,6 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
 
     @pytest.mark.skip_on_multitenancy
     def test_free_org_can_access_deliveries_without_premium_feature(self):
-        # the premium gate has been removed; free-tier orgs can read deliveries.
         self.organization.available_product_features = []
         self.organization.save()
         response = self.client.get(f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/")
@@ -1796,7 +1787,6 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
 
 class TestSubscriptionFreeTierAccess(APILicensedTest):
     # free-tier orgs can retrieve subscriptions and read deliveries without a premium gate.
-    # (List access is covered by test_free_org_can_list_subscriptions_without_license in TestSubscriptionTemporal.)
     insight: Insight = None  # type: ignore
     subscription: Subscription = None  # type: ignore
 

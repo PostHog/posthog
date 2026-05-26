@@ -1,15 +1,15 @@
-import { FREE_LIMIT, isFreeTierCreateAtLimit } from './EditSubscription'
+import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+
+import { isFreeTierCreateAtLimit } from './EditSubscription'
+
+const LIMIT = SubscriptionFreeTierLimit.COUNT
 
 describe('EditSubscription free-tier gate', () => {
-    it('FREE_LIMIT matches the backend free-tier value (5)', () => {
-        expect(FREE_LIMIT).toBe(5)
-    })
-
     it.each([
         ['empty (first use)', 0, false],
-        ['one below the limit boundary', FREE_LIMIT - 1, false],
-        ['at the limit', FREE_LIMIT, true],
-        ['over the limit', FREE_LIMIT + 1, true],
+        ['one below the limit boundary', LIMIT - 1, false],
+        ['at the limit', LIMIT, true],
+        ['over the limit', LIMIT + 1, true],
     ])('blocks the next create when %s (count=%i) -> %s', (_desc, count, expected) => {
         expect(isFreeTierCreateAtLimit(count)).toBe(expected)
     })

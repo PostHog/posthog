@@ -30,6 +30,7 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { AvailableFeature, DashboardType, InsightShortId } from '~/types'
 
 import { InsightSelector } from '../InsightSelector'
@@ -57,16 +58,9 @@ interface EditSubscriptionProps {
     onDelete: () => void
 }
 
-// Must match the backend free-tier limit (AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER, read by
-// Subscription.check_subscription_limit). Subscriptions are freemium: free orgs get this many, then
-// the paywall appears on the next create. Edits are never gated.
-export const FREE_LIMIT = 5
-
-// A free org's next create is blocked once it's at/over the limit. A null count is "unknown"
-// (still loading or fetch failed) — fail open and let the form through; the backend POST check is
-// the hard limit. Exported so the boundary behavior is unit-testable without rendering the form.
+// A null count (loading or fetch failed) fails open — the backend POST check is the hard limit.
 export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
-    return subscriptionCount !== null && subscriptionCount >= FREE_LIMIT
+    return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
 }
 
 export function EditSubscription(props: EditSubscriptionProps): JSX.Element {
@@ -112,7 +106,7 @@ function FreeTierCreateGate(props: EditSubscriptionProps): JSX.Element {
                             to add more.
                         </>
                     }
-                    limit={FREE_LIMIT}
+                    limit={SubscriptionFreeTierLimit.COUNT}
                     currentUsage={subscriptionCount ?? undefined}
                     unit="subscriptions allowed on your plan"
                     background={false}

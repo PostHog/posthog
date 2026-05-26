@@ -6,7 +6,7 @@
  *  - A free org AT the limit sees the usage-limit paywall instead of the create form.
  *
  * The org's feature entitlement and the team-wide subscription count are mocked
- * (the gate is a pure frontend decision: `!hasSubscriptionsFeature && count >= FREE_LIMIT`),
+ * (the gate is a pure frontend decision: `!hasSubscriptionsFeature && count >= SubscriptionFreeTierLimit.COUNT`),
  * so this exercises the real frontend gate without seeded DB rows. The hard backend limit
  * is covered separately by ee/api/test/test_subscription.py.
  *
@@ -16,9 +16,8 @@
  */
 import { expect, Page } from '@playwright/test'
 
+import { SubscriptionFreeTierLimit } from '../../frontend/src/queries/schema/schema-general'
 import { test } from '../utils/playwright-test-base'
-
-const FREE_LIMIT = 5
 
 // UsageLimitPaywall renders this title when a free org hits the cap. Anchoring on it
 // distinguishes the paywall from the create form without depending on CTA button copy.
@@ -70,11 +69,13 @@ test.describe('subscriptions freemium gate', () => {
         const shortId = await firstSavedInsightShortId(page, teamId)
 
         await mockFreeOrg(page)
-        await mockSubscriptionCount(page, FREE_LIMIT - 1)
+        await mockSubscriptionCount(page, SubscriptionFreeTierLimit.COUNT - 1)
 
         await page.goto(`/project/${teamId}/insights/${shortId}/subscriptions/new`)
 
-        await expect(page.getByText('New Subscription')).toBeVisible()
+        // The create form (not the paywall) is identified by its submit button. The "New Subscription"
+        // header is shared with the paywall's back-navigation header, so it can't discriminate the two.
+        await expect(page.getByRole('button', { name: 'Create subscription' })).toBeVisible()
         await expect(page.getByText(GATE_TITLE)).toBeHidden()
     })
 
@@ -83,11 +84,14 @@ test.describe('subscriptions freemium gate', () => {
         const shortId = await firstSavedInsightShortId(page, teamId)
 
         await mockFreeOrg(page)
-        await mockSubscriptionCount(page, FREE_LIMIT)
+        await mockSubscriptionCount(page, SubscriptionFreeTierLimit.COUNT)
 
         await page.goto(`/project/${teamId}/insights/${shortId}/subscriptions/new`)
 
+        // Paywall is shown, so the create form's submit button must be absent. (Both views share the
+        // "New Subscription" header now that the paywall has a back-navigation header, so assert on
+        // the form-only submit button instead.)
         await expect(page.getByText(GATE_TITLE)).toBeVisible()
-        await expect(page.getByText('New Subscription')).toBeHidden()
+        await expect(page.getByRole('button', { name: 'Create subscription' })).toBeHidden()
     })
 })

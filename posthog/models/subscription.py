@@ -10,6 +10,8 @@ from django.utils import timezone
 
 from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
 
+from posthog.schema import SubscriptionFreeTierLimit
+
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
@@ -20,6 +22,9 @@ if TYPE_CHECKING:
     from posthog.models.organization import Organization
 
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
+
+# Single source of truth shared with the frontend create gate via generated schema (FREE_LIMIT).
+SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER = SubscriptionFreeTierLimit().root
 
 RRULE_WEEKDAY_MAP = {
     "monday": MO,
@@ -206,17 +211,9 @@ class Subscription(models.Model):
 
     @classmethod
     def check_subscription_limit(cls, team_id: int, organization: "Organization") -> str | None:
-        """Return an error message if the team has reached its subscription limit, else None.
-
-        Mirrors AlertConfiguration.check_alert_limit. The free-tier allowance is read live from
-        the alert free-tier constant so the two limits stay in lockstep. Lazy import avoids a
-        models-package import cycle (same pattern as posthog/models/organization.py).
-        """
-        from products.alerts.backend.models.alert import AlertConfiguration
-
+        """Return an error message if the team has reached its subscription limit, else None."""
         feature = organization.get_available_feature(AvailableFeature.SUBSCRIPTIONS)
-        # Soft-deleted subscriptions free their slot. (check_alert_limit counts all rows because
-        # AlertConfiguration has no soft-delete; Subscription does, hence the deleted=False filter.)
+        # Soft-deleted subscriptions free their slot.
         existing_count = cls.objects.filter(team_id=team_id, deleted=False).count()
 
         if feature:
@@ -224,10 +221,8 @@ class Subscription(models.Model):
             # A None limit means unlimited (paid plans without a numeric cap).
             if allowed is not None and existing_count >= allowed:
                 return f"Your team has reached the limit of {allowed} subscriptions on your plan."
-        else:
-            free_limit = AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER
-            if existing_count >= free_limit:
-                return f"Your plan is limited to {free_limit} subscriptions."
+        elif existing_count >= SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER:
+            return f"Your plan is limited to {SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER} subscriptions."
 
         return None
 

@@ -18,9 +18,7 @@ import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModa
 type StoryArgs = SubscriptionsModalProps & {
     noIntegrations?: boolean
     aiSummaryAtLimit?: boolean
-    // Team-wide subscription count returned to the free-tier create gate (subscriptionCountLogic).
-    // Free orgs (the Storybook default has no SUBSCRIPTIONS entitlement) see the create form while
-    // under FREE_LIMIT and the upsell once at/over it.
+    // Team-wide subscription count for the free-tier create gate (under the limit → form, at/over → upsell).
     freeTierSubscriptionCount?: number
 }
 
@@ -95,7 +93,6 @@ const meta: Meta<StoryArgs> = {
                               ],
                 },
                 '/api/environments/:id/subscriptions/:subId': createMockSubscription(),
-                // Feeds the free-tier create gate (subscriptionCountLogic → GET /subscriptions?limit=1).
                 ...(freeTierSubscriptionCount !== undefined
                     ? { '/api/projects/:id/subscriptions/': { count: freeTierSubscriptionCount, results: [] } }
                     : {}),

@@ -4753,6 +4753,18 @@ class SubscriptionDropoffMode(StrEnum):
     AFTER_DROPOFF_PERIOD = "after_dropoff_period"
 
 
+class SubscriptionFreeTierLimit(RootModel[Literal[5]]):
+    root: Literal[5] = Field(
+        5,
+        description=(
+            "Subscriptions a free-tier team may create. Shared by the frontend create"
+            " gate and the backend limit check via generated schema so the two cannot"
+            " drift. Kept equal to the alerts free-tier allowance (asserted in"
+            " posthog/models/test/test_subscription_model.py)."
+        ),
+    )
+
+
 class SuggestedQuestionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

@@ -17,6 +17,7 @@ from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience
 from posthog.models.insight import Insight
 from posthog.models.subscription import (
+    SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
     Subscription,
     SubscriptionDelivery,
@@ -450,35 +451,29 @@ class TestSubscriptionLimit(BaseTest):
                 start_date=datetime(2022, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC")),
             )
 
-    # --- Free-tier (no entitlement) ---
-
-    @parameterized.expand([("zero", 0), ("four", 4)])
-    def test_free_org_under_limit_returns_none(self, _name: str, count: int) -> None:
-        self.organization.available_product_features = []
-        self.organization.save()
-        self._create_subscriptions(count)
-        assert Subscription.check_subscription_limit(self.team.id, self.organization) is None
-
-    @parameterized.expand([("at_limit", 5), ("over_limit", 6)])
-    def test_free_org_at_or_over_limit_returns_message(self, _name: str, count: int) -> None:
+    @parameterized.expand([("zero", 0, False), ("four", 4, False), ("at_limit", 5, True), ("over_limit", 6, True)])
+    def test_free_org_limit(self, _name: str, count: int, blocked: bool) -> None:
         self.organization.available_product_features = []
         self.organization.save()
         self._create_subscriptions(count)
         result = Subscription.check_subscription_limit(self.team.id, self.organization)
-        assert result is not None
-        # Assert against the live alert constant so the test can't go stale if the limit changes.
-        assert str(AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER) in result
+        if blocked:
+            assert result is not None
+            assert str(SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER) in result
+        else:
+            assert result is None
 
-    def test_free_org_limit_reads_alert_constant_live(self) -> None:
+    def test_free_org_limit_reads_constant(self) -> None:
         self.organization.available_product_features = []
         self.organization.save()
         self._create_subscriptions(2)
-        with patch.object(AlertConfiguration, "ALERTS_ALLOWED_ON_FREE_TIER", 2):
+        with patch("posthog.models.subscription.SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER", 2):
             result = Subscription.check_subscription_limit(self.team.id, self.organization)
         assert result is not None
-        assert "2" in result  # message reflects the patched (live-read) limit
+        assert "2" in result
 
-    # --- Paid (with entitlement) ---
+    def test_free_tier_limit_matches_alerts(self) -> None:
+        assert SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER == AlertConfiguration.ALERTS_ALLOWED_ON_FREE_TIER
 
     def test_paid_org_unlimited_returns_none(self) -> None:
         self.organization.available_product_features = [
@@ -509,11 +504,10 @@ class TestSubscriptionLimit(BaseTest):
             assert result is not None
             assert expected_in_msg in result
 
-    # --- Soft-deleted excluded ---
-
     def test_soft_deleted_excluded_from_count(self) -> None:
         self.organization.available_product_features = []
         self.organization.save()
         self._create_subscriptions(5)
+        assert Subscription.check_subscription_limit(self.team.id, self.organization) is not None
         Subscription.objects.filter(team=self.team).update(deleted=True)
         assert Subscription.check_subscription_limit(self.team.id, self.organization) is None
