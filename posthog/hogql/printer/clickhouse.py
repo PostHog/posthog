@@ -11,7 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery
+from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery, StructDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
@@ -1530,3 +1530,22 @@ class ClickHousePrinter(BasePrinter):
 
     def _get_table_name(self, table: ast.TableType) -> str:
         return table.table.to_printed_clickhouse(self.context)
+
+    def visit_property_type(self, type: ast.PropertyType) -> str:
+        # Respect the joined-subquery projection: if the property has already been
+        # projected through a subquery, defer to base which renders the subquery alias
+        # correctly, rather than re-resolving against the original struct column.
+        if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
+            return super().visit_property_type(type)
+
+        # Struct columns (e.g. Parquet structs from the data warehouse) are backed by a ClickHouse
+        # Tuple, not a JSON string. Emit chained tupleElement() calls instead of JSONExtractRaw(),
+        # which ClickHouse rejects on Tuple arguments. Closes #58480.
+        database_field = type.field_type.resolve_database_field(self.context)
+        if isinstance(database_field, StructDatabaseField):
+            expr = self.visit(type.field_type)
+            for link in type.chain:
+                expr = f"tupleElement({expr}, {self.context.add_value(str(link))})"
+            return expr
+
+        return super().visit_property_type(type)

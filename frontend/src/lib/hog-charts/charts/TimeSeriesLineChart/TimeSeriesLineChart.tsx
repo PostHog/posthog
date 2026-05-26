@@ -111,6 +111,8 @@ export function TimeSeriesLineChart<Meta = unknown>({
         yTickFormatter,
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxis?.hide,
+        xAxisLabel: xAxis?.label,
+        yAxisLabel: yAxis?.label,
         showGrid: yAxis?.showGrid,
         percentStackView,
         showCrosshair,

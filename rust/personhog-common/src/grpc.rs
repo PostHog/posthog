@@ -7,7 +7,7 @@ use std::task::{Context, Poll};
 use std::time::Instant;
 
 use futures::stream::unfold;
-use http::{Request, Response};
+use http::{HeaderValue, Request, Response};
 use metrics::{counter, gauge, histogram};
 use pin_project::{pin_project, pinned_drop};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -193,6 +193,12 @@ fn is_fatal_accept_error(e: &io::Error) -> bool {
 // Request metrics layer
 // ============================================================
 
+/// Header name for the replica's processing time, set on responses when
+/// `emit_processing_time_header` is enabled. The router reads this to
+/// compute per-request transport overhead without subtracting independent
+/// histogram quantiles.
+pub const PROCESSING_TIME_HEADER: &str = "x-processing-time-ms";
+
 /// Tower layer that instruments gRPC requests with timing and concurrency metrics.
 ///
 /// Records:
@@ -203,19 +209,33 @@ fn is_fatal_accept_error(e: &io::Error) -> bool {
 /// Also sets the `CLIENT_NAME` task-local so downstream code can read
 /// the client name via `current_client_name()`.
 #[derive(Clone, Default)]
-pub struct GrpcMetricsLayer;
+pub struct GrpcMetricsLayer {
+    emit_processing_time_header: bool,
+}
+
+impl GrpcMetricsLayer {
+    pub fn with_processing_time_header(self) -> Self {
+        Self {
+            emit_processing_time_header: true,
+        }
+    }
+}
 
 impl<S> Layer<S> for GrpcMetricsLayer {
     type Service = GrpcMetricsService<S>;
 
     fn layer(&self, service: S) -> Self::Service {
-        GrpcMetricsService { inner: service }
+        GrpcMetricsService {
+            inner: service,
+            emit_processing_time_header: self.emit_processing_time_header,
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct GrpcMetricsService<S> {
     inner: S,
+    emit_processing_time_header: bool,
 }
 
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for GrpcMetricsService<S>
@@ -249,6 +269,7 @@ where
             method,
             client,
             start,
+            emit_processing_time_header: self.emit_processing_time_header,
         }
     }
 }
@@ -266,6 +287,7 @@ pub struct GrpcMetricsFuture<F> {
     method: String,
     client: Arc<str>,
     start: Instant,
+    emit_processing_time_header: bool,
 }
 
 impl<F, ResBody, E> Future for GrpcMetricsFuture<F>
@@ -277,7 +299,7 @@ where
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.project();
         match this.inner.poll(cx) {
-            Poll::Ready(result) => {
+            Poll::Ready(mut result) => {
                 let duration_ms = this.start.elapsed().as_secs_f64() * 1000.0;
                 counter!("grpc_server_requests_total",
                     "method" => this.method.clone(),
@@ -287,6 +309,15 @@ where
                     "method" => this.method.clone(),
                     "client" => this.client.clone())
                 .record(duration_ms);
+
+                if *this.emit_processing_time_header {
+                    if let Ok(ref mut response) = result {
+                        if let Ok(hv) = HeaderValue::from_str(&format!("{duration_ms:.3}")) {
+                            response.headers_mut().insert(PROCESSING_TIME_HEADER, hv);
+                        }
+                    }
+                }
+
                 Poll::Ready(result)
             }
             Poll::Pending => Poll::Pending,
