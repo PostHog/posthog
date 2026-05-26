@@ -8406,60 +8406,34 @@ export namespace Schemas {
       max_size_mb?: number | null;
     }
 
-    export type FileDownloadEventsRequestModel = typeof FileDownloadEventsRequestModel[keyof typeof FileDownloadEventsRequestModel];
+    /**
+     * * `events` - Events
+    * `persons` - Persons
+    * `sessions` - Sessions
+     */
+    export type FileDownloadBatchExportOnDemandRequestModel = typeof FileDownloadBatchExportOnDemandRequestModel[keyof typeof FileDownloadBatchExportOnDemandRequestModel];
 
 
-    export const FileDownloadEventsRequestModel = {
+    export const FileDownloadBatchExportOnDemandRequestModel = {
       Events: 'events',
+      Persons: 'persons',
+      Sessions: 'sessions',
     } as const;
 
     /**
-     * Typed configuration for the events model.
+     * Request shape for a FileDownload batch export on demand.
      */
-    export interface FileDownloadEventsRequest {
+    export interface FileDownloadBatchExportOnDemandRequest {
       file: FileDownloadDestinationFileConfig;
-      model: FileDownloadEventsRequestModel;
+      /** * `events` - Events
+      * `persons` - Persons
+      * `sessions` - Sessions */
+      model: FileDownloadBatchExportOnDemandRequestModel;
       include?: string[];
       exclude?: string[];
       data_interval_start: string;
       data_interval_end: string;
     }
-
-    export type FileDownloadPersonsRequestModel = typeof FileDownloadPersonsRequestModel[keyof typeof FileDownloadPersonsRequestModel];
-
-
-    export const FileDownloadPersonsRequestModel = {
-      Persons: 'persons',
-    } as const;
-
-    /**
-     * Typed configuration for the persons model.
-     */
-    export interface FileDownloadPersonsRequest {
-      file: FileDownloadDestinationFileConfig;
-      model: FileDownloadPersonsRequestModel;
-      data_interval_start: string;
-      data_interval_end: string;
-    }
-
-    export type FileDownloadSessionsRequestModel = typeof FileDownloadSessionsRequestModel[keyof typeof FileDownloadSessionsRequestModel];
-
-
-    export const FileDownloadSessionsRequestModel = {
-      Sessions: 'sessions',
-    } as const;
-
-    /**
-     * Typed configuration for the sessions model.
-     */
-    export interface FileDownloadSessionsRequest {
-      file: FileDownloadDestinationFileConfig;
-      model: FileDownloadSessionsRequestModel;
-      data_interval_start: string;
-      data_interval_end: string;
-    }
-
-    export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest;
 
     /**
      * * `cost` - cost
@@ -17198,36 +17172,6 @@ export namespace Schemas {
          */
       readonly modified_by: number | null;
     }
-
-    /**
-     * * `events` - events
-     */
-    export type FileDownloadEventsRequestModelEnum = typeof FileDownloadEventsRequestModelEnum[keyof typeof FileDownloadEventsRequestModelEnum];
-
-
-    export const FileDownloadEventsRequestModelEnum = {
-      Events: 'events',
-    } as const;
-
-    /**
-     * * `persons` - persons
-     */
-    export type FileDownloadPersonsRequestModelEnum = typeof FileDownloadPersonsRequestModelEnum[keyof typeof FileDownloadPersonsRequestModelEnum];
-
-
-    export const FileDownloadPersonsRequestModelEnum = {
-      Persons: 'persons',
-    } as const;
-
-    /**
-     * * `sessions` - sessions
-     */
-    export type FileDownloadSessionsRequestModelEnum = typeof FileDownloadSessionsRequestModelEnum[keyof typeof FileDownloadSessionsRequestModelEnum];
-
-
-    export const FileDownloadSessionsRequestModelEnum = {
-      Sessions: 'sessions',
-    } as const;
 
     export interface FileSystem {
       readonly id: string;

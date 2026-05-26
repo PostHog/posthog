@@ -1320,63 +1320,34 @@ export interface FileDownloadDestinationFileConfigApi {
     max_size_mb?: number | null
 }
 
-export type FileDownloadEventsRequestApiModel =
-    (typeof FileDownloadEventsRequestApiModel)[keyof typeof FileDownloadEventsRequestApiModel]
+/**
+ * * `events` - Events
+* `persons` - Persons
+* `sessions` - Sessions
+ */
+export type FileDownloadBatchExportOnDemandRequestApiModel =
+    (typeof FileDownloadBatchExportOnDemandRequestApiModel)[keyof typeof FileDownloadBatchExportOnDemandRequestApiModel]
 
-export const FileDownloadEventsRequestApiModel = {
+export const FileDownloadBatchExportOnDemandRequestApiModel = {
     Events: 'events',
+    Persons: 'persons',
+    Sessions: 'sessions',
 } as const
 
 /**
- * Typed configuration for the events model.
+ * Request shape for a FileDownload batch export on demand.
  */
-export interface FileDownloadEventsRequestApi {
+export interface FileDownloadBatchExportOnDemandRequestApi {
     file: FileDownloadDestinationFileConfigApi
-    model: FileDownloadEventsRequestApiModel
+    /** * `events` - Events
+    * `persons` - Persons
+    * `sessions` - Sessions */
+    model: FileDownloadBatchExportOnDemandRequestApiModel
     include?: string[]
     exclude?: string[]
     data_interval_start: string
     data_interval_end: string
 }
-
-export type FileDownloadPersonsRequestApiModel =
-    (typeof FileDownloadPersonsRequestApiModel)[keyof typeof FileDownloadPersonsRequestApiModel]
-
-export const FileDownloadPersonsRequestApiModel = {
-    Persons: 'persons',
-} as const
-
-/**
- * Typed configuration for the persons model.
- */
-export interface FileDownloadPersonsRequestApi {
-    file: FileDownloadDestinationFileConfigApi
-    model: FileDownloadPersonsRequestApiModel
-    data_interval_start: string
-    data_interval_end: string
-}
-
-export type FileDownloadSessionsRequestApiModel =
-    (typeof FileDownloadSessionsRequestApiModel)[keyof typeof FileDownloadSessionsRequestApiModel]
-
-export const FileDownloadSessionsRequestApiModel = {
-    Sessions: 'sessions',
-} as const
-
-/**
- * Typed configuration for the sessions model.
- */
-export interface FileDownloadSessionsRequestApi {
-    file: FileDownloadDestinationFileConfigApi
-    model: FileDownloadSessionsRequestApiModel
-    data_interval_start: string
-    data_interval_end: string
-}
-
-export type CreateFileDownloadRequestApi =
-    | FileDownloadEventsRequestApi
-    | FileDownloadPersonsRequestApi
-    | FileDownloadSessionsRequestApi
 
 /**
  * Typed output for view set `create`.
@@ -1439,36 +1410,6 @@ export type RetrieveFileDownloadResponseApi =
     | RetrieveBasicOutputApi
     | RetrieveCompletedOutputApi
     | RetrieveFailedOutputApi
-
-/**
- * * `events` - events
- */
-export type FileDownloadEventsRequestModelEnumApi =
-    (typeof FileDownloadEventsRequestModelEnumApi)[keyof typeof FileDownloadEventsRequestModelEnumApi]
-
-export const FileDownloadEventsRequestModelEnumApi = {
-    Events: 'events',
-} as const
-
-/**
- * * `persons` - persons
- */
-export type FileDownloadPersonsRequestModelEnumApi =
-    (typeof FileDownloadPersonsRequestModelEnumApi)[keyof typeof FileDownloadPersonsRequestModelEnumApi]
-
-export const FileDownloadPersonsRequestModelEnumApi = {
-    Persons: 'persons',
-} as const
-
-/**
- * * `sessions` - sessions
- */
-export type FileDownloadSessionsRequestModelEnumApi =
-    (typeof FileDownloadSessionsRequestModelEnumApi)[keyof typeof FileDownloadSessionsRequestModelEnumApi]
-
-export const FileDownloadSessionsRequestModelEnumApi = {
-    Sessions: 'sessions',
-} as const
 
 /**
  * * `Starting` - Starting
