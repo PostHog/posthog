@@ -349,7 +349,7 @@ class FileDownloadBatchExportOnDemandViewSet(
         return response
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
-    def cancel(self, request, part=None, *args, **kwargs) -> response.Response:
+    def cancel(self, request, *args, **kwargs) -> response.Response:
         """Cancel an ongoing file-download batch export."""
         batch_export_run: BatchExportRun = self.get_object()
 

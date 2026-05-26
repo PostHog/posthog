@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 import pytest
 import freezegun
+import unittest.mock
 
 from django.conf import settings
 from django.test import AsyncClient, override_settings
@@ -390,9 +391,8 @@ async def test_file_download_end_to_end(
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_file_download_cancel(
+async def test_file_download_cancel_mocked(
     async_client: AsyncClient,
-    temporal_client,
     team,
     user,
     data_interval_start,
@@ -412,9 +412,19 @@ async def test_file_download_cancel(
 
     await async_client.aforce_login(user)
 
-    status_response = await async_client.post(
-        f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}/cancel",
-    )
+    mocked_client = unittest.mock.MagicMock()
+    mocked_handle = unittest.mock.AsyncMock()
+    mocked_client.get_workflow_handle.return_value = mocked_handle
+
+    with unittest.mock.patch("posthog.batch_exports.api.file_download.sync_connect") as mocked_connect:
+        mocked_connect.return_value = mocked_client
+        status_response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports/{run.id}/cancel",
+        )
+
+    mocked_client.get_workflow_handle.assert_called_once_with(workflow_id=run.workflow_id)
+    mocked_handle.cancel.assert_called_once()
+
     data = status_response.json()
     assert data["status"] == "Cancelled", status_response.json()
 

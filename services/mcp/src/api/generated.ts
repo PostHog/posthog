@@ -17201,6 +17201,32 @@ export namespace Schemas {
 
     /**
      * * `events` - events
+    * `persons` - persons
+    * `sessions` - sessions
+     */
+    export type FileDownloadBatchExportOnDemandModelEnum = typeof FileDownloadBatchExportOnDemandModelEnum[keyof typeof FileDownloadBatchExportOnDemandModelEnum];
+
+
+    export const FileDownloadBatchExportOnDemandModelEnum = {
+      Events: 'events',
+      Persons: 'persons',
+      Sessions: 'sessions',
+    } as const;
+
+    /**
+     * Request shape for a FileDownload batch export on demand.
+     */
+    export interface FileDownloadBatchExportOnDemand {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadBatchExportOnDemandModelEnum;
+      include?: string[];
+      exclude?: string[];
+      data_interval_start: string;
+      data_interval_end: string;
+    }
+
+    /**
+     * * `events` - events
      */
     export type FileDownloadEventsRequestModelEnum = typeof FileDownloadEventsRequestModelEnum[keyof typeof FileDownloadEventsRequestModelEnum];
 
