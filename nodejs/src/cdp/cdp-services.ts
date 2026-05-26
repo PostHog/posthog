@@ -404,7 +404,8 @@ export function createCdpCoreServices(
     const hogFlowFunctionsService = new HogFlowFunctionsService(
         config.SITE_URL,
         hogFunctionTemplateManager,
-        hogExecutor
+        hogExecutor,
+        deps.encryptedFields
     )
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)

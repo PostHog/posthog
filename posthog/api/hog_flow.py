@@ -26,6 +26,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
+from posthog.cdp.hog_flow_inputs import (
+    INLINE_ENCRYPTED_MARKER,
+    encrypt_secret_inputs,
+    mask_secret_inputs_for_read,
+)
 from posthog.cdp.validation import (
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -142,6 +147,34 @@ class HogFlowActionSerializer(serializers.Serializer):
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
 
+                # Secret inputs may arrive as the `{"secret": true}` placeholder when the user
+                # didn't change them. The standard validator (string/email/etc. type checks)
+                # would reject those, so we strip them out before validation and restore them
+                # afterwards from the previously-stored encrypted value.
+                existing_actions = self.context.get("existing_actions_by_id") or {}
+                existing_inputs = (existing_actions.get(data.get("id")) or {}).get("config", {}).get("inputs", {})
+                secret_keys = {
+                    str(s["key"])
+                    for s in (input_schema or [])
+                    if isinstance(s, dict) and s.get("secret") and "key" in s
+                }
+                stripped_placeholders: dict = {}
+                for key in list(inputs.keys() if isinstance(inputs, dict) else []):
+                    if key not in secret_keys:
+                        continue
+                    item = inputs[key]
+                    if not isinstance(item, dict):
+                        continue
+                    value = item.get("value")
+                    is_placeholder = item.get("secret") is True or value in (None, "", {})
+                    is_already_encrypted = isinstance(value, dict) and INLINE_ENCRYPTED_MARKER in value
+                    if is_placeholder or is_already_encrypted:
+                        # Placeholder: restore from previously-stored encrypted value.
+                        # Already-encrypted: pass it through verbatim (e.g. draft → active
+                        # re-validation runs against the stored payload).
+                        stripped_placeholders[key] = item if is_already_encrypted else existing_inputs.get(key)
+                        del inputs[key]
+
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
                         "inputs_schema": input_schema,
@@ -156,6 +189,18 @@ class HogFlowActionSerializer(serializers.Serializer):
                 else:
                     function_config_serializer.is_valid(raise_exception=True)
                     data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+
+                # Restore any stripped placeholders from the previously-stored value.
+                for key, prev_value in stripped_placeholders.items():
+                    if prev_value is not None:
+                        data["config"]["inputs"][key] = prev_value
+
+                # Encrypt any (newly-provided plaintext) secret inputs in place.
+                data["config"]["inputs"] = encrypt_secret_inputs(
+                    data["config"].get("inputs") or {},
+                    input_schema,
+                    existing_inputs=existing_inputs,
+                )
 
         conditions = data.get("config", {}).get("conditions", [])
 
@@ -326,7 +371,39 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             status = self.instance.status
         if status != "active":
             self.context["is_draft"] = True
+
+        # Provide existing actions (keyed by id) to child action serializers so encrypted secret
+        # inputs can be preserved when the payload omits or placeholders them.
+        instance = self.instance
+        if instance is not None and isinstance(instance.actions, list):
+            self.context["existing_actions_by_id"] = {
+                action.get("id"): action for action in instance.actions if isinstance(action, dict) and action.get("id")
+            }
+
         return super().to_internal_value(data)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Mask any inline-encrypted secret inputs on outgoing payloads.
+        actions = data.get("actions") or []
+        if isinstance(actions, list):
+            for action in actions:
+                if not isinstance(action, dict):
+                    continue
+                config = action.get("config") or {}
+                template_id = config.get("template_id")
+                if not template_id:
+                    continue
+                template = HogFunctionTemplate.get_template(template_id)
+                if not template:
+                    continue
+                inputs = config.get("inputs") or {}
+                masked = mask_secret_inputs_for_read(inputs, template.inputs_schema)
+                if masked is not inputs:
+                    config["inputs"] = masked
+                    action["config"] = config
+            data["actions"] = actions
+        return data
 
     class Meta:
         model = HogFlow

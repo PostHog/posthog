@@ -90,7 +90,8 @@ describe('Hogflow Executor', () => {
         const hogFlowFunctionsService = new HogFlowFunctionsService(
             hub.SITE_URL,
             hogFunctionTemplateManager,
-            hogExecutor
+            hogExecutor,
+            hub.encryptedFields
         )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)

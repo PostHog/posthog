@@ -1,4 +1,4 @@
-import { EncryptedFields } from './encryption-utils'
+import { EncryptedFields, INLINE_ENCRYPTED_MARKER } from './encryption-utils'
 
 describe('Encrypted fields', () => {
     jest.setTimeout(1000)
@@ -38,6 +38,35 @@ describe('Encrypted fields', () => {
         it('should not throw on decryption error if option passed', () => {
             expect(() => encryptedFields.decrypt('NOT VALID', { ignoreDecryptionErrors: true })).not.toThrow()
             expect(encryptedFields.decrypt('NOT VALID', { ignoreDecryptionErrors: true })).toEqual('NOT VALID')
+        })
+
+        describe('decryptInlineInputs', () => {
+            const encryptValue = (value: unknown): { [INLINE_ENCRYPTED_MARKER]: string } => ({
+                [INLINE_ENCRYPTED_MARKER]: encryptedFields.encrypt(JSON.stringify(value)),
+            })
+
+            it('decrypts inline-encrypted secret inputs and leaves others alone', () => {
+                const inputs = {
+                    url: { value: 'https://example.com', order: 0 },
+                    access_token: { value: encryptValue('super-secret'), order: 1 },
+                }
+
+                const decrypted = encryptedFields.decryptInlineInputs(inputs as any)
+                expect(decrypted).toEqual({
+                    url: { value: 'https://example.com', order: 0 },
+                    access_token: { value: 'super-secret', order: 1 },
+                })
+            })
+
+            it('returns undefined/null untouched', () => {
+                expect(encryptedFields.decryptInlineInputs(undefined as any)).toBeUndefined()
+                expect(encryptedFields.decryptInlineInputs(null as any)).toBeNull()
+            })
+
+            it('throws when the encrypted token is invalid', () => {
+                const inputs = { access_token: { value: { [INLINE_ENCRYPTED_MARKER]: 'NOT_VALID_TOKEN' } } }
+                expect(() => encryptedFields.decryptInlineInputs(inputs as any)).toThrow()
+            })
         })
 
         describe('decrypting objects', () => {

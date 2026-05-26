@@ -70,7 +70,8 @@ describe('HogFunctionHandler', () => {
         mockHogFlowFunctionsService = new HogFlowFunctionsService(
             hub.SITE_URL,
             mockHogFunctionTemplateManager,
-            mockHogFunctionExecutor
+            mockHogFunctionExecutor,
+            hub.encryptedFields
         )
         mockRecipientPreferencesService = {
             shouldSkipAction: jest.fn().mockResolvedValue(false),

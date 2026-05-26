@@ -7,6 +7,7 @@ import {
 } from '~/cdp/types'
 import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 
+import { EncryptedFields } from '../../utils/encryption-utils'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 
@@ -18,7 +19,8 @@ export class HogFlowFunctionsService {
     constructor(
         private siteUrl: string,
         private hogFunctionTemplateManager: HogFunctionTemplateManagerService,
-        private hogFunctionExecutor: HogExecutorService
+        private hogFunctionExecutor: HogExecutorService,
+        private encryptedFields: EncryptedFields
     ) {}
 
     async buildHogFunction(hogFlow: HogFlow, configuration: Action['config']): Promise<HogFunctionType> {
@@ -30,6 +32,11 @@ export class HogFlowFunctionsService {
 
         const { inputs, mappings, ...config } = configuration
 
+        // Workflows encrypt secret inputs inline (see posthog/cdp/hog_flow_inputs.py). Decrypt
+        // them here so the hog executor sees the plaintext values it needs to invoke the
+        // destination.
+        const decryptedInputs = this.encryptedFields.decryptInlineInputs(inputs)
+
         const hogFunction: HogFunctionType = {
             id: hogFlow.id,
             team_id: hogFlow.team_id,
@@ -39,7 +46,7 @@ export class HogFlowFunctionsService {
             deleted: false,
             hog: '<<TEMPLATE>>',
             bytecode: template.bytecode,
-            inputs,
+            inputs: decryptedInputs,
             inputs_schema: template.inputs_schema,
             template_id: template.template_id,
             mappings,

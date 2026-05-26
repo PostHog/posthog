@@ -1,5 +1,22 @@
 import { Fernet } from 'fernet-nodejs'
 
+/**
+ * Marker key used to wrap an inline-encrypted value inside a HogFlow action's inputs.
+ * Kept in sync with the Python side (posthog/cdp/hog_flow_inputs.py).
+ *
+ * Encrypted shape: `{ "__ph_encrypted": "<fernet_token>" }` where the token decrypts to a JSON
+ * string representing the original (cleartext) value.
+ */
+export const INLINE_ENCRYPTED_MARKER = '__ph_encrypted'
+
+export function isInlineEncryptedValue(value: unknown): value is Record<string, string> {
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        typeof (value as Record<string, unknown>)[INLINE_ENCRYPTED_MARKER] === 'string'
+    )
+}
+
 export class EncryptedFields {
     private fernets: Fernet[] = []
 
@@ -34,6 +51,37 @@ export class EncryptedFields {
         }
 
         throw error
+    }
+
+    /**
+     * Decrypts an inputs dict (as stored on a HogFlow action) by Fernet-decrypting any input
+     * whose `value` is an inline-encrypted wrapper. Non-encrypted entries pass through.
+     */
+    decryptInlineInputs<T extends Record<string, { value?: unknown } & Record<string, unknown>> | null | undefined>(
+        inputs: T
+    ): T {
+        if (!inputs) {
+            return inputs
+        }
+        const result: Record<string, { value?: unknown } & Record<string, unknown>> = {}
+        for (const [key, item] of Object.entries(inputs)) {
+            if (item && isInlineEncryptedValue(item.value)) {
+                const token = item.value[INLINE_ENCRYPTED_MARKER]
+                const decryptedJson = this.decrypt(token)
+                let decryptedValue: unknown = item.value
+                if (typeof decryptedJson === 'string') {
+                    try {
+                        decryptedValue = JSON.parse(decryptedJson)
+                    } catch {
+                        decryptedValue = decryptedJson
+                    }
+                }
+                result[key] = { ...item, value: decryptedValue }
+            } else {
+                result[key] = item
+            }
+        }
+        return result as T
     }
 
     decryptObject(value: any, options?: { ignoreDecryptionErrors: boolean }): any {

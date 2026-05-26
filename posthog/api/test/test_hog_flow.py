@@ -7,10 +7,36 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.cdp.hog_flow_inputs import INLINE_ENCRYPTED_MARKER
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models import Organization, Team, User
 from posthog.models.hog_flow.hog_flow import HogFlow
+
+# Template used for inline-encryption tests — a webhook-shaped destination with a `secret: True`
+# bearer-token input. Mirrors the shape a real destination (Twilio, Meta Ads, etc.) would have.
+secret_webhook_template = HogFunctionTemplateDC(
+    status="stable",
+    free=True,
+    type="destination",
+    id="template-secret-webhook",
+    name="Secret Webhook",
+    code="fetch(inputs.url, { method: 'POST', headers: { 'Authorization': inputs.access_token } })",
+    code_language="hog",
+    category=["Custom"],
+    description="Test destination with a secret input.",
+    inputs_schema=[
+        {"key": "url", "type": "string", "label": "URL", "required": True, "secret": False},
+        {
+            "key": "access_token",
+            "type": "string",
+            "label": "Access token",
+            "required": True,
+            "secret": True,
+        },
+    ],
+)
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -21,6 +47,7 @@ class TestHogFlowAPI(APIBaseTest):
         # Create slack template in DB
         sync_template_to_db(template_slack)
         sync_template_to_db(webhook_template)
+        sync_template_to_db(secret_webhook_template)
 
     def _create_hog_flow_with_action(self, action_config: dict):
         trigger_action = {
@@ -211,6 +238,79 @@ class TestHogFlowAPI(APIBaseTest):
             "detail": "This field is required.",
             "type": "validation_error",
         }
+
+    def test_hog_flow_secret_inputs_are_encrypted_inline_and_masked_on_read(self):
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-secret-webhook",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                    "access_token": {"value": "super-secret-token"},
+                },
+            }
+        )
+        hog_flow["status"] = "active"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        hog_flow_id = response.json()["id"]
+
+        # GET response must mask the secret with the {secret: True} placeholder.
+        get_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{hog_flow_id}")
+        assert get_response.status_code == 200, get_response.json()
+        action_inputs = get_response.json()["actions"][1]["config"]["inputs"]
+        assert action_inputs["url"]["value"] == "https://example.com"
+        assert action_inputs["access_token"] == {"secret": True}
+
+        # The stored row carries the Fernet-encrypted token, not plaintext.
+        hog_flow_db = HogFlow.objects.get(pk=hog_flow_id)
+        stored_access_token = hog_flow_db.actions[1]["config"]["inputs"]["access_token"]["value"]
+        assert INLINE_ENCRYPTED_MARKER in stored_access_token
+        assert stored_access_token[INLINE_ENCRYPTED_MARKER] != "super-secret-token"
+        # And we can decrypt back to the original cleartext using the shared Fernet key chain.
+        decrypted = EncryptedTextField().decrypt(stored_access_token[INLINE_ENCRYPTED_MARKER])
+        assert decrypted == '"super-secret-token"'
+
+    def test_hog_flow_secret_input_preserved_when_placeholder_resubmitted(self):
+        hog_flow, action = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-secret-webhook",
+                "inputs": {
+                    "url": {"value": "https://example.com"},
+                    "access_token": {"value": "original-token"},
+                },
+            }
+        )
+        hog_flow["status"] = "active"
+
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        hog_flow_id = create_response.json()["id"]
+        first_stored = HogFlow.objects.get(pk=hog_flow_id).actions[1]["config"]["inputs"]["access_token"]
+
+        # Resubmit with the {secret: True} placeholder — the way the frontend re-sends an
+        # untouched secret. The stored encrypted token must NOT be wiped.
+        update_payload = dict(hog_flow)
+        update_payload["actions"] = [
+            hog_flow["actions"][0],
+            {
+                **action,
+                "config": {
+                    "template_id": "template-secret-webhook",
+                    "inputs": {
+                        "url": {"value": "https://example.com/changed"},
+                        "access_token": {"secret": True},
+                    },
+                },
+            },
+        ]
+        patch_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{hog_flow_id}", update_payload, content_type="application/json"
+        )
+        assert patch_response.status_code == 200, patch_response.json()
+
+        refreshed = HogFlow.objects.get(pk=hog_flow_id).actions[1]["config"]["inputs"]["access_token"]
+        assert refreshed == first_stored
 
     def test_hog_flow_bytecode_compilation(self):
         hog_flow, action = self._create_hog_flow_with_action(
