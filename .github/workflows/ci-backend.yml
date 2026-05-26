@@ -1039,19 +1039,21 @@ jobs:
               # environment and reuse the output both for the Actions log groups and the PR comment
               # (environment -> node type(s) -> SQL). Environments that render identically are
               # grouped together; if all environments match, the environment level is collapsed.
+              id: render_ch_sql
               if: github.event_name == 'pull_request'
               run: |
                   CHANGED=$(git diff --name-only --diff-filter=AM origin/master..HEAD | grep '^posthog/clickhouse/migrations/[0-9]' | grep -v __pycache__ || true)
+                  if [ -z "$CHANGED" ]; then
+                      echo "No ClickHouse migrations changed."
+                      echo "has_changes=false" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  echo "has_changes=true" >> "$GITHUB_OUTPUT"
                   {
                       echo '<!-- ch-migration-sql -->'
                       echo '## ClickHouse migration SQL per cloud environment'
                       echo ''
                   } > ch_migration_sql_comment.md
-                  if [ -z "$CHANGED" ]; then
-                      echo "No ClickHouse migrations changed."
-                      echo '_No ClickHouse migrations changed in this PR._' >> ch_migration_sql_comment.md
-                      exit 0
-                  fi
                   mkdir -p ch_sql_env
                   DEPLOYMENTS=('' US EU DEV)
                   LABELS=(unset US EU DEV)
@@ -1101,23 +1103,38 @@ jobs:
               # GITHUB_TOKEN is read-only for fork PRs, so only comment on same-repo PRs.
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   script: |
                       const fs = require('fs');
                       const marker = '<!-- ch-migration-sql -->';
-                      let body = fs.readFileSync('ch_migration_sql_comment.md', 'utf8');
-                      const LIMIT = 65000; // GitHub caps comment bodies at 65536 chars
-                      if (body.length > LIMIT) {
-                          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-                          body = body.slice(0, LIMIT - 400) + `\n\n_…truncated. See the full SQL in the [workflow logs](${runUrl})._`;
-                      }
+                      const hasChanges = process.env.HAS_CHANGES === 'true';
                       const { data: comments } = await github.rest.issues.listComments({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
                           issue_number: context.issue.number,
                       });
                       const existing = comments.find((c) => c.body.includes(marker));
+                      if (!hasChanges) {
+                          // No migrations changed — clean up a stale sticky comment if one exists
+                          // (e.g. migrations were added then removed in a later push), otherwise no-op.
+                          if (existing) {
+                              await github.rest.issues.deleteComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  comment_id: existing.id,
+                              });
+                          }
+                          return;
+                      }
+                      let body = fs.readFileSync('ch_migration_sql_comment.md', 'utf8');
+                      const LIMIT = 65000; // GitHub caps comment bodies at 65536 chars
+                      if (body.length > LIMIT) {
+                          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                          body = body.slice(0, LIMIT - 400) + `\n\n_…truncated. See the full SQL in the [workflow logs](${runUrl})._`;
+                      }
                       if (existing) {
                           await github.rest.issues.updateComment({
                               owner: context.repo.owner,
