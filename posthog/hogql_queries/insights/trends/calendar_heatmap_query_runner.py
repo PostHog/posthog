@@ -86,6 +86,20 @@ FROM (
 # semantic where a session's metrics are attributed to its start hour. Brought back
 # from the pre-#57296 implementation so web analytics' Active Hours tile lines up with
 # the visitor counts the overview computes for the same window.
+#
+# Scan bounds on `uniqueSessionEvents`:
+#   * `notEmpty($session_id)` — `events.$session_id` is a non-nullable String
+#     that surfaces as empty when no session id was captured. Without this guard
+#     every session-less event collapses into one synthetic session and
+#     `any(person_id)` picks a single visitor for the whole group, undercounting
+#     projects with partial session capture.
+#   * `timestamp >= {session_window_start}` / `timestamp <= {current_period_end}`
+#     — the outer `query` CTE filters by `min(timestamp) >= date_from`, but
+#     without an inner date bound ClickHouse must read every matching event
+#     across all time before that filter is applied. The 24-hour lookback covers
+#     sessions that started before `date_from` and extend into the window (the
+#     posthog-js cap is 24h, so the only loss is a session continuously open
+#     longer than that — vanishingly rare for web traffic).
 templateUniqueUsersBySession = """
 WITH uniqueSessionEvents AS (
     SELECT
@@ -96,7 +110,10 @@ WITH uniqueSessionEvents AS (
     WHERE and(
         {event_expr},
         {all_properties},
-        {test_account_filters}
+        {test_account_filters},
+        notEmpty($session_id),
+        timestamp >= {session_window_start},
+        timestamp <= {current_period_end}
     )
 ),
 uniqueSessionEventsGrouped AS (
@@ -201,16 +218,17 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
             template = templateUniqueUsersBySession if bucket_by_session else templateUniqueUsers
         else:
             template = templateAllUsers
-        query = parse_select(
-            template,
-            placeholders={
-                "all_properties": self._all_properties(),
-                "test_account_filters": self._test_account_filters,
-                "current_period": self._current_period_expression(field="timestamp"),
-                "event_expr": self.getEventExpr(),
-                "separator": ast.Constant(value=SEPARATOR),
-            },
-        )
+        placeholders: dict[str, ast.Expr] = {
+            "all_properties": self._all_properties(),
+            "test_account_filters": self._test_account_filters,
+            "current_period": self._current_period_expression(field="timestamp"),
+            "event_expr": self.getEventExpr(),
+            "separator": ast.Constant(value=SEPARATOR),
+        }
+        if bucket_by_session:
+            placeholders["session_window_start"] = self._session_window_start_expr()
+            placeholders["current_period_end"] = self.query_date_range.date_to_as_hogql()
+        query = parse_select(template, placeholders=placeholders)
         assert isinstance(query, ast.SelectQuery)
         return query
 
@@ -304,6 +322,20 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
             return property_exprs[0]
         else:
             return ast.Call(name="and", args=property_exprs)
+
+    def _session_window_start_expr(self) -> ast.Expr:
+        # Lookback buffer applied to the inner events scan in
+        # `templateUniqueUsersBySession`. Capped at the posthog-js session limit
+        # so we still catch sessions that opened just before `date_from` and
+        # extend into the window. See the template's leading comment for the
+        # full rationale.
+        return ast.Call(
+            name="minus",
+            args=[
+                self.query_date_range.date_from_as_hogql(),
+                ast.Call(name="toIntervalHour", args=[ast.Constant(value=24)]),
+            ],
+        )
 
     def _current_period_expression(self, field="start_timestamp"):
         return ast.Call(
