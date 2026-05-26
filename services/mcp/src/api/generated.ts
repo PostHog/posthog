@@ -13568,6 +13568,11 @@ export namespace Schemas {
          * @nullable
          */
       deleted?: boolean | null;
+      /**
+         * List of tag names to associate with this endpoint. Replaces any existing tags.
+         * @nullable
+         */
+      tags?: string[] | null;
     }
 
     /**
@@ -13643,6 +13648,8 @@ export namespace Schemas {
       bucket_overrides: EndpointResponseBucketOverrides;
       /** Column names and types from the query's SELECT clause. */
       columns: EndpointColumn[];
+      /** Tag names associated with this endpoint. */
+      tags: string[];
     }
 
     /**
@@ -13772,6 +13779,8 @@ export namespace Schemas {
       bucket_overrides: EndpointVersionResponseBucketOverrides;
       /** Column names and types from the query's SELECT clause. */
       columns: EndpointColumn[];
+      /** Tag names associated with this endpoint. */
+      tags: string[];
       /** Version number. */
       version: number;
       /** Version unique identifier (UUID). */
@@ -27136,6 +27145,11 @@ export namespace Schemas {
          * @nullable
          */
       deleted?: boolean | null;
+      /**
+         * List of tag names to associate with this endpoint. Replaces any existing tags.
+         * @nullable
+         */
+      tags?: string[] | null;
     }
 
     /**

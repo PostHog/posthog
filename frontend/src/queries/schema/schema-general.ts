@@ -1912,6 +1912,8 @@ export interface EndpointRequest {
     bucket_overrides?: Record<string, string>
     /** Set to true to soft-delete this endpoint */
     deleted?: boolean
+    /** Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched. */
+    tags?: string[]
 }
 
 /**
