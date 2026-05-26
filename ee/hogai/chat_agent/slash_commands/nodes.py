@@ -12,7 +12,7 @@ from ee.hogai.chat_agent.slash_commands.commands.usage import UsageCommand
 from ee.hogai.core.agent_modes.const import SlashCommandName
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName
 
 
 class SlashCommandHandlerNode(AssistantNode):
@@ -59,7 +59,7 @@ class SlashCommandHandlerNode(AssistantNode):
         if not result.messages:
             return result
         source = f"slash_command:{command.lstrip('/')}"
-        stamped: list = []
+        stamped: list[AssistantMessageUnion] = []
         for msg in result.messages:
             if isinstance(msg, AssistantMessage) and (msg.meta is None or msg.meta.source is None):
                 meta = (

@@ -109,39 +109,26 @@ class TestAnthropicUtils(BaseTest):
         self.assertEqual(message.content[1]["url"], "http://example.com/image.jpg")
         self.assertEqual(message.content[1]["cache_control"], {"type": "ephemeral", "ttl": "5m"})
 
-    def test_convert_assistant_message_without_source_has_no_provenance_note(self):
-        message = AssistantMessage(content="Hello", id="1")
-        result = convert_assistant_message_to_anthropic_message(message, {})
-        self.assertEqual(len(result), 1)
-        content = result[0].content
-        assert isinstance(content, list)
-        self.assertEqual(content[0], {"type": "text", "text": "Hello"})
-
-    def test_convert_assistant_message_with_slash_command_source_prepends_provenance_note(self):
-        message = AssistantMessage(
-            content="Current conversation: 5 credits",
-            id="1",
-            meta=AssistantMessageMetadata(source="slash_command:usage"),
-        )
+    @parameterized.expand(
+        [
+            ("no_source", None, "Original content", None),
+            ("slash_command_usage", "slash_command:usage", "Current conversation: 5 credits", "usage"),
+            ("slash_command_remember", "slash_command:remember", "Saved memory", "remember"),
+            ("unknown_source", "unknown_source", "Original content", None),
+        ]
+    )
+    def test_convert_assistant_message_provenance_note(self, _name, source, content_text, expected_command):
+        meta = AssistantMessageMetadata(source=source) if source else None
+        message = AssistantMessage(content=content_text, id="1", meta=meta)
         result = convert_assistant_message_to_anthropic_message(message, {})
         self.assertEqual(len(result), 1)
         content = result[0].content
         assert isinstance(content, list)
         assert isinstance(content[0], dict)
         text = content[0]["text"]
-        self.assertIn("/usage slash command", text)
-        self.assertIn("deterministic PostHog code", text)
-        self.assertIn("Current conversation: 5 credits", text)
-        self.assertTrue(text.endswith("Current conversation: 5 credits"))
-
-    def test_convert_assistant_message_with_unknown_source_has_no_provenance_note(self):
-        message = AssistantMessage(
-            content="Hello",
-            id="1",
-            meta=AssistantMessageMetadata(source="unknown_source"),
-        )
-        result = convert_assistant_message_to_anthropic_message(message, {})
-        self.assertEqual(len(result), 1)
-        content = result[0].content
-        assert isinstance(content, list)
-        self.assertEqual(content[0], {"type": "text", "text": "Hello"})
+        if expected_command is not None:
+            self.assertIn(f"/{expected_command} slash command", text)
+            self.assertIn("deterministic PostHog code", text)
+            self.assertTrue(text.endswith(content_text))
+        else:
+            self.assertEqual(text, content_text)

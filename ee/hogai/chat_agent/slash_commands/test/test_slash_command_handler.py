@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from langgraph.types import Send
+from parameterized import parameterized
 
 from posthog.schema import AssistantMessage, AssistantMessageMetadata, HumanMessage
 
@@ -14,7 +15,7 @@ from ee.hogai.chat_agent.slash_commands.commands.ticket import TicketCommand
 from ee.hogai.chat_agent.slash_commands.commands.usage import UsageCommand
 from ee.hogai.chat_agent.slash_commands.nodes import SlashCommandHandlerNode
 from ee.hogai.core.agent_modes.const import SlashCommandName
-from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
 
 
@@ -167,49 +168,36 @@ class TestSlashCommandHandlerNode(BaseTest):
         result = await self.node.arouter(state)
         self.assertEqual(result, AssistantNodeName.END)
 
-    def test_stamp_message_source_sets_source_when_meta_missing(self):
-        from ee.hogai.utils.types import PartialAssistantState
-
-        result = PartialAssistantState(messages=[AssistantMessage(content="hi", id="1")])
-        stamped = SlashCommandHandlerNode._stamp_message_source(result, SlashCommandName.FIELD_USAGE)
+    @parameterized.expand(
+        [
+            (
+                "no_meta",
+                None,
+                SlashCommandName.FIELD_USAGE,
+                "slash_command:usage",
+                None,
+            ),
+            (
+                "preserves_existing_meta_fields",
+                AssistantMessageMetadata(thinking=[{"type": "thinking", "content": "x"}]),
+                SlashCommandName.FIELD_REMEMBER,
+                "slash_command:remember",
+                [{"type": "thinking", "content": "x"}],
+            ),
+            (
+                "does_not_overwrite_existing_source",
+                AssistantMessageMetadata(source="slash_command:other"),
+                SlashCommandName.FIELD_USAGE,
+                "slash_command:other",
+                None,
+            ),
+        ]
+    )
+    def test_stamp_message_source(self, _name, initial_meta, command, expected_source, expected_thinking):
+        result = PartialAssistantState(messages=[AssistantMessage(content="hi", id="1", meta=initial_meta)])
+        stamped = SlashCommandHandlerNode._stamp_message_source(result, command)
         msg = stamped.messages[0]
         assert isinstance(msg, AssistantMessage)
         assert msg.meta is not None
-        self.assertEqual(msg.meta.source, "slash_command:usage")
-
-    def test_stamp_message_source_preserves_existing_meta_fields(self):
-        from ee.hogai.utils.types import PartialAssistantState
-
-        result = PartialAssistantState(
-            messages=[
-                AssistantMessage(
-                    content="hi",
-                    id="1",
-                    meta=AssistantMessageMetadata(thinking=[{"type": "thinking", "content": "x"}]),
-                )
-            ]
-        )
-        stamped = SlashCommandHandlerNode._stamp_message_source(result, SlashCommandName.FIELD_REMEMBER)
-        msg = stamped.messages[0]
-        assert isinstance(msg, AssistantMessage)
-        assert msg.meta is not None
-        self.assertEqual(msg.meta.source, "slash_command:remember")
-        self.assertEqual(msg.meta.thinking, [{"type": "thinking", "content": "x"}])
-
-    def test_stamp_message_source_does_not_overwrite_existing_source(self):
-        from ee.hogai.utils.types import PartialAssistantState
-
-        result = PartialAssistantState(
-            messages=[
-                AssistantMessage(
-                    content="hi",
-                    id="1",
-                    meta=AssistantMessageMetadata(source="slash_command:other"),
-                )
-            ]
-        )
-        stamped = SlashCommandHandlerNode._stamp_message_source(result, SlashCommandName.FIELD_USAGE)
-        msg = stamped.messages[0]
-        assert isinstance(msg, AssistantMessage)
-        assert msg.meta is not None
-        self.assertEqual(msg.meta.source, "slash_command:other")
+        self.assertEqual(msg.meta.source, expected_source)
+        self.assertEqual(msg.meta.thinking, expected_thinking)
