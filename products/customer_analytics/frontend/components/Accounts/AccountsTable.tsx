@@ -1,15 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, ProfilePicture } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { ACCOUNTS_PAGE_SIZE, accountsLogic } from './accountsLogic'
+import { ACCOUNTS_PAGE_SIZE, AccountRoleKey, accountsLogic } from './accountsLogic'
 
 type AccountAssignment = { id: number; email: string } | null
+
+const ROLE_DEFAULT_LABEL = 'Unassigned'
 
 export function AccountsTable(): JSX.Element {
     const { results, totalCount, accountsLoading, currentPage } = useValues(accountsLogic)
@@ -58,17 +61,17 @@ export function AccountsTable(): JSX.Element {
         {
             title: 'CSM',
             key: 'csm',
-            render: (_, account) => <AssigneeCell assignment={account.properties?.csm ?? null} />,
+            render: (_, account) => <RoleAssignmentCell account={account} role="csm" />,
         },
         {
             title: 'Account executive',
             key: 'account_executive',
-            render: (_, account) => <AssigneeCell assignment={account.properties?.account_executive ?? null} />,
+            render: (_, account) => <RoleAssignmentCell account={account} role="account_executive" />,
         },
         {
             title: 'Account owner',
             key: 'account_owner',
-            render: (_, account) => <AssigneeCell assignment={account.properties?.account_owner ?? null} />,
+            render: (_, account) => <RoleAssignmentCell account={account} role="account_owner" />,
         },
     ]
 
@@ -90,14 +93,42 @@ export function AccountsTable(): JSX.Element {
     )
 }
 
-function AssigneeCell({ assignment }: { assignment: AccountAssignment }): JSX.Element {
-    if (!assignment) {
-        return <span className="text-muted">Unassigned</span>
-    }
+function RoleAssignmentCell({ account, role }: { account: AccountApi; role: AccountRoleKey }): JSX.Element {
+    const { isRoleSaving } = useValues(accountsLogic)
+    const { updateAccountRole } = useActions(accountsLogic)
+
+    const assignment: AccountAssignment = account.properties?.[role] ?? null
+    const saving = isRoleSaving(account.id, role)
+
     return (
-        <div className="flex items-center gap-2">
-            <ProfilePicture user={{ email: assignment.email }} size="sm" />
-            <span className="text-sm">{assignment.email}</span>
+        <div data-attr={`accounts-${role}-cell`}>
+            <MemberSelect
+                value={assignment?.id ?? null}
+                defaultLabel={ROLE_DEFAULT_LABEL}
+                onChange={(user) => updateAccountRole(account.id, role, user)}
+            >
+                {(selectedUser) => (
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        loading={saving}
+                        disabledReason={saving ? 'Saving…' : undefined}
+                        icon={
+                            selectedUser ? (
+                                <ProfilePicture user={selectedUser} size="sm" />
+                            ) : assignment ? (
+                                <ProfilePicture user={{ email: assignment.email }} size="sm" />
+                            ) : undefined
+                        }
+                    >
+                        {assignment ? (
+                            <span className="text-sm">{assignment.email}</span>
+                        ) : (
+                            <span className="text-muted">Unassigned</span>
+                        )}
+                    </LemonButton>
+                )}
+            </MemberSelect>
         </div>
     )
 }

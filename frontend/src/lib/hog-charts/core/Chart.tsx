@@ -1,8 +1,10 @@
 import React, { useCallback, useMemo } from 'react'
 
 import { AxisLabels } from '../overlays/AxisLabels'
+import { AxisTitles } from '../overlays/AxisTitles'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
+import { normalizeAxisLabel } from '../utils/axis-labels'
 import { composeDrawHoverWithCrosshair } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
@@ -52,6 +54,7 @@ const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
     left: 0,
     pointerEvents: 'none',
 }
+const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 
 function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactElement {
     return <div style={OVERLAY_STYLE}>{children}</div>
@@ -112,6 +115,8 @@ export function Chart<Meta = unknown>({
         yTickFormatter,
         hideXAxis = false,
         hideYAxis = false,
+        xAxisLabel,
+        yAxisLabel,
         tooltip: tooltipConfig,
         showCrosshair = false,
         axisOrientation = 'vertical',
@@ -129,6 +134,8 @@ export function Chart<Meta = unknown>({
         labels,
         hideXAxis,
         hideYAxis,
+        xAxisLabel,
+        yAxisLabel,
         xTickFormatter,
         yTickFormatter,
         axisOrientation,
@@ -201,8 +208,17 @@ export function Chart<Meta = unknown>({
 
     const ariaLabel = useMemo(() => {
         const visible = coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)
-        return `Chart with ${visible} data series`
-    }, [coloredSeries])
+        const parts = [`Chart with ${visible} data series`]
+        const cleanXAxisLabel = normalizeAxisLabel(xAxisLabel)
+        const cleanYAxisLabel = normalizeAxisLabel(yAxisLabel)
+        if (!hideXAxis && cleanXAxisLabel) {
+            parts.push(`X-axis: ${cleanXAxisLabel}`)
+        }
+        if (!hideYAxis && cleanYAxisLabel) {
+            parts.push(`Y-axis: ${cleanYAxisLabel}`)
+        }
+        return parts.join('. ')
+    }, [coloredSeries, hideXAxis, hideYAxis, xAxisLabel, yAxisLabel])
 
     const canvasBounds = useCallback(
         (): DOMRect | null => canvasRef.current?.getBoundingClientRect() ?? null,
@@ -217,6 +233,7 @@ export function Chart<Meta = unknown>({
         () => ({ orientation: axisOrientation, xTickFormatter, isPercent }),
         [axisOrientation, xTickFormatter, isPercent]
     )
+    const axisColor = theme.axisColor ?? DEFAULT_AXIS_COLOR
 
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
@@ -259,9 +276,16 @@ export function Chart<Meta = unknown>({
                                 yRightTickFormatter={resolvedYRightFormatter}
                                 hideXAxis={hideXAxis}
                                 hideYAxis={hideYAxis}
-                                axisColor={theme.axisColor}
+                                axisColor={axisColor}
                                 orientation={axisOrientation}
                                 labelToCoord={labelToCoord}
+                            />
+                            <AxisTitles
+                                xAxisLabel={xAxisLabel}
+                                yAxisLabel={yAxisLabel}
+                                hideXAxis={hideXAxis}
+                                hideYAxis={hideYAxis}
+                                axisColor={axisColor}
                             />
 
                             {children}

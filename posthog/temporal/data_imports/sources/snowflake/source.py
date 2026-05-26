@@ -1,6 +1,5 @@
 from typing import Optional, cast
 
-import structlog
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 
 from posthog.schema import (
@@ -13,20 +12,15 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
-from posthog.temporal.data_imports.sources.snowflake.snowflake import (
-    filter_snowflake_incremental_fields,
-    get_leading_clustering_columns_for_schemas as get_snowflake_leading_clustering_columns_for_schemas,
-    get_primary_keys_for_schemas as get_snowflake_primary_keys_for_schemas,
-    get_schemas as get_snowflake_schemas,
-    snowflake_source,
-)
+from posthog.temporal.data_imports.sources.snowflake.snowflake import SnowflakeImplementation
 
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+from products.data_warehouse.backend.types import ExternalDataSourceType
+
+_SNOWFLAKE_IMPLEMENTATION = SnowflakeImplementation()
 
 SnowflakeErrors = {
     "No active warehouse selected in the current session": "No warehouse found for selected role",
@@ -38,7 +32,11 @@ SnowflakeErrors = {
 
 
 @SourceRegistry.register
-class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
+class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
+    @property
+    def get_implementation(self) -> SnowflakeImplementation:
+        return _SNOWFLAKE_IMPLEMENTATION
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SNOWFLAKE
@@ -189,59 +187,6 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
-    def get_schemas(
-        self,
-        config: SnowflakeSourceConfig,
-        team_id: int,
-        with_counts: bool = False,
-        names: list[str] | None = None,
-        force_refresh: bool = False,
-    ) -> list[SourceSchema]:
-        schemas = []
-
-        db_schemas = get_snowflake_schemas(config, names=names)
-        try:
-            detected_pks = get_snowflake_primary_keys_for_schemas(
-                config=config,
-                table_names=list(db_schemas.keys()),
-            )
-        except Exception as e:
-            structlog.get_logger().warning("Failed to detect primary keys for Snowflake schemas", exc_info=e)
-            detected_pks = {}
-
-        indexed_columns_by_table = get_snowflake_leading_clustering_columns_for_schemas(
-            config=config,
-            table_names=list(db_schemas.keys()),
-        )
-
-        for table_name, columns in db_schemas.items():
-            incremental_field_tuples = filter_snowflake_incremental_fields(columns)
-            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                    "nullable": nullable,
-                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
-                }
-                for field_name, field_type, nullable in incremental_field_tuples
-            ]
-
-            schemas.append(
-                SourceSchema(
-                    name=table_name,
-                    supports_incremental=len(incremental_fields) > 0,
-                    supports_append=len(incremental_fields) > 0,
-                    incremental_fields=incremental_fields,
-                    columns=columns,
-                    detected_primary_keys=detected_pks.get(table_name),
-                )
-            )
-
-        return schemas
-
     def validate_credentials(
         self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
@@ -267,23 +212,3 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
             return False, "Could not connect to Snowflake. Please check all connection details are valid."
 
         return True, None
-
-    def source_for_pipeline(self, config: SnowflakeSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return snowflake_source(
-            account_id=config.account_id,
-            user=config.auth_type.user,
-            password=config.auth_type.password,
-            passphrase=config.auth_type.passphrase,
-            private_key=config.auth_type.private_key,
-            auth_type=config.auth_type.selection,
-            database=config.database,
-            warehouse=config.warehouse,
-            schema=config.schema,
-            role=config.role,
-            table_names=[inputs.schema_name],
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            logger=inputs.logger,
-            incremental_field=inputs.incremental_field,
-            incremental_field_type=inputs.incremental_field_type,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-        )
