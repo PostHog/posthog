@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import { TeamManager } from '../../utils/team-manager'
+import { TeamManagerHandle } from '../../utils/team-manager'
 import { DlqOutput, IngestionWarningsOutput } from '../common/outputs'
 import { addTeamToContext } from '../common/subpipelines/helpers'
 import {
@@ -21,7 +21,7 @@ import { ok } from '../pipelines/results'
 
 export interface ClientWarningsPipelineConfig {
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput>
-    teamManager: TeamManager
+    teamManager: TeamManagerHandle
     promiseScheduler: PromiseScheduler
 }
 
