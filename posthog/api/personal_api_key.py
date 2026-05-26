@@ -162,8 +162,9 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         # User created their FIRST PAT themselves through a session, so the credential
         # review interstitial has nothing partner-issued to surface for them - mark it
         # acknowledged. Three gates, all load-bearing:
-        #   - count == 0: don't dismiss pre-existing PATs (incl. partner-issued ones)
-        #     that the user hasn't yet been shown for review.
+        #   - count == 0: no pre-existing PATs, so this is the user's first. If they
+        #     already had keys, those might be partner-issued and still awaiting review,
+        #     so don't stamp.
         #   - SessionAuthentication: PAT-bearer auth would let an attacker holding a
         #     partner-issued PAT mint another PAT to silently dismiss the victim's
         #     review screen. Same constraint as credentials_review_complete.
@@ -172,7 +173,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         if (
             count == 0
             and user.credentials_reviewed_at is None
-            and isinstance(request.successful_authenticator, SessionAuthentication)
+            and isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication)
         ):
             user.credentials_reviewed_at = timezone.now()
             user.save(update_fields=["credentials_reviewed_at"])
