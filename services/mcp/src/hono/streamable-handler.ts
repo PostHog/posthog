@@ -1,15 +1,21 @@
 import type { Lifecycle } from './app'
 import type { RedisLike } from './cache/RedisCache'
 import { McpDispatcher } from './dispatcher'
+import { buildRateLimitResponse, DEFAULT_BURST_LIMIT, DEFAULT_SUSTAINED_LIMIT, RateLimiter } from './rate-limiter'
 import { authenticateAndParse, handleCatchError } from './request-utils'
 import { ToolCatalog } from './tool-catalog'
 import type { HonoCtx } from './types'
 
 export class StreamableMcpHandler {
     private readonly dispatcher: McpDispatcher
+    private readonly rateLimiter: RateLimiter
 
-    constructor(redis: RedisLike, private readonly lifecycle: Lifecycle) {
+    constructor(
+        redis: RedisLike,
+        private readonly lifecycle: Lifecycle
+    ) {
         this.dispatcher = new McpDispatcher(new ToolCatalog(), redis)
+        this.rateLimiter = new RateLimiter(redis, [DEFAULT_BURST_LIMIT, DEFAULT_SUSTAINED_LIMIT])
     }
 
     async warmup(): Promise<void> {
@@ -27,6 +33,13 @@ export class StreamableMcpHandler {
         const auth = await authenticateAndParse(c, 'streamable-http')
         if ('error' in auth) {
             return auth.error
+        }
+
+        // After auth so the bucket is keyed per token, not per IP — corporate
+        // NATs shouldn't share buckets across unrelated users.
+        const rateLimit = await this.rateLimiter.check(auth.props.userHash)
+        if (rateLimit && !rateLimit.allowed) {
+            return buildRateLimitResponse(rateLimit)
         }
 
         try {

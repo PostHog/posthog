@@ -1724,7 +1724,6 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
- "common-metrics",
  "common-redis",
  "common-types",
  "envconfig",
@@ -4143,7 +4142,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.71"
+version = "1.3.72"
 dependencies = [
  "pyo3",
  "serde_json",
