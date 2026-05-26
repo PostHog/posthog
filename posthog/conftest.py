@@ -1,7 +1,5 @@
 import os
-import time
 import subprocess
-from contextlib import contextmanager
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -15,162 +13,6 @@ from django.db import connections
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
-
-# TEMP INSTRUMENTATION (throwaway diagnostic branch — do not merge): measures per-phase wall
-# time of the first-package test-DB build to locate the backend-test "stuck at collected"
-# chokepoint. Always on here; opt out with POSTHOG_TIME_DB_SETUP=0. Emitted via
-# pytest_terminal_summary so it lands in the fetchable job log (fixture prints are captured).
-_TIME_DB_SETUP = os.environ.get("POSTHOG_TIME_DB_SETUP", "1").lower() in {"1", "true", "yes"}
-_DBSETUP_TIMINGS: list[str] = []
-
-
-@contextmanager
-def _timed(label: str):
-    if not _TIME_DB_SETUP:
-        yield
-        return
-    start = time.perf_counter()
-    try:
-        yield
-    finally:
-        line = f"[DBSETUP] {label} {time.perf_counter() - start:.2f}s"
-        _DBSETUP_TIMINGS.append(line)
-        # Also surface in the GitHub Actions job summary when present (bypasses pytest capture).
-        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-        if summary_path:
-            try:
-                with open(summary_path, "a") as f:
-                    f.write(line + "\n")
-            except OSError:
-                pass
-
-
-_FIXTURE_TIMINGS: dict[str, float] = {}
-_PROBE_MAX: dict[str, float] = {}
-_PROBE_CNT: dict[str, int] = {}
-
-
-def _probe_record(label: str, elapsed: float) -> None:
-    _PROBE_CNT[label] = _PROBE_CNT.get(label, 0) + 1
-    if elapsed > _PROBE_MAX.get(label, 0.0):
-        _PROBE_MAX[label] = elapsed
-
-
-def _install_db_setup_probes() -> None:
-    # TEMP: monkeypatch Django's test-DB internals to decompose the first-test setup gap with
-    # hard per-component numbers (setup_databases / per-DB create_test_db / migrate plan length /
-    # serialize / transactional fixture setup). Installed at conftest import, before fixtures run.
-    import django.test.utils as _dtu
-    import django.test.testcases as _testcases
-    import django.db.backends.base.creation as _creation
-    from django.db.migrations.executor import MigrationExecutor
-
-    _orig_setup = _dtu.setup_databases
-
-    def _setup_databases(*a, **k):
-        s = time.perf_counter()
-        try:
-            return _orig_setup(*a, **k)
-        finally:
-            _probe_record(f"setup_databases keepdb={k.get('keepdb')}", time.perf_counter() - s)
-
-    _dtu.setup_databases = _setup_databases  # ty: ignore[invalid-assignment]
-
-    _Cr = _creation.BaseDatabaseCreation
-    _orig_create = _Cr.create_test_db
-
-    def _create_test_db(self, *a, **k):
-        keepdb = k.get("keepdb", a[2] if len(a) > 2 else None)
-        s = time.perf_counter()
-        try:
-            return _orig_create(self, *a, **k)
-        finally:
-            _probe_record(f"create_test_db[{self.connection.alias}] keepdb={keepdb}", time.perf_counter() - s)
-
-    _Cr.create_test_db = _create_test_db  # ty: ignore[invalid-assignment]
-
-    _orig_serialize = _Cr.serialize_db_to_string
-
-    def _serialize_db_to_string(self, *a, **k):
-        s = time.perf_counter()
-        try:
-            return _orig_serialize(self, *a, **k)
-        finally:
-            _probe_record(f"serialize_db_to_string[{self.connection.alias}]", time.perf_counter() - s)
-
-    _Cr.serialize_db_to_string = _serialize_db_to_string  # ty: ignore[invalid-assignment]
-
-    _orig_migrate = MigrationExecutor.migrate
-
-    def _migrate(self, targets, plan=None, *a, **k):
-        try:
-            n = len(plan) if plan is not None else -1
-        except TypeError:
-            n = -2
-        s = time.perf_counter()
-        try:
-            return _orig_migrate(self, targets, plan, *a, **k)
-        finally:
-            _probe_record(f"migrate.apply[{self.connection.alias}] plan_len={n}", time.perf_counter() - s)
-
-    MigrationExecutor.migrate = _migrate  # ty: ignore[invalid-assignment]
-
-    for _cls_name in ("TransactionTestCase", "TestCase"):
-        _cls = getattr(_testcases, _cls_name)
-        _orig_fs = _cls._fixture_setup
-        _orig_ft = _cls._fixture_teardown
-
-        def _make(orig, name, phase):
-            def _wrapped(self, *a, **k):
-                s = time.perf_counter()
-                try:
-                    return orig(self, *a, **k)
-                finally:
-                    _probe_record(f"{name}.{phase}", time.perf_counter() - s)
-
-            return _wrapped
-
-        _cls._fixture_setup = _make(_orig_fs, _cls_name, "_fixture_setup")
-        _cls._fixture_teardown = _make(_orig_ft, _cls_name, "_fixture_teardown")
-
-
-if _TIME_DB_SETUP:
-    try:
-        _install_db_setup_probes()
-    except Exception as _exc:  # never let instrumentation break the suite
-        _DBSETUP_TIMINGS.append(f"probe install failed: {_exc}")
-
-
-@pytest.hookimpl(hookwrapper=True)
-def pytest_fixture_setup(fixturedef, request):
-    # TEMP: time every fixture's own setup to find which one owns the multi-minute first-test gap.
-    start = time.perf_counter()
-    outcome = yield
-    if _TIME_DB_SETUP:
-        elapsed = time.perf_counter() - start
-        key = f"{fixturedef.argname} ({fixturedef.scope})"
-        if elapsed > _FIXTURE_TIMINGS.get(key, 0.0):
-            _FIXTURE_TIMINGS[key] = elapsed
-    return outcome
-
-
-def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    if _DBSETUP_TIMINGS:
-        terminalreporter.write_line("")
-        terminalreporter.write_line("=== DB setup phase timings (temp instrumentation) ===")
-        for line in _DBSETUP_TIMINGS:
-            terminalreporter.write_line(line)
-    slow = sorted(((v, k) for k, v in _FIXTURE_TIMINGS.items() if v >= 1.0), reverse=True)
-    if slow:
-        terminalreporter.write_line("")
-        terminalreporter.write_line("=== slowest fixture setups >=1s (temp instrumentation) ===")
-        for elapsed, key in slow[:25]:
-            terminalreporter.write_line(f"[FIXTURE] {key} {elapsed:.2f}s")
-    if _PROBE_MAX:
-        terminalreporter.write_line("")
-        terminalreporter.write_line("=== Django DB-setup probes (max time, call count) ===")
-        for elapsed, key in sorted(((v, k) for k, v in _PROBE_MAX.items()), reverse=True):
-            terminalreporter.write_line(f"[PROBE] {key} max={elapsed:.2f}s calls={_PROBE_CNT.get(key, 0)}")
 
 
 def create_clickhouse_tables():
@@ -201,38 +43,31 @@ def create_clickhouse_tables():
 
     mergetree_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES)))
     if mergetree_queries:
-        with _timed(f"ch.mergetree n={len(mergetree_queries)}"):
-            run_clickhouse_statement_in_parallel(mergetree_queries)
+        run_clickhouse_statement_in_parallel(mergetree_queries)
 
     distributed_queries = list(map(build_query, missing(CREATE_DISTRIBUTED_TABLE_QUERIES)))
     if distributed_queries:
-        with _timed(f"ch.distributed n={len(distributed_queries)}"):
-            run_clickhouse_statement_in_parallel(distributed_queries)
+        run_clickhouse_statement_in_parallel(distributed_queries)
 
     if settings.IN_EVAL_TESTING:
         kafka_table_queries = list(map(build_query, missing(CREATE_KAFKA_TABLE_QUERIES)))
         if kafka_table_queries:
-            with _timed(f"ch.kafka n={len(kafka_table_queries)}"):
-                run_clickhouse_statement_in_parallel(kafka_table_queries)
+            run_clickhouse_statement_in_parallel(kafka_table_queries)
 
     mv_queries = list(map(build_query, missing(CREATE_MV_TABLE_QUERIES)))
     if mv_queries:
-        with _timed(f"ch.mv n={len(mv_queries)}"):
-            run_clickhouse_statement_in_parallel(mv_queries)
+        run_clickhouse_statement_in_parallel(mv_queries)
 
     view_queries = list(map(build_query, missing(CREATE_VIEW_QUERIES)))
     if view_queries:
-        with _timed(f"ch.view n={len(view_queries)}"):
-            run_clickhouse_statement_in_parallel(view_queries)
+        run_clickhouse_statement_in_parallel(view_queries)
 
     dictionary_queries = list(map(build_query, missing(CREATE_DICTIONARY_QUERIES)))
     if dictionary_queries:
-        with _timed(f"ch.dictionary n={len(dictionary_queries)}"):
-            run_clickhouse_statement_in_parallel(dictionary_queries)
+        run_clickhouse_statement_in_parallel(dictionary_queries)
 
     data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
-    with _timed(f"ch.data n={len(data_queries)}"):
-        run_clickhouse_statement_in_parallel(data_queries)
+    run_clickhouse_statement_in_parallel(data_queries)
 
 
 def reset_clickhouse_tables():
@@ -413,7 +248,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
 
     # Drop Person-related tables from default database and all FK constraints
     # These tables will exist in the persons_db_writer database via sqlx migrations
-    with _timed("pg.person_fk_drops"), django_db_blocker.unblock():
+    with django_db_blocker.unblock():
         with connection.cursor() as cursor:
             # Drop all FK constraints pointing to posthog_person, regardless of naming convention
             # This is needed because:
@@ -456,8 +291,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
             """)
 
     # Run sqlx migrations to create posthog_person_new and related tables
-    with _timed("pg.persons_sqlx"):
-        run_persons_sqlx_migrations(keepdb=django_db_keepdb)
+    run_persons_sqlx_migrations(keepdb=django_db_keepdb)
 
     database = Database(
         settings.CLICKHOUSE_DATABASE,
@@ -477,11 +311,9 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
         except:
             pass
 
-    with _timed("ch.create_database"):
-        database.create_database()  # Create database if it doesn't exist
+    database.create_database()  # Create database if it doesn't exist
 
-    with _timed("ch.create_tables TOTAL"):
-        create_clickhouse_tables()
+    create_clickhouse_tables()
 
     yield
 
