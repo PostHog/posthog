@@ -404,7 +404,10 @@ function TurnBody({ turn, isLoading }: { turn: SessionTurn; isLoading: boolean }
             </div>
         )
     }
-    if (!turn.isLoaded || !turn.userVisibleTurn) {
+    if (!turn.isLoaded) {
+        return <div className="text-muted text-sm py-2">Could not load this trace.</div>
+    }
+    if (!turn.userVisibleTurn) {
         return <div className="text-muted text-sm py-2">No conversational turn to render in this trace.</div>
     }
     // `turn.newInputs` / `outputs` come pre-deduped from `extractSessionTurns`.

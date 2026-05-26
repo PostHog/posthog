@@ -310,11 +310,12 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 return
             }
             try {
-                // First fetch the full trace with all events. The bulk session
-                // events query in `loadAllSessionEvents` covers the conversation
-                // view, but `restoreTree` needs the full nested event tree —
-                // which `TraceQuery` provides per-trace. Falls back to fetching
-                // if the trace isn't already in `fullTraces`.
+                // `loadAllSessionEvents` normally pre-populates `fullTraces`,
+                // and bulk-loaded events work identically as input to
+                // `restoreTree` (which walks parent links via
+                // `properties.$ai_parent_id`). The per-trace `TraceQuery`
+                // below only runs as a fallback when the bulk load failed
+                // or didn't include this trace.
                 let fullTrace: LLMTrace | undefined = values.fullTraces[traceId]
                 if (!fullTrace) {
                     const traceQuery: TraceQuery = {
