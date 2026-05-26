@@ -4,7 +4,8 @@ import os
 import uuid
 import asyncio
 import logging
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -100,6 +101,21 @@ def _log_conversation_spans(hooks: EvalHooks, parsed: ParsedLog) -> None:
             span.log(metadata={"message": span_desc.content})
 
 
+@asynccontextmanager
+async def _maybe_acquire(sem: asyncio.Semaphore | None) -> AsyncIterator[None]:
+    """Acquire ``sem`` only if provided. No-op context otherwise.
+
+    Lets ``SandboxedEval`` stay callable from places that don't supply a
+    session-wide semaphore (older callers, ad-hoc scripts) while still
+    gating real concurrency when one is plumbed through.
+    """
+    if sem is None:
+        yield
+        return
+    async with sem:
+        yield
+
+
 async def SandboxedEval(
     experiment_name: str,
     cases: Sequence[SandboxedEvalCase],
@@ -122,6 +138,18 @@ async def SandboxedEval(
     """
     # Generate a unique experiment ID per eval run
     experiment_id = str(uuid.uuid4())
+
+    # Session-wide concurrency cap (Docker sandbox slots). When the demo
+    # holder exposes a semaphore, it's the real gate; ``EvalAsync``
+    # ``max_concurrency`` is set high so Braintrust's per-experiment queue
+    # doesn't artificially throttle us. Letting cases from different
+    # ``SandboxedEval`` calls share one budget is the point: a 1-case
+    # experiment doesn't starve a 20-case one. The actual ``Semaphore`` is
+    # resolved lazily inside ``task()`` so it binds to the running loop.
+    get_concurrency_semaphore = getattr(sandboxed_demo_data, "get_concurrency_semaphore", None)
+    has_concurrency_cap = (
+        get_concurrency_semaphore is not None and getattr(sandboxed_demo_data, "concurrency_limit", 0) > 0
+    )
 
     # Shared lookups populated by task(), read after EvalAsync completes.
     agent_trace_id_lookup: dict[str, str] = {}
@@ -192,7 +220,9 @@ async def SandboxedEval(
                     logger.exception("Setup hook failed for '%s'", eval_case.name)
                     raise
 
-            result = await run_eval_case(eval_case, sandbox_context)
+            sem = get_concurrency_semaphore() if get_concurrency_semaphore is not None else None
+            async with _maybe_acquire(sem):
+                result = await run_eval_case(eval_case, sandbox_context)
 
             # Store trace_id in metadata so evaluation events can link to the trace
             if result.trace_id:
@@ -266,13 +296,20 @@ async def SandboxedEval(
     if os.getenv("EVAL_MODE") == "offline":
         timeout = 60 * 60
 
+    # When a session-wide semaphore is set, set ``max_concurrency`` high enough
+    # that Braintrust's per-experiment queue never artificially throttles us —
+    # the semaphore is the real gate. When no semaphore (legacy ad-hoc usage),
+    # fall back to a conservative 2 so we don't accidentally launch 64 docker
+    # containers from a one-off script.
+    max_concurrency = 64 if has_concurrency_cap else 2
+
     result = await EvalAsync(
         project_name,
         data=eval_cases,
         task=task,
         scores=active_scorers,
         timeout=timeout,
-        max_concurrency=2,
+        max_concurrency=max_concurrency,
         update=True,
         is_public=is_public,
         no_send_logs=no_send_logs,

@@ -43,28 +43,53 @@ LLM_GATEWAY_PORT = 13308  # Non-default port to avoid conflicts with dev LLM gat
 SANDBOXED_EVAL_SETUP_DATABASES: dict[str, None] = {"default": None}
 
 
-def pytest_collection_modifyitems(config, items):  # noqa: ARG001
-    """Keep sandboxed evals out of pytest-django's per-test DB wrappers.
+def pytest_addoption(parser):
+    parser.addoption(
+        "--sandbox-concurrency",
+        action="store",
+        default="20",
+        help=(
+            "Maximum number of sandboxed eval cases (Docker containers) running concurrently "
+            "across the entire pytest session — shared between every eval_* test, so a test "
+            "with one case can't starve a test with twenty. Set to 0 to disable the cap."
+        ),
+    )
+    parser.addoption(
+        "--concurrent-evals",
+        action="store_true",
+        default=False,
+        help=(
+            "Replace the individual eval_* tests with a single batch test that gathers every "
+            "sandboxed eval_* coroutine into one event loop. Combined with --sandbox-concurrency, "
+            "this keeps the Docker-slot budget saturated across heterogeneous eval suites."
+        ),
+    )
 
-    The sandbox harness starts a live Django server and Temporal worker that
-    use separate DB connections. They must see committed rows immediately, so
-    normal pytest-django test transactions do not work. ``transaction=True``
-    makes the rows visible, but also puts every eval on the transactional test
-    path, which flushes/re-initializes state between tests and defeats the
-    long-lived eval database.
 
-    Instead, ``_sandboxed_eval_database_access`` below creates the DB once and
-    leaves access unblocked for the whole eval session. Strip accidental
-    ``django_db`` markers so pytest-django does not add transactional fixtures
-    back in.
+def pytest_collection_modifyitems(config, items):
+    """Sandboxed-eval collection adjustments.
+
+    1. Strip accidental ``django_db`` markers from sandboxed items — the
+       sandbox harness starts a live Django server and Temporal worker that
+       use separate DB connections. They must see committed rows immediately,
+       so normal pytest-django test transactions do not work.
+       ``transaction=True`` would make rows visible but also flushes between
+       tests, defeating the long-lived eval database.
+       ``_sandboxed_eval_database_access`` below creates the DB once and
+       leaves access unblocked for the whole eval session.
+    2. Resolve the batch-runner / individual-eval mutual exclusion based on
+       the ``--concurrent-evals`` flag (see below).
     """
     base_dir = Path(__file__).parent
+    batch_module_path = base_dir / "eval_all.py"
+    sandboxed_items: list = []
     for item in items:
         try:
             test_path = Path(str(item.fspath))
             test_path.relative_to(base_dir)
         except (TypeError, ValueError):
             continue
+        sandboxed_items.append(item)
         node = item
         while node is not None:
             own_markers = getattr(node, "own_markers", None)
@@ -72,6 +97,31 @@ def pytest_collection_modifyitems(config, items):  # noqa: ARG001
                 node.own_markers = [marker for marker in own_markers if marker.name != "django_db"]
             node = node.parent
         item.keywords.pop("django_db", None)
+
+    # The batch runner (eval_all.py) and the individual eval_* tests are
+    # mutually exclusive. --concurrent-evals selects the batch runner and
+    # deselects the individuals; without the flag we deselect the batch
+    # runner instead, otherwise it would double-run every suite.
+    concurrent_mode = config.getoption("--concurrent-evals")
+    deselected: list = []
+    remaining: list = []
+    for item in items:
+        try:
+            test_path = Path(str(item.fspath))
+        except (TypeError, ValueError):
+            remaining.append(item)
+            continue
+        is_batch = item in sandboxed_items and test_path == batch_module_path
+        is_individual_eval = item in sandboxed_items and test_path != batch_module_path
+        if concurrent_mode and is_individual_eval:
+            deselected.append(item)
+        elif not concurrent_mode and is_batch:
+            deselected.append(item)
+        else:
+            remaining.append(item)
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = remaining
 
 
 @pytest.fixture(scope="session")
@@ -555,12 +605,46 @@ class SandboxedDemoData:
     for every eval case via ``make_context(label)``. Each call copies the master
     into a brand-new org/team/user with its own core memory and tasks-API
     access, so concurrent eval cases can't pollute each other's state.
+
+    ``get_concurrency_semaphore()`` returns an ``asyncio.Semaphore`` keyed by
+    the running event loop. ``SandboxedEval``'s ``task()`` acquires it around
+    the real Docker work — so cases from different eval_* tests share one
+    Docker-slot budget instead of each test resetting it. Per-loop caching
+    matters because ``asyncio.Semaphore`` binds to the first loop it sees,
+    and pytest-asyncio spins up a fresh loop per individual test. The batch
+    runner (``eval_all.py``) keeps everything in one loop, so all gathered
+    suites share the same semaphore instance.
+
+    ``concurrency_limit`` is the desired cap; ``concurrency_limit <= 0`` means
+    "no cap" and ``get_concurrency_semaphore`` returns ``None``.
     """
 
-    def __init__(self, master_team_id: int, django_db_blocker, agent_model: str | None = None):
+    def __init__(
+        self,
+        master_team_id: int,
+        django_db_blocker,
+        agent_model: str | None = None,
+        concurrency_limit: int = 0,
+    ):
         self.master_team_id = master_team_id
         self._django_db_blocker = django_db_blocker
         self.agent_model = agent_model
+        self.concurrency_limit = concurrency_limit
+        self._semaphores_by_loop: dict[int, asyncio.Semaphore] = {}
+
+    def get_concurrency_semaphore(self) -> asyncio.Semaphore | None:
+        if self.concurrency_limit <= 0:
+            return None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+        key = id(loop)
+        sem = self._semaphores_by_loop.get(key)
+        if sem is None:
+            sem = asyncio.Semaphore(self.concurrency_limit)
+            self._semaphores_by_loop[key] = sem
+        return sem
 
     def make_context(self, case_label: str) -> CustomPromptSandboxContext:
         from products.tasks.backend.models import CodeInvite, CodeInviteRedemption
@@ -598,10 +682,15 @@ def sandboxed_demo_data(
 
     agent_model = pytestconfig.getoption("--agent-model")
     logger.info("Sandboxed eval agent model pinned to %r", agent_model)
+
+    concurrency = int(pytestconfig.getoption("--sandbox-concurrency"))
+    logger.info("Sandboxed eval concurrency capped at %d", concurrency)
+
     return SandboxedDemoData(
         master_team_id=master_team_id,
         django_db_blocker=django_db_blocker,
         agent_model=agent_model,
+        concurrency_limit=concurrency,
     )
 
 
