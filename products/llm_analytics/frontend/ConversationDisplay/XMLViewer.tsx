@@ -18,7 +18,9 @@ export function XMLViewer({ children: xmlContent, collapsed = 3 }: XMLViewerProp
     const parsedXML = parseXML(xmlContent)
 
     if (!parsedXML) {
-        return <span className="font-mono whitespace-pre-wrap text-danger">Invalid XML content</span>
+        // Content looks like XML but isn't valid (e.g. markdown with embedded HTML tags).
+        // Render as plain text instead of surfacing a confusing parse error to the user.
+        return <span className="font-mono whitespace-pre-wrap">{xmlContent}</span>
     }
 
     return (

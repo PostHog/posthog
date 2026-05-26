@@ -3,13 +3,12 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowRight, IconClock, IconGear, IconInfo, IconLock, IconPin, IconRewind, IconStar } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconInfo, IconLock, IconPin, IconStar } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { uuid } from 'lib/utils'
@@ -20,11 +19,8 @@ import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { HomepageGridItem, HomepageGridItemKind, aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
@@ -236,45 +232,6 @@ const GRID_COLUMNS: GridColumn[] = [
     },
 ]
 
-function getGridItemContextMenu(
-    item: HomepageGridItem,
-    actions: { deleteShortcut: (id: string) => void; addShortcutItem: (entry: FileSystemEntry) => void }
-): React.ReactNode | undefined {
-    if (item.kind === 'starred' && item.entryId) {
-        return (
-            <ContextMenuItem
-                asChild
-                onClick={() => {
-                    posthog.capture('homepage grid item remove from starred', { kind: item.kind, href: item.href })
-                    actions.deleteShortcut(item.entryId!)
-                }}
-                data-attr="homepage-grid-remove-from-starred"
-            >
-                <ButtonPrimitive menuItem variant="danger" forceVariant>
-                    <IconStar className="size-4 text-inherit" /> Remove from starred
-                </ButtonPrimitive>
-            </ContextMenuItem>
-        )
-    }
-    if (item.kind === 'recent' && item.entry) {
-        return (
-            <ContextMenuItem
-                asChild
-                onClick={() => {
-                    posthog.capture('homepage grid item add to starred', { kind: item.kind, href: item.href })
-                    actions.addShortcutItem(item.entry!)
-                }}
-                data-attr="homepage-grid-add-to-starred"
-            >
-                <ButtonPrimitive menuItem>
-                    <IconStar className="size-4" /> Add to starred
-                </ButtonPrimitive>
-            </ContextMenuItem>
-        )
-    }
-    return undefined
-}
-
 const GRID_SKELETON_COUNTS_KEY = 'homepage-grid-skeleton-counts'
 
 function getStoredSkeletonCounts(): Record<string, number> | null {
@@ -289,7 +246,6 @@ function getStoredSkeletonCounts(): Record<string, number> | null {
 function IdleGrid(): JSX.Element {
     const { gridItems, query, dashboardsLoading, recentItemsLoading, starredItemsLoading } =
         useValues(aiFirstHomepageLogic)
-    const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const gridRef = useRef<HTMLDivElement>(null)
     // [col, row] position of the highlighted item, null = nothing highlighted
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
@@ -512,10 +468,6 @@ function IdleGrid(): JSX.Element {
                                             }
                                             onMouseEnter={() => setHighlight([colIndex, rowIndex])}
                                             onMouseLeave={() => setHighlight(null)}
-                                            extraContextMenuItems={getGridItemContextMenu(item, {
-                                                deleteShortcut,
-                                                addShortcutItem,
-                                            })}
                                         >
                                             <GridItemIcon item={item} />
                                             <span className="truncate">{item.label}</span>
@@ -531,55 +483,9 @@ function IdleGrid(): JSX.Element {
     )
 }
 
-function HomePageOfframp(): JSX.Element {
-    const { showConfigurePinnedTabsModal, showConfigurePinnedTabsTooltip } = useActions(navigationLogic)
-    const { mobileLayout } = useValues(navigationLogic)
-    const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { revertToPreviousHomepage } = useActions(aiFirstHomepageLogic)
-    const { previousHomepage } = useValues(aiFirstHomepageLogic)
-
-    return (
-        <div className="flex items-center gap-2">
-            <ButtonPrimitive
-                variant="panel"
-                onClick={() => {
-                    posthog.capture('homepage configure home clicked', { source: 'offramp' })
-                    showConfigurePinnedTabsModal()
-                }}
-                className="text-tertiary hover:text-primary"
-            >
-                Configure home <IconGear className="size-4" />
-            </ButtonPrimitive>
-
-            {previousHomepage && (
-                <ButtonPrimitive
-                    variant="panel"
-                    onClick={() => {
-                        posthog.capture('homepage revert clicked', {
-                            previous_homepage_id: previousHomepage.id,
-                            previous_homepage_title: previousHomepage.title,
-                        })
-                        revertToPreviousHomepage()
-                        showConfigurePinnedTabsTooltip()
-                        if (mobileLayout) {
-                            showLayoutNavBar(true)
-                        }
-                    }}
-                    tooltip={`Revert to ${previousHomepage.title || 'previous homepage'}, this causes a full page refresh`}
-                    className="text-tertiary hover:text-primary"
-                >
-                    Put my {(previousHomepage.title || 'previous homepage').toLocaleLowerCase()} back{' '}
-                    <IconRewind className="size-4" />
-                </ButtonPrimitive>
-            )}
-        </div>
-    )
-}
-
 export function HomepageInput(): JSX.Element {
     const { mode } = useValues(aiFirstHomepageLogic)
     const { user } = useValues(userLogic)
-    const { isConfigurePinnedTabsTooltipDismissed } = useValues(navigationLogic)
 
     return (
         <div className="w-full max-w-180 mx-auto py-2 ">
@@ -588,8 +494,6 @@ export function HomepageInput(): JSX.Element {
                     <Intro forceHeadline={`Hello ${user?.first_name || 'there'}`} forceSubheadline={null} />
                     <IdleInput />
                     <IdleGrid />
-
-                    {!isConfigurePinnedTabsTooltipDismissed && <HomePageOfframp />}
                 </div>
             )}
             {mode === 'ai' && <HomepageAiInput />}

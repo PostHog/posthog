@@ -1,9 +1,9 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
-{% block preheader %}You've used {{ threshold_pct }}% of your LLM analytics trial evaluations{% endblock %}
+{% block preheader %}You've used {{ threshold_pct }}% of your AI observability trial evaluations{% endblock %}
 {% block heading %}You've used {{ threshold_pct }}% of your trial evaluations{% endblock %}
 {% block section %}
 <p>
-    Your team has used <strong>{{ trial_evals_used }}</strong> of <strong>{{ trial_eval_limit }}</strong> trial evaluations for LLM analytics, with <strong>{{ trial_evals_remaining }}</strong> remaining.
+    Your team has used <strong>{{ trial_evals_used }}</strong> of <strong>{{ trial_eval_limit }}</strong> trial evaluations for AI observability, with <strong>{{ trial_evals_remaining }}</strong> remaining.
 </p>
 {% if affected_evals %}
 <p>
@@ -19,7 +19,7 @@
 </p>
 {% endif %}
 <p>
-    To ensure uninterrupted evaluations, add your own provider API key in the <a href="{% absolute_uri settings_url %}">LLM analytics settings</a>.
+    To ensure uninterrupted evaluations, add your own provider API key in the <a href="{% absolute_uri settings_url %}">AI observability settings</a>.
 </p>
 <div class="mb mt text-center">
     <a class="button" href="{% absolute_uri settings_url %}">Add your API key</a>

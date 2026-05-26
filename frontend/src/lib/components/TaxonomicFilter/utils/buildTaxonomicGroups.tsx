@@ -489,7 +489,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Logs',
             searchPlaceholder: 'logs',
             type: TaxonomicFilterGroupType.Logs,
-            options: [{ key: 'message', name: 'Message', propertyFilterType: 'log' }],
+            options: [
+                { key: 'message', name: 'message', propertyFilterType: 'log' },
+                { key: 'severity_level', name: 'severity_level', propertyFilterType: 'log' },
+                { key: 'trace_id', name: 'trace_id', propertyFilterType: 'log' },
+                { key: 'span_id', name: 'span_id', propertyFilterType: 'log' },
+            ],
             localItemsSearch: (items: any[], q: string): any[] => {
                 if (!q) {
                     return items
@@ -784,7 +789,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.Persons,
             endpoint: `api/environments/${teamId}/persons/`,
             getName: (person: PersonType) => person.name || 'Anon user?',
-            getValue: (person: PersonType) => person.distinct_ids[0],
+            getValue: (person: PersonType) => person.distinct_ids?.[0],
             getPopoverHeader: () => `Person`,
         },
         {

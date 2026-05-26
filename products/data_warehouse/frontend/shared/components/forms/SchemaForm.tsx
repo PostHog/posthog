@@ -67,13 +67,11 @@ export default function SchemaForm(): JSX.Element {
         schemaNameFilter,
         suggestedTablesMap,
         isDirectQueryMode,
-        selectedConnector,
         tablesAllToggledOn,
         source,
         groupedDirectQueryDatabaseSchema,
         expandedDirectQuerySchemaKeys,
     } = useValues(sourceWizardLogic)
-    const isPostgresWarehouseMode = !isDirectQueryMode && selectedConnector?.name === 'Postgres'
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
         if (!isDirectQueryMode && schema.sync_type === null) {
@@ -359,7 +357,9 @@ export default function SchemaForm(): JSX.Element {
                                     embedded
                                     activeKeys={
                                         groupedDirectQueryDatabaseSchema.length === 1
-                                            ? groupedDirectQueryDatabaseSchema.map((g) => g.schemaName)
+                                            ? groupedDirectQueryDatabaseSchema.map(
+                                                  (g: { schemaName: string }) => g.schemaName
+                                              )
                                             : expandedDirectQuerySchemaKeys
                                     }
                                     onChange={setExpandedDirectQuerySchemaKeys}
@@ -468,63 +468,53 @@ export default function SchemaForm(): JSX.Element {
                         ) : (
                             <div className="border rounded px-4 py-8 text-center text-muted-alt">No tables found</div>
                         )
-                    ) : isPostgresWarehouseMode ? (
-                        groupedDirectQueryDatabaseSchema.length > 0 ? (
-                            <div className="border rounded bg-bg-light">
-                                <LemonCollapse
-                                    multiple
-                                    embedded
-                                    activeKeys={
-                                        groupedDirectQueryDatabaseSchema.length === 1
-                                            ? groupedDirectQueryDatabaseSchema.map((g) => g.schemaName)
-                                            : expandedDirectQuerySchemaKeys
-                                    }
-                                    onChange={setExpandedDirectQuerySchemaKeys}
-                                    panels={groupedDirectQueryDatabaseSchema.map(
-                                        ({
-                                            schemaName,
-                                            tables,
-                                        }: {
-                                            schemaName: string
-                                            tables: ExternalDataSourceSyncSchema[]
-                                        }) => ({
-                                            key: schemaName,
-                                            header: (
-                                                <div className="flex items-center justify-between gap-3 w-full">
-                                                    <div className="flex items-center gap-2 min-w-0">
-                                                        <LemonCheckbox
-                                                            checked={getSchemaSelectionState(tables)}
-                                                            stopPropagation
-                                                            onChange={(checked) =>
-                                                                toggleDirectQuerySchemaGroup(schemaName, checked)
-                                                            }
-                                                        />
-                                                        <span className="font-semibold truncate">{schemaName}</span>
-                                                    </div>
-                                                    <span className="text-xs text-muted-alt whitespace-nowrap">
-                                                        {tables.filter((t) => t.should_sync).length} of {tables.length}{' '}
-                                                        tables
-                                                    </span>
+                    ) : groupedDirectQueryDatabaseSchema.length > 1 ? (
+                        <div className="border rounded bg-bg-light">
+                            <LemonCollapse
+                                multiple
+                                embedded
+                                activeKeys={expandedDirectQuerySchemaKeys}
+                                onChange={setExpandedDirectQuerySchemaKeys}
+                                panels={groupedDirectQueryDatabaseSchema.map(
+                                    ({
+                                        schemaName,
+                                        tables,
+                                    }: {
+                                        schemaName: string
+                                        tables: ExternalDataSourceSyncSchema[]
+                                    }) => ({
+                                        key: schemaName,
+                                        header: (
+                                            <div className="flex items-center justify-between gap-3 w-full">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <LemonCheckbox
+                                                        checked={getSchemaSelectionState(tables)}
+                                                        stopPropagation
+                                                        onChange={(checked) =>
+                                                            toggleDirectQuerySchemaGroup(schemaName, checked)
+                                                        }
+                                                    />
+                                                    <span className="font-semibold truncate">{schemaName}</span>
                                                 </div>
-                                            ),
-                                            content: (
-                                                <LemonTable
-                                                    embedded
-                                                    showHeader={false}
-                                                    dataSource={tables}
-                                                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                                                    columns={warehouseColumns}
-                                                />
-                                            ),
-                                        })
-                                    )}
-                                />
-                            </div>
-                        ) : (
-                            <div className="border rounded px-4 py-8 text-center text-muted-alt">
-                                {schemaNameFilter ? `No tables match "${schemaNameFilter}"` : 'No schemas found'}
-                            </div>
-                        )
+                                                <span className="text-xs text-muted-alt whitespace-nowrap">
+                                                    {tables.filter((t) => t.should_sync).length} of {tables.length}{' '}
+                                                    tables
+                                                </span>
+                                            </div>
+                                        ),
+                                        content: (
+                                            <LemonTable
+                                                embedded
+                                                showHeader={false}
+                                                dataSource={tables}
+                                                pagination={{ pageSize: 100, hideOnSinglePage: true }}
+                                                columns={warehouseColumns}
+                                            />
+                                        ),
+                                    })
+                                )}
+                            />
+                        </div>
                     ) : (
                         <LemonTable
                             emptyState={schemaNameFilter ? `No tables match "${schemaNameFilter}"` : 'No schemas found'}

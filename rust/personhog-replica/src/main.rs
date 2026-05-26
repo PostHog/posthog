@@ -6,7 +6,7 @@ use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
+use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
@@ -289,7 +289,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_connection_age = config.grpc_max_connection_age();
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
+    let max_concurrent_requests = config.max_concurrent_requests;
 
+    if max_concurrent_requests > 0 {
+        tracing::info!(
+            limit = max_concurrent_requests,
+            "gRPC load shedding enabled"
+        );
+    }
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
     tokio::spawn(async move {
@@ -309,7 +316,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             server = server.max_connection_age(age);
         }
         if let Err(e) = server
-            .layer(GrpcMetricsLayer)
+            .layer(GrpcMetricsLayer::default().with_processing_time_header())
+            .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
             .add_service(
                 PersonHogReplicaServer::new(service)
                     .max_encoding_message_size(max_send)

@@ -4,7 +4,9 @@ use std::{
 };
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use metrics::counter;
+use sha2::{Digest, Sha512};
 use sqlx::PgPool;
 use tracing::error;
 
@@ -41,7 +43,7 @@ pub enum OrChunkId<R> {
 }
 
 pub enum SymbolSetLoadResult {
-    Data(Vec<u8>),
+    Data(Bytes),
     Missing,
     Failed(String),
     MissingStoragePtr(String),
@@ -88,16 +90,16 @@ pub async fn load_symbol_set_data(
 // use a 0 variant enum to indicate their data is only available in the presence of a chunk ID, and the underlying
 // fetcher simply asserts `unreachable!()`.
 //
-// Most of the "cleverness" of this layer is actually that the `Display` implementation of `OrChunkId`
-// which returns the chunk ID if it's set, rather than the inner T's display implementation, which means
-// that the saving and caching layers, or any other layers above this one that rely on Fetcher::Ref: ToString
-// will use the chunk ID as the symbol set key, rather than the inner T's reference - which makes things like
-// deleting all saved frame resolution results for any frame with a chunk ID that were seen before the chunk id
-// symbol data was uploaded, possible using the chunk id directly.
+// Layers above this one use dedicated ref-derivation traits:
+//   - Caching and concurrency use `SymbolSetCacheKey`, which keeps the `Inner`, `ChunkId`,
+//     and `Both` namespaces distinct so attacker-controlled refs cannot poison each other.
+//   - The `Saving` persistence layer uses `SymbolSetKey`, which separates
+//     the lookup keys (chunk id first, then URL) from the save key (URL when present).
+//     See the trait's docs for why those are kept distinct.
 #[async_trait]
 impl<P> Fetcher for ChunkIdFetcher<P>
 where
-    P: Fetcher<Fetched = Vec<u8>>,
+    P: Fetcher<Fetched = Bytes>,
     P::Ref: Send,
     P::Err: From<UnhandledError> + From<FrameError>,
 {
@@ -156,7 +158,7 @@ where
 #[async_trait]
 impl<P> Parser for ChunkIdFetcher<P>
 where
-    P: Parser<Source = Vec<u8>>,
+    P: Parser<Source = Bytes>,
     P::Set: Send,
 {
     type Source = P::Source;
@@ -197,9 +199,12 @@ where
     }
 }
 
-// The "cleverness" mentioned above - any time an OrChunkId is used as a symbol set reference,
-// and the chunk id is set, it will be used as the key when calling ToString, rather than the
-// inner T's display impl
+// `Display` is the human-readable identity of a ref, used by log lines and resolved frame
+// metadata. For Both, we surface the chunk id because it's the more meaningful identifier
+// across frames carrying both a URL and a chunk id.
+//
+// The persistence and caching layers do NOT use this — see `SymbolSetKey` and
+// `SymbolSetCacheKey` below for why.
 impl<R> Display for OrChunkId<R>
 where
     R: Display,
@@ -210,6 +215,99 @@ where
             OrChunkId::ChunkId(id) => write!(f, "{id}"),
             OrChunkId::Both { inner: _, id } => write!(f, "{id}"),
         }
+    }
+}
+
+// `SymbolSetCacheKey` is the in-memory cache / concurrency identity. Unlike `Display`, it
+// must keep `Both(id, inner)` distinct from bare `ChunkId(id)`: a `Both` lookup may fall back
+// to fetching attacker-controlled URL data when the chunk id is missing, and caching that under
+// the bare chunk-id key would transiently poison future chunk-id-only lookups.
+pub trait SymbolSetCacheKey {
+    fn symbol_set_cache_key(&self) -> String;
+}
+
+fn hashed_symbol_set_cache_key(prefix: &str, parts: &[&str]) -> String {
+    let mut hasher = Sha512::new();
+    for part in parts {
+        hasher.update(part.len().to_be_bytes());
+        hasher.update(part.as_bytes());
+    }
+    format!("{}:{:x}", prefix, hasher.finalize())
+}
+
+impl<R> SymbolSetCacheKey for OrChunkId<R>
+where
+    R: Display,
+{
+    fn symbol_set_cache_key(&self) -> String {
+        match self {
+            OrChunkId::Inner(inner) => hashed_symbol_set_cache_key("inner", &[&inner.to_string()]),
+            OrChunkId::ChunkId(id) => hashed_symbol_set_cache_key("chunk-id", &[id]),
+            OrChunkId::Both { inner, id } => {
+                hashed_symbol_set_cache_key("both", &[id, &inner.to_string()])
+            }
+        }
+    }
+}
+
+impl SymbolSetCacheKey for reqwest::Url {
+    fn symbol_set_cache_key(&self) -> String {
+        hashed_symbol_set_cache_key("inner", &[self.as_str()])
+    }
+}
+
+// `SymbolSetKey` separates the DB lookup keys from the DB save key.
+//
+// The capture pipeline can receive a frame carrying both an attacker-controlled URL and an
+// arbitrary chunk id. Persisting that fetch under the chunk id namespace would let the
+// capture path squat rows that the authenticated upload API (which always keys by chunk id)
+// would later want to write — letting unauthenticated capture traffic pre-empt or be
+// confused with authenticated uploads.
+//
+// To prevent that, capture-driven writes are keyed by the URL the bytes were fetched from,
+// while upload-driven writes stay keyed by chunk id. The two writers can no longer target
+// the same row. Lookups still try the chunk id first (so an upload-API row keyed by chunk
+// id is preferred over a capture-cached row keyed by URL), then fall back to the URL.
+//
+// `save_ref` is `None` for a bare `ChunkId` ref — there is no URL to fetch from, so there's
+// nothing meaningful to persist, and we refuse to write a row keyed by a chunk id we never
+// fetched data for.
+pub trait SymbolSetKey {
+    fn lookup_refs(&self) -> Vec<String>;
+    fn save_ref(&self) -> Option<String>;
+}
+
+impl<R> SymbolSetKey for OrChunkId<R>
+where
+    R: Display,
+{
+    fn lookup_refs(&self) -> Vec<String> {
+        match self {
+            OrChunkId::Inner(inner) => vec![inner.to_string()],
+            OrChunkId::ChunkId(id) => vec![id.clone()],
+            OrChunkId::Both { inner, id } => vec![id.clone(), inner.to_string()],
+        }
+    }
+
+    fn save_ref(&self) -> Option<String> {
+        match self {
+            OrChunkId::Inner(inner) => Some(inner.to_string()),
+            OrChunkId::Both { inner, .. } => Some(inner.to_string()),
+            OrChunkId::ChunkId(_) => None,
+        }
+    }
+}
+
+// `Url` standalone behaves exactly like `OrChunkId::Inner(url)` — a single self-keyed ref
+// with no chunk-id alternative. Used directly by unit tests that wrap `SourcemapProvider`
+// in `Saving` without an intervening `ChunkIdFetcher`.
+impl SymbolSetKey for reqwest::Url {
+    fn lookup_refs(&self) -> Vec<String> {
+        vec![self.to_string()]
+    }
+
+    fn save_ref(&self) -> Option<String> {
+        Some(self.to_string())
     }
 }
 
@@ -235,6 +333,7 @@ mod test {
     use std::sync::Arc;
 
     use async_trait::async_trait;
+    use bytes::Bytes;
     use chrono::Utc;
     use common_types::ClickHouseEvent;
     use mockall::predicate;
@@ -250,7 +349,7 @@ mod test {
         langs::js::RawJSFrame,
         symbol_store::{
             apple::AppleProvider,
-            chunk_id::{ChunkIdFetcher, OrChunkId},
+            chunk_id::{ChunkIdFetcher, OrChunkId, SymbolSetCacheKey},
             hermesmap::HermesMapProvider,
             proguard::ProguardProvider,
             saving::SymbolSetRecord,
@@ -284,6 +383,20 @@ mod test {
             sourcemap: String::from_utf8(MAP.to_vec()).unwrap(),
         })
         .unwrap()
+    }
+
+    #[test]
+    fn symbol_set_cache_key_keeps_ref_namespaces_distinct() {
+        let chunk_id = Uuid::now_v7().to_string();
+        let url = Url::parse("https://example.com/static/chunk.js").unwrap();
+
+        let both = OrChunkId::both(url.clone(), chunk_id.clone()).symbol_set_cache_key();
+        let chunk_only = OrChunkId::<Url>::chunk_id(chunk_id).symbol_set_cache_key();
+        let inner_only = OrChunkId::inner(url).symbol_set_cache_key();
+
+        assert_ne!(both, chunk_only);
+        assert_ne!(both, inner_only);
+        assert_ne!(chunk_only, inner_only);
     }
 
     fn get_example_frame() -> RawJSFrame {
@@ -330,7 +443,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
+            .returning(|_, _| Ok(Some(Bytes::from(get_symbol_data_bytes()))));
 
         let client = Arc::new(client);
 
@@ -371,7 +484,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
+            .returning(|_, _| Ok(Some(Bytes::from(get_symbol_data_bytes()))));
 
         let client = Arc::new(client);
 

@@ -135,3 +135,27 @@ export function computeBarAtIndex({
     const corners = cornersFor(isHorizontal, isPositive, shouldRoundCap)
     return makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, bottomPixel, corners, dataIndex)
 }
+
+/** The track rect behind a bar — the bar's band slot stretched across the whole value
+ *  axis. `axisRangeA`/`axisRangeB` are the two endpoints of the value scale's pixel range
+ *  (in either order — for a vertical Y scale d3 returns `[bottomPx, topPx]`). Used by
+ *  funnel-style charts to draw and hit-test the faint "remainder to 100%" region. */
+export function computeBarTrackRect(
+    bar: BarRect,
+    axisRangeA: number,
+    axisRangeB: number,
+    isHorizontal: boolean
+): BarRect {
+    const valueMin = Math.min(axisRangeA, axisRangeB)
+    const valueSize = Math.abs(axisRangeB - axisRangeA)
+    return isHorizontal
+        ? {
+              x: valueMin,
+              y: bar.y,
+              width: valueSize,
+              height: bar.height,
+              corners: bar.corners,
+              dataIndex: bar.dataIndex,
+          }
+        : { x: bar.x, y: valueMin, width: bar.width, height: valueSize, corners: bar.corners, dataIndex: bar.dataIndex }
+}
