@@ -17,6 +17,17 @@ import {
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
 import { CookielessManager } from '../cookieless/cookieless-manager'
+import {
+    createApplyEventRestrictionsStep,
+    createDropExceptionEventsStep,
+    createEnrichSurveyPersonPropertiesStep,
+    createParseHeadersStep,
+    createParseKafkaMessageStep,
+    createResolveTeamStep,
+    createSkipCookielessRateLimitToOverflowStep,
+    createValidateAiEventTokensStep,
+    createValidateHistoricalMigrationStep,
+} from '../event-preprocessing'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '../event-processing/flush-batch-stores-step'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
@@ -43,7 +54,6 @@ import {
     PostTeamPreprocessingSubpipelineConfig,
     createPostTeamPreprocessingSubpipeline,
 } from './post-team-preprocessing-subpipeline'
-import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
 
 export interface JoinedIngestionPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
@@ -200,13 +210,35 @@ export function createJoinedIngestionPipeline<
             batch
                 .messageAware((b) =>
                     b
+                        // Header-only steps: parse Kafka headers and apply token-level restrictions.
+                        // Cheap; runs per-event before we touch the body.
                         .sequentially((b) =>
-                            createPreTeamPreprocessingSubpipeline(b, {
-                                teamManager,
-                                eventIngestionRestrictionManager,
-                                overflowEnabled,
+                            b.pipe(createParseHeadersStep()).pipe(
+                                createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                                    overflowEnabled,
+                                    preservePartitionLocality,
+                                })
+                            )
+                        )
+                        // Rate-limit non-cookieless events to overflow before parsing the body.
+                        // Cookieless events (headers.distinct_id === sentinel) pass through and are
+                        // handled by the matching only-cookieless step in post-team, which keys on
+                        // the hashed distinct_id assigned by the cookieless step.
+                        .pipeBatch(
+                            createSkipCookielessRateLimitToOverflowStep(
                                 preservePartitionLocality,
-                            })
+                                overflowRedirectService
+                            )
+                        )
+                        // Body parse and team resolution. Anything that needs the parsed event lives here.
+                        .sequentially((b) =>
+                            b
+                                .pipe(createParseKafkaMessageStep())
+                                .pipe(createDropExceptionEventsStep())
+                                .pipe(createResolveTeamStep(teamManager))
+                                .pipe(createValidateHistoricalMigrationStep())
+                                .pipe(createValidateAiEventTokensStep())
+                                .pipe(createEnrichSurveyPersonPropertiesStep())
                         )
                         .filterMap(addTeamToContext, (b) =>
                             b

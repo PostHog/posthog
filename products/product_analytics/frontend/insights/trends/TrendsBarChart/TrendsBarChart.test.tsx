@@ -25,7 +25,7 @@ afterEach(() => {
     cleanup()
 })
 
-const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_BAR]: true }
+const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]: true }
 const trendsBar = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
     buildTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsBar }, ...extra })
 
@@ -153,6 +153,28 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         await waitFor(() => {
             expect(screen.getByRole('img', { name: /chart with/i })).toBeInTheDocument()
         })
+    })
+
+    it('renders custom axis titles in horizontal aggregated mode', async () => {
+        renderInsight({
+            query: aggregatedBar({
+                trendsFilter: {
+                    display: ChartDisplayType.ActionsBarValue,
+                    xAxisLabel: 'Total events',
+                    yAxisLabel: 'Series',
+                },
+            }),
+            featureFlags: HOG_CHARTS_FLAG,
+        })
+
+        await screen.findByRole('img', { name: /chart with/i })
+        expect(getHogChart().xAxisLabel()).toBe('Total events')
+        expect(getHogChart().yAxisLabel()).toBe('Series')
+        expect(
+            getHogChart()
+                .element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
+                ?.getAttribute('transform')
+        ).toContain('rotate(-90')
     })
 
     it('emits one series per breakdown so each bar gets its own color', async () => {
