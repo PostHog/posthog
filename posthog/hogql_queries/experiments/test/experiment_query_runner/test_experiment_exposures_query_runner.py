@@ -1698,10 +1698,11 @@ class TestExposureRunnerVariantFiltering(ExperimentQueryRunnerBaseTest):
         if parameters != "unset":
             resolved = parameters
             if isinstance(parameters, dict):
+                holdout_key = f"holdout-{holdout.id}" if holdout is not None else self._HOLDOUT_KEY
                 resolved = {
                     **parameters,
                     "excluded_variants": [
-                        f"holdout-{holdout.id}" if key == self._HOLDOUT_KEY else key
+                        holdout_key if key == self._HOLDOUT_KEY else key
                         for key in parameters.get("excluded_variants", [])
                     ],
                 }
