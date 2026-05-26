@@ -91,11 +91,12 @@ class MultiTurnSession:
         if on_task_run_created is not None:
             try:
                 await on_task_run_created(task_run)
-            except Exception:
+            except Exception as e:
                 # The TaskRun + sandbox workflow are already spawned. If the hook fails
                 # (e.g. the caller's bridge-row insert hits a transient DB error), tear the
                 # session down so we don't leak a running workflow/sandbox, then propagate.
-                await session.end()
+                # End as failed so the TaskRun status reflects the abort, not "completed".
+                await session.end(status="failed", error=str(e))
                 raise
         started_at = time.monotonic()
         try:
@@ -108,12 +109,13 @@ class MultiTurnSession:
                 time.monotonic() - started_at,
             )
             parsed = cls._parse_and_validate(last_message, model, label="initial turn")
-        except Exception:
+        except Exception as e:
             # The session + sandbox workflow are already spawned, but `start()` is about to
             # raise so the caller never receives the session to run its own teardown. End it
             # here so a first-turn poll/parse failure doesn't leak a running workflow/sandbox
             # until its own timeout — mirrors the `on_task_run_created` failure path above.
-            await session.end()
+            # End as failed so the TaskRun status reflects the abort, not "completed".
+            await session.end(status="failed", error=str(e))
             raise
         return session, parsed
 
@@ -192,12 +194,17 @@ class MultiTurnSession:
         json_data = extract_json_from_text(text=text, label=label)
         return model.model_validate(json_data)
 
-    async def end(self) -> None:
-        """Signal the workflow to shut down cleanly."""
+    async def end(self, *, status: str = "completed", error: str | None = None) -> None:
+        """Signal the workflow to shut down, recording `status` as the terminal TaskRun state.
+
+        Pass `status="failed"` (with an `error` message) when ending because of an error, so
+        the underlying `TaskRun` isn't recorded as `completed` — otherwise failed runs corrupt
+        run-status metrics and mislead operational triage.
+        """
         if not self._workflow_handle:
             raise RuntimeError("Workflow handle is not available in this session.")
         try:
-            await self._workflow_handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
-            logger.info("multi_turn: ended session run=%s", self.task_run.id)
+            await self._workflow_handle.signal(ProcessTaskWorkflow.complete_task, args=[status, error])
+            logger.info("multi_turn: ended session run=%s status=%s", self.task_run.id, status)
         except Exception:
             logger.warning("multi_turn: failed to signal completion run=%s", self.task_run.id, exc_info=True)
