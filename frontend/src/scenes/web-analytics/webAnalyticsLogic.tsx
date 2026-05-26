@@ -1534,6 +1534,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   conversionGoal,
                                                   orderBy: tablesOrderBy ?? undefined,
                                                   stripQueryParams: shouldStripQueryParams,
+                                                  doPathCleaning: isPathCleaningEnabled,
                                               },
                                               embedded: false,
                                               showActions: true,
