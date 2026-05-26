@@ -95,9 +95,19 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         path="/repos/{repository}/actions/runs",
         partition_key="created_at",
         incremental_fields=[
-            # GitHub's workflow_runs API only filters by `created` server-side
-            # and returns newest-first by created_at. updated_at is not
-            # filterable or sortable, so we don't expose it as a cursor.
+            # The list endpoint returns newest-first by created_at and exposes
+            # no updated_at filter/sort, so created_at is the only viable
+            # cursor. We sync incrementally by paginating newest-first and
+            # stopping once we cross below the cursor (see github.py), mirroring
+            # how pull_requests/commits scroll desc. We deliberately do NOT send
+            # the server-side `created` filter: GitHub caps any filtered search
+            # to 1,000 results, which would silently truncate busy repos.
+            #
+            # created_at is immutable, but a run's status/conclusion mutate
+            # after it first appears. The created_at cursor only refreshes runs
+            # at/above the watermark, so a run that completes well after newer
+            # runs landed won't be picked up here — that's handled by the
+            # workflow_run webhook (followup), not by re-scanning history.
             {
                 "label": "created_at",
                 "type": IncrementalFieldType.DateTime,
@@ -106,7 +116,7 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
             },
         ],
         default_incremental_field="created_at",
-        sort_mode="desc",  # Workflow runs API always returns newest-first
+        sort_mode="desc",  # API always returns newest-first; sort/direction are ignored
         response_data_path="workflow_runs",
     ),
 }

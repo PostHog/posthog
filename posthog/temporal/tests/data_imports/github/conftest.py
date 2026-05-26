@@ -85,17 +85,6 @@ class MockGithubAPI:
                 if (date_str := self._get_item_date(item)) and dateutil_parser.parse(date_str) > since_dt
             ]
 
-        # workflow_runs uses GitHub search syntax: ?created=>={iso} (or <=, ..)
-        if "created" in query:
-            raw = query["created"][0]
-            if raw.startswith(">="):
-                cutoff = dateutil_parser.parse(raw[2:])
-                data = [
-                    item
-                    for item in data
-                    if (created := item.get("created_at")) and dateutil_parser.parse(created) >= cutoff
-                ]
-
         sort_field = query.get("sort", [None])[0]
         direction = query.get("direction", ["asc"])[0]
         if sort_field:
@@ -109,12 +98,16 @@ class MockGithubAPI:
             # Workflow runs API always returns newest-first by created_at.
             data = sorted(data, key=lambda x: x.get("created_at") or "", reverse=True)
 
+        # total_count is the filtered count before pagination, matching GitHub's
+        # enveloped endpoints (the count does not shrink page to page).
+        total_count = len(data)
+
         per_page = int(query.get("per_page", ["100"])[0])
         page = int(query.get("page", ["1"])[0])
         start = (page - 1) * per_page
         end = start + per_page
 
-        has_more = end < len(data)
+        has_more = end < total_count
         data = data[start:end]
 
         if has_more:
@@ -124,7 +117,7 @@ class MockGithubAPI:
 
         envelope_key = self.ENVELOPE_KEYS.get(resource)
         if envelope_key:
-            return {"total_count": len(data), envelope_key: data}
+            return {"total_count": total_count, envelope_key: data}
         return data
 
     def get_all_api_calls(self) -> list:

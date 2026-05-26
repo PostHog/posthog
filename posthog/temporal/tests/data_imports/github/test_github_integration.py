@@ -255,43 +255,32 @@ async def test_github_workflow_runs_full_refresh(
 async def test_github_workflow_runs_incremental(
     team, mock_github_api, external_data_source, external_data_schema_workflow_runs_incremental
 ):
-    # First sync: limit data to runs created on or before Jan 22
-    mock_github_api.set_max_updated("2026-01-22T23:59:59Z")
+    # Single-sync test mirroring the pull_requests/commits incremental tests:
+    # workflow_runs scrolls newest-first and bounds incremental syncs via
+    # client-side early-stop (no server filter), so the request shape is what
+    # matters here. The newest-first re-read + primary-key dedup across syncs is
+    # the pipeline merge's job; exercising it through two rapid in-harness syncs
+    # is flaky, so the desc early-stop overlap is covered deterministically in
+    # test_github_source.py instead.
+    expected_num_rows = len(WORKFLOW_RUNS)
 
-    # 2 of 3 fixture runs have created_at <= Jan 22 (id 1001, 1002)
     await run_external_data_job_workflow(
         team=team,
         external_data_source=external_data_source,
         external_data_schema=external_data_schema_workflow_runs_incremental,
         table_name="github_workflow_runs",
-        expected_rows_synced=2,
-        expected_total_rows=2,
+        expected_rows_synced=expected_num_rows,
+        expected_total_rows=expected_num_rows,
     )
 
     api_calls = mock_github_api.get_all_api_calls()
     assert len(api_calls) == 1
+    assert "/repos/owner/repo/actions/runs" in api_calls[0].url
+    # No created/since/sort/state — the 1,000-result search cap is only hit when
+    # those filters are sent, so workflow_runs avoids them entirely.
     first_call_params = parse_qs(urlparse(api_calls[0].url).query)
-    # First sync has no `created` filter (no cutoff yet).
     assert "created" not in first_call_params
-
-    # Second sync: make all data visible. The cursor sits at created_at of the
-    # newest row from the first sync (Jan 22), so ?created=>=Jan22 returns runs
-    # 1002 (boundary inclusive) and 1003. 1002 dedupes via the `id` merge key.
-    mock_github_api.reset_max_updated()
-
-    await run_external_data_job_workflow(
-        team=team,
-        external_data_source=external_data_source,
-        external_data_schema=external_data_schema_workflow_runs_incremental,
-        table_name="github_workflow_runs",
-        expected_rows_synced=2,
-        expected_total_rows=3,
-    )
-
-    api_calls = mock_github_api.get_all_api_calls()
-    assert len(api_calls) == 2
-    # Second sync should use the ?created=>= filter, not ?since=.
-    second_call_params = parse_qs(urlparse(api_calls[1].url).query)
-    assert "created" in second_call_params
-    assert second_call_params["created"][0].startswith(">=")
-    assert "since" not in second_call_params
+    assert "since" not in first_call_params
+    assert "sort" not in first_call_params
+    assert "direction" not in first_call_params
+    assert "state" not in first_call_params
