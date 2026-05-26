@@ -211,9 +211,7 @@ impl Error {
     }
 
     pub(crate) fn stat_error(&self, ctx: Option<&Context>) {
-        let path = ctx
-            .map(|c| c.path.clone())
-            .unwrap_or_else(|| CAPTURE_V1_UNKNOWN_PATH.to_owned());
+        let path = ctx.map(|c| c.path).unwrap_or(CAPTURE_V1_UNKNOWN_PATH);
         let status = self.status_code().as_str().to_owned();
         counter!(
             CAPTURE_V1_ERROR_METRIC,

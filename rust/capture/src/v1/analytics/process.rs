@@ -867,7 +867,7 @@ mod tests {
             client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             query: crate::v1::analytics::query::Query::default(),
             method: axum::http::Method::POST,
-            path: "/i/v1/general/events".to_string(),
+            path: "/i/v1/general/events",
             server_received_at,
             created_at: None,
             capture_internal: false,
@@ -1935,6 +1935,7 @@ mod tests {
             "retriable" => MockSinkResult::retriable(uuid, cause),
             "timeout" => MockSinkResult::timeout(uuid),
             "fatal" => MockSinkResult::fatal(uuid, cause),
+            "fatal_no_cause" => MockSinkResult::fatal_no_cause(uuid),
             _ => panic!("unknown outcome: {outcome}"),
         }
     }
@@ -1951,6 +1952,7 @@ mod tests {
     )]
     #[case::fatal_event_too_big("fatal", "event_too_big", EventResult::Drop, Some("event_too_big"))]
     #[case::fatal_generic("fatal", "rdkafka_other", EventResult::Drop, Some("rejected"))]
+    #[case::fatal_no_cause("fatal_no_cause", "", EventResult::Drop, Some("rejected"))]
     fn merge_single_outcome(
         #[case] outcome: &str,
         #[case] cause: &'static str,

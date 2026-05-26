@@ -21,7 +21,7 @@ pub async fn extract_body_with_timeout(
     payload_size_limit: usize,
     chunk_timeout: Option<Duration>,
     chunk_size_kb: usize,
-    path: &str,
+    path: &'static str,
 ) -> Result<Bytes, Error> {
     let mut stream = body.into_data_stream();
     let mut buf = BytesMut::with_capacity(std::cmp::min(payload_size_limit, chunk_size_kb * 1024));
@@ -31,8 +31,7 @@ pub async fn extract_body_with_timeout(
             Some(timeout) => match tokio::time::timeout(timeout, stream.next()).await {
                 Ok(result) => result,
                 Err(_elapsed) => {
-                    metrics::counter!(CAPTURE_V1_BODY_READ_TIMEOUT, "path" => path.to_string())
-                        .increment(1);
+                    metrics::counter!(CAPTURE_V1_BODY_READ_TIMEOUT, "path" => path).increment(1);
                     return Err(Error::BodyReadTimeout(buf.len()));
                 }
             },

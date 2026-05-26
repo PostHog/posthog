@@ -4,6 +4,7 @@ use axum::http::{header, HeaderMap, Method};
 use axum::response::IntoResponse;
 use axum_client_ip::InsecureClientIp;
 
+use super::constants::{CAPTURE_V1_PATH, CAPTURE_V1_PATH_TRAILING};
 use super::query::Query;
 use super::types::Batch;
 use tracing::Level;
@@ -21,7 +22,15 @@ pub async fn handle_request(
     path: MatchedPath,
     body: Body,
 ) -> Result<axum::response::Response, v1::Error> {
-    let mut context = Context::new(&headers, &ip, &query, method.clone(), path.as_str())
+    let static_path: &'static str = match path.as_str() {
+        CAPTURE_V1_PATH => CAPTURE_V1_PATH,
+        CAPTURE_V1_PATH_TRAILING => CAPTURE_V1_PATH_TRAILING,
+        other => {
+            tracing::warn!(path = other, "unexpected matched path");
+            CAPTURE_V1_PATH
+        }
+    };
+    let mut context = Context::new(&headers, &ip, &query, method.clone(), static_path)
         .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query, &method, &path))?;
 
     // TODO: purposely chatty, for now
@@ -32,7 +41,7 @@ pub async fn handle_request(
         state.capture_v1_max_compressed_body_bytes,
         state.body_chunk_read_timeout,
         state.body_read_chunk_size_kb,
-        &context.path,
+        context.path,
     )
     .await
     .map_err(|err| {

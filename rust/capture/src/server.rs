@@ -228,23 +228,17 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         graceful.shutdown().await;
         info!("Hyper accept loop (shutdown): graceful shutdown completed");
 
-        // Flush sink producer queues. Events from in-flight handlers may still
-        // be in rdkafka's internal buffers. Flush both concurrently so dual-produce
-        // mode doesn't double shutdown latency.
+        // Legacy sink flush is synchronous (rdkafka); v1 sinks use spawn_blocking
+        // internally (see KafkaSink::flush). Sequential here until legacy is retired.
         info!("Flushing sinks...");
-        let legacy_flush = async {
-            if let Err(e) = sink.flush() {
-                error!("Sink flush failed: {e:#}");
+        if let Err(e) = sink.flush() {
+            error!("Sink flush failed: {e:#}");
+        }
+        if let Some(ref v1_router) = v1_sink_router {
+            if let Err(e) = v1_router.flush().await {
+                error!("V1 sink router flush failed: {e:#}");
             }
-        };
-        let v1_flush = async {
-            if let Some(ref v1_router) = v1_sink_router {
-                if let Err(e) = v1_router.flush().await {
-                    error!("V1 sink router flush failed: {e:#}");
-                }
-            }
-        };
-        tokio::join!(legacy_flush, v1_flush);
+        }
         info!("Sink flush complete");
 
         // _scope drops here -> ProcessScopeGuard signals WorkCompleted

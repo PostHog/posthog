@@ -38,7 +38,7 @@ pub fn test_context() -> Context {
         client_ip: IpAddr::V4(Ipv4Addr::LOCALHOST),
         query: Query::default(),
         method: Method::POST,
-        path: "/i/v1/general/events".to_string(),
+        path: "/i/v1/general/events",
         server_received_at: Utc::now(),
         created_at: Some("2026-03-19T14:30:00.000Z".to_string()),
         capture_internal: false,
@@ -563,6 +563,16 @@ impl MockSinkResult {
             outcome: Outcome::FatalError,
             cause: Some(cause),
             detail: Some(format!("{cause}: permanent failure")),
+            elapsed: None,
+        })
+    }
+
+    pub fn fatal_no_cause(uuid: Uuid) -> Box<dyn SinkResultTrait> {
+        Box::new(Self {
+            uuid,
+            outcome: Outcome::FatalError,
+            cause: None,
+            detail: None,
             elapsed: None,
         })
     }
