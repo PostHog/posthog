@@ -230,7 +230,9 @@ export function AgentPromptButton({
                                 </DropdownMenuRadioItem>
                             ))}
                         </DropdownMenuRadioGroup>
-                        <DropdownMenuSeparator />
+                        {/* Direct child of the padding-less menu inner — drop the separator's
+                            default -mx-1 so it doesn't overflow and trigger scroll shadows */}
+                        <DropdownMenuSeparator className="mx-0" />
                     </>
                 )}
                 <DropdownMenuLabel>Open in</DropdownMenuLabel>
