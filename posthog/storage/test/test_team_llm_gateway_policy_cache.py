@@ -27,25 +27,20 @@ class TestLLMGatewayPolicyProjection(BaseTest):
     """The projection is the contract with the Go service — pin its shape."""
 
     def test_projection_has_expected_fields(self):
+        # The field list must match what the serializer actually emits, so a
+        # field added to one but not the other fails here.
         self.assertEqual(
             set(LLM_GATEWAY_POLICY_FIELDS),
-            {
-                "id",
-                "api_token",
-                "llm_gateway_allowed_models",
-                "llm_gateway_tier",
-                "llm_gateway_revoked_at",
-            },
+            set(_serialize_team_to_llm_gateway_policy(self.team).keys()),
+        )
+        self.assertEqual(
+            set(LLM_GATEWAY_POLICY_FIELDS),
+            {"id", "api_token", "llm_gateway_revoked_at"},
         )
 
     def test_populated_team_round_trips_through_json(self):
         revoked_at = datetime(2026, 5, 20, 12, 34, 56, tzinfo=UTC)
 
-        self.team.llm_gateway_allowed_models = [
-            "openai/gpt-4o",
-            "anthropic/claude-sonnet-4-6",
-        ]
-        self.team.llm_gateway_tier = "enterprise"
         self.team.llm_gateway_revoked_at = revoked_at
         self.team.save()
 
@@ -53,29 +48,22 @@ class TestLLMGatewayPolicyProjection(BaseTest):
 
         self.assertEqual(policy["id"], self.team.id)
         self.assertEqual(policy["api_token"], self.team.api_token)
-        self.assertEqual(
-            policy["llm_gateway_allowed_models"],
-            ["openai/gpt-4o", "anthropic/claude-sonnet-4-6"],
-        )
-        self.assertEqual(policy["llm_gateway_tier"], "enterprise")
         # Datetime must be ISO8601 so the Go service can parse it from JSON.
         self.assertEqual(policy["llm_gateway_revoked_at"], revoked_at.isoformat())
 
         rehydrated = json.loads(json.dumps(policy))
         self.assertEqual(rehydrated, policy)
 
-    def test_unset_team_serializes_to_nulls(self):
+    def test_unset_team_serializes_to_null_revoked_at(self):
         """
-        A team with no llm_gateway_* overrides projects nulls, not defaults.
-        The Go service is responsible for normalizing null -> ("free", [], not
-        revoked); this keeps the schema migration backfill-free.
+        A team that has never been revoked projects a null revoked_at, not a
+        default, so the schema migration needs no backfill. The gateway treats
+        null as active.
         """
         policy = _serialize_team_to_llm_gateway_policy(self.team)
 
         self.assertEqual(policy["id"], self.team.id)
         self.assertEqual(policy["api_token"], self.team.api_token)
-        self.assertIsNone(policy["llm_gateway_allowed_models"])
-        self.assertIsNone(policy["llm_gateway_tier"])
         self.assertIsNone(policy["llm_gateway_revoked_at"])
 
 
@@ -87,8 +75,6 @@ class TestLLMGatewayPolicyCacheOps(BaseTest):
         mock_payload: dict[str, Any] = {
             "id": self.team.id,
             "api_token": self.team.api_token,
-            "llm_gateway_allowed_models": None,
-            "llm_gateway_tier": None,
             "llm_gateway_revoked_at": None,
         }
         mock_hypercache.get_from_cache.return_value = mock_payload
@@ -120,30 +106,30 @@ class TestLLMGatewayPolicyTasks(BaseTest):
 class TestLLMGatewayPolicySignals(BaseTest):
     """Verify the cache is invalidated independently of the team_metadata cache."""
 
-    @patch("posthog.tasks.team_llm_gateway_policy.transaction")
-    @patch("posthog.tasks.team_llm_gateway_policy.settings")
-    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
     def test_team_save_enqueues_update(self, mock_delay, mock_settings, mock_transaction):
         mock_settings.FLAGS_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
-        self.team.llm_gateway_tier = "pro"
+        self.team.llm_gateway_revoked_at = datetime(2026, 5, 20, 12, 0, 0, tzinfo=UTC)
         self.team.save()
 
         mock_delay.assert_called_with(self.team.id)
 
-    @patch("posthog.tasks.team_llm_gateway_policy.settings")
-    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
     def test_team_save_noop_without_flags_redis_url(self, mock_delay, mock_settings):
         mock_settings.FLAGS_REDIS_URL = None
 
-        self.team.llm_gateway_tier = "pro"
+        self.team.llm_gateway_revoked_at = datetime(2026, 5, 20, 12, 0, 0, tzinfo=UTC)
         self.team.save()
 
         mock_delay.assert_not_called()
 
-    @patch("posthog.tasks.team_llm_gateway_policy.settings")
-    @patch("posthog.tasks.team_llm_gateway_policy.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
     def test_team_delete_clears_cache(self, mock_clear, mock_settings):
         mock_settings.FLAGS_REDIS_URL = "redis://localhost"
         mock_settings.TEST = True
@@ -153,10 +139,10 @@ class TestLLMGatewayPolicySignals(BaseTest):
 
         mock_clear.assert_called_once()
 
-    @patch("posthog.tasks.team_llm_gateway_policy.transaction")
-    @patch("posthog.tasks.team_llm_gateway_policy.settings")
-    @patch("posthog.tasks.team_llm_gateway_policy.clear_team_llm_gateway_policy_cache")
-    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
     def test_api_token_rotation_clears_old_token_cache(self, mock_delay, mock_clear, mock_settings, mock_transaction):
         """
         Rotating api_token must invalidate the cache keyed by the OLD token.
@@ -174,10 +160,10 @@ class TestLLMGatewayPolicySignals(BaseTest):
         mock_delay.assert_called_with(self.team.id)
         mock_clear.assert_called_once_with(old_token, kinds=["redis"])
 
-    @patch("posthog.tasks.team_llm_gateway_policy.transaction")
-    @patch("posthog.tasks.team_llm_gateway_policy.settings")
-    @patch("posthog.tasks.team_llm_gateway_policy.clear_team_llm_gateway_policy_cache")
-    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
     def test_non_token_save_does_not_clear_old_token_cache(
         self, mock_delay, mock_clear, mock_settings, mock_transaction
     ):
@@ -186,8 +172,35 @@ class TestLLMGatewayPolicySignals(BaseTest):
         mock_settings.TEST = True
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
-        self.team.llm_gateway_tier = "pro"
+        self.team.llm_gateway_revoked_at = datetime(2026, 5, 20, 12, 0, 0, tzinfo=UTC)
         self.team.save()
 
         mock_delay.assert_called_with(self.team.id)
         mock_clear.assert_not_called()
+
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.clear_team_llm_gateway_policy_cache")
+    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    def test_chained_token_rotation_clears_each_old_token(
+        self, mock_delay, mock_clear, mock_settings, mock_transaction
+    ):
+        """
+        Two rotations on the same kept-alive instance (A->B->C) must clear A then
+        B. post_save pops the stashed old token so the second save re-snapshots,
+        instead of clearing A twice and leaking B for the full cache TTL.
+        """
+        mock_settings.FLAGS_REDIS_URL = "redis://localhost"
+        mock_settings.TEST = True
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        token_a = self.team.api_token
+
+        self.team.api_token = "phc_rotated_b"
+        self.team.save()
+
+        self.team.api_token = "phc_rotated_c"
+        self.team.save()
+
+        cleared = [call.args[0] for call in mock_clear.call_args_list]
+        self.assertEqual(cleared, [token_a, "phc_rotated_b"])

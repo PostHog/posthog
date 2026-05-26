@@ -8,16 +8,14 @@ Shape:
         {
             "id": 123,
             "api_token": "phc_...",
-            "llm_gateway_allowed_models": ["openai/gpt-4o", ...] | null,
-            "llm_gateway_tier": "free" | "pro" | "enterprise" | null,
             "llm_gateway_revoked_at": "2026-05-20T12:34:56+00:00" | null
         }
 
 The blob is written to its own cache key (sibling to full_metadata.json) so the
 flags-pipeline consumers of team_metadata are not affected by additions here.
-Null values are normalized by the consumer: empty allowlist, free tier, not
-revoked. No backfill is required when these columns are first added to the
-Team model.
+The gateway resolves token -> team and denies on a non-null revoked_at; a
+non-revoked team gets the full gateway-owned model surface. Null revoked_at
+means active, so no backfill is required when the column is first added.
 """
 
 import os
@@ -32,7 +30,10 @@ from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
 from posthog.storage.cache_expiry_manager import refresh_expiring_caches as refresh_generic
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig
+from posthog.storage.hypercache_manager import (
+    HyperCacheManagementConfig,
+    get_cache_stats as _generic_cache_stats,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -45,8 +46,6 @@ LLM_GATEWAY_POLICY_CACHE_EXPIRY_SORTED_SET = "llm_gateway_policy_cache_expiry"
 LLM_GATEWAY_POLICY_FIELDS = [
     "id",
     "api_token",
-    "llm_gateway_allowed_models",
-    "llm_gateway_tier",
     "llm_gateway_revoked_at",
 ]
 
@@ -56,8 +55,6 @@ def _serialize_team_to_llm_gateway_policy(team: Team) -> dict[str, Any]:
     return {
         "id": team.id,
         "api_token": team.api_token,
-        "llm_gateway_allowed_models": team.llm_gateway_allowed_models,
-        "llm_gateway_tier": team.llm_gateway_tier,
         "llm_gateway_revoked_at": (team.llm_gateway_revoked_at.isoformat() if team.llm_gateway_revoked_at else None),
     }
 
@@ -130,3 +127,8 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
     team pool instead of relying on lazy DB lookups when entries expire.
     """
     return refresh_generic(LLM_GATEWAY_POLICY_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
+
+
+def get_cache_stats() -> dict[str, Any]:
+    """Coverage/TTL stats for the policy cache; also pushes Prometheus gauges."""
+    return _generic_cache_stats(LLM_GATEWAY_POLICY_HYPERCACHE_MANAGEMENT_CONFIG)
