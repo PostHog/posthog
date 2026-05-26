@@ -14591,6 +14591,13 @@
                         }
                     ]
                 },
+                "tags": {
+                    "description": "Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "version": {
                     "$ref": "#/definitions/integer",
                     "description": "Target a specific version for updates (optional, defaults to current version)"
