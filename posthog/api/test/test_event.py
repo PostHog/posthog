@@ -1299,6 +1299,7 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
         # Should NOT update cache when data is identical (optimization)
         mock_cache.set.assert_not_called()
 
+    @patch("posthog.api.event.EVENT_LIST_MAX_LIMIT", 6000)
     @patch("posthog.api.event.cache")
     @patch("posthog.api.event.query_events_list")
     def test_ignores_cached_window_when_result_count_below_threshold(self, mock_query_events_list, mock_cache):
