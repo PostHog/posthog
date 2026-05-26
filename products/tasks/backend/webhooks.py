@@ -137,33 +137,59 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
     Kept tolerant: a single bad transition should not fail the whole webhook,
     since GitHub retries 5xx responses and we've already acknowledged the PR event.
     """
-    reports = (
-        SignalReport.objects.filter(report_tasks__task_id=task_id)
-        .exclude(
-            status__in=[
-                SignalReport.Status.RESOLVED,
-                SignalReport.Status.DELETED,
-                SignalReport.Status.SUPPRESSED,
-            ]
-        )
-        .distinct()
+    terminal_statuses = (
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.DELETED,
+        SignalReport.Status.SUPPRESSED,
+    )
+    linked_reports = list(
+        SignalReport.objects.filter(report_tasks__task_id=task_id).distinct().only("id", "status")
+    )
+    reports_to_resolve = [r for r in linked_reports if r.status not in terminal_statuses]
+    skipped_terminal = [r for r in linked_reports if r.status in terminal_statuses]
+
+    # Always emit a summary so we can tell, from logs alone, whether the merge handler
+    # ran, how many reports were linked, and why we did/didn't transition any of them.
+    logger.info(
+        "github_pr_webhook_signal_report_resolution_started",
+        task_id=str(task_id),
+        pr_url=pr_url,
+        linked_report_count=len(linked_reports),
+        candidate_report_count=len(reports_to_resolve),
+        skipped_terminal_count=len(skipped_terminal),
+        skipped_terminal_report_ids=[str(r.id) for r in skipped_terminal],
+        candidate_report_ids=[str(r.id) for r in reports_to_resolve],
     )
 
-    for report in reports:
+    resolved_count = 0
+    invalid_transition_count = 0
+    for report in reports_to_resolve:
         try:
             updated_fields = report.transition_to(SignalReport.Status.RESOLVED)
         except InvalidStatusTransition:
+            invalid_transition_count += 1
             logger.warning(
                 "github_pr_webhook_signal_report_invalid_transition",
                 report_id=str(report.id),
                 from_status=report.status,
+                task_id=str(task_id),
                 pr_url=pr_url,
             )
             continue
         report.save(update_fields=updated_fields)
+        resolved_count += 1
         logger.info(
             "github_pr_webhook_signal_report_resolved",
             report_id=str(report.id),
             task_id=str(task_id),
             pr_url=pr_url,
         )
+
+    logger.info(
+        "github_pr_webhook_signal_report_resolution_finished",
+        task_id=str(task_id),
+        pr_url=pr_url,
+        resolved_count=resolved_count,
+        invalid_transition_count=invalid_transition_count,
+        skipped_terminal_count=len(skipped_terminal),
+    )
