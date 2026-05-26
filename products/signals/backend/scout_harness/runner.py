@@ -105,7 +105,7 @@ async def arun_signals_scout(
     # and the row insert below (a second trigger could land in between), which we
     # accept until a claim/lease primitive lands.
     if await database_sync_to_async(_has_running_run, thread_sensitive=False)(
-        team_id=team_id, config_id=str(config.id), skill_name=skill.name
+        team_id=team.parent_team_id or team.id, skill_name=skill.name
     ):
         logger.info(
             "signals_scout: skipping trigger, prior run still in progress",
@@ -263,23 +263,33 @@ def _get_team(team_id: int) -> Team:
 
 
 def _resolve_config(team: Team) -> SignalScoutConfig:
-    """Get-or-create the config row. Default is safe (enabled=False)."""
-    config, _ = SignalScoutConfig.objects.unscoped().get_or_create(team=team)
+    """Get-or-create the config row keyed on the canonical (parent) team.
+
+    Default is safe (enabled=False). `SignalScoutConfig` is `TeamScopedRootMixin`, so
+    `save()` rewrites a child-environment team to its parent — but the *lookup* half of
+    `get_or_create` is not canonicalized. A child-team lookup would miss an existing
+    parent row and then try to `create` a duplicate `OneToOne(team)` record, raising
+    `IntegrityError`. Resolve to the canonical id so the lookup matches the stored row.
+    """
+    config, _ = SignalScoutConfig.objects.unscoped().get_or_create(team_id=team.parent_team_id or team.id)
     return config
 
 
-def _has_running_run(*, team_id: int, config_id: str, skill_name: str) -> bool:
-    # Locked on (team, skill_name) — different skills for the same team are allowed
-    # to fan out, which is the whole point of `runs_per_tick > 1`. `scout_config_id`
-    # is included to keep the filter selective on the per-team index. Status flows
-    # from the linked TaskRun now that SignalScoutRun is just a bridge.
+def _has_running_run(*, team_id: int, skill_name: str) -> bool:
+    # Locked on (canonical team, skill_name) — different skills for the same team are
+    # allowed to fan out, which is the whole point of `runs_per_tick > 1`. Status flows
+    # from the linked TaskRun now that SignalScoutRun is just a bridge; treat both QUEUED
+    # and IN_PROGRESS as active, since a TaskRun sits in QUEUED before transitioning and a
+    # second trigger landing in that window would otherwise slip past the guard. Not keyed
+    # on `scout_config_id`: configs are `on_delete=SET_NULL`, so a config delete/recreate
+    # mid-run would orphan the FK and silently defeat the dedupe in exactly the
+    # config-churn case it should still cover.
     return (
         SignalScoutRun.objects.unscoped()
         .filter(
             team_id=team_id,
-            scout_config_id=config_id,
             skill_name=skill_name,
-            task_run__status=TaskRun.Status.IN_PROGRESS,
+            task_run__status__in=(TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS),
         )
         .exists()
     )
