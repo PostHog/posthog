@@ -6,6 +6,12 @@ import {
     AccountsCreateBody,
     AccountsDestroyParams,
     AccountsListQueryParams,
+    AccountsNotebooksCreateBody,
+    AccountsNotebooksCreateParams,
+    AccountsNotebooksDestroyParams,
+    AccountsNotebooksListParams,
+    AccountsNotebooksListQueryParams,
+    AccountsNotebooksRetrieveParams,
     AccountsPartialUpdateBody,
     AccountsPartialUpdateParams,
     AccountsRetrieveParams,
@@ -26,6 +32,9 @@ const AccountsCreateSchema = AccountsCreateBody.extend({
     properties: AccountsCreateBody.shape['properties'].describe(
         'Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional.'
     ),
+    tags: AccountsCreateBody.shape['tags'].describe(
+        'Tag names to attach to the account. Tags are created on demand if they do not already exist for the team.'
+    ),
 })
 
 const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account> => ({
@@ -42,6 +51,9 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
         }
         if (params.properties !== undefined) {
             body['properties'] = params.properties
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
@@ -67,16 +79,96 @@ const accountsDestroy = (): ToolBase<typeof AccountsDestroySchema, unknown> => (
     },
 })
 
-const AccountsListSchema = AccountsListQueryParams
+const AccountsListSchema = AccountsListQueryParams.extend({
+    tags: AccountsListQueryParams.shape['tags'].describe(
+        'JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags.'
+    ),
+})
 
 const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Schemas.PaginatedAccountList>> => ({
     name: 'accounts-list',
     schema: AccountsListSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AccountsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAccountList>({
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/`,
+            query: {
+                account_executive: params.account_executive,
+                account_owner: params.account_owner,
+                all_roles_unassigned: params.all_roles_unassigned,
+                csm: params.csm,
+                limit: params.limit,
+                offset: params.offset,
+                ordering: params.ordering,
+                search: params.search,
+                tags: params.tags,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const AccountsNotebooksCreateSchema = AccountsNotebooksCreateParams.omit({ project_id: true }).extend(
+    AccountsNotebooksCreateBody.shape
+)
+
+const accountsNotebooksCreate = (): ToolBase<typeof AccountsNotebooksCreateSchema, Schemas.AccountNotebook> => ({
+    name: 'accounts-notebooks-create',
+    schema: AccountsNotebooksCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsNotebooksCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.text_content !== undefined) {
+            body['text_content'] = params.text_content
+        }
+        const result = await context.api.request<Schemas.AccountNotebook>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AccountsNotebooksDestroySchema = AccountsNotebooksDestroyParams.omit({ project_id: true })
+
+const accountsNotebooksDestroy = (): ToolBase<typeof AccountsNotebooksDestroySchema, unknown> => ({
+    name: 'accounts-notebooks-destroy',
+    schema: AccountsNotebooksDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsNotebooksDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
+        })
+        return result
+    },
+})
+
+const AccountsNotebooksListSchema = AccountsNotebooksListParams.omit({ project_id: true }).extend(
+    AccountsNotebooksListQueryParams.shape
+)
+
+const accountsNotebooksList = (): ToolBase<
+    typeof AccountsNotebooksListSchema,
+    WithPostHogUrl<Schemas.PaginatedAccountNotebookList>
+> => ({
+    name: 'accounts-notebooks-list',
+    schema: AccountsNotebooksListSchema,
+    mcpVersion: 1,
+    handler: async (context: Context, params: z.infer<typeof AccountsNotebooksListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAccountNotebookList>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -86,11 +178,30 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
     },
 })
 
+const AccountsNotebooksRetrieveSchema = AccountsNotebooksRetrieveParams.omit({ project_id: true })
+
+const accountsNotebooksRetrieve = (): ToolBase<typeof AccountsNotebooksRetrieveSchema, Schemas.AccountNotebook> => ({
+    name: 'accounts-notebooks-retrieve',
+    schema: AccountsNotebooksRetrieveSchema,
+    mcpVersion: 1,
+    handler: async (context: Context, params: z.infer<typeof AccountsNotebooksRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AccountNotebook>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
+        })
+        return result
+    },
+})
+
 const AccountsPartialUpdateSchema = AccountsPartialUpdateParams.omit({ project_id: true })
     .extend(AccountsPartialUpdateBody.shape)
     .extend({
         properties: AccountsPartialUpdateBody.shape['properties'].describe(
             'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner` (each `{id, email}` of an existing user), plus `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems).'
+        ),
+        tags: AccountsPartialUpdateBody.shape['tags'].describe(
+            'Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a delta. Tags are created on demand if they do not already exist for the team.'
         ),
     })
 
@@ -109,6 +220,9 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
         if (params.properties !== undefined) {
             body['properties'] = params.properties
         }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
@@ -123,6 +237,7 @@ const AccountsRetrieveSchema = AccountsRetrieveParams.omit({ project_id: true })
 const accountsRetrieve = (): ToolBase<typeof AccountsRetrieveSchema, Schemas.Account> => ({
     name: 'accounts-retrieve',
     schema: AccountsRetrieveSchema,
+    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof AccountsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Account>({
@@ -301,6 +416,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-create': accountsCreate,
     'accounts-destroy': accountsDestroy,
     'accounts-list': accountsList,
+    'accounts-notebooks-create': accountsNotebooksCreate,
+    'accounts-notebooks-destroy': accountsNotebooksDestroy,
+    'accounts-notebooks-list': accountsNotebooksList,
+    'accounts-notebooks-retrieve': accountsNotebooksRetrieve,
     'accounts-partial-update': accountsPartialUpdate,
     'accounts-retrieve': accountsRetrieve,
     'usage-metrics-create': usageMetricsCreate,

@@ -13,13 +13,13 @@ runners) to provide maximum flexibility during development. This allows usage in
 - Any future features that leverage HogQL expressions
 
 Bot definitions (patterns, categories, names) live in
-posthog.hogql_queries.web_analytics.bot_definitions so that changes to
+products.web_analytics.backend.hogql_queries.bot_definitions so that changes to
 bot data do not require a HogQL review.
 """
 
 from posthog.hogql import ast
 
-from posthog.hogql_queries.web_analytics.bot_definitions import BOT_DEFINITIONS
+from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 
 
 def _build_bot_array_lookup(

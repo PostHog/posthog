@@ -781,10 +781,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if not resource:
             return custom_404_response(self.request)
 
-        # Check if organization allows publicly shared resources
         if (
-            isinstance(resource, SharingConfiguration)
-            and resource.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+            resource.team.organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
             and not resource.team.organization.allow_publicly_shared_resources
         ):
             return custom_404_response(self.request)
@@ -1048,13 +1046,18 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             except Exception:
                 raise NotFound("No heatmap found")
         elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
-            from products.user_interviews.backend.facade.api import parse_interviewee_identifier
+            from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
 
             ic = resource.interviewee_context
             topic = ic.topic
             asset_title = topic.topic or "User interview"
             asset_description = "PostHog AI user interview"
             user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
+            already_replied = has_replied(
+                team_id=topic.team_id,
+                topic_id=topic.id,
+                interviewee_identifier=ic.interviewee_identifier,
+            )
             # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
             # the recipient would otherwise see their own internal-notes context in view-source.
             # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
@@ -1066,6 +1069,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "interviewee_identifier": ic.interviewee_identifier,
                         "user_name": user_name,
                         "topic": topic.topic,
+                        "already_replied": already_replied,
                     },
                 }
             )

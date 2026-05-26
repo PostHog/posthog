@@ -10,18 +10,46 @@ from products.notebooks.backend.collab import STREAM_KEY_PATTERN, STREAM_MAX_LEN
 class TestNotebookCollab(BaseTest):
     def test_submit_to_empty_stream_seeds_position_from_caller(self):
         # No init endpoint anymore — first writer trusts last_seen_version (loaded from Postgres).
-        result = submit_steps(self.team.pk, "nb1", "client1", [{"stepType": "replace", "from": 0, "to": 0}], 5)
+        result = submit_steps(
+            self.team.pk,
+            "nb1",
+            "client1",
+            [{"stepType": "replace", "from": 0, "to": 0}],
+            5,
+            last_saved_version=5,
+        )
         assert result.status == "accepted"
         assert result.version == 6
 
     def test_submit_steps_accepted(self):
-        result = submit_steps(self.team.pk, "nb3", "client1", [{"stepType": "replace", "from": 0, "to": 0}], 0)
+        result = submit_steps(
+            self.team.pk,
+            "nb3",
+            "client1",
+            [{"stepType": "replace", "from": 0, "to": 0}],
+            0,
+            last_saved_version=0,
+        )
         assert result.status == "accepted"
         assert result.version == 1
 
     def test_submit_steps_rejected_on_version_mismatch(self):
-        submit_steps(self.team.pk, "nb4", "client1", [{"stepType": "replace", "from": 0, "to": 0}], 0)
-        result = submit_steps(self.team.pk, "nb4", "client2", [{"stepType": "replace", "from": 1, "to": 1}], 0)
+        submit_steps(
+            self.team.pk,
+            "nb4",
+            "client1",
+            [{"stepType": "replace", "from": 0, "to": 0}],
+            0,
+            last_saved_version=0,
+        )
+        result = submit_steps(
+            self.team.pk,
+            "nb4",
+            "client2",
+            [{"stepType": "replace", "from": 1, "to": 1}],
+            0,
+            last_saved_version=1,
+        )
         assert result.status == "conflict"
         assert result.version == 1
         assert result.steps_since == [
@@ -34,7 +62,7 @@ class TestNotebookCollab(BaseTest):
             {"stepType": "replace", "from": 1, "to": 1},
             {"stepType": "replace", "from": 2, "to": 2},
         ]
-        result = submit_steps(self.team.pk, "nb5", "client1", steps, 0)
+        result = submit_steps(self.team.pk, "nb5", "client1", steps, 0, last_saved_version=0)
         assert result.status == "accepted"
         assert result.version == 3
 
@@ -53,6 +81,7 @@ class TestNotebookCollab(BaseTest):
                 f"client{i}",
                 [{"stepType": "replace", "from": i, "to": i}],
                 expected_version,
+                last_saved_version=expected_version,
             )
             assert result.status == "accepted"
             expected_version += 1
@@ -60,8 +89,22 @@ class TestNotebookCollab(BaseTest):
         assert expected_version == num_clients
 
     def test_submit_steps_returns_stale_when_stream_trimmed(self):
-        submit_steps(self.team.pk, "nb_trimmed", "client1", [{"stepType": "replace", "from": 0, "to": 0}], 0)
-        submit_steps(self.team.pk, "nb_trimmed", "client1", [{"stepType": "replace", "from": 1, "to": 1}], 1)
+        submit_steps(
+            self.team.pk,
+            "nb_trimmed",
+            "client1",
+            [{"stepType": "replace", "from": 0, "to": 0}],
+            0,
+            last_saved_version=0,
+        )
+        submit_steps(
+            self.team.pk,
+            "nb_trimmed",
+            "client1",
+            [{"stepType": "replace", "from": 1, "to": 1}],
+            1,
+            last_saved_version=1,
+        )
 
         client = redis.get_client()
         # Force-trim past version 1 to simulate MAXLEN/TTL eviction; version 2 (id 2-0) survives.
@@ -70,9 +113,86 @@ class TestNotebookCollab(BaseTest):
             minid="2-0",
         )
 
-        result = submit_steps(self.team.pk, "nb_trimmed", "client2", [{"stepType": "replace", "from": 2, "to": 2}], 0)
+        result = submit_steps(
+            self.team.pk,
+            "nb_trimmed",
+            "client2",
+            [{"stepType": "replace", "from": 2, "to": 2}],
+            0,
+            last_saved_version=2,
+        )
         assert result.status == "stale"
         assert result.version == 2
+        assert result.steps_since is None
+
+    def test_empty_stream_with_stale_client_baseline_returns_stale(self):
+        # Stream lost (e.g. TTL expired) — Postgres still has the high version. A stale tab whose
+        # baseline doesn't match Postgres must not be accepted; otherwise its save would
+        # overwrite Postgres with a lower version. Client must reload from Postgres.
+        result = submit_steps(
+            self.team.pk,
+            "nb_stale_after_expiry",
+            "client_stale",
+            [{"stepType": "replace", "from": 0, "to": 0}],
+            last_seen_version=937,
+            last_saved_version=946,
+        )
+        assert result.status == "stale"
+        assert result.version == 946
+        assert result.steps_since is None
+
+    def test_empty_stream_with_client_ahead_of_postgres_returns_stale(self):
+        # Defensive: even if the client is somehow ahead of Postgres (legacy PATCH path went
+        # backwards, Postgres restore, etc.) we still cannot rebase against an empty stream.
+        result = submit_steps(
+            self.team.pk,
+            "nb_client_ahead",
+            "client_ahead",
+            [{"stepType": "replace", "from": 0, "to": 0}],
+            last_seen_version=946,
+            last_saved_version=937,
+        )
+        assert result.status == "stale"
+        assert result.version == 937
+        assert result.steps_since is None
+
+    def test_empty_stream_with_matching_postgres_accepts(self):
+        # The legitimate first save after a Redis flush: client baseline matches Postgres so
+        # the empty stream is safely seeded from there.
+        result = submit_steps(
+            self.team.pk,
+            "nb_first_save_after_flush",
+            "client1",
+            [{"stepType": "replace", "from": 0, "to": 0}],
+            last_seen_version=946,
+            last_saved_version=946,
+        )
+        assert result.status == "accepted"
+        assert result.version == 947
+
+    def test_non_empty_stream_with_client_ahead_returns_stale(self):
+        # Stream's latest version is below the client's baseline — there is no missed range to
+        # rebase against. Verify we return `stale` so the client opens the conflict modal
+        # instead of looping on conflict-with-empty-steps.
+        submit_steps(
+            self.team.pk,
+            "nb_client_ahead_nonempty",
+            "client1",
+            [{"stepType": "replace", "from": 0, "to": 0}],
+            0,
+            last_saved_version=0,
+        )
+
+        result = submit_steps(
+            self.team.pk,
+            "nb_client_ahead_nonempty",
+            "client_stale",
+            [{"stepType": "replace", "from": 1, "to": 1}],
+            last_seen_version=5,
+            last_saved_version=5,
+        )
+        assert result.status == "stale"
+        assert result.version == 1
         assert result.steps_since is None
 
     def test_stream_maxlen_constant_is_sane(self):

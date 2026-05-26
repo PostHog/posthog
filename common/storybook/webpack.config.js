@@ -77,6 +77,7 @@ function createEntry(entry) {
                 '@posthog/lemon-ui': path.resolve(__dirname, '..', '..', 'frontend', '@posthog', 'lemon-ui', 'src'),
                 '@posthog/mcp-ui': path.resolve(__dirname, '..', '..', 'services', 'mcp', 'src', 'ui-apps', 'lib'),
                 '@posthog/shared-onboarding': path.resolve(__dirname, '..', '..', 'docs', 'onboarding'),
+                '@posthog/quill': path.resolve(__dirname, '..', '..', 'packages', 'quill', 'packages', 'quill', 'src'),
                 storybook: path.resolve(__dirname, '..', '..', 'frontend', '.storybook'),
                 types: path.resolve(__dirname, '..', '..', 'frontend', 'types'),
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
@@ -124,8 +125,8 @@ function createEntry(entry) {
                     },
                 },
                 {
-                    // Apply rule for .sass, .scss or .css files
-                    test: /\.(sa|sc|c)ss$/,
+                    // Apply rule for .sass or .scss files
+                    test: /\.(sa|sc)ss$/,
 
                     // Set loaders to transform files.
                     // Loaders are applying from right to left(!)
@@ -140,6 +141,16 @@ function createEntry(entry) {
                             },
                         },
                     ].filter((a) => a),
+                },
+                {
+                    // Plain .css files (e.g. Tailwind's prebuilt bundle) skip
+                    // sass-loader — Tailwind v4 output uses modern CSS like
+                    // `min(fit-content, ...)` which sass cannot parse.
+                    // postcss-loader compiles Tailwind on the initial build only;
+                    // HMR won't re-run PostCSS, so newly-used utility classes
+                    // require a Storybook restart (see .storybook/README.md).
+                    test: /\.css$/,
+                    use: commonLoadersForSassAndLess,
                 },
                 {
                     // Apply rule for less files (used to import and override AntD)

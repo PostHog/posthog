@@ -90,7 +90,7 @@ def _enforce_account_group_type_index_drift_policy(sender, instance, **kwargs) -
         return
 
     previous = sender.objects.filter(pk=instance.pk).values_list("account_group_type_index", flat=True).first()
-    if previous == instance.account_group_type_index:
+    if previous is None or previous == instance.account_group_type_index:
         return
 
     AccountModel = apps.get_model("customer_analytics", "Account")

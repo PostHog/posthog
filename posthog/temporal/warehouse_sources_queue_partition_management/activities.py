@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, timedelta
+from dataclasses import dataclass, field
+from datetime import UTC, date, datetime, timedelta
 
 from django.conf import settings
 
@@ -22,6 +22,7 @@ class PartitionResult:
     ensured: list[str]
     dropped: list[str]
     errors: list[str]
+    s3_deleted: list[str] = field(default_factory=list)
 
     @property
     def success(self) -> bool:
@@ -36,7 +37,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     errors: list[str] = []
 
     with psycopg.Connection.connect(database_url, autocommit=True) as conn:
-        today = date.today()
+        today = datetime.now(UTC).date()
 
         for table in PARTITIONED_TABLES:
             for offset in range(PARTITIONS_AHEAD):
@@ -82,12 +83,15 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
 
         _verify_partitions(conn, today, errors)
 
-    result = PartitionResult(ensured=ensured, dropped=dropped, errors=errors)
+    s3_deleted = _cleanup_old_s3_extractions(today, errors)
+
+    result = PartitionResult(ensured=ensured, dropped=dropped, errors=errors, s3_deleted=s3_deleted)
 
     logger.info(
         "Partition management completed",
         ensured_count=len(ensured),
         dropped_count=len(dropped),
+        s3_deleted_count=len(s3_deleted),
         error_count=len(errors),
         success=result.success,
     )
@@ -95,7 +99,48 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     if not result.success:
         _send_slack_failure(errors)
 
-    return {"ensured": result.ensured, "dropped": result.dropped, "errors": result.errors, "success": result.success}
+    return {
+        "ensured": result.ensured,
+        "dropped": result.dropped,
+        "s3_deleted": result.s3_deleted,
+        "errors": result.errors,
+        "success": result.success,
+    }
+
+
+def _cleanup_old_s3_extractions(today: date, errors: list[str]) -> list[str]:
+    """Delete S3 date-partitioned extraction prefixes older than RETENTION_DAYS."""
+    from products.data_warehouse.backend.s3 import get_s3_client
+
+    s3 = get_s3_client()
+    base_prefix = f"{settings.DATAWAREHOUSE_BUCKET}/data_pipelines_extract"
+    cutoff = today - timedelta(days=RETENTION_DAYS)
+    deleted: list[str] = []
+
+    try:
+        entries = s3.ls(base_prefix)
+    except FileNotFoundError:
+        logger.debug("s3_extraction_prefix_not_found", prefix=base_prefix)
+        return deleted
+
+    for entry in entries:
+        name = entry.rstrip("/").rsplit("/", 1)[-1]
+        if not name.startswith("dt="):
+            continue
+        try:
+            partition_date = date.fromisoformat(name[3:])
+        except ValueError:
+            continue
+        if partition_date < cutoff:
+            try:
+                s3.delete(entry, recursive=True)
+                deleted.append(name)
+                logger.debug("s3_extraction_partition_deleted", partition=name)
+            except Exception as e:
+                errors.append(f"Failed to delete S3 partition {name}: {e}")
+                logger.exception("Failed to delete S3 extraction partition", partition=name)
+
+    return deleted
 
 
 def _verify_partitions(conn: psycopg.Connection, today: date, errors: list[str]) -> None:

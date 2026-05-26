@@ -716,17 +716,22 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             #   signals_at_run defaults to 0 so fresh reports always pass) and weight threshold is met.
             # - READY and RESOLVED reports are re-promoted on every new signal so the pipeline
             #   reruns with latest evidence (resolved: issue recurred post-merge fix).
+            # - CANDIDATE re-promotes on every new signal to self-heal from failed spawn attempts. Concurrent runs blocked by Temporal.
             if (
                 report.status == SignalReport.Status.READY
                 or report.status == SignalReport.Status.RESOLVED
+                or report.status == SignalReport.Status.CANDIDATE
                 or (
                     report.status == SignalReport.Status.POTENTIAL
                     and report.total_weight >= WEIGHT_THRESHOLD
                     and report.signal_count >= report.signals_at_run
                 )
             ):
-                updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-                report.save(update_fields=updated_fields)
+                # If candidate got here - it usually means CH issue down the way
+                # (e.g. CH wait raised before start_child_workflow)
+                if report.status != SignalReport.Status.CANDIDATE:
+                    updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
+                    report.save(update_fields=updated_fields)
                 promoted = True
 
             report_id = str(report.id)
@@ -1191,27 +1196,31 @@ async def _process_signal_batch(
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    # Spawn summary workflows after CH wait so they can find the signals.
-    for report_input, run_count in promoted_reports.values():
+    # Spawn summary workflows after CH wait. Stable ID + ALLOW_DUPLICATE: Temporal rejects concurrent
+    # starts with the same ID (caught below); re-spawning is allowed only if the previous run has closed.
+    for report_input, _run_count in promoted_reports.values():
         try:
-            base_id = SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id)
-            # Include run_count in the workflow ID to allow re-generating READY reports when enough new signals arrive,
-            # as without it ALLOW_DUPLICATE_FAILED_ONLY will prevent the re-report from starting
-            workflow_id = base_id if run_count == 0 else f"{base_id}:run-{run_count + 1}"
-            # Concurrent report generation of the same report can't happen: promotion only fires for
-            # READY/RESOLVED (every new qualifying signal) or POTENTIAL past weight/snooze gates—never while
-            # CANDIDATE/IN_PROGRESS/PENDING_INPUT/etc.
+            workflow_id = SignalReportSummaryWorkflow.workflow_id_for(report_input.team_id, report_input.report_id)
             await workflow.start_child_workflow(
                 SignalReportSummaryWorkflow.run,
                 report_input,
                 id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 execution_timeout=timedelta(hours=1),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
+            # Expected when CANDIDATE re-promotion fires against an in-flight workflow; no-op.
             pass
+        except Exception:
+            # Log and continue: raising here would reprocess the whole batch and double-count
+            # signals. The report stays CANDIDATE and re-promotes on the next matching signal.
+            logger.exception(
+                "Failed to start summary workflow for promoted report; will retry on next signal",
+                team_id=report_input.team_id,
+                report_id=report_input.report_id,
+            )
 
     return dropped, type_examples_result
 

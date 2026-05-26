@@ -13,6 +13,7 @@ import posthoganalytics
 from celery import shared_task
 from posthoganalytics import new_context, tag
 
+from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS
 from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
@@ -601,7 +602,8 @@ def send_batch_export_run_failure(
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-    from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
@@ -669,7 +671,8 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
-    from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -939,7 +942,7 @@ def send_two_factor_reset_email(user_id: int, token: str) -> None:
             "user_name": user.first_name,
             "user_email": user.email,
             "url": reset_link,
-            "expiration_hours": 1,
+            "expiration_hours": TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS,
             "site_url": settings.SITE_URL,
         },
     )

@@ -35,8 +35,9 @@ from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -500,7 +501,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         )
 
         if export_signal.is_final_batch:
-            logger.debug(
+            logger.info(
                 "final_batch_received",
                 total_batches=export_signal.total_batches,
                 total_rows=export_signal.total_rows,

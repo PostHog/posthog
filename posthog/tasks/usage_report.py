@@ -27,7 +27,7 @@ from posthog.schema import AIEventType
 from posthog import version_requirement
 from posthog.batch_exports.models import BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
@@ -48,12 +48,7 @@ from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models import (
-    DataWarehouseSavedQuery,
-    DataWarehouseTable,
-    ExternalDataJob,
-    ExternalDataSchema,
-)
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
@@ -61,6 +56,9 @@ from products.surveys.backend.util import (
     get_survey_property_string_expr,
     get_unique_survey_event_uuids_sql_subquery,
 )
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -190,7 +188,7 @@ class UsageReportCounters:
     flutter_exceptions_captured_in_period: int
     unknown_exceptions_captured_in_period: int
 
-    # LLM Analytics
+    # AI observability
     ai_event_count_in_period: int
 
     # AI Billing Credits (PostHog AI feature usage)
@@ -478,6 +476,7 @@ def _execute_split_query(
             split_params,
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
         all_results.append(split_result)
@@ -606,6 +605,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -747,6 +747,7 @@ def get_teams_with_recording_count_in_period(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -783,6 +784,7 @@ def get_teams_with_zero_duration_recording_count_in_period(begin: datetime, end:
             {"previous_begin": previous_begin, "begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -820,6 +822,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
             {"previous_begin": previous_begin, "begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -854,6 +857,7 @@ def get_teams_with_api_queries_metrics(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
     result_count: list[tuple[int, int]] = []
     result_read_bytes: list[tuple[int, int]] = []
@@ -902,6 +906,7 @@ def get_teams_with_query_metric(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -934,6 +939,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -975,6 +981,7 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1030,6 +1037,7 @@ def get_teams_with_survey_responses_count_in_period(
             params,
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1050,6 +1058,7 @@ def get_teams_with_ai_event_count_in_period(
             {"begin": begin, "end": end, "ai_events": AI_EVENTS},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1226,6 +1235,7 @@ def get_teams_with_ai_credits_used_in_period(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
     return results
@@ -1419,6 +1429,7 @@ def get_teams_with_exceptions_captured_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
     library_totals: dict[str, list[list[int]]] = {
@@ -1462,6 +1473,7 @@ def get_teams_with_hog_function_calls_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1482,6 +1494,7 @@ def get_teams_with_hog_function_fetch_calls_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1502,6 +1515,7 @@ def get_teams_with_cdp_billable_invocations_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1548,6 +1562,7 @@ def get_teams_with_recording_bytes_in_period(
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1596,6 +1611,7 @@ def get_teams_with_workflow_emails_sent_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1616,6 +1632,7 @@ def get_teams_with_workflow_push_sent_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1636,6 +1653,7 @@ def get_teams_with_workflow_sms_sent_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1656,6 +1674,7 @@ def get_teams_with_workflow_billable_invocations_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1676,6 +1695,7 @@ def get_teams_with_logs_bytes_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 
@@ -1696,6 +1716,7 @@ def get_teams_with_logs_records_in_period(
             {"begin": begin, "end": end},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
         )
 
 

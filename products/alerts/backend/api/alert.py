@@ -41,6 +41,20 @@ from products.alerts.backend.api.alert_schedule_restriction import AlertSchedule
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 
 
+def _validate_every_15_minutes_interval(
+    *,
+    calculation_interval: str | AlertCalculationInterval | None,
+    request,
+    organization,
+) -> None:
+    if error := AlertConfiguration.every_15_minutes_interval_validation_error(
+        calculation_interval=calculation_interval,
+        user_distinct_id=str(request.user.distinct_id),
+        organization=organization,
+    ):
+        raise ValidationError({"calculation_interval": [error]})
+
+
 @extend_schema_field(InsightThreshold)  # type: ignore[arg-type]
 class ThresholdConfigurationField(serializers.JSONField):
     pass
@@ -211,7 +225,7 @@ class AlertSerializer(serializers.ModelSerializer):
     calculation_interval = serializers.ChoiceField(
         choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
         required=False,
-        help_text="How often the alert is checked: hourly, daily, weekly, or monthly.",
+        help_text="How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.",
     )
     snoozed_until = RelativeDateTimeField(
         allow_null=True,
@@ -524,6 +538,13 @@ class AlertSerializer(serializers.ModelSerializer):
             validate_alert_config(query, condition, config, threshold_config, calculation_interval)
         except ValueError as e:
             raise ValidationError(str(e))
+
+        organization = self.context["get_organization"]()
+        _validate_every_15_minutes_interval(
+            calculation_interval=calculation_interval,
+            request=self.context["request"],
+            organization=organization,
+        )
 
         # Investigation agent is only supported for detector-based alerts.
         investigation_enabled = attrs.get(
