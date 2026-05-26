@@ -19,14 +19,14 @@ from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
-from products.replay_vision.backend.models.replay_lens import LensModel, LensType, ReplayLens
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.temporal import ApplyLensWorkflow
-from products.replay_vision.backend.temporal.activities.call_lens_provider import call_lens_provider_activity
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.temporal import ApplyScannerWorkflow
+from products.replay_vision.backend.temporal.activities.call_scanner_provider import call_scanner_provider_activity
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_indexer_observation import (
@@ -42,9 +42,9 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_succeeded_activity,
 )
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
-from products.replay_vision.backend.temporal.lenses.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.lenses.indexer import IndexerOutput
-from products.replay_vision.backend.temporal.lenses.monitor import MonitorOutput
+from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
+from products.replay_vision.backend.temporal.scanners.indexer import IndexerOutput
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
     generate_state_key,
@@ -52,7 +52,7 @@ from products.replay_vision.backend.temporal.state import (
     store_data_in_redis,
 )
 from products.replay_vision.backend.temporal.types import (
-    ApplyLensInputs,
+    ApplyScannerInputs,
     CreateObservationInputs,
     CreateObservationOutput,
     EmbedIndexerObservationInputs,
@@ -61,37 +61,37 @@ from products.replay_vision.backend.temporal.types import (
     EnsureSessionAssetOutput,
     EventTable,
     FetchSessionEventsInputs,
-    LensCallOutput,
-    LensLlmInputs,
-    LensResult,
     MarkObservationFailedInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
+    ScannerCallOutput,
+    ScannerLlmInputs,
+    ScannerResult,
     SessionMetadata,
     UploadedVideo,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
-def _make_lens() -> ReplayLens:
+def _make_scanner() -> ReplayScanner:
     org = Organization.objects.create(name="vision-test-org")
     team = Team.objects.create(organization=org, name="vision-test-team")
-    return ReplayLens.objects.create(
+    return ReplayScanner.objects.create(
         team=team,
         name="t",
-        lens_type=LensType.MONITOR,
-        lens_config={"prompt": "p"},
-        model=LensModel.GEMINI_3_FLASH,
+        scanner_type=ScannerType.MONITOR,
+        scanner_config={"prompt": "p"},
+        model=ScannerModel.GEMINI_3_FLASH,
     )
 
 
-def _make_observation(lens: ReplayLens, **overrides) -> ReplayObservation:
+def _make_observation(scanner: ReplayScanner, **overrides) -> ReplayObservation:
     defaults: dict = {
-        "lens": lens,
-        "team": lens.team,
+        "scanner": scanner,
+        "team": scanner.team,
         "session_id": "sess-1",
         "triggered_by": ObservationTrigger.ON_DEMAND,
-        "lens_snapshot": _snapshot_for(lens),
+        "scanner_snapshot": _snapshot_for(scanner),
     }
     defaults.update(overrides)
     return ReplayObservation.objects.create(**defaults)
@@ -100,11 +100,11 @@ def _make_observation(lens: ReplayLens, **overrides) -> ReplayObservation:
 @pytest.mark.django_db(transaction=True)
 class TestCreateObservationActivity:
     def test_creates_row_in_pending_with_workflow_id_and_snapshot(self) -> None:
-        lens = _make_lens()
+        scanner = _make_scanner()
         result = create_observation_activity(
             CreateObservationInputs(
-                lens_id=lens.id,
-                team_id=lens.team_id,
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
                 session_id="sess-1",
                 triggered_by=ObservationTrigger.ON_DEMAND,
                 triggered_by_user_id=None,
@@ -118,23 +118,23 @@ class TestCreateObservationActivity:
         assert observation.workflow_id == "wf-xyz"
         assert observation.session_id == "sess-1"
         assert observation.triggered_by == ObservationTrigger.ON_DEMAND
-        assert observation.lens_snapshot["name"] == lens.name
-        assert observation.lens_snapshot["lens_type"] == str(lens.lens_type)
-        assert observation.lens_snapshot["lens_version"] == lens.lens_version
-        assert observation.lens_snapshot["model"] == str(lens.model)
-        assert observation.lens_snapshot["provider"] == str(lens.provider)
-        assert observation.lens_snapshot["emits_signals"] == lens.emits_signals
-        assert observation.lens_snapshot["lens_config"] == lens.lens_config
+        assert observation.scanner_snapshot["name"] == scanner.name
+        assert observation.scanner_snapshot["scanner_type"] == str(scanner.scanner_type)
+        assert observation.scanner_snapshot["scanner_version"] == scanner.scanner_version
+        assert observation.scanner_snapshot["model"] == str(scanner.model)
+        assert observation.scanner_snapshot["provider"] == str(scanner.provider)
+        assert observation.scanner_snapshot["emits_signals"] == scanner.emits_signals
+        assert observation.scanner_snapshot["scanner_config"] == scanner.scanner_config
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
 
-    def test_snapshot_is_frozen_against_later_lens_edits(self) -> None:
-        lens = _make_lens()
-        original_config = dict(lens.lens_config)
+    def test_snapshot_is_frozen_against_later_scanner_edits(self) -> None:
+        scanner = _make_scanner()
+        original_config = dict(scanner.scanner_config)
         result = create_observation_activity(
             CreateObservationInputs(
-                lens_id=lens.id,
-                team_id=lens.team_id,
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
                 session_id="sess-1",
                 triggered_by=ObservationTrigger.SCHEDULE,
                 triggered_by_user_id=None,
@@ -142,20 +142,20 @@ class TestCreateObservationActivity:
             )
         )
 
-        lens.lens_config = {"prompt": "completely different prompt"}
-        lens.save()
+        scanner.scanner_config = {"prompt": "completely different prompt"}
+        scanner.save()
 
         observation = ReplayObservation.objects.get(id=result.observation_id)
-        assert observation.lens_snapshot["lens_config"] == original_config
+        assert observation.scanner_snapshot["scanner_config"] == original_config
 
     def test_returns_existing_observation_on_unique_conflict(self) -> None:
-        lens = _make_lens()
-        existing = _make_observation(lens, session_id="sess-dup")
+        scanner = _make_scanner()
+        existing = _make_observation(scanner, session_id="sess-dup")
 
         result = create_observation_activity(
             CreateObservationInputs(
-                lens_id=lens.id,
-                team_id=lens.team_id,
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
                 session_id="sess-dup",
                 triggered_by=ObservationTrigger.ON_DEMAND,
                 triggered_by_user_id=None,
@@ -170,7 +170,7 @@ class TestCreateObservationActivity:
 
     def test_propagates_non_unique_integrity_errors(self) -> None:
         # FK/CHECK violations must surface as activity failures, not silently fall into the dedup path.
-        lens = _make_lens()
+        scanner = _make_scanner()
         fk_error = IntegrityError("insert or update on table violates foreign key constraint")
         fk_error.__cause__ = psycopg.errors.ForeignKeyViolation("violation")
 
@@ -178,8 +178,8 @@ class TestCreateObservationActivity:
             with pytest.raises(IntegrityError):
                 create_observation_activity(
                     CreateObservationInputs(
-                        lens_id=lens.id,
-                        team_id=lens.team_id,
+                        scanner_id=scanner.id,
+                        team_id=scanner.team_id,
                         session_id="sess-fk",
                         triggered_by=ObservationTrigger.ON_DEMAND,
                         triggered_by_user_id=None,
@@ -187,24 +187,24 @@ class TestCreateObservationActivity:
                     )
                 )
 
-        assert not ReplayObservation.objects.filter(lens=lens, session_id="sess-fk").exists()
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-fk").exists()
 
     @pytest.mark.parametrize(
-        "use_real_lens_id, team_id_offset",
+        "use_real_scanner_id, team_id_offset",
         [
-            pytest.param(False, 0, id="lens_does_not_exist"),
-            pytest.param(True, 999, id="lens_belongs_to_other_team"),
+            pytest.param(False, 0, id="scanner_does_not_exist"),
+            pytest.param(True, 999, id="scanner_belongs_to_other_team"),
         ],
     )
-    def test_raises_when_lens_not_found_for_team(self, use_real_lens_id: bool, team_id_offset: int) -> None:
-        lens = _make_lens()
-        lens_id = lens.id if use_real_lens_id else uuid.uuid4()
-        team_id = lens.team_id + team_id_offset
+    def test_raises_when_scanner_not_found_for_team(self, use_real_scanner_id: bool, team_id_offset: int) -> None:
+        scanner = _make_scanner()
+        scanner_id = scanner.id if use_real_scanner_id else uuid.uuid4()
+        team_id = scanner.team_id + team_id_offset
 
         with pytest.raises(ValueError):
             create_observation_activity(
                 CreateObservationInputs(
-                    lens_id=lens_id,
+                    scanner_id=scanner_id,
                     team_id=team_id,
                     session_id="sess-1",
                     triggered_by=ObservationTrigger.ON_DEMAND,
@@ -213,16 +213,16 @@ class TestCreateObservationActivity:
                 )
             )
 
-    def test_raises_when_user_is_not_in_lens_organization(self) -> None:
-        lens = _make_lens()
+    def test_raises_when_user_is_not_in_scanner_organization(self) -> None:
+        scanner = _make_scanner()
         outsider_org = Organization.objects.create(name="other-org")
         outsider = User.objects.create_and_join(organization=outsider_org, email="x@x.com", password=None)
 
         with pytest.raises(ValueError, match="not a member"):
             create_observation_activity(
                 CreateObservationInputs(
-                    lens_id=lens.id,
-                    team_id=lens.team_id,
+                    scanner_id=scanner.id,
+                    team_id=scanner.team_id,
                     session_id="sess-1",
                     triggered_by=ObservationTrigger.ON_DEMAND,
                     triggered_by_user_id=outsider.id,
@@ -230,14 +230,14 @@ class TestCreateObservationActivity:
                 )
             )
 
-    def test_accepts_user_in_lens_organization(self) -> None:
-        lens = _make_lens()
-        member = User.objects.create_and_join(organization=lens.team.organization, email="m@m.com", password=None)
+    def test_accepts_user_in_scanner_organization(self) -> None:
+        scanner = _make_scanner()
+        member = User.objects.create_and_join(organization=scanner.team.organization, email="m@m.com", password=None)
 
         result = create_observation_activity(
             CreateObservationInputs(
-                lens_id=lens.id,
-                team_id=lens.team_id,
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
                 session_id="sess-1",
                 triggered_by=ObservationTrigger.ON_DEMAND,
                 triggered_by_user_id=member.id,
@@ -250,8 +250,8 @@ class TestCreateObservationActivity:
 @pytest.mark.django_db(transaction=True)
 class TestObservationStateActivities:
     def test_mark_running_stamps_started_at(self) -> None:
-        lens = _make_lens()
-        observation = _make_observation(lens, workflow_id="wf-1")
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, workflow_id="wf-1")
         assert observation.status == ObservationStatus.PENDING
 
         mark_observation_running_activity(MarkObservationRunningInputs(observation_id=observation.id))
@@ -262,8 +262,8 @@ class TestObservationStateActivities:
         assert observation.started_at is not None
 
     def test_mark_failed_records_reason_and_completed_at(self) -> None:
-        lens = _make_lens()
-        observation = _make_observation(lens)
+        scanner = _make_scanner()
+        observation = _make_observation(scanner)
         observation.status = ObservationStatus.RUNNING
         observation.started_at = timezone.now()
         observation.save(update_fields=["status", "started_at"])
@@ -280,8 +280,8 @@ class TestObservationStateActivities:
     @pytest.mark.parametrize("terminal_status", [ObservationStatus.SUCCEEDED, ObservationStatus.FAILED])
     def test_terminal_status_is_not_overwritten_by_state_activities(self, terminal_status: str) -> None:
         # Bounded UPDATE protects against retries that race past a settled row.
-        lens = _make_lens()
-        observation = _make_observation(lens)
+        scanner = _make_scanner()
+        observation = _make_observation(scanner)
         observation.status = terminal_status
         observation.completed_at = timezone.now()
         observation.error_reason = "original"
@@ -298,8 +298,8 @@ class TestObservationStateActivities:
 
     def test_mark_running_is_idempotent_against_already_running_rows(self) -> None:
         # `started_at` must survive at-least-once retries; duration metrics depend on it.
-        lens = _make_lens()
-        observation = _make_observation(lens)
+        scanner = _make_scanner()
+        observation = _make_observation(scanner)
         mark_observation_running_activity(MarkObservationRunningInputs(observation_id=observation.id))
         observation.refresh_from_db()
         first_started_at = observation.started_at
@@ -310,35 +310,35 @@ class TestObservationStateActivities:
         assert observation.started_at == first_started_at
 
     def test_mark_succeeded_stamps_lifecycle_metadata_and_persists_result(self) -> None:
-        lens = _make_lens()
-        observation = _make_observation(lens, status=ObservationStatus.RUNNING, started_at=timezone.now())
-        result = LensResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.9))
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.9))
 
         mark_observation_succeeded_activity(
-            MarkObservationSucceededInputs(observation_id=observation.id, lens_result=result)
+            MarkObservationSucceededInputs(observation_id=observation.id, scanner_result=result)
         )
 
         observation.refresh_from_db()
         assert observation.status == ObservationStatus.SUCCEEDED
         assert observation.completed_at is not None
-        assert observation.lens_result == result.model_dump(mode="json")
+        assert observation.scanner_result == result.model_dump(mode="json")
 
     def test_mark_succeeded_does_not_overwrite_terminal_status(self) -> None:
         # Bounded UPDATE: failed/succeeded rows are sticky.
-        lens = _make_lens()
+        scanner = _make_scanner()
         observation = _make_observation(
-            lens, status=ObservationStatus.FAILED, error_reason="prior", completed_at=timezone.now()
+            scanner, status=ObservationStatus.FAILED, error_reason="prior", completed_at=timezone.now()
         )
-        result = LensResult(model_output=MonitorOutput(verdict=True, reasoning="late", confidence=0.9))
+        result = ScannerResult(model_output=MonitorOutput(verdict=True, reasoning="late", confidence=0.9))
 
         mark_observation_succeeded_activity(
-            MarkObservationSucceededInputs(observation_id=observation.id, lens_result=result)
+            MarkObservationSucceededInputs(observation_id=observation.id, scanner_result=result)
         )
 
         observation.refresh_from_db()
         assert observation.status == ObservationStatus.FAILED
         assert observation.completed_at is not None
-        assert observation.lens_result == {}  # not overwritten
+        assert observation.scanner_result == {}  # not overwritten
 
 
 @pytest.mark.django_db(transaction=True)
@@ -356,8 +356,8 @@ class TestFetchSessionEventsActivity:
         return mock_obj
 
     @pytest.mark.asyncio
-    async def test_stashes_lens_llm_inputs_in_redis(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+    async def test_stashes_scanner_llm_inputs_in_redis(self) -> None:
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         end = dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC)
@@ -375,17 +375,17 @@ class TestFetchSessionEventsActivity:
             await fetch_session_events_activity(
                 FetchSessionEventsInputs(
                     observation_id=observation_id,
-                    team_id=lens.team_id,
+                    team_id=scanner.team_id,
                     session_id="sess-1",
                 )
             )
 
         redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
-        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
         assert stored.session_id == "sess-1"
-        assert stored.team_id == lens.team_id
+        assert stored.team_id == scanner.team_id
         assert stored.events.columns == ["event_id", "event", "timestamp", "$session_id"]
         assert stored.metadata.start_time == start
         assert stored.metadata.end_time == end
@@ -395,7 +395,7 @@ class TestFetchSessionEventsActivity:
 
     @pytest.mark.asyncio
     async def test_paginates_through_get_events_until_short_page(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
@@ -419,7 +419,7 @@ class TestFetchSessionEventsActivity:
             await fetch_session_events_activity(
                 FetchSessionEventsInputs(
                     observation_id=observation_id,
-                    team_id=lens.team_id,
+                    team_id=scanner.team_id,
                     session_id="sess-1",
                 )
             )
@@ -431,20 +431,20 @@ class TestFetchSessionEventsActivity:
 
         redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
-        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
         assert len(stored.events.rows) == page_size + 1
 
     @pytest.mark.asyncio
     async def test_is_idempotent_when_redis_already_has_payload(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         # Pre-populate Redis as if a previous run had finished.
         redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
-        existing = LensLlmInputs(
+        existing = ScannerLlmInputs(
             session_id="sess-1",
-            team_id=lens.team_id,
+            team_id=scanner.team_id,
             events=EventTable(columns=["event"], rows=[["$pageview"]]),
             metadata=SessionMetadata(
                 start_time=dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC),
@@ -462,7 +462,7 @@ class TestFetchSessionEventsActivity:
             await fetch_session_events_activity(
                 FetchSessionEventsInputs(
                     observation_id=observation_id,
-                    team_id=lens.team_id,
+                    team_id=scanner.team_id,
                     session_id="sess-1",
                 )
             )
@@ -472,7 +472,7 @@ class TestFetchSessionEventsActivity:
 
     @pytest.mark.asyncio
     async def test_raises_non_retryable_when_session_active_seconds_exceeds_max(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         metadata = {
             "start_time": dt.datetime(2026, 5, 12, tzinfo=dt.UTC),
@@ -489,7 +489,7 @@ class TestFetchSessionEventsActivity:
             with pytest.raises(ApplicationError) as exc_info:
                 await fetch_session_events_activity(
                     FetchSessionEventsInputs(
-                        observation_id=observation_id, team_id=lens.team_id, session_id="sess-long"
+                        observation_id=observation_id, team_id=scanner.team_id, session_id="sess-long"
                     )
                 )
             assert exc_info.value.non_retryable is True
@@ -497,7 +497,7 @@ class TestFetchSessionEventsActivity:
 
     @pytest.mark.asyncio
     async def test_raises_non_retryable_when_session_has_no_events(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         metadata = {
             "start_time": dt.datetime(2026, 5, 12, tzinfo=dt.UTC),
@@ -515,7 +515,7 @@ class TestFetchSessionEventsActivity:
                 await fetch_session_events_activity(
                     FetchSessionEventsInputs(
                         observation_id=observation_id,
-                        team_id=lens.team_id,
+                        team_id=scanner.team_id,
                         session_id="sess-empty",
                     )
                 )
@@ -523,7 +523,7 @@ class TestFetchSessionEventsActivity:
 
     @pytest.mark.asyncio
     async def test_requests_extra_fields_and_event_blocklist(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
@@ -534,7 +534,7 @@ class TestFetchSessionEventsActivity:
             return_value=mock_obj,
         ):
             await fetch_session_events_activity(
-                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
             )
 
         kwargs = mock_obj.get_events.call_args_list[0].kwargs
@@ -545,7 +545,7 @@ class TestFetchSessionEventsActivity:
 
     @pytest.mark.asyncio
     async def test_simplifies_repeated_urls_and_window_ids(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
@@ -570,12 +570,12 @@ class TestFetchSessionEventsActivity:
             return_value=mock_obj,
         ):
             await fetch_session_events_activity(
-                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
             )
 
         redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
-        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
         # 2 unique URLs, 1 unique window — mappings are reverse (short -> actual).
         assert stored.url_mapping == {"url_1": long_url, "url_2": long_url + "/sub"}
@@ -588,7 +588,7 @@ class TestFetchSessionEventsActivity:
 
     @pytest.mark.asyncio
     async def test_deduplicates_identical_events_by_hash(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
@@ -612,19 +612,19 @@ class TestFetchSessionEventsActivity:
             return_value=mock_obj,
         ):
             await fetch_session_events_activity(
-                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
             )
 
         redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
-        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
         assert len(stored.events.rows) == 2  # rageclick collapsed, plus the $pageview
 
     @pytest.mark.asyncio
     async def test_deduplicates_identical_content_despite_distinct_uuids(self) -> None:
         # `uuid` is fetched per event but excluded from the dedup hash — otherwise identical events never collapse.
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
@@ -648,12 +648,12 @@ class TestFetchSessionEventsActivity:
             return_value=mock_obj,
         ):
             await fetch_session_events_activity(
-                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
             )
 
         redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
-        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
         assert len(stored.events.rows) == 2  # rageclick collapsed, $pageview kept
         assert "uuid" not in stored.events.columns  # not surfaced to the LLM
@@ -666,7 +666,7 @@ class TestFetchSessionEventsActivity:
     @pytest.mark.asyncio
     async def test_session_metadata_round_trips_to_payload(self) -> None:
         # `RecordingMetadata` uses `first_url` (not `start_url`) and has no `inactive_seconds` — we derive it from duration.
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {
@@ -687,12 +687,12 @@ class TestFetchSessionEventsActivity:
             return_value=mock_obj,
         ):
             await fetch_session_events_activity(
-                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
             )
 
         redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
-        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
         m = stored.metadata
         assert m.active_seconds == 180
@@ -704,7 +704,7 @@ class TestFetchSessionEventsActivity:
 
     @pytest.mark.asyncio
     async def test_marks_events_truncated_when_last_page_has_more(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
@@ -718,18 +718,18 @@ class TestFetchSessionEventsActivity:
             return_value=mock_obj,
         ):
             await fetch_session_events_activity(
-                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
             )
 
         redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
-        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
         assert stored.metadata.events_truncated is True
 
     @pytest.mark.asyncio
     async def test_does_not_mark_truncated_when_last_page_exactly_fills_budget(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
@@ -744,18 +744,18 @@ class TestFetchSessionEventsActivity:
             return_value=mock_obj,
         ):
             await fetch_session_events_activity(
-                FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
             )
 
         redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
         key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
-        stored = await get_data_class_from_redis(redis_client, key, target_class=LensLlmInputs)
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
         assert stored is not None
         assert stored.metadata.events_truncated is False
 
     @pytest.mark.asyncio
     async def test_raises_non_retryable_when_session_duration_below_min(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         # 5s is under the 15s minimum.
@@ -768,14 +768,16 @@ class TestFetchSessionEventsActivity:
         ):
             with pytest.raises(ApplicationError) as exc_info:
                 await fetch_session_events_activity(
-                    FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+                    FetchSessionEventsInputs(
+                        observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1"
+                    )
                 )
             assert exc_info.value.non_retryable is True
             assert "5" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_raises_non_retryable_when_active_seconds_below_min(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
         # 60s duration passes; 3s active is under the 10s minimum.
@@ -788,7 +790,9 @@ class TestFetchSessionEventsActivity:
         ):
             with pytest.raises(ApplicationError) as exc_info:
                 await fetch_session_events_activity(
-                    FetchSessionEventsInputs(observation_id=observation_id, team_id=lens.team_id, session_id="sess-1")
+                    FetchSessionEventsInputs(
+                        observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1"
+                    )
                 )
             assert exc_info.value.non_retryable is True
             assert "3" in str(exc_info.value)
@@ -798,14 +802,14 @@ class TestFetchSessionEventsActivity:
 class TestEnsureSessionAssetActivity:
     @pytest.mark.asyncio
     async def test_creates_new_asset_with_vision_render_params(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         result = await ensure_session_asset_activity(
-            EnsureSessionAssetInputs(team_id=lens.team_id, session_id="sess-fresh")
+            EnsureSessionAssetInputs(team_id=scanner.team_id, session_id="sess-fresh")
         )
         assert isinstance(result, EnsureSessionAssetOutput)
 
         asset = await ExportedAsset.objects.aget(pk=result.asset_id)
-        assert asset.team_id == lens.team_id
+        assert asset.team_id == scanner.team_id
         assert asset.export_format == "video/mp4"
         assert asset.is_system is True
         ctx = asset.export_context or {}
@@ -816,28 +820,28 @@ class TestEnsureSessionAssetActivity:
 
     @pytest.mark.asyncio
     async def test_reuses_existing_system_asset_for_same_session(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         first = await ensure_session_asset_activity(
-            EnsureSessionAssetInputs(team_id=lens.team_id, session_id="sess-reuse")
+            EnsureSessionAssetInputs(team_id=scanner.team_id, session_id="sess-reuse")
         )
         second = await ensure_session_asset_activity(
-            EnsureSessionAssetInputs(team_id=lens.team_id, session_id="sess-reuse")
+            EnsureSessionAssetInputs(team_id=scanner.team_id, session_id="sess-reuse")
         )
         assert first.asset_id == second.asset_id
 
         @sync_to_async
         def _count() -> int:
             return ExportedAsset.objects.filter(
-                team_id=lens.team_id, export_context__session_recording_id="sess-reuse"
+                team_id=scanner.team_id, export_context__session_recording_id="sess-reuse"
             ).count()
 
         assert await _count() == 1
 
     @pytest.mark.asyncio
     async def test_reuse_does_not_mutate_existing_asset(self) -> None:
-        lens = await sync_to_async(_make_lens)()
+        scanner = await sync_to_async(_make_scanner)()
         first = await ensure_session_asset_activity(
-            EnsureSessionAssetInputs(team_id=lens.team_id, session_id="sess-immutable")
+            EnsureSessionAssetInputs(team_id=scanner.team_id, session_id="sess-immutable")
         )
 
         # Simulate a previous rasterize run writing output fields onto the asset.
@@ -852,7 +856,9 @@ class TestEnsureSessionAssetActivity:
 
         await _stamp_output()
 
-        await ensure_session_asset_activity(EnsureSessionAssetInputs(team_id=lens.team_id, session_id="sess-immutable"))
+        await ensure_session_asset_activity(
+            EnsureSessionAssetInputs(team_id=scanner.team_id, session_id="sess-immutable")
+        )
 
         asset = await ExportedAsset.objects.aget(pk=first.asset_id)
         ctx = asset.export_context or {}
@@ -860,16 +866,16 @@ class TestEnsureSessionAssetActivity:
         assert ctx["content_location"] == "s3://prior/video.mp4"
 
 
-def _build_inputs(**overrides: Any) -> ApplyLensInputs:
+def _build_inputs(**overrides: Any) -> ApplyScannerInputs:
     defaults: dict[str, Any] = {
-        "lens_id": uuid.uuid4(),
+        "scanner_id": uuid.uuid4(),
         "session_id": "sess-1",
         "team_id": 1,
         "triggered_by": ObservationTrigger.ON_DEMAND,
         "triggered_by_user_id": None,
     }
     defaults.update(overrides)
-    return ApplyLensInputs(**defaults)
+    return ApplyScannerInputs(**defaults)
 
 
 class _WorkflowMocks:
@@ -897,7 +903,7 @@ class _WorkflowMocks:
         return None
 
 
-async def _run_workflow(inputs: ApplyLensInputs, mocks: _WorkflowMocks, workflow_id: str = "wf-test") -> None:
+async def _run_workflow(inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workflow_id: str = "wf-test") -> None:
     workflow_info = MagicMock()
     workflow_info.workflow_id = workflow_id
     with (
@@ -905,11 +911,11 @@ async def _run_workflow(inputs: ApplyLensInputs, mocks: _WorkflowMocks, workflow
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
     ):
-        await ApplyLensWorkflow().run(inputs)
+        await ApplyScannerWorkflow().run(inputs)
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_drives_full_success_pipeline() -> None:
+async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     new_observation_id = uuid.uuid4()
     model_output = MonitorOutput(verdict=True, reasoning="user exported", confidence=0.9)
     mocks = _WorkflowMocks(
@@ -919,7 +925,7 @@ async def test_apply_lens_workflow_drives_full_success_pipeline() -> None:
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
-            call_lens_provider_activity: LensCallOutput(model_output=model_output),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=model_output),
         },
     )
 
@@ -932,13 +938,13 @@ async def test_apply_lens_workflow_drives_full_success_pipeline() -> None:
     assert set(activity_order[2:4]) == {fetch_session_events_activity, ensure_session_asset_activity}
     assert activity_order[4:] == [
         upload_video_to_gemini_activity,
-        call_lens_provider_activity,
+        call_scanner_provider_activity,
         emit_observation_event_activity,
         mark_observation_succeeded_activity,
         cleanup_gemini_file_activity,
     ]
     assert len(mocks.child_calls) == 1
-    assert mocks.child_calls[0][1]["id"] == f"replay-vision-rasterize-99-sess-1-{inputs.lens_id}"
+    assert mocks.child_calls[0][1]["id"] == f"replay-vision-rasterize-99-sess-1-{inputs.scanner_id}"
 
     emit_input = next(arg for fn, arg in mocks.activity_calls if fn is emit_observation_event_activity)
     assert emit_input.model_output == model_output
@@ -947,7 +953,7 @@ async def test_apply_lens_workflow_drives_full_success_pipeline() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_marks_failed_when_fetch_raises() -> None:
+async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     new_observation_id = uuid.uuid4()
     fetch_error = ApplicationError("no events", non_retryable=True)
     mocks = _WorkflowMocks(
@@ -974,7 +980,7 @@ async def test_apply_lens_workflow_marks_failed_when_fetch_raises() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_cleans_up_gemini_file_when_call_provider_fails() -> None:
+async def test_apply_scanner_workflow_cleans_up_gemini_file_when_call_provider_fails() -> None:
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
         activity_results={
@@ -984,7 +990,7 @@ async def test_apply_lens_workflow_cleans_up_gemini_file_when_call_provider_fail
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
         },
-        activity_errors={call_lens_provider_activity: ApplicationError("model rejected", non_retryable=True)},
+        activity_errors={call_scanner_provider_activity: ApplicationError("model rejected", non_retryable=True)},
     )
 
     with pytest.raises(ApplicationError, match="model rejected"):
@@ -992,7 +998,7 @@ async def test_apply_lens_workflow_cleans_up_gemini_file_when_call_provider_fail
 
     called = {fn for fn, _ in mocks.activity_calls}
     assert upload_video_to_gemini_activity in called
-    assert call_lens_provider_activity in called
+    assert call_scanner_provider_activity in called
     assert cleanup_gemini_file_activity in called  # cleanup ran despite call_provider raising
     assert mark_observation_failed_activity in called
     # mark_succeeded must NOT have been called
@@ -1000,7 +1006,7 @@ async def test_apply_lens_workflow_cleans_up_gemini_file_when_call_provider_fail
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_succeeds_even_when_cleanup_fails() -> None:
+async def test_apply_scanner_workflow_succeeds_even_when_cleanup_fails() -> None:
     # Cleanup is best-effort; a cleanup failure must not bring down an already-succeeded workflow.
     new_observation_id = uuid.uuid4()
     mocks = _WorkflowMocks(
@@ -1010,7 +1016,7 @@ async def test_apply_lens_workflow_succeeds_even_when_cleanup_fails() -> None:
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
-            call_lens_provider_activity: LensCallOutput(
+            call_scanner_provider_activity: ScannerCallOutput(
                 model_output=MonitorOutput(verdict=True, reasoning="ok", confidence=0.9),
             ),
         },
@@ -1027,7 +1033,7 @@ async def test_apply_lens_workflow_succeeds_even_when_cleanup_fails() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_exits_when_create_returns_was_created_false() -> None:
+async def test_apply_scanner_workflow_exits_when_create_returns_was_created_false() -> None:
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(observation_id=uuid.uuid4(), was_created=False),
@@ -1041,14 +1047,14 @@ async def test_apply_lens_workflow_exits_when_create_returns_was_created_false()
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_propagates_workflow_id_to_create() -> None:
+async def test_apply_scanner_workflow_propagates_workflow_id_to_create() -> None:
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(observation_id=uuid.uuid4(), was_created=False),
         },
     )
     inputs = _build_inputs(
-        lens_id=uuid.uuid4(),
+        scanner_id=uuid.uuid4(),
         session_id="sess-id",
         team_id=7,
         triggered_by=ObservationTrigger.SCHEDULE,
@@ -1058,7 +1064,7 @@ async def test_apply_lens_workflow_propagates_workflow_id_to_create() -> None:
     await _run_workflow(inputs, mocks, workflow_id="wf-from-info")
 
     create_input = mocks.activity_calls[0][1]
-    assert create_input.lens_id == inputs.lens_id
+    assert create_input.scanner_id == inputs.scanner_id
     assert create_input.session_id == "sess-id"
     assert create_input.team_id == 7
     assert create_input.triggered_by == ObservationTrigger.SCHEDULE
@@ -1144,12 +1150,11 @@ async def test_emit_classifier_tags_produces_kafka_payload() -> None:
             "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
         ) as mock_se_cls,
         patch(
-            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.get_producer"
-        ) as mock_producer_factory,
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.producer_scope"
+        ) as mock_producer_scope,
     ):
         mock_se_cls.return_value.get_metadata.return_value = fake_metadata
-        producer = MagicMock()
-        mock_producer_factory.return_value = producer
+        producer = mock_producer_scope.return_value.__enter__.return_value
 
         await emit_classifier_tags_activity(inputs)
 
@@ -1210,20 +1215,19 @@ async def test_emit_classifier_tags_raises_when_kafka_delivery_fails() -> None:
             "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
         ) as mock_se_cls,
         patch(
-            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.get_producer"
-        ) as mock_producer_factory,
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.producer_scope"
+        ) as mock_producer_scope,
     ):
         mock_se_cls.return_value.get_metadata.return_value = fake_metadata
-        producer = MagicMock()
+        producer = mock_producer_scope.return_value.__enter__.return_value
         producer.produce.return_value = failed_result
-        mock_producer_factory.return_value = producer
 
         with pytest.raises(RuntimeError, match="broker timeout"):
             await emit_classifier_tags_activity(inputs)
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_dispatches_indexer_side_effect() -> None:
+async def test_apply_scanner_workflow_dispatches_indexer_side_effect() -> None:
     new_observation_id = uuid.uuid4()
     model_output = _indexer_output()
     mocks = _WorkflowMocks(
@@ -1233,14 +1237,14 @@ async def test_apply_lens_workflow_dispatches_indexer_side_effect() -> None:
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
-            call_lens_provider_activity: LensCallOutput(model_output=model_output),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=model_output),
         },
     )
 
     await _run_workflow(_build_inputs(session_id="sess-idx", team_id=99), mocks, workflow_id="wf-idx")
 
     activity_order = [fn for fn, _ in mocks.activity_calls]
-    call_idx = activity_order.index(call_lens_provider_activity)
+    call_idx = activity_order.index(call_scanner_provider_activity)
     assert activity_order[call_idx + 1] == embed_indexer_observation_activity
     assert activity_order[call_idx + 2] == emit_observation_event_activity
     assert activity_order[call_idx + 3] == mark_observation_succeeded_activity
@@ -1253,7 +1257,7 @@ async def test_apply_lens_workflow_dispatches_indexer_side_effect() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_dispatches_classifier_side_effect() -> None:
+async def test_apply_scanner_workflow_dispatches_classifier_side_effect() -> None:
     new_observation_id = uuid.uuid4()
     model_output = _classifier_output()
     mocks = _WorkflowMocks(
@@ -1263,14 +1267,14 @@ async def test_apply_lens_workflow_dispatches_classifier_side_effect() -> None:
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
-            call_lens_provider_activity: LensCallOutput(model_output=model_output),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=model_output),
         },
     )
 
     await _run_workflow(_build_inputs(session_id="sess-cls", team_id=99), mocks, workflow_id="wf-cls")
 
     activity_order = [fn for fn, _ in mocks.activity_calls]
-    call_idx = activity_order.index(call_lens_provider_activity)
+    call_idx = activity_order.index(call_scanner_provider_activity)
     assert activity_order[call_idx + 1] == emit_classifier_tags_activity
     assert activity_order[call_idx + 2] == emit_observation_event_activity
     assert activity_order[call_idx + 3] == mark_observation_succeeded_activity
@@ -1281,7 +1285,7 @@ async def test_apply_lens_workflow_dispatches_classifier_side_effect() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_skips_side_effects_for_monitor() -> None:
+async def test_apply_scanner_workflow_skips_side_effects_for_monitor() -> None:
     new_observation_id = uuid.uuid4()
     model_output = MonitorOutput(verdict=True, reasoning="user exported", confidence=0.9)
     mocks = _WorkflowMocks(
@@ -1291,7 +1295,7 @@ async def test_apply_lens_workflow_skips_side_effects_for_monitor() -> None:
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
-            call_lens_provider_activity: LensCallOutput(model_output=model_output),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=model_output),
         },
     )
 
@@ -1303,7 +1307,7 @@ async def test_apply_lens_workflow_skips_side_effects_for_monitor() -> None:
 
 
 @pytest.mark.asyncio
-async def test_apply_lens_workflow_marks_failed_when_side_effect_raises() -> None:
+async def test_apply_scanner_workflow_marks_failed_when_side_effect_raises() -> None:
     new_observation_id = uuid.uuid4()
     side_effect_error = ApplicationError("embedding kafka down", non_retryable=True)
     mocks = _WorkflowMocks(
@@ -1313,7 +1317,7 @@ async def test_apply_lens_workflow_marks_failed_when_side_effect_raises() -> Non
             upload_video_to_gemini_activity: UploadedVideo(
                 file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
             ),
-            call_lens_provider_activity: LensCallOutput(model_output=_indexer_output()),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=_indexer_output()),
         },
         activity_errors={embed_indexer_observation_activity: side_effect_error},
     )

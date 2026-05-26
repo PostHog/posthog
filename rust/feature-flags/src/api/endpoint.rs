@@ -8,13 +8,16 @@ use crate::{
             ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
     },
+    config::BotFilterMode,
     handler::{
         decoding, process_request, run_with_canonical_log, with_canonical_log,
         FlagsCanonicalLogLine, RequestContext,
     },
-    metrics::consts::{FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS},
+    metrics::consts::{
+        FLAG_BOT_DETECTED_COUNTER, FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS,
+    },
     router,
-    utils::user_agent::UserAgentInfo,
+    utils::{bot_detection, user_agent::UserAgentInfo},
 };
 // TODO: stream this instead
 use axum::extract::{Extension, MatchedPath, Query, State};
@@ -103,16 +106,71 @@ fn rate_limit_error(error: FlagError) -> FlagError {
     error
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BotFilterOutcome {
+    /// No match, `Disabled` mode, or `LogOnly` classified — continue through
+    /// the normal pipeline.
+    Continue,
+    /// `Enforced` classified — short-circuit with the minimal flags envelope.
+    Reject,
+}
+
+/// Classify the request against the bot filter, stamp the canonical log,
+/// and bump `flags_bot_detected_total`. Side effects are scoped so a unit
+/// test can drive the function directly and inspect the log + recorded
+/// metric without spinning up the request pipeline.
+fn classify_and_stamp(
+    log: &mut FlagsCanonicalLogLine,
+    mode: &BotFilterMode,
+    user_agent: Option<&str>,
+    ip: IpAddr,
+) -> BotFilterOutcome {
+    if matches!(mode, BotFilterMode::Disabled) {
+        return BotFilterOutcome::Continue;
+    }
+    let Some((category, source)) = bot_detection::classify_request(user_agent, ip) else {
+        return BotFilterOutcome::Continue;
+    };
+    log.is_bot = true;
+    log.bot_category = Some(category);
+    log.bot_source = Some(source);
+
+    let mode_label = match mode {
+        BotFilterMode::LogOnly => "log_only",
+        BotFilterMode::Enforced => "enforced",
+        BotFilterMode::Disabled => unreachable!("guarded above"),
+    };
+    common_metrics::inc(
+        FLAG_BOT_DETECTED_COUNTER,
+        &[
+            ("bot_category".to_string(), category.as_str().to_string()),
+            ("bot_source".to_string(), source.as_str().to_string()),
+            ("mode".to_string(), mode_label.to_string()),
+        ],
+        1,
+    );
+
+    match mode {
+        BotFilterMode::Enforced => BotFilterOutcome::Reject,
+        BotFilterMode::LogOnly => BotFilterOutcome::Continue,
+        BotFilterMode::Disabled => unreachable!("guarded above"),
+    }
+}
+
+/// Empty-flags + minimal-config response shared by the GET and bot-reject
+/// paths. The envelope is selected by [`get_versioned_response`] so the
+/// `is_from_legacy_decide × version` matrix lives in one place.
 fn get_minimal_flags_response(
     headers: &HeaderMap,
     version: Option<&str>,
-) -> Result<Json<ServiceResponse>, FlagError> {
+    is_from_legacy_decide: bool,
+) -> Json<ServiceResponse> {
     let request_id = extract_request_id(headers);
 
-    // Parse version string to determine response format
-    let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
+    // `None` is preserved so `get_versioned_response` can apply its
+    // decide/non-decide defaults.
+    let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1));
 
-    // Create minimal config response
     let mut config = ConfigResponse::new();
     config.set(
         "supportedCompression",
@@ -126,18 +184,13 @@ fn get_minimal_flags_response(
     config.set("isAuthenticated", serde_json::json!(false));
     config.set("sessionRecording", serde_json::json!(false));
 
-    // Create empty flags response with minimal config
     let mut response = FlagsResponse::new(false, HashMap::new(), None, request_id);
     response.config = config;
 
-    // Return versioned response
-    let service_response = if version_num >= 2 {
-        ServiceResponse::V2(response)
-    } else {
-        ServiceResponse::Default(LegacyFlagsResponse::from_response(response))
-    };
-
-    Ok(Json(service_response))
+    let (service_response, _) =
+        get_versioned_response(is_from_legacy_decide, version_num, response)
+            .expect("get_versioned_response is total for any (bool, Option<i32>, FlagsResponse)");
+    Json(service_response)
 }
 
 /// Determines the response format based on whether the request came from decide and the version parameter.
@@ -154,11 +207,11 @@ fn get_minimal_flags_response(
 ///
 /// Returns a tuple of (response, format_name) for logging purposes
 fn get_versioned_response(
-    is_from_decide: bool,
+    is_from_legacy_decide: bool,
     version: Option<i32>,
     response: FlagsResponse,
 ) -> Result<(ServiceResponse, &'static str), FlagError> {
-    if is_from_decide {
+    if is_from_legacy_decide {
         match version {
             Some(1) | None => Ok((
                 ServiceResponse::DecideV1(crate::api::types::DecideV1Response::from_response(
@@ -228,11 +281,14 @@ pub async fn flags(
     // Handle different HTTP methods (these don't need canonical logging)
     match method {
         Method::GET => {
-            // GET requests return minimal flags response
-            return Ok(
-                get_minimal_flags_response(&headers, query_params.version.as_deref())?
-                    .into_response(),
-            );
+            // The decide proxy forwards POSTs only, so GETs are always
+            // direct hits (`is_from_legacy_decide = false`).
+            return Ok(get_minimal_flags_response(
+                &headers,
+                query_params.version.as_deref(),
+                false,
+            )
+            .into_response());
         }
         Method::POST => {
             // POST requests continue with full processing logic below
@@ -270,11 +326,10 @@ pub async fn flags(
     // Convert IP to string once and reuse throughout the request
     let ip_string = ip.to_string();
 
-    // Anchor for `flags_pre_handler_time_ms` — placed before UA parse so
-    // that synchronous pre-handler work (UA parse → token rate-limit) is
-    // included end-to-end, matching the metric's documented scope. The
-    // actual emission happens inside the canonical-log scope so the metric
-    // carries a `team_id` label once it's resolved.
+    // Anchor for `flags_pre_handler_time_ms`. Covers all synchronous
+    // pre-handler work (UA parse → IP rate-limit → bot check → token
+    // rate-limit). The histogram is emitted from inside the canonical-log
+    // scope once `team_id` is resolved.
     let pre_handler_start = std::time::Instant::now();
 
     // Parse User-Agent and extract SDK info for logging
@@ -305,9 +360,19 @@ pub async fn flags(
     // surface.
     let body_read_ms = body_read_duration.map(|Extension(d)| d.0.as_secs_f64() * 1000.0);
 
-    // Initialize canonical log with all upfront request metadata.
-    // Fields discovered during processing (team_id, flags_evaluated, etc.) are set via with_canonical_log().
-    let canonical_log = FlagsCanonicalLogLine {
+    // Needed by both the bot short-circuit and the normal-path response
+    // for envelope selection (Decide vs Flags shape).
+    let is_from_legacy_decide = headers
+        .get("X-Original-Endpoint")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "decide")
+        .unwrap_or(false);
+
+    // Mutable: the IP rate-limit and bot branches below mark fields on
+    // it directly because they run outside the canonical-log scope.
+    // Fields resolved inside `run_with_canonical_log` go through
+    // `with_canonical_log()`.
+    let mut canonical_log = FlagsCanonicalLogLine {
         request_id,
         ip: ip_string.clone(),
         user_agent: user_agent.map(|s| s.to_string()),
@@ -321,16 +386,53 @@ pub async fn flags(
         ..Default::default()
     };
 
-    // Check if this request came through the decide proxy
-    let is_from_decide = headers
-        .get("X-Original-Endpoint")
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v == "decide")
-        .unwrap_or(false);
+    // Runs before the bot check: UA matching is public and trivially
+    // forgeable, so a spoofed Googlebot UA must still hit the per-IP
+    // limiter. Mutates `canonical_log` directly since the task-local
+    // scope has not been entered.
+    let ip_rl_result = {
+        let _t = common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
+            .label("kind", "ip");
+        state.ip_rate_limiter.allow_request(&ip_string)
+    };
+    match ip_rl_result {
+        RateLimitResult::Blocked => {
+            let err = FlagError::ClientFacing(ClientFacingError::IpRateLimited);
+            canonical_log.rate_limited = true;
+            canonical_log.set_error(&err);
+            // queue_time/body_read histograms emit with team_id="unknown".
+            canonical_log.emit_short_circuit();
+            return Err(err);
+        }
+        RateLimitResult::Warned => canonical_log.rate_limit_warned = true,
+        RateLimitResult::Allowed => {}
+    }
+
+    // Runs after IP rate-limit (so spoofed UAs are still throttled) but
+    // before token rate-limit, auth, billing, and evaluation. LogOnly
+    // stamps the canonical log and falls through; Enforced short-circuits.
+    let bot_outcome = classify_and_stamp(
+        &mut canonical_log,
+        &state.config.bot_filter_mode,
+        user_agent,
+        ip,
+    );
+    if bot_outcome == BotFilterOutcome::Reject {
+        // `rate_limit_warned` stays on the canonical log but is not
+        // surfaced as `X-PostHog-Rate-Limit-Warning`: bots do not read
+        // response headers.
+        canonical_log.emit_short_circuit();
+        return Ok(get_minimal_flags_response(
+            &headers,
+            query_params.version.as_deref(),
+            is_from_legacy_decide,
+        )
+        .into_response());
+    }
 
     // Modify query params to enable config for decide requests
     let mut modified_query_params = query_params.clone();
-    if is_from_decide && modified_query_params.config.is_none() {
+    if is_from_legacy_decide && modified_query_params.config.is_none() {
         modified_query_params.config = Some(true);
     }
 
@@ -368,38 +470,13 @@ pub async fn flags(
 
     // Run the request within a canonical log scope.
     // All code within can use with_canonical_log() to update the log.
+    //
+    // Only the token-based rate limit runs here: it needs the parsed JSON
+    // body, so it lives next to `process_request`. The IP-based limit
+    // runs above, before the bot check, so a spoofed bot UA cannot
+    // bypass it.
     let (result, mut log) = run_with_canonical_log(canonical_log, async {
-        // Rate limiting strategy (order matters for security):
-        // 1. IP-based rate limiting first - prevents DDoS with rotating tokens
-        // 2. Token-based rate limiting second - enforces per-project limits
-        //
-        // This order ensures that an attacker cannot bypass rate limiting by
-        // simply rotating through fake tokens from the same IP address.
-
-        let mut rate_limit_warned = false;
-
-        // Check IP-based rate limit first.
-        // Time the governor `allow_request` call (sharded DashMap + sync
-        // mutex) — Mutex contention on a hot token is a known source of
-        // pre-handler latency spikes. Guard records on drop, before the
-        // match arm runs.
-        let ip_rl_result = {
-            let _t =
-                common_metrics::timing_guard_high_precision(FLAG_RATE_LIMIT_CHECK_TIME_MS, &[])
-                    .label("kind", "ip");
-            state.ip_rate_limiter.allow_request(&ip_string)
-        };
-        match ip_rl_result {
-            RateLimitResult::Blocked => {
-                return Err(rate_limit_error(FlagError::ClientFacing(
-                    ClientFacingError::IpRateLimited,
-                )));
-            }
-            RateLimitResult::Warned => rate_limit_warned = true,
-            RateLimitResult::Allowed => {}
-        }
-
-        // Check token-based rate limit
+        // Check token-based rate limit.
         // Extract token from body, use IP as fallback if extraction fails.
         // Time the JSON DOM scan separately — pathological large bodies
         // are the suspected outlier driver here.
@@ -420,12 +497,9 @@ pub async fn flags(
                     ClientFacingError::TokenRateLimited,
                 )));
             }
-            RateLimitResult::Warned => rate_limit_warned = true,
+            // OR-combines with any IP warn already on the canonical log.
+            RateLimitResult::Warned => with_canonical_log(|l| l.rate_limit_warned = true),
             RateLimitResult::Allowed => {}
-        }
-
-        if rate_limit_warned {
-            with_canonical_log(|l| l.rate_limit_warned = true);
         }
 
         // Stamp pre-handler duration into the canonical log just before we
@@ -453,7 +527,7 @@ pub async fn flags(
     match result {
         Ok(response) => {
             // Determine the response format based on whether request is from decide and version
-            match get_versioned_response(is_from_decide, query_version, response) {
+            match get_versioned_response(is_from_legacy_decide, query_version, response) {
                 Ok((versioned_response, _response_format)) => {
                     log.http_status = 200;
                     log.emit();
@@ -834,5 +908,164 @@ mod tests {
     #[case("1774859827.7821", Some(1774859827782))] // extra digits beyond ms are truncated
     fn test_parse_request_start_ms(#[case] input: &str, #[case] expected: Option<i64>) {
         assert_eq!(parse_request_start_ms(input), expected);
+    }
+
+    mod bot_filter_tests {
+        use super::*;
+        use crate::utils::bot_detection::{BotCategory, BotSource};
+        use metrics_util::debugging::DebuggingRecorder;
+        use std::net::Ipv4Addr;
+
+        const GOOGLEBOT_UA: &str =
+            "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
+        const GOOGLEBOT_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(66, 249, 79, 123));
+        const BENIGN_IP: IpAddr = IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8));
+        const BENIGN_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X) Chrome/120 Safari/537.36";
+
+        fn fresh_log() -> FlagsCanonicalLogLine {
+            FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string())
+        }
+
+        /// True iff `FLAG_BOT_DETECTED_COUNTER` was emitted with all three
+        /// labels matching.
+        fn counter_labels_match(
+            recorder: &DebuggingRecorder,
+            mode: &str,
+            category: &str,
+            source: &str,
+        ) -> bool {
+            recorder
+                .snapshotter()
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .any(|(ckey, _, _, _)| {
+                    let key = ckey.key();
+                    if key.name() != FLAG_BOT_DETECTED_COUNTER {
+                        return false;
+                    }
+                    let pairs: Vec<(String, String)> = key
+                        .labels()
+                        .map(|l| (l.key().to_string(), l.value().to_string()))
+                        .collect();
+                    pairs.iter().any(|(k, v)| k == "mode" && v == mode)
+                        && pairs
+                            .iter()
+                            .any(|(k, v)| k == "bot_category" && v == category)
+                        && pairs.iter().any(|(k, v)| k == "bot_source" && v == source)
+                })
+        }
+
+        fn any_bot_counter_emitted(recorder: &DebuggingRecorder) -> bool {
+            recorder
+                .snapshotter()
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .any(|(ckey, _, _, _)| ckey.key().name() == FLAG_BOT_DETECTED_COUNTER)
+        }
+
+        #[test]
+        fn disabled_mode_does_not_stamp_or_count() {
+            let recorder = DebuggingRecorder::new();
+            let mut log = fresh_log();
+            let outcome = metrics::with_local_recorder(&recorder, || {
+                classify_and_stamp(
+                    &mut log,
+                    &BotFilterMode::Disabled,
+                    Some(GOOGLEBOT_UA),
+                    GOOGLEBOT_IP,
+                )
+            });
+            assert_eq!(outcome, BotFilterOutcome::Continue);
+            assert!(!log.is_bot);
+            assert_eq!(log.bot_category, None);
+            assert_eq!(log.bot_source, None);
+            assert!(!any_bot_counter_emitted(&recorder));
+        }
+
+        #[test]
+        fn no_match_continues_without_stamping() {
+            let recorder = DebuggingRecorder::new();
+            let mut log = fresh_log();
+            let outcome = metrics::with_local_recorder(&recorder, || {
+                classify_and_stamp(
+                    &mut log,
+                    &BotFilterMode::Enforced,
+                    Some(BENIGN_UA),
+                    BENIGN_IP,
+                )
+            });
+            assert_eq!(outcome, BotFilterOutcome::Continue);
+            assert!(!log.is_bot);
+            assert!(!any_bot_counter_emitted(&recorder));
+        }
+
+        #[test]
+        fn log_only_ua_match_continues_and_records_observability() {
+            let recorder = DebuggingRecorder::new();
+            let mut log = fresh_log();
+            let outcome = metrics::with_local_recorder(&recorder, || {
+                classify_and_stamp(
+                    &mut log,
+                    &BotFilterMode::LogOnly,
+                    Some(GOOGLEBOT_UA),
+                    BENIGN_IP,
+                )
+            });
+            assert_eq!(outcome, BotFilterOutcome::Continue);
+            assert!(log.is_bot);
+            assert_eq!(log.bot_category, Some(BotCategory::Google));
+            assert_eq!(log.bot_source, Some(BotSource::UserAgent));
+            assert!(counter_labels_match(
+                &recorder,
+                "log_only",
+                "google",
+                "user_agent"
+            ));
+        }
+
+        #[test]
+        fn log_only_ip_match_stamps_with_ip_source() {
+            let recorder = DebuggingRecorder::new();
+            let mut log = fresh_log();
+            let outcome = metrics::with_local_recorder(&recorder, || {
+                classify_and_stamp(
+                    &mut log,
+                    &BotFilterMode::LogOnly,
+                    Some(BENIGN_UA),
+                    GOOGLEBOT_IP,
+                )
+            });
+            assert_eq!(outcome, BotFilterOutcome::Continue);
+            assert!(log.is_bot);
+            assert_eq!(log.bot_category, Some(BotCategory::Google));
+            assert_eq!(log.bot_source, Some(BotSource::Ip));
+            assert!(counter_labels_match(&recorder, "log_only", "google", "ip"));
+        }
+
+        #[test]
+        fn enforced_match_rejects_and_records_observability() {
+            let recorder = DebuggingRecorder::new();
+            let mut log = fresh_log();
+            let outcome = metrics::with_local_recorder(&recorder, || {
+                classify_and_stamp(
+                    &mut log,
+                    &BotFilterMode::Enforced,
+                    Some(GOOGLEBOT_UA),
+                    BENIGN_IP,
+                )
+            });
+            assert_eq!(outcome, BotFilterOutcome::Reject);
+            assert!(log.is_bot);
+            assert_eq!(log.bot_category, Some(BotCategory::Google));
+            assert_eq!(log.bot_source, Some(BotSource::UserAgent));
+            assert!(counter_labels_match(
+                &recorder,
+                "enforced",
+                "google",
+                "user_agent"
+            ));
+        }
     }
 }

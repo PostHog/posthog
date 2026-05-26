@@ -8,50 +8,54 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models.organization import OrganizationMembership
 
-from products.replay_vision.backend.models.replay_lens import ReplayLens
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.temporal.types import CreateObservationInputs, CreateObservationOutput, LensSnapshot
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.temporal.types import (
+    CreateObservationInputs,
+    CreateObservationOutput,
+    ScannerSnapshot,
+)
 
 
-def _build_lens_snapshot(lens: ReplayLens) -> dict[str, Any]:
-    return LensSnapshot(
-        name=lens.name,
-        lens_type=lens.lens_type,
-        lens_version=lens.lens_version,
-        model=lens.model,
-        provider=lens.provider,
-        emits_signals=lens.emits_signals,
-        lens_config=lens.lens_config,
+def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
+    return ScannerSnapshot(
+        name=scanner.name,
+        scanner_type=scanner.scanner_type,
+        scanner_version=scanner.scanner_version,
+        model=scanner.model,
+        provider=scanner.provider,
+        emits_signals=scanner.emits_signals,
+        scanner_config=scanner.scanner_config,
     ).model_dump(mode="json")
 
 
 @activity.defn
 def create_observation_activity(inputs: CreateObservationInputs) -> CreateObservationOutput:
-    """Snapshot the full lens state and INSERT the row in `pending`. Returns `was_created=False` on UNIQUE conflict."""
-    lens = ReplayLens.objects.filter(pk=inputs.lens_id, team_id=inputs.team_id).select_related("team").first()
-    if lens is None:
-        raise ValueError(f"ReplayLens {inputs.lens_id} not found for team {inputs.team_id}")
+    """Snapshot the full scanner state and INSERT the row in `pending`. Returns `was_created=False` on UNIQUE conflict."""
+    scanner = ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id).select_related("team").first()
+    if scanner is None:
+        raise ValueError(f"ReplayScanner {inputs.scanner_id} not found for team {inputs.team_id}")
 
     if inputs.triggered_by_user_id is not None:
         # The activity is the persistence boundary, so re-check team membership rather than trusting the trigger.
         is_member = OrganizationMembership.objects.filter(
             user_id=inputs.triggered_by_user_id,
-            organization_id=lens.team.organization_id,
+            organization_id=scanner.team.organization_id,
         ).exists()
         if not is_member:
             raise ValueError(
-                f"User {inputs.triggered_by_user_id} is not a member of lens {inputs.lens_id}'s organization"
+                f"User {inputs.triggered_by_user_id} is not a member of scanner {inputs.scanner_id}'s organization"
             )
 
     try:
         with transaction.atomic():
             observation = ReplayObservation.objects.create(
-                lens=lens,
-                team=lens.team,
+                scanner=scanner,
+                team=scanner.team,
                 session_id=inputs.session_id,
                 status=ObservationStatus.PENDING,
                 workflow_id=inputs.workflow_id,
-                lens_snapshot=_build_lens_snapshot(lens),
+                scanner_snapshot=_build_scanner_snapshot(scanner),
                 triggered_by=inputs.triggered_by,
                 triggered_by_user_id=inputs.triggered_by_user_id,
             )
@@ -59,11 +63,11 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
         # Only swallow the dedup case; FK / CHECK violations should fail the activity.
         if not isinstance(e.__cause__, psycopg.errors.UniqueViolation):
             raise
-        existing = ReplayObservation.objects.filter(lens_id=inputs.lens_id, session_id=inputs.session_id).first()
+        existing = ReplayObservation.objects.filter(scanner_id=inputs.scanner_id, session_id=inputs.session_id).first()
         if existing is None:
             # Conflicting row was deleted between INSERT and SELECT; let Temporal retry the INSERT.
             raise ApplicationError(
-                f"Observation for ({inputs.lens_id}, {inputs.session_id}) was deleted mid-create",
+                f"Observation for ({inputs.scanner_id}, {inputs.session_id}) was deleted mid-create",
                 non_retryable=False,
             )
         return CreateObservationOutput(observation_id=existing.id, was_created=False)

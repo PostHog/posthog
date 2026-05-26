@@ -36,11 +36,11 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/react': ^1.9.0
-    posthog-js: ^1.376.0
+    posthog-js: ^1.376.1
     # Build tools
     '@parcel/packager-ts': 2.13.3
     '@parcel/transformer-typescript-types': 2.13.3
-    typescript: 5.9.3
+    typescript: 6.0.3
     oxfmt: ^0.35.0
     # Testing
     jest: ^29.7.0

@@ -1,20 +1,16 @@
 import os
 import re
 import json
-from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
-from django.utils.crypto import get_random_string
 
 import stripe
-import requests
 import structlog
 from anthropic import APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from django_filters.rest_framework import DjangoFilterBackend
@@ -25,6 +21,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.github_callback.team_services import (
+    build_team_oauth_authorize_url,
+    create_team_github_integration_from_oauth_code,
+    link_existing_team_github_integration,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -48,7 +49,6 @@ from posthog.models.integration import (
     DatabricksIntegrationError,
     EmailIntegration,
     FirebaseIntegration,
-    GitHubInstallationAccess,
     GitHubIntegration,
     GitHubIntegrationError,
     GitLabIntegration,
@@ -65,7 +65,6 @@ from posthog.models.integration import (
     TwilioIntegration,
     defer_repository_cache_fields,
 )
-from posthog.models.user_integration import UserIntegration, user_github_integration_from_installation
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -75,24 +74,10 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.utils import is_relative_url
 
 logger = structlog.get_logger(__name__)
 
-GITHUB_INSTALL_STATE_CACHE_PREFIX = "github_user_install_state:"
-GITHUB_INSTALL_STATE_TTL_SECONDS = 10 * 60
-
-GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION = "github_link_existing_orphan_installation"
-GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED = "github_link_existing_personal_github_required"
-PERSONAL_GITHUB_REQUIRED_MESSAGE = (
-    "You must connect your personal GitHub account (via Linked Accounts) before linking an existing "
-    "installation, to confirm you have access to the GitHub App installation."
-)
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
-
-
-def github_oauth_redirect_uri() -> str:
-    return f"{settings.SITE_URL.rstrip('/')}/complete/github-link/"
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -130,13 +115,6 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         return True
     except stripe.SignatureVerificationError:
         return False
-
-
-def _installation_token_expires_at(integration: Integration) -> str:
-    """Compute an ISO 8601 timestamp for when the integration's installation token expires."""
-    refreshed_at = integration.config.get("refreshed_at", 0)
-    expires_in = integration.config.get("expires_in", 3600)
-    return datetime.fromtimestamp(refreshed_at + expires_in, tz=UTC).isoformat()
 
 
 def _ensure_oauth_token_valid(instance: Integration) -> None:
@@ -367,85 +345,13 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
         elif validated_data["kind"] == "github":
             config = validated_data.get("config", {})
-            installation_id = config.get("installation_id")
-            state = config.get("state")
-            code = config.get("code")
-
-            if not installation_id:
-                raise ValidationError("An installation_id must be provided")
-
-            if not state:
-                raise ValidationError("A state token must be provided")
-
-            if not code:
-                raise ValidationError("An OAuth code must be provided")
-
-            cache_key = f"github_state:{request.user.id}"
-            expected_state = cache.get(cache_key)
-            if not expected_state or expected_state != state:
-                raise ValidationError("Invalid or expired state token")
-            cache.delete(cache_key)
-
-            # Exchange the OAuth code for the user's access token and identity.
-            # This requires GITHUB_APP_CLIENT_SECRET to be configured.
-            authorization = GitHubIntegration.github_user_from_code(code)
-            if authorization is None:
-                raise ValidationError(
-                    "Failed to exchange the OAuth code — ensure GITHUB_APP_CLIENT_SECRET is configured"
-                )
-
-            # Verify the connecting user actually has access to this installation.
-            # Without this, an attacker could supply another tenant's installation_id
-            # with their own OAuth code and obtain an installation token scoped to
-            # the other tenant's repos.
-            if not re.fullmatch(r"\d{1,20}", str(installation_id)):
-                raise ValidationError("Invalid installation_id")
-            try:
-                has_access = GitHubIntegration.verify_user_installation_access(
-                    installation_id, authorization.access_token
-                )
-            except requests.RequestException:
-                logger.warning(
-                    "github_integration_create: installation ownership check failed",
-                    installation_id=installation_id,
-                    user_id=request.user.id,
-                    exc_info=True,
-                )
-                raise ValidationError("Failed to verify installation access")
-            if not has_access:
-                logger.warning(
-                    "github_integration_create: user does not have access to installation",
-                    installation_id=installation_id,
-                    user_id=request.user.id,
-                )
-                raise ValidationError("You do not have access to this GitHub installation")
-
-            instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
-
-            # Store the connecting user's GitHub login on the team integration
-            # (shown on the integration card) and auto-create a UserIntegration
-            # so the user immediately has personal GitHub credentials for
-            # PR authorship and identity attribution
-            instance.config["connecting_user_github_login"] = authorization.gh_login
-            instance.save(update_fields=["config"])
-            # Auto-create a UserIntegration so the user immediately has personal
-            # GitHub credentials. create_only=True uses get_or_create atomically —
-            # an existing personal integration (e.g. set up via Linked Accounts) is
-            # left untouched even under concurrent requests.
-            user_github_integration_from_installation(
-                request.user,
-                GitHubInstallationAccess(
-                    installation_id=installation_id,
-                    installation_info=instance.config,
-                    access_token=instance.sensitive_config.get("access_token", ""),
-                    token_expires_at=_installation_token_expires_at(instance),
-                    repository_selection=instance.config.get("repository_selection", "selected"),
-                ),
-                authorization,
-                create_only=True,
+            return create_team_github_integration_from_oauth_code(
+                user=request.user,
+                team_id=team_id,
+                installation_id=config.get("installation_id"),
+                state_token=config.get("state"),
+                code=config.get("code"),
             )
-
-            return instance
 
         elif validated_data["kind"] == "gitlab":
             config = validated_data.get("config", {})
@@ -1139,153 +1045,27 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=False, url_path="github/link_existing")
     def github_link_existing(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Reuse a GitHub installation already linked to a sibling team in the same organization."""
-        source_team_id = request.data.get("source_team_id")
-        installation_id_param = request.data.get("installation_id")
-
-        if installation_id_param and not re.fullmatch(r"\d{1,20}", str(installation_id_param)):
-            raise ValidationError("Invalid installation_id")
-
-        # installation_id is stored in JSONB and historically written as either a
-        # string or a number, so match both representations.
-        installation_id_match = (
-            Q(config__installation_id=str(installation_id_param))
-            | Q(config__installation_id=int(installation_id_param))
-            if installation_id_param
-            else None
+        instance = link_existing_team_github_integration(
+            user=cast(User, request.user),
+            organization=self.organization,
+            team_id=self.team_id,
+            source_team_id=request.data.get("source_team_id"),
+            installation_id_param=request.data.get("installation_id"),
         )
-
-        if source_team_id:
-            try:
-                source_team_id_int = int(source_team_id)
-            except (TypeError, ValueError):
-                raise ValidationError("source_team_id must be an integer")
-
-            if not self.organization.teams.filter(id=source_team_id_int).exists():
-                raise ValidationError("Source team not found in your organization")
-
-            qs = Integration.objects.filter(team_id=source_team_id_int, kind="github")
-            # When the source team has multiple GitHub installations linked, the
-            # caller must pass installation_id to disambiguate.
-            if installation_id_match is not None:
-                qs = qs.filter(installation_id_match)
-
-            source = qs.order_by("id").first()
-            if source is None:
-                raise ValidationError("Source team does not have a GitHub integration")
-        elif installation_id_param:
-            existing = (
-                Integration.objects.filter(
-                    team__organization_id=self.organization_id,
-                    kind="github",
-                )
-                .filter(installation_id_match)
-                .order_by("id")
-                .first()
-            )
-            if existing is None:
-                raise ValidationError(
-                    "No team in your organization has this GitHub installation linked",
-                    code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
-                )
-            source = existing
-        else:
-            raise ValidationError("source_team_id or installation_id is required")
-
-        installation_id = (source.config or {}).get("installation_id")
-        if not installation_id:
-            raise ValidationError("Source integration is missing installation_id")
-
-        # Confirms the requesting user has access to the installation on GitHub itself,
-        # so cross-team admin access alone can't mint tokens for repos they can't see.
-        user_github_integration = (
-            UserIntegration.objects.filter(user=cast(User, request.user), kind="github").order_by("-created_at").first()
-        )
-        user_access_token = (
-            user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
-        )
-        if not user_access_token:
-            raise ValidationError(
-                PERSONAL_GITHUB_REQUIRED_MESSAGE,
-                code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-            )
-        try:
-            has_access = GitHubIntegration.verify_user_installation_access(str(installation_id), user_access_token)
-        except requests.RequestException:
-            logger.warning(
-                "github_link_existing: installation ownership check failed",
-                installation_id=installation_id,
-                user_id=request.user.id,
-                exc_info=True,
-            )
-            raise ValidationError("Failed to verify installation access")
-        if not has_access:
-            logger.warning(
-                "github_link_existing: user does not have access to installation",
-                installation_id=installation_id,
-                user_id=request.user.id,
-            )
-            raise ValidationError(
-                PERSONAL_GITHUB_REQUIRED_MESSAGE,
-                code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-            )
-
-        instance = GitHubIntegration.integration_from_installation_id(
-            str(installation_id), self.team_id, cast(User, request.user)
-        )
-
-        source_login = (source.config or {}).get("connecting_user_github_login")
-        if source_login and not (instance.config or {}).get("connecting_user_github_login"):
-            instance.config["connecting_user_github_login"] = source_login
-            instance.save(update_fields=["config"])
-
         return Response(self.get_serializer(instance).data)
 
     @action(methods=["POST"], detail=False, url_path="github/oauth_authorize")
     def github_oauth_authorize(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one."""
-        installation_id = request.data.get("installation_id")
-        next_url = str(request.data.get("next") or "")
-        connect_from = request.data.get("connect_from") if request.data.get("connect_from") == "posthog_code" else None
-
-        if not installation_id:
-            raise ValidationError("installation_id is required")
-
-        if not re.fullmatch(r"\d{1,20}", str(installation_id)):
-            raise ValidationError("Invalid installation_id")
-
-        # Open-redirect guard for the success-redirect to `next`.
-        if next_url and not is_relative_url(next_url):
-            raise ValidationError("next must be a relative path starting with /")
-
-        client_id = settings.GITHUB_APP_CLIENT_ID
-        if not client_id:
-            raise ValidationError("GitHub App client ID is not configured")
-
-        token = get_random_string(48)
-        state_payload: dict[str, Any] = {
-            "user_id": request.user.id,
-            "team_id": self.team_id,
-            "installation_id": str(installation_id),
-            "flow": "team_oauth_authorize",
-            "next": next_url,
-        }
-        if connect_from:
-            state_payload["connect_from"] = connect_from
-
-        cache.set(
-            f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-            state_payload,
-            timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+        oauth_url = build_team_oauth_authorize_url(
+            user_id=cast(User, request.user).id,
+            team_id=self.team_id,
+            installation_id=request.data.get("installation_id"),
+            next_url=str(request.data.get("next") or ""),
+            connect_from=request.data.get("connect_from")
+            if request.data.get("connect_from") == "posthog_code"
+            else None,
         )
-
-        oauth_url = "https://github.com/login/oauth/authorize?" + urlencode(
-            {
-                "client_id": client_id,
-                "redirect_uri": github_oauth_redirect_uri(),
-                "state": urlencode({"token": token}),
-            }
-        )
-
         return Response({"oauth_url": oauth_url})
 
     @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})

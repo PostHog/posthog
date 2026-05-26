@@ -292,8 +292,11 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
         help_text="List of ProseMirror step JSON objects to apply.",
     )
     content = serializers.JSONField(help_text="The resulting ProseMirror document after applying the steps locally.")
-    text_content = serializers.CharField(required=False, default="", help_text="Plain text for search indexing.")
-    title = serializers.CharField(required=False, help_text="Updated notebook title.")
+    text_content = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text="Plain text for search indexing."
+    )
+    # No default: omitted title should preserve the existing notebook title, while "" clears it.
+    title = serializers.CharField(required=False, allow_blank=True, help_text="Updated notebook title.")
     cursor_head = serializers.IntegerField(
         required=False, allow_null=True, help_text="ProseMirror cursor head position after applying steps."
     )
@@ -756,6 +759,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             client_id=data["client_id"],
             steps_json=data["steps"],
             last_seen_version=data["version"],
+            last_saved_version=notebook.version,
             user_id=user.pk,
             user_name=user_name,
             cursor_head=data.get("cursor_head"),

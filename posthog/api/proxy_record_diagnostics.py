@@ -295,6 +295,26 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
             ),
             None,
         )
+    except Exception as e:
+        # Catches ValueError from misconfigured CLOUDFLARE_API_TOKEN/ZONE_ID,
+        # ValueError/KeyError from response shape changes in _parse_hostname,
+        # and any other unexpected library exception. "warned" (not "failed") so
+        # the rest of the report still runs — downstream checks already _skip
+        # when hostname_info is None.
+        capture_exception(e, {"proxy_record_id": str(record.id), "domain": record.domain})
+        return (
+            CheckResult(
+                id="cloudflare",
+                name="Cloudflare custom hostname",
+                status="warned",
+                detail=(
+                    "We couldn't query our certificate provider for this proxy's status. "
+                    "Other checks below may still be informative. Try again in a few minutes; "
+                    "if it keeps happening, contact support."
+                ),
+            ),
+            None,
+        )
 
     if info is None:
         return (

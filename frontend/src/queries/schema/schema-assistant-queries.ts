@@ -535,6 +535,12 @@ export interface AssistantTrendsFilter {
      */
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
 
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: TrendsFilterLegacy['x_axis_label']
+
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: TrendsFilterLegacy['y_axis_label']
+
     /**
      * Whether to show alert threshold lines on the chart.
      * @default false
@@ -882,7 +888,7 @@ export interface AssistantRetentionFilter {
      * The type of property to aggregate on (event or person). Defaults to event.
      * @default event
      */
-    aggregationPropertyType?: 'event' | 'person'
+    aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
 }
 
 export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {

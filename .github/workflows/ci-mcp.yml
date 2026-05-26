@@ -127,6 +127,10 @@ jobs:
             - name: Type check
               run: cd services/mcp && pnpm typecheck
 
+            - name: Type check (tsgo, shadow, non-blocking)
+              run: cd services/mcp && pnpm typecheck:tsgo
+              continue-on-error: true
+
             - name: Check MCP schema is up to date
               run: |
                   ./bin/hogli build:schema-mcp
@@ -262,7 +266,10 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 1
+                  # Deep clone so we can compute the merge-base with the PR base ref
+                  # for the schema cache key (matches ci-backend.yml's turbo-discover).
+                  fetch-depth: 1000
+                  filter: blob:none
 
             - name: Clean up data directories with container permissions
               run: |
@@ -398,6 +405,52 @@ jobs:
                   COMPOSE_PROFILES: temporal
               run: bin/ci-wait-for-docker wait temporal
 
+            - name: Fetch current PR base for merge-base
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache key from merge-base
+              id: schema-key
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                  # The fetch-depth:1000 checkout + base-ref fetch above ensure the
+                  # full ancestry needed to find the divergence point is available.
+                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ -n "$MERGE_BASE" ]; then
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  else
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                  fi
+
+            - name: Restore schema cache from master
+              if: ${{ github.event_name == 'pull_request' && steps.schema-key.outputs.key != '' }}
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ steps.schema-key.outputs.key }}
+
+            - name: Prime posthog from cached schema
+              # No-op on cache miss; manage.py migrate below falls back to a full migrate.
+              # MCP integration tests hit the live posthog DB, not test_posthog — that's
+              # the only deviation from ci-backend.yml's equivalent step.
+              if: ${{ github.event_name == 'pull_request' }}
+              env:
+                  TARGET_DB: posthog
+              run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss — manage.py migrate will run from scratch"
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  ./bin/hogli db:restore-test-db
+
             - name: Run migrations
               run: |
                   # Create persons database and run sqlx migrations first
@@ -405,7 +458,9 @@ jobs:
                     sqlx database create
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
-                  # Then run Django migrations
+                  # Then run Django migrations. When the schema cache primed the DB above,
+                  # this only applies migrations added by the PR (the django_migrations
+                  # table from the dump tells Django which ones are already applied).
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
 
