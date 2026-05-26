@@ -225,7 +225,7 @@ class EmitFindingRequestSerializer(serializers.Serializer):
     finding_id = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Idempotency key. Re-using the same id within a run short-circuits without re-emitting.",
+        help_text="Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.",
     )
 
 

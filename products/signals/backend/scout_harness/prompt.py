@@ -74,8 +74,9 @@ When you call `signals-scout-emit-signal`:
 - `weight` ∈ [0, 1] — your ranking score.
 - `confidence` ∈ [0, 1] — your certainty.
 - `evidence` — list of citations, capped at 20 entries.
-- `finding_id` — re-using the same id short-circuits the emit (idempotent), so
-  retries on the same fact are safe.
+- `finding_id` — a stable id for this finding, echoed into the signal for
+  traceability. It does NOT dedupe: emitting the same id twice creates two
+  signals, so emit each finding exactly once and never retry an emit.
 
 # Dedupe rules
 

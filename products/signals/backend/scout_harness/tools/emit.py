@@ -1,12 +1,14 @@
 """Emit adapter: agent-authored findings -> emit_signal() with attribution baked in.
 
 Each finding is forwarded to `emit_signal` with a deterministic `source_id`:
-`f"run:{run.id}:finding:{finding_id}"`. The downstream pipeline owns idempotency
-by source_id — a re-call with the same `finding_id` is a no-op there. The
-previous in-postgres idempotency layer (writing to `SignalScoutRun.findings`
-jsonb pre-emit, marking `emitted=True` post-success) was dropped in PR 2 review
-along with the `findings` field itself; this module no longer persists any
-scout-side state, and a re-call simply re-fires emit_signal.
+`f"run:{run.id}:finding:{finding_id}"`. This is for traceability only — it is NOT
+an idempotency barrier. The downstream pipeline assigns every signal a fresh random
+`document_id` and dedupes on that, never on `source_id` (which it only stores in
+metadata), so a re-call with the same `finding_id` emits a *second* signal. The
+previous in-postgres idempotency layer (writing to `SignalScoutRun.findings` jsonb
+pre-emit, marking `emitted=True` post-success) was dropped in PR 2 review along with
+the `findings` field itself; this module no longer persists any scout-side state and
+provides no dedupe, so callers must not retry an emit that may have already succeeded.
 
 Attribution (`scout_run_id`, `finding_id`, `skill_name`, `skill_version`) is read
 off the run row so the agent never has to plumb it through. The `SignalsScoutSignalExtra`
@@ -55,8 +57,8 @@ class EmitResult:
     """Outcome of an emit_finding call.
 
     `skipped_reason` is set when a preflight gate prevented the external emit;
-    None means the call reached `emit_signal`. Downstream pipeline idempotency
-    (source_id-keyed) handles same-finding-id repeats transparently.
+    None means the call reached `emit_signal`. There is no dedupe — a repeat call
+    with the same `finding_id` emits a second signal (see the module docstring).
 
     Possible `skipped_reason` values:
       - None: emit fired
@@ -87,7 +89,7 @@ async def emit_finding(
     """Async entry: route DB calls through `database_sync_to_async` so async callers
     (the harness runner inside Temporal) don't block the event loop.
 
-    Same source_id-keyed idempotency contract as `emit_finding_sync`.
+    Same (non-idempotent) emit behavior as `emit_finding_sync`.
     """
     _assert_team_owns_run(team, run)
     _validate_inputs(description, weight, confidence, evidence)

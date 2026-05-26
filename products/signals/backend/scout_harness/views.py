@@ -153,16 +153,17 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=EmitFindingRequestSerializer,
         responses={
             200: OpenApiResponse(
-                response=EmitFindingResponseSerializer, description="Finding emitted or short-circuited."
+                response=EmitFindingResponseSerializer, description="Finding emitted, or skipped by a preflight gate."
             ),
             400: OpenApiResponse(description="Invalid emit shape (description, weight, confidence, evidence cap)."),
             404: OpenApiResponse(description="Run not found for this project."),
         },
         summary="Emit a finding for a run",
         description=(
-            "Fire `emit_signal` with `source_product = signals_scout`. Idempotent on "
-            "`(run_id, finding_id)` via the deterministic `Signal.source_id = run:<id>:finding:<id>` — "
-            "a second call with the same `finding_id` short-circuits without re-firing the pipeline."
+            "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the "
+            "deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT "
+            "idempotent — a second call with the same `finding_id` emits a second signal, so do not retry "
+            "an emit that may have already succeeded."
         ),
         operation_id="signals_scout_emit_signal",
     )

@@ -504,9 +504,9 @@ async def test_emit_finding_validation_error_does_not_emit(ateam_emit, arun_emit
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_emit_finding_propagates_emit_signal_exception(ateam_emit, arun_emit):
-    # Scout-side idempotency was dropped in PR 2 review — a failed downstream emit
-    # surfaces back to the caller; the next call with the same finding_id will
-    # re-fire and downstream dedupes on source_id.
+    # Scout-side idempotency was dropped in PR 2 review and the downstream pipeline
+    # does NOT dedupe on source_id — a failed downstream emit surfaces back to the
+    # caller, and a retry with the same finding_id would emit a second signal.
     boom = AsyncMock(side_effect=RuntimeError("temporal exploded"))
     with patch("products.signals.backend.api.emit_signal", new=boom):
         with pytest.raises(RuntimeError, match="temporal"):

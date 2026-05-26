@@ -158,12 +158,13 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: true
+            idempotent: false
         title: Emit a finding for a run
         description: >
-            Persist a finding to `SignalScoutRun.findings` and fire `emit_signal` with
-            `source_product = signals_scout`. Idempotent on `(run_id, finding_id)` — a second call with the same
-            `finding_id` short-circuits without re-firing the pipeline. Honors the team's `shadow_mode` flag.
+            Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the
+            deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT
+            idempotent — a second call with the same `finding_id` emits a second signal, so emit each
+            finding exactly once and never retry an emit.
     signals-scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true
