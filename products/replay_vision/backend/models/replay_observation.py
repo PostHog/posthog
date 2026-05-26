@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 from posthog.models.utils import UUIDModel
 
@@ -8,9 +9,6 @@ class ObservationStatus(models.TextChoices):
     RUNNING = "running", "Running"
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
-    # Terminal state for sessions the scanner can't analyze (no recording, too short, too long, etc.).
-    # The reason kind is stored in `error_reason` formatted as `kind:human message`.
-    INELIGIBLE = "ineligible", "Ineligible"
 
 
 class ObservationTrigger(models.TextChoices):
@@ -29,12 +27,7 @@ class ReplayObservation(UUIDModel):
     error_reason = models.TextField(
         blank=True,
         default="",
-        help_text=(
-            "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. "
-            "For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. "
-            "For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / "
-            "validation_failed / internal_error."
-        ),
+        help_text="Populated on `status='failed'`. Includes the malformed model response on validation failure.",
     )
     workflow_id = models.CharField(
         max_length=255,
@@ -77,7 +70,7 @@ class ReplayObservation(UUIDModel):
             models.CheckConstraint(
                 condition=(
                     models.Q(status__in=["pending", "running"], completed_at__isnull=True)
-                    | models.Q(status__in=["succeeded", "failed", "ineligible"], completed_at__isnull=False)
+                    | models.Q(status__in=["succeeded", "failed"], completed_at__isnull=False)
                 ),
                 name="replay_observation_completed_at_matches_status",
             ),
@@ -102,6 +95,17 @@ class ReplayObservation(UUIDModel):
                 )
             self.team_id = scanner_team_id
         super().save(*args, **kwargs)
+
+    def mark_succeeded(self) -> None:
+        self.status = ObservationStatus.SUCCEEDED
+        self.completed_at = timezone.now()
+        self.save(update_fields=["status", "completed_at"])
+
+    def mark_failed(self, error_reason: str) -> None:
+        self.status = ObservationStatus.FAILED
+        self.error_reason = error_reason
+        self.completed_at = timezone.now()
+        self.save(update_fields=["status", "completed_at", "error_reason"])
 
     def __str__(self) -> str:
         return f"{self.scanner_id}:{self.session_id} [{self.status}]"

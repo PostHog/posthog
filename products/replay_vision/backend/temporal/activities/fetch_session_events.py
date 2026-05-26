@@ -4,6 +4,7 @@ from typing import Any
 
 from asgiref.sync import sync_to_async
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -13,7 +14,6 @@ from products.replay_vision.backend.temporal.constants import (
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
 )
-from products.replay_vision.backend.temporal.errors import IneligibleSessionError, IneligibleSessionKind
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
     get_redis_state_client,
@@ -64,9 +64,9 @@ async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> Non
 
     payload = await sync_to_async(_fetch_payload)(inputs.team_id, inputs.session_id)
     if payload is None:
-        raise IneligibleSessionError(
+        raise ApplicationError(
             f"Session {inputs.session_id} has no events to analyze",
-            kind=IneligibleSessionKind.NO_EVENTS,
+            non_retryable=True,
         )
 
     await store_data_in_redis(redis_client, redis_key, payload.model_dump_json())
@@ -77,27 +77,24 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     events_obj = SessionReplayEvents()
     metadata = events_obj.get_metadata(session_id=session_id, team=team)
     if metadata is None:
-        raise IneligibleSessionError(
-            f"No replay metadata found for session {session_id}",
-            kind=IneligibleSessionKind.NO_RECORDING,
-        )
+        raise ApplicationError(f"No replay metadata found for session {session_id}", non_retryable=True)
     duration_seconds = float(metadata["duration"])
     if duration_seconds < MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S:
-        raise IneligibleSessionError(
+        raise ApplicationError(
             f"Session {session_id} is only {duration_seconds}s long; min is {MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S}s",
-            kind=IneligibleSessionKind.TOO_SHORT,
+            non_retryable=True,
         )
     # `RecordingMetadata` types this as `int` but it can be missing on sparse fixtures; default to 0.
     active_seconds = metadata.get("active_seconds") or 0
     if active_seconds < MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
-        raise IneligibleSessionError(
+        raise ApplicationError(
             f"Session {session_id} has only {active_seconds}s of active interaction; min is {MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
-            kind=IneligibleSessionKind.TOO_INACTIVE,
+            non_retryable=True,
         )
     if active_seconds > MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
-        raise IneligibleSessionError(
+        raise ApplicationError(
             f"Session {session_id} has {active_seconds}s of active interaction; max is {MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
-            kind=IneligibleSessionKind.TOO_LONG,
+            non_retryable=True,
         )
 
     columns: list[str] | None = None

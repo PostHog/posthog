@@ -56,7 +56,6 @@ from posthog.api.query import _process_query_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemViewSetMixin, cleanup_orphan_tags, set_tags_on_object
 from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -391,7 +390,7 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
     ),
 )
 @extend_schema(tags=[ProductKey.ENDPOINTS])
-class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemViewSetMixin, viewsets.ModelViewSet):
+class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
     # Special case for query - these are all essentially read actions
@@ -445,32 +444,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
                 raise ValidationError({"version": f"Must be an integer, got: {query_version}"})
 
         return None
-
-    def _get_tag_names(self, endpoint: Endpoint) -> list[str]:
-        """Read tag names from the prefetched cache or from the DB if not prefetched."""
-        if hasattr(endpoint, "prefetched_tags"):
-            return sorted({ti.tag.name for ti in endpoint.prefetched_tags})
-        return sorted(endpoint.tagged_items.values_list("tag__name", flat=True))
-
-    def _apply_tags(self, endpoint: Endpoint, tags: list[str] | None) -> None:
-        """Replace the endpoint's tags. No-op when tags is None (field omitted)."""
-        if tags is None:
-            return
-        # `prefetched_tags` is a dynamic attribute populated by the TaggedItem prefetch / set_tags_on_object;
-        # it's not declared on the Endpoint model.
-        endpoint.prefetched_tags = set_tags_on_object(tags, endpoint)  # type: ignore[attr-defined]
-        cleanup_orphan_tags(endpoint.team_id)
-
-    @extend_schema(exclude=True)
-    @action(methods=["POST"], detail=False)
-    def bulk_update_tags(self, request: Request, *args, **kwargs) -> Response:
-        # The inherited TaggedItemViewSetMixin.bulk_update_tags assumes integer PKs (its
-        # BulkUpdateTagsRequestSerializer validates ids as IntegerField). Endpoint uses
-        # UUID PKs, so the action is unusable. Return 405 until the mixin gains UUID support.
-        return Response(
-            {"detail": "Bulk tag updates are not supported for endpoints."},
-            status=status.HTTP_405_METHOD_NOT_ALLOWED,
-        )
 
     def _build_materialization_info(self, version: EndpointVersion, endpoint_name: str | None = None) -> dict:
         """Build materialization status dict for a version."""
@@ -542,7 +515,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
             "materialization": self._build_materialization_info(version),
             "bucket_overrides": version.bucket_overrides,
             "columns": version.get_columns() if version else [],
-            "tags": self._get_tag_names(endpoint),
         }
 
         if isinstance(obj, EndpointVersion):
@@ -808,8 +780,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
                 columns=columns,
             )
 
-            self._apply_tags(endpoint, data.tags)
-
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
@@ -880,9 +850,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
         Otherwise, the current version is used.
         """
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
-        # Enforce object-level RBAC: a user with global editor scope can still be restricted
-        # from a specific endpoint via per-object access controls.
-        self.check_object_permissions(request, endpoint)
         endpoint_before_update = Endpoint.objects.get(pk=endpoint.id)
 
         upgraded_query = upgrade(request.data)
@@ -1031,8 +998,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
                             raise
                 elif should_disable:
                     self._disable_materialization(endpoint, request, target_version)
-
-            self._apply_tags(endpoint, data.tags)
 
             endpoint_changes = changes_between("Endpoint", previous=endpoint_before_update, current=endpoint)
             if endpoint_changes:

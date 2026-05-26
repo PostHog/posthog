@@ -174,8 +174,6 @@ export interface EndpointResponseApi {
     bucket_overrides: EndpointResponseApiBucketOverrides
     /** Column names and types from the query's SELECT clause. */
     columns: EndpointColumnApi[]
-    /** Tag names associated with this endpoint. */
-    tags: string[]
 }
 
 export interface PaginatedEndpointResponseListApi {
@@ -244,11 +242,6 @@ export interface EndpointRequestApi {
      * @nullable
      */
     deleted?: boolean | null
-    /**
-     * List of tag names to associate with this endpoint. Replaces any existing tags.
-     * @nullable
-     */
-    tags?: string[] | null
 }
 
 /**
@@ -324,8 +317,6 @@ export interface EndpointVersionResponseApi {
     bucket_overrides: EndpointVersionResponseApiBucketOverrides
     /** Column names and types from the query's SELECT clause. */
     columns: EndpointColumnApi[]
-    /** Tag names associated with this endpoint. */
-    tags: string[]
     /** Version number. */
     version: number
     /** Version unique identifier (UUID). */
@@ -400,11 +391,6 @@ export interface PatchedEndpointRequestApi {
      * @nullable
      */
     deleted?: boolean | null
-    /**
-     * List of tag names to associate with this endpoint. Replaces any existing tags.
-     * @nullable
-     */
-    tags?: string[] | null
 }
 
 /**

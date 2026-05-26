@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import structlog
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.api.capture import capture_internal
 from posthog.models.team import Team
@@ -11,7 +12,6 @@ from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
-from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, ScannerSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -29,16 +29,12 @@ async def emit_observation_event_activity(inputs: EmitObservationEventInputs) ->
 def _emit_event(inputs: EmitObservationEventInputs) -> None:
     observation = ReplayObservation.objects.select_related("team").filter(pk=inputs.observation_id).first()
     if observation is None:
-        raise ScannerFailureError(
-            f"ReplayObservation {inputs.observation_id} not found", kind=FailureKind.INTERNAL_ERROR
-        )
+        raise ApplicationError(f"ReplayObservation {inputs.observation_id} not found", non_retryable=True)
 
     try:
         team: Team = observation.team
     except Team.DoesNotExist:
-        raise ScannerFailureError(
-            f"Team for observation {inputs.observation_id} not found", kind=FailureKind.INTERNAL_ERROR
-        )
+        raise ApplicationError(f"Team for observation {inputs.observation_id} not found", non_retryable=True)
 
     snapshot = ScannerSnapshot.load_for(inputs.observation_id, observation.scanner_snapshot)
     properties: dict = {

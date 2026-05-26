@@ -18,10 +18,7 @@ import math
 import asyncio
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import timedelta
 from typing import Any
-
-from django.utils import timezone
 
 import numpy as np
 from sklearn.cluster import AgglomerativeClustering
@@ -122,15 +119,8 @@ def fetch_intent_corpus(
 
     ``intent_by_session`` is exposed so callers can later join session-level
     data (e.g. journey aggregation) back to the cluster a session belongs to.
-
-    ``lookback_days`` bounds both stores to the same window: sessions are
-    filtered by ``session_end`` (the index on ``(team, -session_end)`` makes
-    this cheap), and the joined ClickHouse query filters by event timestamp.
     """
-    window_start = timezone.now() - timedelta(days=lookback_days)
-    session_rows = list(
-        MCPSession.objects.filter(team=team, session_end__gte=window_start).values_list("session_id", "intent")
-    )
+    session_rows = list(MCPSession.objects.filter(team=team).values_list("session_id", "intent"))
     if not session_rows:
         return [], {}
 

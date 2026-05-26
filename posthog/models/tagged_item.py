@@ -14,7 +14,6 @@ RELATED_OBJECTS = (
     "experiment_saved_metric",
     "ticket",
     "account",
-    "endpoint",
 )
 
 
@@ -95,13 +94,6 @@ class TaggedItem(ModelActivityMixin, UUIDTModel):
     )
     account = models.ForeignKey(
         "customer_analytics.Account",
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="tagged_items",
-    )
-    endpoint = models.ForeignKey(
-        "endpoints.Endpoint",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

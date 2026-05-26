@@ -220,11 +220,6 @@ export interface BreakdownFilterApi {
     breakdowns?: BreakdownApi[] | null
 }
 
-export interface CalendarHeatmapFilterApi {
-    /** When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way). */
-    bucketBySessionStart?: boolean | null
-}
-
 export interface CompareFilterApi {
     /** Whether to compare the current date range to a previous date range. */
     compare?: boolean | null
@@ -1559,8 +1554,6 @@ export interface TrendsQueryApi {
     aggregation_group_type_index?: number | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
-    /** Properties specific to the calendar heatmap display variant. Only consulted when `trendsFilter.display === ChartDisplayType.CalendarHeatmap`; ignored otherwise. */
-    calendarHeatmapFilter?: CalendarHeatmapFilterApi | null
     /** Compare to date range */
     compareFilter?: CompareFilterApi | null
     /** Whether we should be comparing against a specific conversion goal */

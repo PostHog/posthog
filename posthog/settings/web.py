@@ -80,7 +80,6 @@ PRODUCTS_APPS = [
     "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
     "products.actions.backend.apps.ActionsConfig",
-    "products.wizard.backend.apps.WizardConfig",
 ]
 
 INSTALLED_APPS = [

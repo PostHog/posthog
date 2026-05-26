@@ -6,8 +6,6 @@ import { LemonBanner, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
-import { SceneTags } from 'lib/components/Scenes/SceneTags'
-import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { FEATURE_FLAGS } from 'lib/constants'
 import 'lib/lemon-ui/LemonModal/LemonModal'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -22,11 +20,9 @@ import {
     SceneMenuBarCheckboxItem,
     SceneMenuBarItem,
     SceneMenuBarMenu,
-    SceneMenuBarPopover,
     SceneMenuBarSeparator,
 } from '~/layout/scenes/components/SceneMenuBar'
-import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
-import { tagsModel } from '~/models/tagsModel'
+import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
@@ -56,8 +52,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
     }
     const { endpoint, endpointLoading, activeTab, viewingVersion } = useValues(endpointSceneLogic({ tabId }))
     const { setViewingVersion } = useActions(endpointSceneLogic({ tabId }))
-    const { deleteEndpoint, confirmToggleActive, saveTagsInline } = useActions(endpointLogic({ tabId }))
-    const { tags: tagsAvailable } = useValues(tagsModel)
+    const { deleteEndpoint, confirmToggleActive } = useActions(endpointLogic({ tabId }))
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
@@ -153,42 +148,6 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
     return (
         <BindLogic logic={endpointSceneLogic} props={{ tabId }}>
             <SceneContent className="Endpoint">
-                {sceneMenuBarEnabled && endpoint && (
-                    <SceneMenuBar>
-                        <SceneMenuBarMenu label="File" dataAttr="endpoint-menubar-file">
-                            <SceneMenuBarFileItems dataAttrKey="endpoint" />
-                            <SceneMenuBarSeparator />
-                            <SceneMenuBarItem
-                                variant="destructive"
-                                opensFloatingUi
-                                onClick={handleDelete}
-                                data-attr="endpoint-menubar-delete"
-                            >
-                                <IconTrash />
-                                Delete endpoint
-                            </SceneMenuBarItem>
-                        </SceneMenuBarMenu>
-                        <SceneMenuBarMenu label="Edit" dataAttr="endpoint-menubar-edit">
-                            <SceneMenuBarSeparator />
-                            <SceneMenuBarCheckboxItem
-                                checked={endpoint.is_active}
-                                onCheckedChange={handleToggleActive}
-                                data-attr="endpoint-menubar-active"
-                            >
-                                Active
-                            </SceneMenuBarCheckboxItem>
-                        </SceneMenuBarMenu>
-                        <SceneMenuBarPopover label="Metadata" dataAttr="endpoint-menubar-metadata">
-                            <SceneTagsCombobox
-                                onSave={(tags) => saveTagsInline(tags)}
-                                canEdit
-                                tags={endpoint.tags}
-                                tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
-                                dataAttrKey="endpoint"
-                            />
-                        </SceneMenuBarPopover>
-                    </SceneMenuBar>
-                )}
                 <EndpointSceneHeader tabId={tabId} />
                 {endpoint && !endpoint.is_active && (
                     <LemonBanner type="error">
@@ -206,17 +165,35 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                 {!endpointLoading && <EndpointOverview tabId={tabId} />}
                 <LemonTabs activeKey={activeTab} tabs={tabs} />
             </SceneContent>
+            {sceneMenuBarEnabled && endpoint && (
+                <SceneMenuBar>
+                    <SceneMenuBarMenu label="File" dataAttr="endpoint-menubar-file">
+                        <SceneMenuBarFileItems dataAttrKey="endpoint" />
+                        <SceneMenuBarSeparator />
+                        <SceneMenuBarItem
+                            variant="destructive"
+                            opensFloatingUi
+                            onClick={handleDelete}
+                            data-attr="endpoint-menubar-delete"
+                        >
+                            <IconTrash />
+                            Delete endpoint
+                        </SceneMenuBarItem>
+                    </SceneMenuBarMenu>
+                    <SceneMenuBarMenu label="Edit" dataAttr="endpoint-menubar-edit">
+                        <SceneMenuBarSeparator />
+                        <SceneMenuBarCheckboxItem
+                            checked={endpoint.is_active}
+                            onCheckedChange={handleToggleActive}
+                            data-attr="endpoint-menubar-active"
+                        >
+                            Active
+                        </SceneMenuBarCheckboxItem>
+                    </SceneMenuBarMenu>
+                </SceneMenuBar>
+            )}
             {endpoint && (
                 <ScenePanel>
-                    <ScenePanelInfoSection>
-                        <SceneTags
-                            tags={endpoint.tags}
-                            tagsAvailable={tagsAvailable.filter((t: string) => !endpoint.tags?.includes(t))}
-                            onSave={(tags) => saveTagsInline(tags)}
-                            canEdit
-                            dataAttrKey="endpoint"
-                        />
-                    </ScenePanelInfoSection>
                     <ScenePanelActionsSection>
                         <ButtonPrimitive menuItem onClick={handleToggleActive}>
                             {endpoint.is_active ? <IconPause /> : <IconPlay />}

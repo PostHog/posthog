@@ -14,12 +14,10 @@ export type EndpointsTab = 'endpoints' | 'usage'
 
 export interface EndpointsFilters {
     search: string
-    tags: string[]
 }
 
 export const DEFAULT_FILTERS: EndpointsFilters = {
     search: '',
-    tags: [],
 }
 
 export interface EndpointsLogicProps {
@@ -63,22 +61,15 @@ export const endpointsLogic = kea<endpointsLogicType>([
         endpoints: [
             (s) => [s.allEndpoints, s.filters],
             (allEndpoints, filters) => {
-                let results = allEndpoints
-
-                if (filters.tags.length > 0) {
-                    const required = new Set(filters.tags)
-                    results = results.filter((endpoint) => endpoint.tags?.some((tag) => required.has(tag)))
+                if (!filters.search) {
+                    return allEndpoints
                 }
 
-                if (filters.search) {
-                    const fuse = createFuse<EndpointType>(results, {
-                        keys: ['name', 'description', 'query.query'],
-                        threshold: 0.3,
-                    })
-                    results = fuse.search(filters.search).map((result) => result.item)
-                }
-
-                return results
+                const fuse = createFuse<EndpointType>(allEndpoints, {
+                    keys: ['name', 'description', 'query.query'],
+                    threshold: 0.3,
+                })
+                return fuse.search(filters.search).map((result) => result.item)
             },
         ],
     }),

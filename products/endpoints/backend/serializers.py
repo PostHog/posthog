@@ -68,12 +68,6 @@ class EndpointRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Set to true to soft-delete this endpoint.",
     )
-    tags = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        allow_null=True,
-        help_text="List of tag names to associate with this endpoint. Replaces any existing tags.",
-    )
 
 
 class EndpointMaterializationSerializer(serializers.Serializer):
@@ -186,10 +180,6 @@ class EndpointResponseSerializer(serializers.Serializer):
     columns = EndpointColumnSerializer(
         many=True,
         help_text="Column names and types from the query's SELECT clause.",
-    )
-    tags = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Tag names associated with this endpoint.",
     )
 
 

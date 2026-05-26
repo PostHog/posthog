@@ -23,18 +23,15 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                 acc.succeeded += 1
             } else if (o.status === 'failed') {
                 acc.failed += 1
-            } else if (o.status === 'ineligible') {
-                acc.ineligible += 1
             } else {
                 acc.inFlight += 1
             }
             return acc
         },
-        { total: 0, succeeded: 0, failed: 0, ineligible: 0, inFlight: 0 }
+        { total: 0, succeeded: 0, failed: 0, inFlight: 0 }
     )
-    // Success rate excludes ineligible — those weren't scanner failures, they were skipped at the gate.
-    const scored = stats.succeeded + stats.failed
-    const successRate = scored > 0 ? Math.round((stats.succeeded / scored) * 100) : null
+    const completed = stats.succeeded + stats.failed
+    const successRate = completed > 0 ? Math.round((stats.succeeded / completed) * 100) : null
 
     const columns: LemonTableColumns<ReplayObservationApi> = [
         {
@@ -106,12 +103,6 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                                     <div className="text-muted">Failed</div>
                                 </div>
                             )}
-                            {stats.ineligible > 0 && (
-                                <div className="text-center">
-                                    <div className="font-semibold text-lg">{stats.ineligible}</div>
-                                    <div className="text-muted">Ineligible</div>
-                                </div>
-                            )}
                             {stats.inFlight > 0 && (
                                 <div className="text-center">
                                     <div className="font-semibold text-lg">{stats.inFlight}</div>
@@ -147,8 +138,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                 pagination={{ pageSize: 50 }}
                 nouns={['observation', 'observations']}
                 expandable={{
-                    rowExpandable: (obs) =>
-                        obs.status === 'succeeded' || obs.status === 'failed' || obs.status === 'ineligible',
+                    rowExpandable: (obs) => obs.status === 'succeeded' || obs.status === 'failed',
                     expandedRowRender: (obs) => (
                         <div className="p-2">
                             <ObservationCard observation={obs} />

@@ -340,9 +340,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .max_encoding_message_size(max_send)
                     .max_decoding_message_size(max_recv)
                     .accept_compressed(CompressionEncoding::Zstd)
-                    .send_compressed(CompressionEncoding::Zstd)
-                    .accept_compressed(CompressionEncoding::Gzip)
-                    .send_compressed(CompressionEncoding::Gzip),
+                    .send_compressed(CompressionEncoding::Zstd),
             )
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await

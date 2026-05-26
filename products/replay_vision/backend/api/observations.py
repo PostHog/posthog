@@ -85,17 +85,12 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     status = serializers.ChoiceField(
         choices=ObservationStatus.choices,
         read_only=True,
-        help_text="Observation status (pending, running, succeeded, failed, ineligible).",
+        help_text="Observation status (pending, running, succeeded, failed).",
     )
     error_reason = serializers.CharField(
         read_only=True,
         allow_blank=True,
-        help_text=(
-            "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. "
-            "For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. "
-            "For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / "
-            "validation_failed / internal_error."
-        ),
+        help_text="Populated on failure; includes the malformed model response when validation fails.",
     )
     workflow_id = serializers.CharField(
         read_only=True,

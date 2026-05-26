@@ -98,16 +98,13 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
     return memberships_to_email
 
 
-def get_members_to_notify_for_pipeline_error(
-    team: Team, failure_rate: float = 1.0, pipeline_id: Optional[str] = None
-) -> list[OrganizationMembership]:
+def get_members_to_notify_for_pipeline_error(team: Team, failure_rate: float = 1.0) -> list[OrganizationMembership]:
     """
-    Get members to notify for a data pipeline error, respecting threshold and per-pipeline opt-out.
+    Get members to notify for a data pipeline error, respecting threshold.
 
     Args:
         team: The team that owns the pipeline
         failure_rate: The current failure rate (0.0 to 1.0). Defaults to 1.0 (100%) for single failures.
-        pipeline_id: Optional pipeline identifier (e.g. "hog_function:<uuid>"). Used for per-pipeline opt-out.
 
     Returns:
         List of organization memberships to notify
@@ -115,9 +112,7 @@ def get_members_to_notify_for_pipeline_error(
     members_to_notify = get_members_to_notify(team, "plugin_disabled")
 
     return [
-        member
-        for member in members_to_notify
-        if should_send_pipeline_error_notification(member.user, failure_rate, pipeline_id)
+        member for member in members_to_notify if should_send_pipeline_error_notification(member.user, failure_rate)
     ]
 
 
@@ -199,7 +194,6 @@ def should_send_notification(
 def should_send_pipeline_error_notification(
     user: User,
     failure_rate: float = 1.0,
-    pipeline_id: Optional[str] = None,
 ) -> bool:
     """
     Determines if a data pipeline error notification should be sent to a user.
@@ -207,18 +201,11 @@ def should_send_pipeline_error_notification(
     Args:
         user: The user to check settings for
         failure_rate: The current failure rate (0.0 to 1.0) for this pipeline. Defaults to 1.0 (100%) for single failures.
-        pipeline_id: Optional pipeline identifier (e.g. "hog_function:<uuid>"). If provided, checks per-pipeline opt-out.
 
     Returns:
         bool: True if the notification should be sent, False otherwise
     """
     settings = user.notification_settings
-
-    # Check per-pipeline opt-out
-    if pipeline_id is not None:
-        pipeline_disabled = settings.get("pipeline_notifications_disabled", {})
-        if pipeline_disabled.get(pipeline_id, False):
-            return False
 
     # Check threshold - if threshold is 0.0, notify on any failure
     threshold = settings.get("data_pipeline_error_threshold", 0.0)
@@ -517,8 +504,7 @@ def send_fatal_plugin_error(
     if team is None:
         return
 
-    pipeline_id = f"plugin_config:{plugin_config_id}"
-    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0, pipeline_id=pipeline_id)
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
         return
 
@@ -546,8 +532,7 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     hog_function: HogFunction = HogFunction.objects.prefetch_related("team").get(id=hog_function_id)
     team = hog_function.team
 
-    pipeline_id = f"hog_function:{hog_function_id}"
-    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0, pipeline_id=pipeline_id)
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
         return
 
@@ -580,8 +565,7 @@ def send_batch_export_run_failure(
     batch_export = batch_export_run.parent
     team: Team = batch_export.team
 
-    pipeline_id = f"batch_export:{batch_export.id}"
-    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate, pipeline_id=pipeline_id)
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate)
     if not memberships_to_email:
         return
 
@@ -1200,16 +1184,12 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
     for membership in memberships_to_email:
         user = membership.user
 
-        # Filter functions based on user's threshold and per-pipeline opt-out
+        # Filter functions based on user's threshold
         # failure_rate is stored as a percentage (e.g., 15.5 for 15.5%), convert to decimal for threshold check
         user_functions = [
             f
             for f in all_functions
-            if should_send_pipeline_error_notification(
-                user,
-                float(f.get("failure_rate", 0) or 0) / 100,
-                pipeline_id=f"hog_function:{f['id']}" if f.get("id") else None,
-            )
+            if should_send_pipeline_error_notification(user, float(f.get("failure_rate", 0) or 0) / 100)
         ]
 
         # Skip this user if no functions exceed their threshold

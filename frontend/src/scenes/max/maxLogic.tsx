@@ -166,12 +166,7 @@ export const maxLogic = kea<maxLogicType>([
             maxContextLogic,
             ['resetContext'],
             maxGlobalLogic,
-            [
-                'loadConversationHistory',
-                'prependOrReplaceConversation',
-                'loadConversationHistorySuccess',
-                'deleteConversation',
-            ],
+            ['loadConversationHistory', 'prependOrReplaceConversation', 'loadConversationHistorySuccess'],
             tabUiStateLogic,
             ['setChatDraftForTab'],
         ],
