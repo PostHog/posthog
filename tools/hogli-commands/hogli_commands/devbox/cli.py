@@ -29,7 +29,11 @@ from .coder import (
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
+    _diagnose_unreachable_coder,
     _fail,
+    coder_authenticated,
+    coder_installed,
+    coder_reachable,
     create_task,
     create_workspace,
     delete_user_secret,
@@ -63,12 +67,14 @@ from .coder import (
     parse_workspace_target,
     port_forward_replace,
     print_setup_summary,
+    replace_with_workspace_command,
     restart_workspace,
     server_supports_user_secrets,
     share_workspace,
     ssh_replace,
     start_workspace,
     stop_workspace,
+    tailscale_connected,
     unshare_workspace,
     update_workspace,
     update_workspace_parameters,
@@ -86,6 +92,17 @@ from .config import (
 
 _LEGACY_KEYCHAIN_SERVICE = "posthog-claude-oauth-token"
 _POSTHOG_COMMIT_SIGNING_HANDBOOK_URL = "https://posthog.com/handbook/engineering/security#commit-signing"
+
+# Reaching a devbox requires a Tailscale ACL grant. Engineers get it from
+# group:engineering in the cloud-infra tailnet policy; without it the Coder
+# control plane (10.70.0.1:443) is simply unroutable and every devbox command
+# fails at the reachability check.
+_TAILNET_POLICY_URL = "https://github.com/PostHog/posthog-cloud-infra/blob/main/tailnet-policy.hujson"
+_TAILNET_ACCESS_PREREQ = (
+    "Devbox access needs your email in `group:engineering` in "
+    "posthog-cloud-infra/tailnet-policy.hujson.\n"
+    f"    Not granted yet? Add yourself via PR: {_TAILNET_POLICY_URL}"
+)
 
 WORKSPACE_STATUS_COLORS = {
     "running": "green",
@@ -513,6 +530,68 @@ def maybe_configure_dotfiles(configure_dotfiles: bool | None) -> None:
         click.echo(f"Saved dotfiles repo for new workspaces: {dotfiles_uri}")
     else:
         click.echo("No dotfiles repo configured.")
+
+
+def _doctor_check(label: str, ok: bool) -> None:
+    """Print one read-only doctor check line."""
+    mark = click.style("ok", fg="green") if ok else click.style("missing", fg="red")
+    click.echo(f"  [{mark}] {label}")
+
+
+def _doctor_footer() -> None:
+    """Point at the deterministic fix and the guided (agentic) one."""
+    click.echo()
+    click.echo("  Fix setup:    hogli devbox:setup")
+    click.echo("  Guided setup: run the `setting-up-devbox` skill in your coding agent")
+
+
+@click.command(name="devbox:doctor", help="Diagnose devbox prerequisites and setup (read-only).")
+def devbox_doctor() -> None:
+    """Read-only health check: tailnet access, Coder reachability, auth, saved setup.
+
+    Safe for an agent to run as a probe -- it never prompts or mutates host
+    config the way `devbox:setup` does. Run it first when a devbox command
+    fails, and as step zero of the `setting-up-devbox` skill. The tailnet ACL
+    grant is the prerequisite people most often miss, so it is surfaced
+    explicitly whenever the control plane is unreachable.
+    """
+    click.echo(click.style("Devbox doctor", bold=True))
+    click.echo(f"  Coder URL: {get_coder_url()}")
+    click.echo()
+
+    _doctor_check("Tailscale connected", tailscale_connected())
+
+    reachable = coder_reachable()
+    _doctor_check("Coder control plane reachable", reachable)
+
+    if not reachable:
+        diagnosis = _diagnose_unreachable_coder()
+        click.echo()
+        click.echo(click.style(f"  Cause: {diagnosis.cause}", fg="yellow"))
+        click.echo(f"  Next:  {diagnosis.next_step}")
+        for fact in diagnosis.facts:
+            click.echo(f"    - {fact}")
+        click.echo()
+        click.echo(click.style("  Prerequisite:", bold=True))
+        click.echo(f"    {_TAILNET_ACCESS_PREREQ}")
+        _doctor_footer()
+        return
+
+    installed = coder_installed()
+    _doctor_check("coder CLI installed", installed)
+    authenticated = installed and coder_authenticated()
+    _doctor_check("Coder authenticated", authenticated)
+
+    if not authenticated:
+        _doctor_footer()
+        return
+
+    # _print_setup_status emits its own "Currently configured:" header when
+    # anything is set; only print a fallback line when it stays silent.
+    if not _print_setup_status(_collect_setup_status()):
+        click.echo()
+        click.echo("Nothing configured yet.")
+    _doctor_footer()
 
 
 @click.command(name="devbox", help="Show available devbox commands")
@@ -1106,6 +1185,29 @@ def devbox_ssh(workspace: str | None) -> None:
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
     ssh_replace(name)
+
+
+@click.command(
+    name="devbox:exec",
+    help="Run a command inside your devbox (non-interactive).",
+    context_settings={"ignore_unknown_options": True},
+)
+@click.option("--name", "-n", "workspace_name", default=None, help="Workspace label or @user[/label] target")
+@click.argument("command", nargs=-1, type=click.UNPROCESSED, required=True)
+def devbox_remote_exec(workspace_name: str | None, command: tuple[str, ...]) -> None:
+    """Run COMMAND in the devbox over `coder ssh` and propagate its exit code.
+
+    Unlike `devbox:ssh`, this runs a single command instead of opening an
+    interactive shell, so agents and scripts can drive a devbox remotely:
+
+        hogli devbox:exec -- gh auth status
+        hogli devbox:exec -n api -- bash -lc 'cd ~/posthog && git status'
+
+    Use `--` to separate hogli's flags from the command's own flags.
+    """
+    ensure_runtime_ready()
+    name, _ = resolve_workspace_name(workspace_name)
+    replace_with_workspace_command(name, list(command))
 
 
 @click.command(name="devbox:open", help="Open devbox in browser, VS Code, or Cursor")
