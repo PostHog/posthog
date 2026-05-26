@@ -109,17 +109,6 @@ export const NoGrid: Story = {
     },
 }
 
-export const Empty: Story = {
-    render: () => {
-        const theme = useReactiveTheme()
-        return (
-            <Stage>
-                <BoxPlot series={[]} labels={[]} theme={theme} />
-            </Stage>
-        )
-    },
-}
-
 export const WithGaps: Story = {
     render: () => {
         const theme = useReactiveTheme()
