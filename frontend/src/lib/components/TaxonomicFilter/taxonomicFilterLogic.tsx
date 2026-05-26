@@ -426,11 +426,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupAnalyticsTaxonomicGroupNames: TaxonomicFilterGroup[]
             ): TaxonomicFilterGroup[] => [...groupAnalyticsTaxonomicGroups, ...groupAnalyticsTaxonomicGroupNames],
         ],
-        // Combined into a single selector so taxonomicGroups stays under kea's 16-dep
-        // tuple type limit; consumers spread directly. Both are meta-groups appearing
-        // adjacent at the end of taxonomicGroups. Recent/Pinned are a static constant
-        // imported directly, so only the dynamic suggested-filters tab needs to be
-        // a selector input.
+        // Bundles the meta-group tabs into one selector input so taxonomicGroups stays
+        // under kea's 16-dep tuple type limit.
         allMetaTaxonomicGroups: [
             (s) => [s.suggestedFiltersTaxonomicGroups],
             (suggestedFiltersTaxonomicGroups: TaxonomicFilterGroup[]): TaxonomicFilterGroup[] => [
