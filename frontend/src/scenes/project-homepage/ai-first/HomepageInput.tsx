@@ -12,7 +12,10 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { uuid } from 'lib/utils'
+import { HandsFreeButton } from 'scenes/max/components/HandsFreeButton'
+import { HandsFreeSurface } from 'scenes/max/components/HandsFreeSurface'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
+import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -28,6 +31,7 @@ import { HOMEPAGE_TAB_ID } from './constants'
 function IdleInput(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
     const { setQuery, submitQuery, enterAiMode } = useActions(aiFirstHomepageLogic)
+    const { isActive: handsFreeActive } = useValues(handsFreeLogic({ tabId: HOMEPAGE_TAB_ID }))
     const inputRef = useRef<HTMLTextAreaElement>(null)
 
     useEffect(() => {
@@ -49,95 +53,100 @@ function IdleInput(): JSX.Element {
                 htmlFor="homepage-input"
                 className="min-h-[40px] group input-like flex flex-col items-start relative w-full bg-fill-input border border-primary focus-within:ring-primary rounded-lg justify-stretch overflow-hidden"
             >
-                <div className="flex w-full py-1 px-2">
-                    {!query && (
-                        <span className="text-tertiary pointer-events-none absolute left-3.5 top-2 flex items-center gap-1">
-                            <span className="text-tertiary">What can I help you with?</span>
-                            <span className="text-tertiary opacity-50 contrast-more:opacity-100 hidden @xl/main-content:inline">
-                                / for commands
+                {handsFreeActive ? (
+                    <HandsFreeSurface tabId={HOMEPAGE_TAB_ID} />
+                ) : (
+                    <div className="flex w-full py-1 px-2">
+                        {!query && (
+                            <span className="text-tertiary pointer-events-none absolute left-3.5 top-2 flex items-center gap-1">
+                                <span className="text-tertiary">What can I help you with?</span>
+                                <span className="text-tertiary opacity-50 contrast-more:opacity-100 hidden @xl/main-content:inline">
+                                    / for commands
+                                </span>
                             </span>
-                        </span>
-                    )}
-                    <TextareaPrimitive
-                        ref={inputRef}
-                        id="homepage-input"
-                        data-attr="homepage-input"
-                        wrapperClassName="w-full"
-                        value={query}
-                        onChange={(e) => {
-                            const value = e.target.value
-                            // Typing / or @ as the first character enters AI mode without sending
-                            if (value === '/' || value === '@') {
-                                posthog.capture('homepage ai mode entered', { trigger: value })
-                                enterAiMode(value)
-                                return
-                            }
-                            setQuery(value)
-                        }}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Tab' && query.trim()) {
-                                e.preventDefault()
-                                posthog.capture('homepage query submitted', { mode: 'search' })
-                                submitQuery('search')
-                            }
-                            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                                if (e.shiftKey) {
-                                    // Allow default behavior to insert newline
+                        )}
+                        <TextareaPrimitive
+                            ref={inputRef}
+                            id="homepage-input"
+                            data-attr="homepage-input"
+                            wrapperClassName="w-full"
+                            value={query}
+                            onChange={(e) => {
+                                const value = e.target.value
+                                // Typing / or @ as the first character enters AI mode without sending
+                                if (value === '/' || value === '@') {
+                                    posthog.capture('homepage ai mode entered', { trigger: value })
+                                    enterAiMode(value)
                                     return
                                 }
-                                // Prevent newline, let form submit handle it
-                                e.preventDefault()
-                                if (query.trim()) {
-                                    posthog.capture('homepage query submitted', { mode: 'ai' })
-                                    submitQuery('ai')
-                                }
-                            }
-                            if (e.key === 'Escape' && query.trim()) {
-                                e.preventDefault()
-                                setQuery('')
-                            }
-                            // When input is empty, ArrowDown moves focus to the grid
-                            if (e.key === 'ArrowDown' && !query.trim()) {
-                                const grid = document.querySelector<HTMLElement>('[data-attr="homepage-grid"]')
-                                if (grid) {
+                                setQuery(value)
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Tab' && query.trim()) {
                                     e.preventDefault()
-                                    grid.dataset.keyboardFocus = 'true'
-                                    grid.focus()
-                                }
-                            }
-                        }}
-                        autoComplete="off"
-                        className="w-full px-1 py-1 text-sm focus:outline-none border-transparent resize-none bg-transparent"
-                        autoFocus
-                    />
-                    <div className="flex items-end shrink-0">
-                        <div className="flex items-center gap-1 ">
-                            <ButtonPrimitive
-                                size="xs"
-                                className="text-tertiary hover:text-primary shrink-0"
-                                onClick={() => {
                                     posthog.capture('homepage query submitted', { mode: 'search' })
                                     submitQuery('search')
-                                }}
-                            >
-                                <span className="text-xxs">Tab to search</span>
-                            </ButtonPrimitive>
-                            <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
-                                <ButtonPrimitive
-                                    onClick={() => {
+                                }
+                                if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                    if (e.shiftKey) {
+                                        // Allow default behavior to insert newline
+                                        return
+                                    }
+                                    // Prevent newline, let form submit handle it
+                                    e.preventDefault()
+                                    if (query.trim()) {
                                         posthog.capture('homepage query submitted', { mode: 'ai' })
                                         submitQuery('ai')
+                                    }
+                                }
+                                if (e.key === 'Escape' && query.trim()) {
+                                    e.preventDefault()
+                                    setQuery('')
+                                }
+                                // When input is empty, ArrowDown moves focus to the grid
+                                if (e.key === 'ArrowDown' && !query.trim()) {
+                                    const grid = document.querySelector<HTMLElement>('[data-attr="homepage-grid"]')
+                                    if (grid) {
+                                        e.preventDefault()
+                                        grid.dataset.keyboardFocus = 'true'
+                                        grid.focus()
+                                    }
+                                }
+                            }}
+                            autoComplete="off"
+                            className="w-full px-1 py-1 text-sm focus:outline-none border-transparent resize-none bg-transparent"
+                            autoFocus
+                        />
+                        <div className="flex items-end shrink-0">
+                            <div className="flex items-center gap-1 ">
+                                <ButtonPrimitive
+                                    size="xs"
+                                    className="text-tertiary hover:text-primary shrink-0"
+                                    onClick={() => {
+                                        posthog.capture('homepage query submitted', { mode: 'search' })
+                                        submitQuery('search')
                                     }}
-                                    iconOnly
-                                    className="-mr-0.5 shrink-0"
-                                    disabled={!query.trim()}
                                 >
-                                    <IconArrowRight className="size-4" />
+                                    <span className="text-xxs">Tab to search</span>
                                 </ButtonPrimitive>
-                            </Tooltip>
+                                <HandsFreeButton tabId={HOMEPAGE_TAB_ID} />
+                                <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
+                                    <ButtonPrimitive
+                                        onClick={() => {
+                                            posthog.capture('homepage query submitted', { mode: 'ai' })
+                                            submitQuery('ai')
+                                        }}
+                                        iconOnly
+                                        className="-mr-0.5 shrink-0"
+                                        disabled={!query.trim()}
+                                    >
+                                        <IconArrowRight className="size-4" />
+                                    </ButtonPrimitive>
+                                </Tooltip>
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
             </label>
         </form>
     )
