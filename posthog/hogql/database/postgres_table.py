@@ -65,6 +65,7 @@ class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
     access_scope: Optional[APIScopeObject] = None
+    requires_project_admin: bool = False
     predicates: list[Expr] = []
 
     def get_predicates(self) -> list[Expr]:

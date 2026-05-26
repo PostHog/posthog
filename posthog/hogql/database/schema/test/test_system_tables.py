@@ -1,4 +1,6 @@
+import pytest
 from posthog.test.base import BaseTest, NonAtomicBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -515,7 +517,19 @@ def _create_usage_metric(team: Team, label: str) -> GroupUsageMetric:
     )
 
 
+def _create_access_control_row(team: Team, label: str):
+    from ee.models.rbac.access_control import AccessControl
+
+    return AccessControl.objects.create(
+        team=team,
+        resource="dashboard",
+        resource_id=label,
+        access_level="editor",
+    )
+
+
 SYSTEM_TABLE_FACTORIES = [
+    ("access_controls", _create_access_control_row),
     ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
@@ -687,3 +701,131 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesAdminOnly(BaseTest):
+    """Tables with `requires_project_admin=True` are hidden from non-admin members.
+
+    Currently `system.access_controls` is the only such table; it exposes raw RBAC rows
+    that could be used to enumerate org structure. Org admins and explicit project admins
+    keep access; everyone else gets the table filtered out of their HogQL schema.
+    """
+
+    def _make_org_admin(self):
+        from posthog.models import OrganizationMembership
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+    def _enable_access_control_feature(self):
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+    def _make_project_admin(self):
+        from posthog.models import OrganizationMembership
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self._enable_access_control_feature()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=membership,
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_member_cannot_see_access_controls_table(self, _mock_ff):
+        from posthog.models import OrganizationMembership
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        db = Database.create_for(team=self.team, user=self.user)
+        system_node = db.tables.children.get("system")
+        assert system_node is not None
+        assert "access_controls" not in system_node.children
+        assert "system.access_controls" in db._denied_tables
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_project_admin_can_see_access_controls_table(self, _mock_ff):
+        self._make_project_admin()
+
+        db = Database.create_for(team=self.team, user=self.user)
+        system_node = db.tables.children.get("system")
+        assert system_node is not None
+        assert "access_controls" in system_node.children
+        assert "system.access_controls" not in db._denied_tables
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_org_admin_can_see_access_controls_table(self, _mock_ff):
+        self._make_org_admin()
+
+        db = Database.create_for(team=self.team, user=self.user)
+        system_node = db.tables.children.get("system")
+        assert system_node is not None
+        assert "access_controls" in system_node.children
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_no_user_hides_access_controls_table(self, _mock_ff):
+        db = Database.create_for(team=self.team, user=None)
+        system_node = db.tables.children.get("system")
+        assert system_node is not None
+        assert "access_controls" not in system_node.children
+        assert "system.access_controls" in db._denied_tables
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_feature_flag_off_keeps_access_controls_table(self, _mock_ff):
+        # When the resource-level/admin-only filter is gated off, the registration
+        # is still present in the unfiltered schema — admins and non-admins alike
+        # fall back to the pre-PR behavior (everyone can query it via HogQL).
+        from posthog.models import OrganizationMembership
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        db = Database.create_for(team=self.team, user=self.user)
+        system_node = db.tables.children.get("system")
+        assert system_node is not None
+        assert "access_controls" in system_node.children
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_denied_table_error_message(self, _mock_ff):
+        from posthog.hogql.errors import QueryError
+
+        from posthog.models import OrganizationMembership
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        db = Database.create_for(team=self.team, user=self.user)
+        with pytest.raises(QueryError, match="don't have access"):
+            db.get_table("system.access_controls")
+
+    def test_generated_sql_for_admin_uses_ee_accesscontrol(self):
+        # Admin compiles a query against system.access_controls — verify the printer
+        # emits the correct postgresql() function call and team_id scoping.
+        # The DSN/table name go through `add_sensitive_value`, so they appear in
+        # `context.values` rather than as literals in the printed SQL.
+        self._make_org_admin()
+
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query, _ = prepare_and_print_ast(
+            parse_select("SELECT id FROM system.access_controls"), context, dialect="clickhouse"
+        )
+        assert "postgresql(" in query
+        assert f"equals(system__access_controls.team_id, {self.team.pk})" in query
+        assert "ee_accesscontrol" in context.values.values()

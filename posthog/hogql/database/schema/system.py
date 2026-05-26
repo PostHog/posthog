@@ -1010,6 +1010,25 @@ early_access_features: PostgresTable = PostgresTable(
     },
 )
 
+access_controls: PostgresTable = PostgresTable(
+    name="access_controls",
+    postgres_table_name="ee_accesscontrol",
+    access_scope="access_control",
+    requires_project_admin=True,
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "access_level": StringDatabaseField(name="access_level"),
+        "resource": StringDatabaseField(name="resource"),
+        "resource_id": StringDatabaseField(name="resource_id", nullable=True),
+        "organization_member_id": StringDatabaseField(name="organization_member_id", nullable=True),
+        "role_id": StringDatabaseField(name="role_id", nullable=True),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 usage_metrics: PostgresTable = PostgresTable(
     name="usage_metrics",
     postgres_table_name="posthog_groupusagemetric",
@@ -1121,6 +1140,7 @@ sandbox_environments: PostgresTable = PostgresTable(
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
+        "access_controls": TableNode(name="access_controls", table=access_controls),
         "accounts": TableNode(name="accounts", table=accounts),
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),

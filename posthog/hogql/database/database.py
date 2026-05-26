@@ -584,19 +584,26 @@ class Database(BaseModel):
         if not system_node or not hasattr(system_node, "children"):
             return
 
+        is_project_admin = self.user_access_control.check_access_level_for_object(
+            team, required_level="admin", explicit=True
+        )
+
         denied: set[str] = set()
         for table_node in list(system_node.children.values()):
             table = table_node.table
-            if not isinstance(table, PostgresTable) or table.access_scope is None:
-                continue  # Not access-controlled, keep it
+            if not isinstance(table, PostgresTable):
+                continue
 
-            access_level = self.user_access_control.access_level_for_resource(table.access_scope)
-            if access_level and access_level != NO_ACCESS_LEVEL:
-                continue  # User has access, keep it
+            should_remove = False
+            if table.requires_project_admin:
+                should_remove = not is_project_admin
+            elif table.access_scope is not None:
+                level = self.user_access_control.access_level_for_resource(table.access_scope)
+                should_remove = level is None or level == NO_ACCESS_LEVEL
 
-            # No access - remove from schema
-            del system_node.children[table_node.name]
-            denied.add(f"system.{table_node.name}")
+            if should_remove:
+                del system_node.children[table_node.name]
+                denied.add(f"system.{table_node.name}")
 
         self._denied_tables = denied
 
@@ -609,7 +616,9 @@ class Database(BaseModel):
         denied: set[str] = set()
         for table_node in list(system_node.children.values()):
             table = table_node.table
-            if not isinstance(table, PostgresTable) or table.access_scope is None:
+            if not isinstance(table, PostgresTable) or (
+                table.access_scope is None and not table.requires_project_admin
+            ):
                 continue  # Not access-controlled, keep it
 
             del system_node.children[table_node.name]
