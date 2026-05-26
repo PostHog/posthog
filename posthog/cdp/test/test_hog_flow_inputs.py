@@ -53,7 +53,7 @@ class TestHogFlowInputs(BaseTest):
 
         # Frontend sends `{"secret": true}` (with no value) when the user didn't touch the field.
         # Empty incoming value should fall back to the stored encrypted value, not wipe it.
-        incoming = {"access_token": {}}
+        incoming: dict[str, dict] = {"access_token": {}}
 
         result = encrypt_secret_inputs(incoming, SCHEMA, existing_inputs=first_pass)
 
@@ -93,6 +93,6 @@ class TestHogFlowInputs(BaseTest):
 
     def test_mask_secret_inputs_for_read_leaves_empty_secret_alone(self):
         # No value stored — frontend doesn't need a `{secret: true}` placeholder either.
-        inputs = {"access_token": {}}
+        inputs: dict[str, dict] = {"access_token": {}}
         masked = mask_secret_inputs_for_read(inputs, SCHEMA)
         assert masked["access_token"] == {}
