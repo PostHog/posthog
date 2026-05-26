@@ -54,7 +54,7 @@ hogli devbox:secret:set CLAUDE_CODE_OAUTH_TOKEN --env CLAUDE_CODE_OAUTH_TOKEN
 
 Yes, authing `gh` / Claude on a devbox is fine — that is what these secrets are for. Set the value from a file or the hidden prompt; never paste a token into a command line or into this conversation.
 
-**Dotfiles** are where agentic tooling and shell config live. The Coder dotfiles module clones your `dotfiles_uri` into `~` on every box and runs an executable `~/dotfiles/install.sh` if present (otherwise it symlinks dotfiles). This is the portable home for everything Andy/Catalin hand-roll: install `gh`, register the PostHog MCP server, write Claude `settings.json`, add aliases, clone extra repos, sync skills/`pi` extensions.
+**Dotfiles** are where agentic tooling and shell config live. The Coder dotfiles module clones your `dotfiles_uri` into `~` on every box and runs an executable `~/dotfiles/install.sh` if present (otherwise it symlinks dotfiles). This is the portable home for everything people otherwise hand-roll per box: install `gh`, register the PostHog MCP server, write Claude `settings.json`, add aliases, clone extra repos, sync skills/`pi` extensions.
 
 If the user has no dotfiles repo, offer to scaffold a minimal one with an `install.sh` doing their setup (it must be `chmod +x` and committed). Point the box at it:
 
