@@ -1,5 +1,7 @@
 import { Fernet } from 'fernet-nodejs'
 
+import { parseJSON } from '../../utils/json-parse'
+
 /**
  * Marker key used to wrap an inline-encrypted value inside a HogFlow action's inputs.
  * Kept in sync with the Python side (posthog/cdp/hog_flow_inputs.py).
@@ -71,7 +73,7 @@ export class EncryptedFields {
                 let decryptedValue: unknown = item.value
                 if (typeof decryptedJson === 'string') {
                     try {
-                        decryptedValue = JSON.parse(decryptedJson)
+                        decryptedValue = parseJSON(decryptedJson)
                     } catch {
                         decryptedValue = decryptedJson
                     }
