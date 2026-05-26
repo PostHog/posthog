@@ -48,6 +48,18 @@ snapshots:
         hash: v1.k794b7964.ba74e0673aad485dababda7d3693a74a566eddcf72b8aee6d56d508ce023eb1f.Bapi-Sd2vScIQaD_VcQJC1Hif9yVxfClhdp6fsq8RrM
     components-activitylog--without-audit-logs-feaure--light:
         hash: v1.k794b7964.e1c2c1beb5b527237d34272e77be4001f8e44a702e48c6c7f9a7649517ed7da4.scI5oUAoI84QtYEMfLVG7ev9KQR1pRhZk4ko_DNMKdo
+    components-agentpromptbutton--default--dark:
+        hash: v1.k794b7964.176d9b949b5f282db8bdef42454c33d68c4cc3b1ac633434fc3d3851fbd00bf2._ze7i1v6SHHaO7VZb0101_Cww3vYDh24XUrTA1-7xNc
+    components-agentpromptbutton--default--light:
+        hash: v1.k794b7964.7bfafd28a62fb737c905c84e01856554620e20c24c26df204e453c64cd1a87a1.AygzPAqeWcAM6JEhILXPBLP_F16CFRoNG0Ws5bwKx0A
+    components-agentpromptbutton--open-dropdown--dark:
+        hash: v1.k794b7964.4f6449edafc1e60f0e5ccbfeb7629a2fe79c5da086eced9823834231ad028345.oChgNEIzJREvjWI9qb04YWe0H0o8UJLELK9wH_yiUtI
+    components-agentpromptbutton--open-dropdown--light:
+        hash: v1.k794b7964.585796c04fb612e4f43f2758f8fa4651617c4381b9430fd5f642223c855f3452.ek4pZgYeNRXmwRE90o7HdNFzI8b5OxYc2RLZh_G3OpY
+    components-agentpromptbutton--single-action--dark:
+        hash: v1.k794b7964.176d9b949b5f282db8bdef42454c33d68c4cc3b1ac633434fc3d3851fbd00bf2.97tk4-TSPr2ILL7RuWxH8pDESqmKZvqu6OP0j2v6B5w
+    components-agentpromptbutton--single-action--light:
+        hash: v1.k794b7964.7bfafd28a62fb737c905c84e01856554620e20c24c26df204e453c64cd1a87a1.SuUHJtczWEWsNdJH3kHwt51qA8OVQs7mdhnCOy1Fq-g
     components-alerts-alert-history-chart--anomaly-probability-cutoff--dark:
         hash: v1.k794b7964.d0374e105e61243ef45514a12a596158f77abdd919b71a0beefbbde40195d81e.ryvpGdgbZeUbFdFjXW7LvZ7LPLdsw5MXBY0Dot8IR4w
     components-alerts-alert-history-chart--anomaly-probability-cutoff--light:
@@ -1851,7 +1863,7 @@ snapshots:
     filters-taxonomic-filter-headless--properties--dark:
         hash: v1.k794b7964.4ee695e5751c6f73e9742ab0cfeecf61b5adfe829cf3a0d49ab2877cae8b212f.jPN9l5TDgLRy9NzHenXHCU903UDg8-GdeGpf4PXt7aA
     filters-taxonomic-filter-headless--properties--light:
-        hash: v1.k794b7964.7af6b884e5d826df422db99e4a99d2172f3316561a499dbe386ea098b1fc54a9.rti2DMpqC0WEtd_AtG838vQlgQMHfwjBAR4uLN_HnUk
+        hash: v1.k794b7964.afa422fd784363e602da5668ab488a823260acba8c2b1168dc85bcbf434d3ddf.Wjl32UIE5KhBda_SpJYwXKZ2FGmnlFbtzv4uKDaJRIs
     filters-taxonomic-filter-headless--suggested-filters-with-recents--dark:
         hash: v1.k794b7964.c3a6cd419610bc486261efa753816547f080f00c838bde0b8720cf12067b3b22.nxBtExiDfJ3USkhV9RY1VPU_U2dGyEYCMFbhvtOcuVs
     filters-taxonomic-filter-headless--suggested-filters-with-recents--light:
