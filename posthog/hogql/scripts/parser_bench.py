@@ -67,8 +67,8 @@ import django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 django.setup()
 
-from posthog.hogql.parser import clear_parse_caches, parse_expr, parse_select
-from posthog.hogql.scripts._diagnostic_common import _probe_backend
+from posthog.hogql.parser import HogQLParserShadowMismatch, clear_parse_caches, parse_expr, parse_select
+from posthog.hogql.scripts._diagnostic_common import _abort_on_shadow_mismatch, _probe_backend
 
 DEFAULT_N = 1_000  # iterations per batch; override with --n
 DEFAULT_REPEAT = 5  # batches per query; override with --repeat
@@ -372,6 +372,8 @@ def bench(
         try:
             oracle_stat = run_query(parse_fn, q, oracle, nq, repeat)
             row["oracle"] = oracle_stat.to_json()
+        except HogQLParserShadowMismatch as e:
+            _abort_on_shadow_mismatch(oracle, e)
         except Exception as e:
             row["error"] = f"oracle ({oracle}): {e}"
             results[name] = row
@@ -380,6 +382,8 @@ def bench(
         try:
             cand_stat = run_query(parse_fn, q, candidate, nq, repeat)
             row["candidate"] = cand_stat.to_json()
+        except HogQLParserShadowMismatch as e:
+            _abort_on_shadow_mismatch(candidate, e)
         except Exception as e:
             row["error"] = f"candidate ({candidate}): {e}"
             results[name] = row

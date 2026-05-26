@@ -76,6 +76,8 @@ export type {
 } from './overlays/ReferenceLine'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelsProps } from './overlays/ValueLabels'
+export { AxisTitles } from './overlays/AxisTitles'
+export type { AxisTitlesProps } from './overlays/AxisTitles'
 
 // Helper for adapters that need to align with the same x-axis tick selection the chart draws.
 export { computeVisibleXLabels } from './overlays/AxisLabels'

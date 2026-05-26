@@ -1,1 +1,1 @@
-0006_rename_lens_to_scanner
+0007_add_ineligible_status

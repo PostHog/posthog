@@ -8,7 +8,8 @@ export function trendsFilterToYFormatterConfig(
     baseCurrency?: CurrencyCode
 ): YFormatterConfig {
     if (isPercentStackView) {
-        return { format: 'percentage' }
+        // BarChart's percent layout puts the value scale on 0..1, so use the 0..1 formatter.
+        return { format: 'percentage_scaled' }
     }
     return {
         format: trendsFilter?.aggregationAxisFormat ?? 'numeric',

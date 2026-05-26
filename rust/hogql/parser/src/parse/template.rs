@@ -129,7 +129,9 @@ pub(super) fn parse_template_body<E: Emitter + Clone>(
                     // token at the `\`, then starts a fresh token on
                     // the next valid character. The body splitter
                     // models that by closing the current literal chunk
-                    // and dropping the two-byte `\X` sequence.
+                    // and dropping the `\X` sequence (both the backslash
+                    // and the escaped char — cpp drops `\q`, `\é`, and
+                    // `\😀` alike, all contributing nothing).
                     if !literal.is_empty() {
                         chunks.push(wrap_literal_chunk(
                             emit,
@@ -139,7 +141,15 @@ pub(super) fn parse_template_body<E: Emitter + Clone>(
                             body_offset + i,
                         ));
                     }
-                    i += 2;
+                    // `X` may be a multibyte codepoint (`\é`, `\😀`), so step
+                    // past the whole escaped char, not a fixed 2 bytes — a
+                    // fixed step lands mid-char and panics the `&body[i..]`
+                    // slice at the bottom of the loop.
+                    let escaped_char = body[i + 1..]
+                        .chars()
+                        .next()
+                        .expect("guarded by `i + 1 < bytes.len()`");
+                    i += 1 + escaped_char.len_utf8();
                     literal_start = i;
                     continue;
                 }
@@ -242,14 +252,16 @@ pub(super) fn parse_template_body<E: Emitter + Clone>(
         ));
     }
     if chunks.is_empty() {
-        // Empty body — cpp emits an empty-string Constant spanning the
-        // body (between the quotes). Position it accordingly.
+        // Empty body — cpp spans the empty-string Constant over the WHOLE
+        // `f'…'` token (there is no interior text to span), not the zero-width
+        // gap between the quotes. The token runs from `body_offset - 2` (`f'`)
+        // through `body_end + 1` (past the closing `'`).
         return Ok(wrap_literal_chunk(
             emit,
             full_src,
             String::new(),
-            body_offset,
-            body_end,
+            body_offset - 2,
+            body_end + 1,
         ));
     }
     // A single-chunk template IS that chunk — whether a literal

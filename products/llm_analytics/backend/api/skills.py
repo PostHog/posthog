@@ -1,4 +1,5 @@
 from typing import Any, cast
+from uuid import UUID
 
 from django.db import IntegrityError
 from django.db.models import Q, QuerySet
@@ -73,6 +74,14 @@ LLM_SKILL_FEATURE_FLAG = "llm-analytics-skills"
 
 def _file_extension(path: str) -> str:
     return path.rsplit(".", 1)[1].lower() if "." in path else ""
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+        return True
+    except ValueError:
+        return False
 
 
 def _skill_analytics_props(skill: LLMSkill) -> dict[str, Any]:
@@ -302,10 +311,27 @@ class LLMSkillViewSet(
         version_params = self._get_requested_version_params(request)
         version = cast(int | None, version_params.get("version"))
         skill = get_skill_by_name_from_db(self.team, skill_name, version)
+
+        if skill is None and _is_uuid(skill_name):
+            redirect = self._redirect_to_name(request, skill_name)
+            if redirect is not None:
+                return redirect
+
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
         return Response(self._serialize_skill(skill))
+
+    def _redirect_to_name(self, request: Request, skill_name: str) -> Response | None:
+        skill_by_id = get_active_skill_queryset(self.team).filter(id=skill_name).first()
+        if skill_by_id is None:
+            return None
+        # Use a relative path (no build_absolute_uri) to avoid embedding the
+        # Host header in the Location value — prevents host-header open-redirect.
+        redirect_url = request.get_full_path().replace(skill_name, skill_by_id.name, 1)
+        response = Response(status=status.HTTP_302_FOUND)
+        response["Location"] = redirect_url
+        return response
 
     @extend_schema(request=LLMSkillPublishSerializer, responses={200: LLMSkillSerializer})
     @get_by_name.mapping.patch
