@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconInfo, IconOpenSidebar } from '@posthog/icons'
+import { IconInfo, IconOpenSidebar, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -12,7 +12,9 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { SidePanelTab } from '~/types'
 
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
@@ -51,6 +53,7 @@ export function NotebookScene(): JSX.Element {
     )
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     useEffect(() => {
         if (notebookId === 'new') {
@@ -153,20 +156,21 @@ export function NotebookScene(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         size="small"
+                        onClick={() => openSidePanel(SidePanelTab.Max)}
+                        tooltip="Open PostHog AI"
+                        icon={<IconSparkles className="text-ai" />}
+                        data-attr="open-ai-context-panel-button"
+                    />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
                         onClick={() => {
                             selectNotebook(notebookId)
                         }}
-                        tooltip={
-                            <>
-                                Opens the notebook in a context panel, that can be accessed from anywhere in the PostHog
-                                app. This is great for dragging and dropping elements like insights, recordings or even
-                                feature flags into your active notebook.
-                            </>
-                        }
-                        sideIcon={<IconOpenSidebar />}
-                    >
-                        Open in context panel
-                    </LemonButton>
+                        tooltip="Open notebook in context panel"
+                        icon={<IconOpenSidebar />}
+                        data-attr="open-notebook-context-panel-button"
+                    />
                 </div>
             </div>
 
