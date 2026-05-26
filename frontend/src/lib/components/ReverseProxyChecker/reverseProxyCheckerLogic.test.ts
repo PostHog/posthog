@@ -117,6 +117,43 @@ describe('reverseProxyCheckerLogic', () => {
         captureExceptionSpy.mockRestore()
     })
 
+    it.each([
+        ['TypeError: Failed to fetch', new TypeError('Failed to fetch')],
+        ['AbortError', Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' })],
+        [
+            'NetworkError',
+            Object.assign(new Error('NetworkError when attempting to fetch resource.'), { name: 'NetworkError' }),
+        ],
+        [
+            'TypeError: Failed to fetch wrapped as cause',
+            new Error('wrapper', { cause: new TypeError('Failed to fetch') }),
+        ],
+    ])('should not report transient network errors to error tracking - %s', async (_label, thrownError) => {
+        // Regression: browser-level fetch failures (offline, ad-blockers, mid-navigation
+        // aborts) are environmental noise — afterMount fires on every scene, so reporting
+        // them floods error tracking with non-actionable issues.
+        const queryHogQLSpy = jest.spyOn(api, 'queryHogQL').mockRejectedValue(thrownError)
+
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        try {
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadHasReverseProxy()
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    hasReverseProxy: false,
+                })
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+        } finally {
+            captureExceptionSpy.mockRestore()
+            queryHogQLSpy.mockRestore()
+        }
+    })
+
     it('should not report read-only mode blocks to error tracking', async () => {
         // Regression: ReadOnlyModeError from loadHasReverseProxy must be swallowed,
         // otherwise every scene mount would spam error tracking via afterMount.

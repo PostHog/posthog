@@ -13,6 +13,18 @@ import type { reverseProxyCheckerLogicType } from './reverseProxyCheckerLogicTyp
 
 const CHECK_INTERVAL_MS = 1000 * 60 * 10 // 10 minutes
 
+const isTransientNetworkError = (error: unknown): boolean => {
+    if (!(error instanceof Error)) {
+        return false
+    }
+    // Canonical fetch failure for offline users, ad-blockers, firewalls, aborted
+    // navigations, and CORS preflight rejections — all environmental, not a bug.
+    if (error instanceof TypeError && /failed to fetch|network ?error|load failed/i.test(error.message)) {
+        return true
+    }
+    return error.name === 'AbortError' || error.name === 'NetworkError'
+}
+
 export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
     path(['components', 'ReverseProxyChecker', 'reverseProxyCheckerLogic']),
     loaders(({ values, cache }) => ({
@@ -50,6 +62,12 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                             error instanceof ReadOnlyModeError ||
                             (error as Error)?.cause instanceof ReadOnlyModeError
                         ) {
+                            return values.hasReverseProxy
+                        }
+                        // Browser-level network failures (offline, ad-blockers, aborted
+                        // navigations) are environmental noise, not product bugs. Same
+                        // rationale as the ReadOnlyModeError carve-out above.
+                        if (isTransientNetworkError(error) || isTransientNetworkError((error as Error)?.cause)) {
                             return values.hasReverseProxy
                         }
                         // This check is advisory (used only to auto-complete a setup task).
