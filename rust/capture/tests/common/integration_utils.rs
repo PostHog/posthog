@@ -40,6 +40,7 @@ pub const DEFAULT_TEST_TIME: &str = "2025-07-01T11:00:00Z";
 pub const SINGLE_EVENT_JSON: &str = "single_event_payload.json";
 pub const SINGLE_REPLAY_EVENT_JSON: &str = "single_replay_event_payload.json";
 pub const BATCH_EVENTS_JSON: &str = "batch_events_payload.json";
+pub const BATCH_EVENTS_WITH_HEATMAP_JSON: &str = "batch_events_with_heatmap_payload.json";
 // the /engage/ endpoint is unique: this only accepts "unnamed" (no event.event attrib)
 // events that are structured as "$identify" events
 pub const SINGLE_ENGAGE_EVENT_JSON: &str = "single_engage_event_payload.json";
@@ -127,6 +128,9 @@ pub async fn execute_test(unit: &TestCase) {
         SINGLE_REPLAY_EVENT_JSON => validate_single_replay_event_payload(&unit.title, got),
         SINGLE_ENGAGE_EVENT_JSON => validate_single_engage_event_payload(&unit.title, got),
         BATCH_EVENTS_JSON => validate_batch_events_payload(&unit.title, got),
+        BATCH_EVENTS_WITH_HEATMAP_JSON => {
+            validate_batch_events_with_heatmap_payload(&unit.title, got)
+        }
         _ => panic!(
             "unsupported fixture type {} in TestCase: {}",
             unit.fixture, unit.title
@@ -877,7 +881,7 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
-        72_usize,
+        71_usize,
         props.len(),
         "mismatched event.properties length on $pageleave in case: {title}",
     );
@@ -912,6 +916,92 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
         Some(1753305291.695_f64),
         props["$time"].as_f64(),
         "mismatched event.properties.$time on $pageleave in case: {title}",
+    );
+}
+
+// utility to validate tests/fixtures/batch_events_with_heatmap_payload.json
+//
+// The $pageleave in this fixture carries `$prev_pageview_pathname` +
+// `$current_url`, which qualifies it as a heatmap-data carrier. Capture must
+// produce a third event — a `$$heatmap` redirect — alongside the original two.
+// The original $pageleave gets `skip_heatmap_processing: true` so the events
+// pipeline does not also extract heatmap data downstream.
+pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+    assert_eq!(
+        3,
+        got_events.len(),
+        "event count: expected 3 ($pageview + $pageleave + $$heatmap redirect), got {} in case: {title}",
+        got_events.len(),
+    );
+
+    let pageview = &got_events[0];
+    assert_eq!(
+        pageview.event.event, "$pageview",
+        "first event should be $pageview in case: {title}",
+    );
+    assert!(
+        !pageview.metadata.skip_heatmap_processing,
+        "$pageview carries no heatmap data, must not be flagged in case: {title}",
+    );
+
+    let pageleave = &got_events[1];
+    assert_eq!(
+        pageleave.event.event, "$pageleave",
+        "second event should be $pageleave in case: {title}",
+    );
+    assert!(
+        pageleave.metadata.skip_heatmap_processing,
+        "$pageleave carries scroll-depth heatmap data, must be flagged in case: {title}",
+    );
+    let pageleave_data: Value = from_str(&pageleave.event.data)
+        .unwrap_or_else(|_| panic!("failed to hydrate $pageleave event.data in case: {title}"));
+    let pageleave_props = pageleave_data["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("missing $pageleave properties in case: {title}"));
+    assert!(
+        pageleave_props.contains_key("$prev_pageview_pathname"),
+        "$prev_pageview_pathname must remain on the original — only $heatmap_data is stripped (case: {title})",
+    );
+    assert!(
+        !pageleave_props.contains_key("$heatmap_data"),
+        "$heatmap_data must never be on the stripped original (case: {title})",
+    );
+
+    let redirect = &got_events[2];
+    assert_eq!(
+        redirect.metadata.data_type,
+        DataType::HeatmapMain,
+        "redirect must be routed to the heatmaps topic in case: {title}",
+    );
+    assert_eq!(
+        redirect.event.event, "$$heatmap",
+        "redirect event name must be $$heatmap in case: {title}",
+    );
+    assert!(
+        !redirect.metadata.skip_heatmap_processing,
+        "redirect must NOT be flagged — the heatmaps pipeline is its consumer in case: {title}",
+    );
+    assert_ne!(
+        redirect.event.uuid, pageleave.event.uuid,
+        "redirect must have a fresh uuid to avoid deduplicating against the original (case: {title})",
+    );
+    assert_eq!(
+        redirect.event.distinct_id, pageleave.event.distinct_id,
+        "redirect must inherit distinct_id from its source event in case: {title}",
+    );
+
+    let redirect_data: Value = from_str(&redirect.event.data)
+        .unwrap_or_else(|_| panic!("failed to hydrate redirect event.data in case: {title}"));
+    let redirect_props = redirect_data["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("missing redirect properties in case: {title}"));
+    assert!(
+        redirect_props.contains_key("$prev_pageview_pathname"),
+        "redirect must carry $prev_pageview_pathname in case: {title}",
+    );
+    assert!(
+        redirect_props.contains_key("$current_url"),
+        "redirect must carry $current_url in case: {title}",
     );
 }
 

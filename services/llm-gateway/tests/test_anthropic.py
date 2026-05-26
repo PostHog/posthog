@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -1187,9 +1188,7 @@ class TestAnthropicCircuitBreakerIntegration:
         async def consume() -> list[bytes]:
             return [chunk async for chunk in wrapped.body_iterator]
 
-        import asyncio as _asyncio
-
-        chunks = _asyncio.get_event_loop().run_until_complete(consume())
+        chunks = asyncio.run(consume())
         assert len(chunks) == 2
         breaker.record_outcome.assert_awaited_with(success=True)
 
@@ -1219,7 +1218,5 @@ class TestAnthropicCircuitBreakerIntegration:
             except RuntimeError:
                 pass
 
-        import asyncio as _asyncio
-
-        _asyncio.get_event_loop().run_until_complete(consume())
+        asyncio.run(consume())
         breaker.record_outcome.assert_awaited_with(success=False)

@@ -48,6 +48,22 @@ function buildStreamableClient(
     return { client, transport }
 }
 
+function buildExecModeClient(
+    harness: ProtocolTestHarness
+): { client: Client; transport: StreamableHTTPClientTransport } {
+    const transport = new StreamableHTTPClientTransport(new URL('/mcp', harness.baseUrl), {
+        fetch: harness.fetch,
+        requestInit: {
+            headers: {
+                Authorization: `Bearer ${harness.token}`,
+                'x-posthog-mcp-mode': 'cli',
+            },
+        },
+    })
+    const client = new Client({ name: 'mcp-exec-test', version: '0.0.0' }, { capabilities: {} })
+    return { client, transport }
+}
+
 // SDK exposes `sessionId` as `string | undefined` but the `Transport` interface
 // declares it as `string`. The runtime contract is satisfied (the transport
 // sets the id after the initialize handshake); the assignability mismatch is a
@@ -402,6 +418,108 @@ export function defineResilienceTests(
             })
             expect(response.status).toBeGreaterThanOrEqual(400)
             expect(response.status).toBeLessThan(500)
+        })
+    })
+}
+
+// Session ID tracking: the server mints an `Mcp-Session-Id` on initialize and
+// echoes it on every response. Clients echo it back so the server can correlate
+// requests to a logical session for analytics and cache scoping.
+//
+// These tests use the real MCP SDK client to verify the session ID flows through
+// the full transport lifecycle — the SDK's StreamableHTTPClientTransport
+// automatically captures the header from the init response and echoes it on
+// every subsequent request.
+export function defineSessionTrackingTests(
+    label: string,
+    getHarness: () => Promise<ProtocolTestHarness> | ProtocolTestHarness
+): void {
+    describe(`MCP session tracking (${label})`, () => {
+        let client: Client
+        let transport: StreamableHTTPClientTransport
+
+        afterEach(async () => {
+            await safeClose(client)
+        })
+
+        async function connectClient(
+            harness: ProtocolTestHarness,
+            extraHeaders: Record<string, string> = {}
+        ): Promise<void> {
+            transport = new StreamableHTTPClientTransport(new URL('/mcp', harness.baseUrl), {
+                fetch: harness.fetch,
+                requestInit: {
+                    headers: {
+                        Authorization: `Bearer ${harness.token}`,
+                        ...extraHeaders,
+                    },
+                },
+            })
+            client = new Client({ name: 'session-tracking-test', version: '0.0.1' }, { capabilities: {} })
+            await client.connect(transport as ConnectableTransport)
+        }
+
+        it('SDK transport captures a UUID session ID after init', async () => {
+            const harness = await getHarness()
+            await connectClient(harness)
+
+            expect(transport.sessionId).toBeTruthy()
+            expect(transport.sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+        })
+
+        it('session ID persists through tools/list after init', async () => {
+            const harness = await getHarness()
+            await connectClient(harness)
+            const sessionId = transport.sessionId
+
+            const { tools } = await client.listTools()
+            expect(tools.length).toBeGreaterThan(0)
+            expect(transport.sessionId).toBe(sessionId)
+        })
+
+        it('session ID persists through a tool call', async () => {
+            const harness = await getHarness()
+            await connectClient(harness)
+            const sessionId = transport.sessionId
+
+            await client.callTool({ name: 'organization-get', arguments: {} })
+            expect(transport.sessionId).toBe(sessionId)
+        })
+
+        it('session ID persists through multiple sequential tool calls', async () => {
+            const harness = await getHarness()
+            await connectClient(harness)
+            const sessionId = transport.sessionId
+
+            await client.listTools()
+            await client.callTool({ name: 'organization-get', arguments: {} })
+            await client.listResources()
+            expect(transport.sessionId).toBe(sessionId)
+        })
+
+        it('exec mode gets a session ID that persists through calls', async () => {
+            const harness = await getHarness()
+            await connectClient(harness, { 'x-posthog-mcp-mode': 'cli' })
+            const sessionId = transport.sessionId
+
+            expect(sessionId).toBeTruthy()
+            await client.callTool({ name: 'exec', arguments: { command: 'tools' } })
+            expect(transport.sessionId).toBe(sessionId)
+        })
+
+        it('two independent clients get different session IDs', async () => {
+            const harness = await getHarness()
+
+            await connectClient(harness)
+            const sessionId1 = transport.sessionId
+            await safeClose(client)
+
+            await connectClient(harness)
+            const sessionId2 = transport.sessionId
+
+            expect(sessionId1).toBeTruthy()
+            expect(sessionId2).toBeTruthy()
+            expect(sessionId1).not.toBe(sessionId2)
         })
     })
 }
@@ -1111,17 +1229,12 @@ export function defineToolBehaviorTests(
                 fetch: harness.fetch,
                 requestInit: { headers: { Authorization: `Bearer ${harness.token}` } },
             })
-            const pinnedClient = new Client(
-                { name: 'pinned-project-test', version: '0.0.0' },
-                { capabilities: {} }
-            )
+            const pinnedClient = new Client({ name: 'pinned-project-test', version: '0.0.0' }, { capabilities: {} })
             try {
                 await pinnedClient.connect(transport as ConnectableTransport)
                 const result = await pinnedClient.callTool({ name: 'feature-flag-get-all', arguments: {} })
                 if (result.isError) {
-                    throw new Error(
-                        `feature-flag-get-all errored with pinned projectId: ${decodeText(result.content)}`
-                    )
+                    throw new Error(`feature-flag-get-all errored with pinned projectId: ${decodeText(result.content)}`)
                 }
             } finally {
                 await safeClose(pinnedClient)
@@ -1234,10 +1347,7 @@ export function defineCatalogFilterTests(
 
         it('pins the catalog to specific tools when ?tools= is set', async () => {
             const harness = await getHarness()
-            const { tools } = await listToolsWithQuery(
-                harness,
-                '?tools=organization-get,projects-get'
-            )
+            const { tools } = await listToolsWithQuery(harness, '?tools=organization-get,projects-get')
             expect(tools.length).toBeGreaterThan(0)
             const names = tools.map((t) => t.name)
             // Pinned tools must appear; non-pinned ones must not.
@@ -1450,6 +1560,101 @@ export function defineResourceCatalogTests(
             expect(Array.isArray(prompts)).toBe(true)
             const unnamed = prompts.filter((p) => !p.name)
             expect(unnamed).toEqual([])
+        })
+    })
+}
+
+// Single-exec mode: the server exposes one `exec` tool that wraps all inner
+// tools. Clients send `x-posthog-mcp-mode: cli` to enter this mode. The exec
+// tool accepts a `command` string that dispatches to the inner tool catalog
+// via verbs: `tools`, `search <regex>`, `info <tool>`, `call <tool> <json>`.
+//
+// These tests exercise the full exec flow end-to-end through the dispatcher,
+// state resolver, and tool executor — catching regressions in command parsing,
+// inner tool dispatch, and result formatting that unit tests on exec.ts alone
+// would miss.
+export function defineExecModeTests(
+    label: string,
+    getHarness: () => Promise<ProtocolTestHarness> | ProtocolTestHarness
+): void {
+    describe(`MCP exec mode (${label})`, () => {
+        let client: Client
+
+        beforeEach(async () => {
+            const harness = await getHarness()
+            const built = buildExecModeClient(harness)
+            client = built.client
+            await client.connect(built.transport as ConnectableTransport)
+        })
+
+        afterEach(async () => {
+            await safeClose(client)
+        })
+
+        it('lists only the exec tool when in cli mode', async () => {
+            const { tools } = await client.listTools()
+            expect(tools).toHaveLength(1)
+            expect(tools[0]!.name).toBe('exec')
+        })
+
+        it('exec "tools" lists available inner tools', async () => {
+            const result = await client.callTool({ name: 'exec', arguments: { command: 'tools' } })
+            expect(result.isError).toBeFalsy()
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text).toContain('execute-sql')
+            expect(text).toContain('organization-get')
+        })
+
+        it('exec "search" finds tools by regex', async () => {
+            const result = await client.callTool({ name: 'exec', arguments: { command: 'search feature-flag' } })
+            expect(result.isError).toBeFalsy()
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text).toContain('feature-flag')
+        })
+
+        it('exec "info" returns tool description and schema', async () => {
+            const result = await client.callTool({ name: 'exec', arguments: { command: 'info organization-get' } })
+            expect(result.isError).toBeFalsy()
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text.length).toBeGreaterThan(50)
+            expect(text.toLowerCase()).toContain('organization')
+        })
+
+        it('exec "call" dispatches to an inner tool and returns a result', async () => {
+            const result = await client.callTool({
+                name: 'exec',
+                arguments: { command: 'call organization-get {}' },
+            })
+            expect(result.isError).toBeFalsy()
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text.length).toBeGreaterThan(0)
+        })
+
+        it('exec "call" with an unknown tool returns an error message', async () => {
+            const result = await client.callTool({
+                name: 'exec',
+                arguments: { command: 'call nonexistent-tool-xyz {}' },
+            })
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text.toLowerCase()).toMatch(/not found|unknown tool/)
+        })
+
+        it('exec with an unknown verb returns a helpful error', async () => {
+            const result = await client.callTool({
+                name: 'exec',
+                arguments: { command: 'badverb something' },
+            })
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text.toLowerCase()).toMatch(/unknown|unrecognized|invalid/)
+        })
+
+        it('exec "call" with invalid JSON returns a parse error', async () => {
+            const result = await client.callTool({
+                name: 'exec',
+                arguments: { command: 'call organization-get {not-json}' },
+            })
+            const text = (result.content as Array<{ type: string; text: string }>)[0]?.text ?? ''
+            expect(text.toLowerCase()).toContain('json')
         })
     })
 }

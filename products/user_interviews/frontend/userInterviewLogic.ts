@@ -14,11 +14,13 @@ import {
     userInterviewTopicsGenerateLinksCreate,
     userInterviewTopicsIntervieweesList,
     userInterviewTopicsRetrieve,
+    userInterviewTopicsTestLinkRetrieve,
     userInterviewsList,
 } from './generated/api'
 import type {
     IntervieweeContextApi,
     InterviewLinkApi,
+    TestInterviewLinkApi,
     UserInterviewApi,
     UserInterviewTopicApi,
 } from './generated/api.schemas'
@@ -83,6 +85,13 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                     | InterviewLinkApi[]
                     | { results?: InterviewLinkApi[] }
                 return unwrapPaginatedOrArray(response)
+            },
+        },
+        testLink: {
+            __default: null as TestInterviewLinkApi | null,
+            loadTestLink: async (): Promise<TestInterviewLinkApi> => {
+                const projectId = String(teamLogic.values.currentTeamId)
+                return await userInterviewTopicsTestLinkRetrieve(projectId, props.id)
             },
         },
     })),
@@ -203,5 +212,6 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
         actions.loadInterviewees()
         actions.loadInterviews()
         actions.loadLinks()
+        actions.loadTestLink()
     }),
 ])
