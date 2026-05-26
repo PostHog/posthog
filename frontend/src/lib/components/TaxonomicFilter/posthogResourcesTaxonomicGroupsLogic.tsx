@@ -13,11 +13,12 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { isString } from 'lib/utils'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { NotebookType } from 'scenes/notebooks/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardType, Experiment, FeatureFlagType, NotebookType, QueryBasedInsightModel } from '~/types'
+import { DashboardType, Experiment, FeatureFlagType, QueryBasedInsightModel } from '~/types'
 
 import type { posthogResourcesTaxonomicGroupsLogicType } from './posthogResourcesTaxonomicGroupsLogicType'
 
