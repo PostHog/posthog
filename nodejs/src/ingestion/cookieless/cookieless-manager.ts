@@ -91,6 +91,25 @@ interface CookielessConfig {
     sessionInactivityMs: number
 }
 
+/**
+ * Everything a server needs to instantiate a CookielessManager and its Redis pool —
+ * the manager's own config keys plus the Redis connection knobs read by
+ * `createCookielessRedisConnectionConfig`. Use this in service config slices instead
+ * of redeclaring the cookieless keys inline.
+ */
+export type CookielessServerConfig = Pick<
+    IngestionConsumerConfig,
+    | 'COOKIELESS_DISABLED'
+    | 'COOKIELESS_FORCE_STATELESS_MODE'
+    | 'COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS'
+    | 'COOKIELESS_SESSION_TTL_SECONDS'
+    | 'COOKIELESS_SALT_TTL_SECONDS'
+    | 'COOKIELESS_SESSION_INACTIVITY_MS'
+    | 'COOKIELESS_IDENTIFIES_TTL_SECONDS'
+    | 'COOKIELESS_REDIS_HOST'
+    | 'COOKIELESS_REDIS_PORT'
+>
+
 export class CookielessManager {
     public readonly redisHelpers: RedisHelpers
     public readonly config: CookielessConfig

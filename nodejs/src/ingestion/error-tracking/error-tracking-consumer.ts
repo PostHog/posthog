@@ -20,6 +20,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
 import { OverflowOutput } from '../common/outputs'
+import { CookielessManager } from '../cookieless/cookieless-manager'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { TopHog } from '../tophog'
 import { MainLaneOverflowRedirect } from '../utils/overflow-redirect/main-lane-overflow-redirect'
@@ -95,6 +96,7 @@ export interface ErrorTrackingConsumerDeps {
     errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     hogTransformer: ErrorTrackingHogTransformer
     groupTypeManager: GroupTypeManager
+    cookielessManager: CookielessManager
     redisPool: GenericPool<Redis>
     personRepository: PersonRepository
 }
@@ -263,6 +265,7 @@ export class ErrorTrackingConsumer {
             hogTransformer: this.deps.hogTransformer,
             cymbalClient: this.cymbalClient,
             groupTypeManager: this.deps.groupTypeManager,
+            cookielessManager: this.deps.cookielessManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: this.config.overflowEnabled,
             preservePartitionLocality: this.config.preservePartitionLocality,
