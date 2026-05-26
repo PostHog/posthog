@@ -9,6 +9,8 @@ import {
     BatchExportsPartialUpdateBody,
     BatchExportsPartialUpdateParams,
     BatchExportsRetrieveParams,
+    FileDownloadBatchExportsCreateBody,
+    FileDownloadBatchExportsRetrieveParams,
 } from '@/generated/batch_exports/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -166,10 +168,46 @@ const batchExportsList = (): ToolBase<
     },
 })
 
+const FileDownloadBatchExportsCreateSchema = FileDownloadBatchExportsCreateBody
+
+const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExportsCreateSchema, unknown> => ({
+    name: 'file-download-batch-exports-create',
+    schema: FileDownloadBatchExportsCreateSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof FileDownloadBatchExportsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/file_download_batch_exports/`,
+        })
+        return result
+    },
+})
+
+const FileDownloadBatchExportsRetrieveSchema = FileDownloadBatchExportsRetrieveParams.omit({ project_id: true })
+
+const fileDownloadBatchExportsRetrieve = (): ToolBase<
+    typeof FileDownloadBatchExportsRetrieveSchema,
+    Schemas.RetrieveFileDownloadResponse
+> => ({
+    name: 'file-download-batch-exports-retrieve',
+    schema: FileDownloadBatchExportsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FileDownloadBatchExportsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RetrieveFileDownloadResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/file_download_batch_exports/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'batch-export-create': batchExportCreate,
     'batch-export-delete': batchExportDelete,
     'batch-export-get': batchExportGet,
     'batch-export-update': batchExportUpdate,
     'batch-exports-list': batchExportsList,
+    'file-download-batch-exports-create': fileDownloadBatchExportsCreate,
+    'file-download-batch-exports-retrieve': fileDownloadBatchExportsRetrieve,
 }
